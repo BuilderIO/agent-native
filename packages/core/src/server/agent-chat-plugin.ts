@@ -59,7 +59,7 @@ import {
   createProductionAgentHandler,
   actionsToEngineTools,
   getActiveRunForThreadAsync,
-  abortRun,
+  abortRunDurably,
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
@@ -158,6 +158,8 @@ import {
   resourceGet,
   resourceGetByPath,
   ensurePersonalDefaults,
+  organizationIdFromResourceOwner,
+  sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
@@ -638,7 +640,9 @@ function getResourceSummaryFromContent(content: string): string | null {
 
 function resourceScopeForOwner(owner: string, currentOwner?: string): string {
   if (owner === WORKSPACE_OWNER) return "workspace";
-  if (owner === SHARED_OWNER) return "shared";
+  if (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) {
+    return "shared";
+  }
   if (currentOwner && owner === currentOwner) return "personal";
   return "resource";
 }
@@ -694,31 +698,37 @@ async function loadInstructionResourcesForPrompt(
 
 async function loadResourceSkillsPromptBlock(
   owner: string,
+  orgId?: string | null,
 ): Promise<string | null> {
   try {
+    const organizationOwner = sharedResourceOwner(orgId);
     const resources =
       owner === SHARED_OWNER
         ? [
             ...(await resourceList(SHARED_OWNER, "skills/")),
             ...(await resourceList(WORKSPACE_OWNER, "skills/")),
           ]
-        : await resourceListAccessible(owner, "skills/");
+        : await resourceListAccessible(owner, "skills/", { orgId });
     const sorted = resources.sort((a, b) => {
       const ownerOrder =
         (a.owner === owner
           ? 0
-          : a.owner === SHARED_OWNER
+          : a.owner === organizationOwner
             ? 1
-            : a.owner === WORKSPACE_OWNER
+            : a.owner === SHARED_OWNER
               ? 2
-              : 3) -
+              : a.owner === WORKSPACE_OWNER
+                ? 3
+                : 4) -
         (b.owner === owner
           ? 0
-          : b.owner === SHARED_OWNER
+          : b.owner === organizationOwner
             ? 1
-            : b.owner === WORKSPACE_OWNER
+            : b.owner === SHARED_OWNER
               ? 2
-              : 3);
+              : b.owner === WORKSPACE_OWNER
+                ? 3
+                : 4);
       if (ownerOrder !== 0) return ownerOrder;
       return a.path.localeCompare(b.path);
     });
@@ -1765,7 +1775,7 @@ async function createResourceScriptEntries(): Promise<
             }
             const owner =
               scope === "shared"
-                ? store.SHARED_OWNER
+                ? store.sharedResourceOwner(getRequestOrgId())
                 : (getRequestRunContext()?.owner ??
                   getRequestUserEmail() ??
                   process.env.AGENT_USER_EMAIL);
@@ -2078,7 +2088,7 @@ function createBuilderBrowserTool(deps: {
   const extensionRequestGuidance =
     deps.extensionTools === false
       ? "Do NOT call this for requests to create or edit user-authored extensions/widgets/dashboards/calculators/mini-apps; extension tools are disabled for this app, and Builder is only for source-code changes to the host app. "
-      : "Do NOT call this for creating or editing extensions/widgets/dashboards/calculators/mini-apps; those are sandboxed extension data and must use create-extension/update-extension instead. ";
+      : "Do NOT call this for a self-contained extension/widget/dashboard/calculator/mini-app or an extension that fits an existing named slot; those use create-extension/update-extension instead. If the requested result requires changing the host UI or placing UI where no named slot exists, it IS a source-code change: call this through the normal flow even when the user describes it as an extension. Never stop at saying an extension cannot do it. ";
   const setBuiltinForCurrentUser = async (
     id: BuiltinMcpCapabilityId,
     enabled: boolean,
@@ -2898,6 +2908,35 @@ export interface AgentChatPluginOptions {
   toolLimits?: { timeoutMs?: number; maxResultChars?: number };
 }
 
+type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
+
+/**
+ * Run an A2A-delegated agent turn with the same final-response guard used by
+ * the app's interactive chat surface.
+ *
+ * Keeping this in one helper prevents delegated calls from silently bypassing
+ * template guarantees such as Analytics' requirement to query real data
+ * before presenting metrics or exhaustive provider conclusions.
+ */
+export function runA2AAgentLoop(
+  runOptions: Parameters<A2AAgentLoopRunner>[0],
+  pluginOptions: Pick<
+    AgentChatPluginOptions,
+    "finalResponseGuard" | "runSoftTimeoutMs"
+  >,
+  timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
+  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
+) {
+  return runner(
+    {
+      ...runOptions,
+      finalResponseGuard: pluginOptions.finalResponseGuard,
+    },
+    pluginOptions.runSoftTimeoutMs,
+    timeoutOptions,
+  );
+}
+
 /**
  * Verbose framework sections returned by the `get-framework-context` tool.
  * Keyed by topic so the agent can request specific sections.
@@ -3112,7 +3151,7 @@ function buildFrameworkPrompts(
     ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
     : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
   const extensionConnectBuilderGuard = extensionToolsEnabled
-    ? "If the request matches the Extensions section above, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead — do NOT route it to `connect-builder`."
+    ? "If the complete request can be satisfied by a self-contained extension or an existing named slot, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
     : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
   const extensionInstructionsFull = extensionToolsEnabled
     ? `### Generative UI and Extensions (Mini-Apps)
@@ -3141,7 +3180,7 @@ For existing extensions, use \`get-extension\` or \`update-extension\` directly 
 
 ### Extensions vs. Code Changes — Pick the Right Path
 
-Route by what the request changes, not how it is phrased. Extensions render in their own sandboxed iframe and CANNOT change the host app's nav, restyle existing components, or replace built-in views.
+Route by the exact outcome, not by whether the user calls it an extension. Extensions render in their own sandboxed iframe, either on their own page or inside an existing named slot. They CANNOT change the host app's nav, restyle or inject elements into existing native components, replace built-in views, or render at an arbitrary location that has no slot.
 
 <routing>
 | The request is for…                                              | Path                          |
@@ -3151,10 +3190,13 @@ Route by what the request changes, not how it is phrased. Extensions render in t
 | Loading a saved extension inside chat | \`show-extension-inline\` |
 | Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
 | The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
+| UI inside or beside a native component where no named slot exists | \`connect-builder\` — add the native UI or a suitable slot in source |
 | Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
 </routing>
 
-Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+If an extension could only approximate the request in a different location, do not silently downgrade the requirement and do not end with "extensions cannot do that." Briefly explain the boundary, then follow the normal source-code handoff so the app can still be customized fully.
+
+Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "show local time beside every native Calendar attendee row", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
@@ -3175,7 +3217,7 @@ For existing extensions, use \`get-extension\` or \`update-extension\` directly 
 
 ### Extensions vs. Code Changes — Pick the Right Path
 
-If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
+If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Extensions can render only on their own page or in an existing named slot; they cannot inject UI into arbitrary native components. If the exact request changes host chrome, native components, layout, styles, routes, business logic, or needs placement where no slot exists, treat it as a source-code change and use the normal \`connect-builder\` flow even if the user called it an extension. Never stop at "extensions cannot do that" or silently offer a different placement; explain the boundary briefly and continue the code-change handoff.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
@@ -3309,9 +3351,9 @@ export const _agentChatPromptSectionsForTests = (() => {
  *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
  *   3. `<workspace>` — SQL workspace AGENTS.md and instructions/*.md.
  *      Runtime global defaults managed from Dispatch and inherited by apps.
- *   4. `<shared>` — SQL shared AGENTS.md and instructions/*.md. App/team/org
- *      guidance that can override or narrow workspace defaults.
- *   5. `<shared>` — LEARNINGS.md from the SQL shared scope. Team-level notes.
+ *   4. `<app-default>` — legacy app-wide SQL defaults.
+ *   5. `<shared>` — organization AGENTS.md, instructions, and LEARNINGS.md.
+ *      These are isolated by active org and override app/workspace defaults.
  *   6. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
  *      current user's structured memory index.
  *
@@ -3323,6 +3365,7 @@ export async function loadResourcesForPrompt(
   owner: string,
   compact = false,
   selfAppId?: string,
+  orgId: string | null = getRequestOrgId() ?? null,
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
 
@@ -3402,23 +3445,46 @@ export async function loadResourcesForPrompt(
     )),
   );
 
-  // 4. Runtime shared/app/org resources from SQL. These come after workspace
-  // defaults so app/team-specific guidance can override or narrow them.
-  const sharedAgents = await loadAgentsResourceForPrompt(
+  const organizationOwner = sharedResourceOwner(orgId);
+
+  // 4. Legacy app-wide defaults. Existing deployments keep their seeded
+  // shared guidance as an inherited fallback; organization writes never
+  // mutate this owner.
+  const appDefaultAgents = await loadAgentsResourceForPrompt(
     SHARED_OWNER,
-    "shared",
+    organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
   );
-  if (sharedAgents) sections.push(sharedAgents);
+  if (appDefaultAgents) sections.push(appDefaultAgents);
   sections.push(
     ...(await loadInstructionResourcesForPrompt(
       SHARED_OWNER,
-      "shared-instruction",
+      organizationOwner === SHARED_OWNER
+        ? "shared-instruction"
+        : "app-default-instruction",
       promptResourceMaxChars,
     )),
   );
 
-  // 5. Personal SQL resources. These come last in the instruction stack so a
+  // 5. Active organization resources. These are the durable team rules and
+  // learnings that Slack/integration runs share with interactive app chat.
+  if (organizationOwner !== SHARED_OWNER) {
+    const organizationAgents = await loadAgentsResourceForPrompt(
+      organizationOwner,
+      "shared",
+      promptResourceMaxChars,
+    );
+    if (organizationAgents) sections.push(organizationAgents);
+    sections.push(
+      ...(await loadInstructionResourcesForPrompt(
+        organizationOwner,
+        "shared-instruction",
+        promptResourceMaxChars,
+      )),
+    );
+  }
+
+  // 6. Personal SQL resources. These come last in the instruction stack so a
   // user can narrow or override organization/app and workspace defaults.
   if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
     const personalAgents = await loadAgentsResourceForPrompt(
@@ -3436,27 +3502,43 @@ export async function loadResourcesForPrompt(
     );
   }
 
-  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner);
+  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);
   if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
 
+  let sharedLearnings: Awaited<ReturnType<typeof resourceGetByPath>> = null;
+  try {
+    sharedLearnings =
+      (organizationOwner !== SHARED_OWNER
+        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md")
+        : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
+  } catch {}
+
   if (compact) {
-    // In compact mode, skip learnings and memory in the prompt.
-    // The agent can access them via the resources tool when needed.
-    // Add a brief pointer so the agent knows they exist.
+    // Integration/Slack turns use compact context, but organization learnings
+    // are operational routing input, not optional background. Preload the
+    // bounded shared file so canonical destinations/fields are available on
+    // the first turn; keep personal memory on-demand to preserve the compact
+    // budget.
+    if (sharedLearnings?.content?.trim()) {
+      const block = promptResourceBlock({
+        name: "LEARNINGS.md",
+        scope: "shared",
+        path: "LEARNINGS.md",
+        content: sharedLearnings.content,
+        maxChars: COMPACT_PROMPT_RESOURCE_MAX_CHARS,
+      });
+      if (block) sections.push(block);
+    }
     sections.push(
-      `<context-note>Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool with \`action: "read"\`. Check them when making decisions that might benefit from prior context.</context-note>`,
+      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
     );
   } else {
     // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
-    // 2. Shared SQL scope
-    try {
-      const shared = await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md");
-      if (shared?.content?.trim()) {
-        sections.push(
-          `<resource name="LEARNINGS.md" scope="shared">\n${shared.content.trim()}\n</resource>`,
-        );
-      }
-    } catch {}
+    if (sharedLearnings?.content?.trim()) {
+      sections.push(
+        `<resource name="LEARNINGS.md" scope="shared">\n${sharedLearnings.content.trim()}\n</resource>`,
+      );
+    }
 
     // 3. Personal memory index (skip if owner is the shared sentinel)
     if (owner !== SHARED_OWNER) {
@@ -3477,11 +3559,18 @@ export async function loadResourcesForPrompt(
   );
   if (workspaceResourceIndex) sections.push(workspaceResourceIndex);
 
-  const sharedResourceIndex = await loadResourceIndexForPrompt(
+  const appDefaultResourceIndex = await loadResourceIndexForPrompt(
     SHARED_OWNER,
     "shared",
   );
-  if (sharedResourceIndex) sections.push(sharedResourceIndex);
+  if (appDefaultResourceIndex) sections.push(appDefaultResourceIndex);
+  if (organizationOwner !== SHARED_OWNER) {
+    const organizationResourceIndex = await loadResourceIndexForPrompt(
+      organizationOwner,
+      "shared",
+    );
+    if (organizationResourceIndex) sections.push(organizationResourceIndex);
+  }
 
   try {
     const agents = (await discoverAgents(selfAppId)).slice(0, 30);
@@ -4754,6 +4843,7 @@ export function createAgentChatPlugin(
         skills: buildPublicAgentA2ASkills(allScripts),
         publicSkillsOnly: true,
         streaming: true,
+        durableBackgroundRuns: options?.durableBackgroundRuns,
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
           // Priority: A2A-JWT verified email (set by the A2A handler in
@@ -5008,7 +5098,7 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runAgentLoopDirectWithSoftTimeout(
+          await runA2AAgentLoop(
             {
               engine: a2aEngine,
               model,
@@ -5058,7 +5148,10 @@ export function createAgentChatPlugin(
               },
               signal: controller.signal,
             },
-            options?.runSoftTimeoutMs,
+            {
+              finalResponseGuard: options?.finalResponseGuard,
+              runSoftTimeoutMs: options?.runSoftTimeoutMs,
+            },
             {
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
@@ -7453,7 +7546,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
-            abortRun(runId, reason); // Aborts in-memory + marks aborted in SQL
+            // Recovery starts as soon as this response resolves, so wait for
+            // the cross-isolate abort + terminal event to be durable. Returning
+            // early lets Retry collide with the still-running row.
+            await abortRunDurably(runId, reason);
             return { ok: true };
           }
 
@@ -7599,6 +7695,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // Server clock so the client computes "stuck" elapsed time
               // server-relative, immune to client clock skew.
               serverNow: Date.now(),
+              // True exactly when this run is a `chainServerDrivenContinuation`
+              // deferral still inside `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
+              // — silently recovering server-side via the unclaimed-background-run
+              // sweep(s), never a dead run. See `getActiveRunForThreadAsync`'s doc
+              // comment (run-manager.ts) and the THREE-SITE INVARIANT comments in
+              // agent-chat-plugin.ts / production-agent.ts / agent-chat-adapter.ts.
+              awaitingRedispatch: run.awaitingRedispatch === true,
+              // True exactly when this run holds an open tool call or A2A
+              // `agent_call` delegation (`in_flight_since` set — the same
+              // marker `reapIfStale` reads to grant its bounded stale-reap
+              // grace, see run-store.ts). This is the server-authoritative
+              // signal for "would aborting this run right now destroy live
+              // work" — RunStuckBanner's Retry gating should prefer this
+              // field over its client-side proxy (unresolved `tool-call`
+              // content parts in the local message list), which can go stale
+              // after a reconnect or reader-mode replay. NOTE: this response
+              // object is explicitly field-picked, not spread — a field added
+              // to `getActiveRunForThreadAsync`'s return type does NOT reach
+              // the wire on its own; it must be listed here too.
+              hasInFlightWork: run.hasInFlightWork === true,
             };
           }
 
@@ -8565,30 +8681,144 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // turn hangs silently. `chainServerDrivenContinuation` (production-agent.ts)
       // leaves exactly such a row behind — status='running', dispatch_mode=
       // 'background', `dispatch_payload` intact — when it exhausts its own
-      // dispatch retry budget, instead of erroring it immediately. This sweep
-      // gives that row a real chance to RECOVER: within
-      // `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` of its original
-      // `started_at` it redispatches the handoff (same `_process-run`
-      // processor, same persisted payload); past that bound it falls back to
-      // the existing loud reap (`background_worker_never_started`) so a
-      // genuinely dead handoff still fails loud, never silently. A
-      // redispatch is always safe to attempt — even a duplicate or
-      // late-arriving one — because the worker's `claimBackgroundRun` atomic
-      // CAS (status='running' AND dispatch_mode='background' -> 'background-
-      // processing') is the sole gate on actual execution; a row that was
-      // already claimed or already reaped by a concurrent path just loses the
-      // CAS and no-ops. Cheap: one indexed-ish query per 2-min window.
+      // dispatch retry budget, instead of erroring it immediately. Two timers
+      // cooperate to recover it, both reading `listUnclaimedBackgroundRunRows`
+      // fresh each tick and gated by `shouldRedispatchUnclaimedBackgroundRun`
+      // (so they always agree on which rows are still eligible):
+      //   - the FAST sweep (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, 20s)
+      //     below ONLY attempts redispatch — never reaps — so it puts the
+      //     first recovery attempt well inside the client's
+      //     `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` (see the derived budget on
+      //     `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` in run-store.ts).
+      //   - the SLOW sweep (2 minutes, immediately below the fast one) is the
+      //     one that falls back to the loud reap once
+      //     `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` is exceeded; it
+      //     also still attempts redispatch itself so a fast-sweep outage
+      //     (e.g. a restart between ticks) is not the only path to recovery.
+      // A redispatch is always safe to attempt — even a duplicate, concurrent,
+      // or late-arriving one, including the fast and slow sweeps racing each
+      // other on the SAME row — because the worker's `claimBackgroundRun`
+      // atomic CAS (status='running' AND dispatch_mode='background' ->
+      // 'background-processing') is the sole gate on actual execution; a row
+      // that was already claimed or already reaped by a concurrent path just
+      // loses the CAS and no-ops. Cheap: one indexed-ish query per tick.
       //
       // THREE-SITE INVARIANT (keep in lockstep): this sweep only ever sees the
       // deferred successor because the ~1s client poll in
       // `getActiveRunForThreadAsync` (run-manager.ts) skips its own
       // `reapUnclaimedBackgroundRun` while the row is within the redispatch
-      // bound (`shouldRedispatchUnclaimedBackgroundRun`). If a future change
-      // makes that client poll reap deferred successors at the 25s grace
-      // again, this sweep will almost never win the race for connected clients.
-      // Do not edit one site without the others (producer:
-      // chainServerDrivenContinuation in production-agent.ts; guard:
-      // run-manager.ts; recovery actor: here).
+      // bound (`shouldRedispatchUnclaimedBackgroundRun`). That same client
+      // poll also surfaces `awaitingRedispatch: true` on `/runs/active` for
+      // exactly this state, which `agent-chat-adapter.ts`'s follow loop uses
+      // to stop counting the quiet gap against its own idle timeout. If a
+      // future change makes the client poll reap deferred successors at the
+      // 25s grace again, or stops surfacing `awaitingRedispatch`, both sweeps
+      // here will almost never win the race for connected clients. Do not
+      // edit one site without the others (producer: chainServerDrivenContinuation
+      // in production-agent.ts; guard + wire signal: run-manager.ts; recovery
+      // actors: here).
+      const attemptUnclaimedBackgroundRunRedispatch = async (row: {
+        id: string;
+        startedAt: number;
+      }): Promise<void> => {
+        const { updateRunHeartbeat } = await import("../agent/run-store.js");
+        const { resolveAgentChatProcessRunDispatchPath } =
+          await import("../agent/durable-background.js");
+        const { fireInternalDispatch } = await import("./self-dispatch.js");
+        // Bump liveness BEFORE attempting the redispatch so the row doesn't
+        // look freshly-stale again the instant this tick returns —
+        // best-effort, the CAS is what actually matters for correctness, not
+        // this timing.
+        await updateRunHeartbeat(row.id).catch(() => {});
+        try {
+          // DELIBERATE: this marker omits `continuationCount`.
+          // `chainServerDrivenContinuation` (production-agent.ts) reads
+          // `backgroundRunMarker.continuationCount` to compute
+          // `backgroundContinuationCount`, defaulting to 0 when absent — so a
+          // chunk recovered here always starts a fresh nested-dispatch
+          // segment at depth 0, regardless of how deep the chain was before
+          // this sweep picked it up. This is what makes the sweep a genuine
+          // CHAIN BREAK, not just a retry: this redispatch fires from an
+          // unrelated, timer-driven invocation rather than from inside the
+          // prior chain's own live execution, so starting its nested-depth
+          // count over at 0 here is correct — see
+          // `MAX_NESTED_SELF_DISPATCH_DEPTH` in production-agent.ts for why
+          // nested depth is bounded and how this reset keeps a long turn
+          // progressing past Netlify's undocumented self-invocation
+          // loop-protection limit instead of dying at it. Do not "fix" this
+          // by adding `continuationCount` back without re-reading that
+          // constant's doc comment.
+          await fireInternalDispatch({
+            path: resolveAgentChatProcessRunDispatchPath(),
+            taskId: row.id,
+            body: {
+              internalContinuation: true,
+              [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                runId: row.id,
+                payloadRef: true,
+              },
+            },
+            awaitResponse: true,
+            responseTimeoutMs: 15_000,
+          });
+          console.error(
+            "[agent-chat] redispatched unclaimed background run (handoff recovery):",
+            row.id,
+          );
+        } catch (redispatchErr) {
+          console.error(
+            "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
+            row.id,
+            redispatchErr instanceof Error
+              ? redispatchErr.message
+              : redispatchErr,
+          );
+        }
+      };
+
+      // FAST sweep — redispatch-only, tight cadence. See the invariant
+      // comment above for why this exists and the timing budget in
+      // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
+      (() => {
+        setTimeout(() => {
+          (async () => {
+            const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
+              await import("../agent/run-store.js");
+            setInterval(() => {
+              (async () => {
+                const {
+                  listUnclaimedBackgroundRunRows,
+                  shouldRedispatchUnclaimedBackgroundRun,
+                } = await import("../agent/run-store.js");
+                let rows: { id: string; startedAt: number }[];
+                try {
+                  rows = await listUnclaimedBackgroundRunRows();
+                } catch {
+                  return; // Table may not exist yet on first boot
+                }
+                for (const row of rows) {
+                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
+                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
+                    () => {},
+                  );
+                }
+              })().catch(() => {
+                // best-effort — never break the server
+              });
+            }, UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS);
+          })().catch(() => {
+            // best-effort — if run-store fails to load, the slow sweep below
+            // still provides eventual (loud) recovery.
+          });
+        }, 10_000); // Start 10s after init — before the slow sweep's first tick.
+      })();
+
+      // SLOW sweep — redispatch AND the loud-failure reap fallback past the
+      // redispatch bound. Kept on its original 2-minute cadence: it is not
+      // the latency-critical path anymore (the fast sweep above is), it is
+      // the correctness backstop that guarantees a genuinely lost handoff
+      // still fails loud, and it survives the fast sweep having missed a row
+      // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
@@ -8603,13 +8833,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const {
                 listUnclaimedBackgroundRunRows,
                 reapUnclaimedBackgroundRun,
-                updateRunHeartbeat,
                 shouldRedispatchUnclaimedBackgroundRun,
               } = await import("../agent/run-store.js");
-              const { resolveAgentChatProcessRunDispatchPath } =
-                await import("../agent/durable-background.js");
-              const { fireInternalDispatch } =
-                await import("./self-dispatch.js");
               let rows: { id: string; startedAt: number }[];
               try {
                 rows = await listUnclaimedBackgroundRunRows();
@@ -8619,57 +8844,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               for (const row of rows) {
                 try {
                   if (shouldRedispatchUnclaimedBackgroundRun(row)) {
-                    // Bump liveness BEFORE attempting the redispatch so the
-                    // row doesn't look freshly-stale again the instant this
-                    // tick returns — best-effort, the CAS is what actually
-                    // matters for correctness, not this timing.
-                    await updateRunHeartbeat(row.id).catch(() => {});
-                    try {
-                      // DELIBERATE: this marker omits `continuationCount`.
-                      // `chainServerDrivenContinuation` (production-agent.ts)
-                      // reads `backgroundRunMarker.continuationCount` to
-                      // compute `backgroundContinuationCount`, defaulting to 0
-                      // when absent — so a chunk recovered here always starts
-                      // a fresh nested-dispatch segment at depth 0, regardless
-                      // of how deep the chain was before this sweep picked it
-                      // up. This is what makes the sweep a genuine CHAIN
-                      // BREAK, not just a retry: this redispatch fires from an
-                      // unrelated, timer-driven invocation rather than from
-                      // inside the prior chain's own live execution, so
-                      // starting its nested-depth count over at 0 here is
-                      // correct — see `MAX_NESTED_SELF_DISPATCH_DEPTH` in
-                      // production-agent.ts for why nested depth is bounded
-                      // and how this reset keeps a long turn progressing past
-                      // Netlify's undocumented self-invocation loop-protection
-                      // limit instead of dying at it. Do not "fix" this by
-                      // adding `continuationCount` back without re-reading
-                      // that constant's doc comment.
-                      await fireInternalDispatch({
-                        path: resolveAgentChatProcessRunDispatchPath(),
-                        taskId: row.id,
-                        body: {
-                          internalContinuation: true,
-                          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-                            runId: row.id,
-                            payloadRef: true,
-                          },
-                        },
-                        awaitResponse: true,
-                        responseTimeoutMs: 15_000,
-                      });
-                      console.error(
-                        "[agent-chat] redispatched unclaimed background run (handoff recovery):",
-                        row.id,
-                      );
-                    } catch (redispatchErr) {
-                      console.error(
-                        "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
-                        row.id,
-                        redispatchErr instanceof Error
-                          ? redispatchErr.message
-                          : redispatchErr,
-                      );
-                    }
+                    await attemptUnclaimedBackgroundRunRedispatch(row);
                     continue;
                   }
                   // Redispatch bound exceeded — this handoff is not

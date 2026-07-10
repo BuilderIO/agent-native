@@ -558,6 +558,32 @@ type LocalAppFolderSelectResult = {
   error?: string;
 };
 
+type DesktopAppCreationSettings = {
+  appsRoot: string;
+};
+
+type DesktopCreateAppRequest = {
+  prompt: string;
+  appsRoot?: string;
+};
+
+type DesktopCreateAppResult = {
+  ok: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  app?: import("@agent-native/shared-app-config").AppConfig;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
+
+type DesktopAppRuntimeStatus = {
+  appId: string;
+  state: "waiting" | "starting" | "running" | "stopped" | "error";
+  message?: string;
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -596,7 +622,12 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
-  setActiveWebview(target: { appId: string; webContentsId?: number }): void;
+  setActiveWebview(target: {
+    appId: string;
+    webContentsId?: number;
+    active?: boolean;
+    hostBounds?: { x: number; y: number; width: number; height: number };
+  }): void;
 
   clipboard: {
     writeText(text: string): Promise<boolean>;
@@ -700,8 +731,21 @@ interface ElectronAPI {
       id: string,
       updates: Partial<import("@agent-native/shared-app-config").AppConfig>,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    reorder(
+      id: string,
+      direction: "up" | "down",
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     reset(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     chooseLocalFolder(): Promise<LocalAppFolderSelectResult>;
+    getCreationSettings(): Promise<DesktopAppCreationSettings>;
+    updateCreationSettings(
+      settings: Partial<DesktopAppCreationSettings>,
+    ): Promise<DesktopAppCreationSettings>;
+    createFromPrompt(
+      request: DesktopCreateAppRequest,
+    ): Promise<DesktopCreateAppResult>;
+    showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
+    onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 }
 

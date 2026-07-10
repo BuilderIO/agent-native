@@ -238,27 +238,12 @@
   );
 }
 
-/* Design has a dense editor surface, so its side chrome needs more contrast
-   than the shared shell defaults and a real divider in addition to shadow. */
+/* Design keeps denser side-chrome contrast while sharing the borderless app
+   surface treatment used by the rest of the workspace. */
 .agent-layout-shell,
 .agent-sidebar-shell {
   --design-shell-chrome-bg: hsl(0 0% 93%);
-  --design-shell-divider: hsl(0 0% 79%);
   --agent-native-lower-surface: var(--design-shell-chrome-bg);
-  --agent-native-raised-border: var(--design-shell-divider);
-  --agent-native-raised-shadow-left: -1px 0 0 var(--design-shell-divider);
-  --agent-native-raised-shadow-right: 1px 0 0 var(--design-shell-divider);
-}
-
-.agent-layout-shell .agent-sidebar-main-surface::before {
-  box-shadow: none;
-}
-
-.agent-layout-shell .design-editor-main-surface {
-  border-start-start-radius: 0;
-  border-end-start-radius: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
 }
 
 .dark .agent-layout-shell,
@@ -266,25 +251,7 @@
 .dark.agent-layout-shell,
 .dark.agent-sidebar-shell {
   --design-shell-chrome-bg: hsl(0 0% 10%);
-  --design-shell-divider: hsl(0 0% 22%);
   --agent-native-lower-surface: var(--design-shell-chrome-bg);
-  --agent-native-raised-border: var(--design-shell-divider);
-}
-
-.agent-layout-shell .agent-layout-left-drawer,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :where(.border-e, .border-r):first-child {
-  border-inline-end-color: var(--design-shell-divider) !important;
-  border-right-color: var(--design-shell-divider) !important;
-}
-
-.agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
-  border-inline-end: 1px solid var(--design-shell-divider);
-}
-
-.agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
-  border-inline-start: 1px solid var(--design-shell-divider);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-layout="desktop"],

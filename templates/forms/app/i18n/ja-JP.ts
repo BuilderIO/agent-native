@@ -189,6 +189,9 @@ const messages = {
       successMessage: "成功メッセージ",
       defaultSuccessMessage: "ありがとうございます！回答が記録されました。",
       redirectUrl: "リダイレクト URL（任意）",
+      anonymousResponses: "匿名の回答",
+      anonymousResponsesDescription:
+        "IP アドレス、回答者の身元、送信元メタデータを保存しません。",
       saveSettings: "設定を保存",
     },
     integrations: {

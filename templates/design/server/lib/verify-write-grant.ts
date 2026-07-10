@@ -37,6 +37,20 @@ export interface WriteGrantResult {
 }
 
 /**
+ * Safe client-facing precondition error. The action HTTP surface only returns
+ * messages for explicit 4xx errors; without this status the Code workbench
+ * receives a generic 500 and cannot open the human consent dialog.
+ */
+export class WriteConsentRequiredError extends Error {
+  readonly statusCode = 428;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "WriteConsentRequiredError";
+  }
+}
+
+/**
  * Resolve the active write-consent grant for a given design + connection.
  * Throws if no valid grant exists or the target path escapes rootPath.
  */
@@ -62,7 +76,7 @@ export async function verifyWriteGrant(
     .limit(1);
 
   if (!grant) {
-    throw new Error(
+    throw new WriteConsentRequiredError(
       "No localhost write-consent grant found for this design + connection. " +
         "Call request-localhost-write-consent to prompt the user, then retry " +
         "this write after they click 'Allow writes'.",
@@ -71,7 +85,7 @@ export async function verifyWriteGrant(
 
   const now = new Date().toISOString();
   if (grant.grantedUntil < now) {
-    throw new Error(
+    throw new WriteConsentRequiredError(
       `Localhost write-consent grant expired at ${grant.grantedUntil}. ` +
         "Call request-localhost-write-consent to prompt the user for a new " +
         "grant, then retry this write.",

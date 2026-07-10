@@ -57,6 +57,45 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.content).not.toContain('style="');
   });
 
+  it("bounds breakpoint-only edits to the selected responsive range", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      "@media (min-width: 390px) and (max-width: 809px)",
+    );
+    expect(patch.content).toContain("data-agent-native-breakpoint-range");
+    expect(patch.content).not.toContain("@media (max-width: 809px)");
+  });
+
+  it("replaces an exact-range property when switching back to the normal cascade", () => {
+    const exact = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    const cascade = applyScopedVisualStyleEdit({
+      content: exact.content,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "144px",
+      upperBoundPx: 809,
+    });
+    expect(cascade.result.status).toBe("applied");
+    expect(cascade.content).not.toContain("data-agent-native-breakpoint-range");
+    expect(cascade.content).toContain("@media (max-width: 809px)");
+    expect(cascade.content).toContain("left: 144px");
+  });
+
   it("scoped failures do not silently fall back to base writes", () => {
     // "display" only accepts a known-value list, so a bogus raw value fails
     // the media path — the failure must surface instead of mutating base.
@@ -301,6 +340,33 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
 
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const canvasSource = readFileSync(
+    "app/components/design/MultiScreenCanvas.tsx",
+    "utf8",
+  );
+
+  it("mounts a full editable DesignCanvas in every responsive overview frame", () => {
+    expect(source).toContain(
+      "renderBreakpointContent={renderBreakpointContent}",
+    );
+    expect(source).toContain("previewFrameId={");
+    expect(source).toContain("breakpointWidthPx,");
+    expect(canvasSource).toContain(
+      "const editableContent = renderBreakpointContent?.(",
+    );
+    expect(canvasSource).toContain("editableContent ? (");
+  });
+
+  it("keeps the current responsive scope visible and offers a bounded-only option", () => {
+    expect(source).toContain('value="cascade-smaller"');
+    expect(source).toContain('value="only"');
+    expect(source).toContain("handleResponsiveEditScopeChange");
+  });
+
+  it("confirms that deleting a base screen includes all responsive variants", () => {
+    expect(source).toContain("designEditor.screenDeletion.descriptionOne");
+    expect(source).toContain("designEditor.screenDeletion.descriptionMany");
+  });
 
   it("routes every style-commit path through the scoped write helper", () => {
     // commitVisualStyles + commitStylesToSelectedLayers +

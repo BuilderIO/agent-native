@@ -119,6 +119,25 @@ fingerprint.
 
 If this is the user's first design system, it is automatically set as the default.
 
+### Starting from an established public system
+
+Use the curated production templates instead of recreating familiar systems
+from memory:
+
+```bash
+pnpm action create-design-system --templateId material-3
+pnpm action create-design-system --templateId carbon-white
+pnpm action create-design-system --templateId primer-light
+```
+
+Each template is a source-linked, versioned snapshot with real semantic tokens,
+type scales, spacing, shapes, CSS variables, state guidance, attribution, and
+brand-misrepresentation guardrails. The action may accept a custom `title`,
+`description`, or additional `customInstructions`, but it intentionally rejects
+`data` overrides when `templateId` is present so the named snapshot cannot
+silently become a lookalike. Use `get-design-system` after creation when the
+full stored snapshot is needed.
+
 ### Reading a Design System
 
 ```bash
@@ -298,11 +317,11 @@ copied frame **link** carry fundamentally different information:
 
 - **A copied frame link** (`?node-id=...`) names an exact node. Always exact —
   use `import-figma-frame`.
-- **A plain clipboard paste** only carries Figma's `figmeta` marker, which is
-  `{fileKey, pasteID, dataType}` — **no node id at all**, and `pasteID` is an
-  ephemeral, server-side identifier that the public REST API can't resolve
-  back to a node. So a clipboard paste can only ever get an exact node import
-  on a **best-effort match**, never a guarantee.
+- **A current Figma clipboard paste** carries `figmeta.selectedNodeData`; each
+  comma-separated entry begins with the exact REST node id. Design imports
+  those selected nodes directly, including multi-selection. This field is not
+  a public Figma contract, so older or future clipboard formats may still need
+  the conservative matching fallback below.
 
 The canvas paste listener (`app/lib/figma-clipboard.ts` +
 `import-figma-clipboard`) handles this automatically:
@@ -312,10 +331,10 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
    `import-figma-clipboard` (figmeta present) or the legacy
    `import-design-source` HTML path (no figmeta — not a Figma paste, or an
    older Figma client that doesn't emit the marker).
-2. `import-figma-clipboard` fetches the file's shallow structure (top-level
-   frames + their direct children, `server/lib/figma-node-import.ts`'s
-   `fetchFileStructure(fileKey, 3)`) and heuristically matches it against the
-   pasted content's visible text (`server/lib/figma-clipboard-match.ts`):
+2. When `selectedNodeData` is present, `import-figma-clipboard` fetches those
+   exact node ids immediately. Otherwise it fetches the file's shallow
+   structure and heuristically matches it against pasted visible text
+   (`server/lib/figma-clipboard-match.ts`):
    a frame is only imported when its **name** or at least **two distinct
    text-layer contents** appear verbatim in the paste. Anything ambiguous or
    unmatched imports **nothing structural** — it never guesses and never
@@ -330,9 +349,63 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
    both cases: connect the Figma access token, or paste a frame **link**
    instead for a guaranteed-exact import.
 
-Tell users who want guaranteed pixel-exact imports to copy a frame **link**
-("Copy link to selection" in Figma), not just Cmd+C — a plain paste is
-convenient but only best-effort.
+Tell users who need a path based only on Figma's public contract to copy a
+frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
+when `selectedNodeData` is present, with conservative fallback if it changes.
+
+### Reading a Figma file/frame without importing it
+
+**When the user just asks a question about a Figma file/frame** ("what's in
+this file?", "what's in this frame?", "show me a screenshot of this Figma
+frame", "what components/instances does it use?") — do not call
+`import-figma-frame` just to inspect it; that persists a new Design screen.
+Use `get-figma-design-context` instead, the chat equivalent of the official
+Figma MCP's `get_metadata` + `get_design_context` for this app:
+
+```bash
+# No nodeId: lists pages and top-level frames (like get_metadata with no node id)
+pnpm action get-figma-design-context --figmaUrl "https://www.figma.com/design/<fileKey>/<name>"
+# A specific frame/node: full structural summary + screenshot
+pnpm action get-figma-design-context --figmaUrl "https://www.figma.com/design/<fileKey>/<name>?node-id=<id>"
+```
+
+- **Overview mode** (no `nodeId`, none parsed from the URL) returns the file's
+  pages and each page's top-level frames (id, name, type, child count) so the
+  agent can pick a frame before drilling in — mirrors the official MCP's
+  `get_metadata` behavior when called with no node id.
+- **Node mode** (a `nodeId`, or a link with `?node-id=`) returns a
+  depth-limited, size-capped tree (`depth`/`maxNodes` args) describing box
+  geometry, fills/strokes/effects/corner-radii (including per-corner arrays),
+  auto-layout, text/style (font, case, decoration, line-height), and
+  component/instance identity (`isComponent`/`isInstance`/`componentId`) for
+  every visible descendant — plus a rendered screenshot URL by default
+  (`includeScreenshot: false` to skip it). It never writes anything; use
+  `import-figma-frame` afterward if the user wants the frame brought in as a
+  real, editable screen.
+- This also answers "what components does this file use?" for **local,
+  unpublished** components/instances that never show up in
+  `list-figma-library-assets` — that action's REST source
+  (`/files/:key/components`) only returns components **published to a team
+  library**, not every `COMPONENT`/`INSTANCE` node in the file. Use
+  `get-figma-design-context` for "what components exist in this file/frame",
+  and `list-figma-library-assets` + `insert-figma-library-asset` for "insert a
+  reusable library component". The screenshot URL `get-figma-design-context`
+  returns for a component/instance node can be passed straight to
+  `insert-figma-library-asset` as `renderUrl` even when the component isn't
+  published.
+- For Figma **variables** ("what tokens/variables does this file define?"),
+  give an honest answer instead of guessing: the REST Variables API is
+  Enterprise-plan-gated, so `get-figma-design-context`'s summary of a node's
+  own paints only shows resolved colors, not variable bindings, and
+  `get-figma-styles` only covers the file's published FILL/TEXT/EFFECT/GRID
+  **Styles** (a separate, non-Enterprise feature) — neither is the Variables
+  API. If the user has Enterprise access and a connected Figma MCP with
+  `get_variable_defs`, call that directly for real variable definitions and
+  pass the result to `index-design-system-with-builder`. Otherwise, tell the
+  user variables need Enterprise access or a connected Figma MCP, and offer
+  Styles (`get-figma-styles`) or a manual `import-design-tokens` /
+  `apply-design-token-edit` pass as the available fallback — do not claim to
+  have enumerated variables from a plain `FIGMA_ACCESS_TOKEN`.
 
 ### Source: Brand Analysis (combines website + notes)
 

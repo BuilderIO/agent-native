@@ -8,7 +8,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { useState, useCallback, useEffect } from "react";
 
-import { isMacPlatform } from "../lib/platform";
+import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type MacosPrivacyPane =
@@ -56,7 +56,6 @@ function readinessItems({
       detail: "Needed for screen or window capture.",
       pane: "screen",
       active: mode !== "camera",
-      macosOnly: true,
     },
     {
       label: "Microphone",
@@ -132,6 +131,7 @@ export function ReadinessPanel({
   onOpenPermission: (pane: MacosPrivacyPane) => void;
 }) {
   const mac = isMacPlatform();
+  const canOpenPrivacySettings = mac || isWindowsPlatform();
   const items = readinessItems({
     mode,
     cameraOn,
@@ -215,13 +215,19 @@ export function ReadinessPanel({
                         )}
                       </span>
                     ) : null}
-                    <button
-                      type="button"
-                      className="readiness-open-button"
-                      onClick={() => onOpenPermission(item.pane)}
-                    >
-                      Open
-                    </button>
+                    {canOpenPrivacySettings ? (
+                      <button
+                        type="button"
+                        className="readiness-open-button"
+                        onClick={() => onOpenPermission(item.pane)}
+                      >
+                        Open
+                      </button>
+                    ) : (
+                      <span className="readiness-item-detail">
+                        System prompt
+                      </span>
+                    )}
                   </div>
                 </div>
               );

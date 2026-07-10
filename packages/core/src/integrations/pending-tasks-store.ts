@@ -18,6 +18,7 @@ import {
 } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
+export const MAX_PENDING_TASK_ATTEMPTS = 3;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -126,6 +127,31 @@ export interface PendingTask {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+}
+
+/**
+ * Whether a provider thread currently has queued or executing work.
+ *
+ * Messaging adapters use this to accept unmentioned replies only while an
+ * agent task is active. This prevents broad message subscriptions from turning
+ * every channel message into an agent invocation.
+ */
+export async function hasActivePendingTask(
+  platform: string,
+  externalThreadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT 1 AS active
+      FROM integration_pending_tasks
+      WHERE platform = ?
+        AND external_thread_id = ?
+        AND status IN ('pending', 'processing')
+      LIMIT 1`,
+    args: [platform, externalThreadId],
+  });
+  return rows.length > 0;
 }
 
 function rowToTask(row: Record<string, unknown>): PendingTask {
@@ -239,10 +265,24 @@ export async function claimPendingTask(
       ? `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
          WHERE id = ? AND status = 'pending'
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks active
+             WHERE active.platform = integration_pending_tasks.platform
+               AND active.external_thread_id = integration_pending_tasks.external_thread_id
+               AND active.status = 'processing'
+               AND active.id <> integration_pending_tasks.id
+           )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
-         WHERE id = ? AND status = 'pending'`,
+         WHERE id = ? AND status = 'pending'
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks active
+             WHERE active.platform = integration_pending_tasks.platform
+               AND active.external_thread_id = integration_pending_tasks.external_thread_id
+               AND active.status = 'processing'
+               AND active.id <> integration_pending_tasks.id
+           )`,
     args: ["processing", now, id],
   });
   const rows = result.rows ?? [];
@@ -263,6 +303,21 @@ export async function claimPendingTask(
   return fetched;
 }
 
+/** Next queued turn for a provider thread after its current task completes. */
+export async function getNextPendingTaskIdForThread(
+  platform: string,
+  externalThreadId: string,
+): Promise<string | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM integration_pending_tasks
+      WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
+      ORDER BY created_at ASC LIMIT 1`,
+    args: [platform, externalThreadId],
+  });
+  return rows[0]?.id ? String(rows[0].id) : null;
+}
+
 /** Mark a task as completed. */
 export async function markTaskCompleted(id: string): Promise<void> {
   await ensureTable();
@@ -270,9 +325,32 @@ export async function markTaskCompleted(id: string): Promise<void> {
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, completed_at = ?
+          SET status = ?, updated_at = ?, completed_at = ?, payload = ?
           WHERE id = ?`,
-    args: ["completed", now, now, id],
+    // The payload can contain short-lived provider credentials such as a
+    // Discord interaction token. Once terminal, no retry needs the inbound
+    // body, so erase it instead of retaining secrets or user text indefinitely.
+    args: ["completed", now, now, "{}", id],
+  });
+}
+
+/**
+ * Return a transiently failed task to the retryable queue without erasing its
+ * payload. The payload may contain the only copy of the inbound message and is
+ * scrubbed only when the task reaches a permanent terminal state.
+ */
+export async function markTaskRetryable(
+  id: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, updated_at = ?, error_message = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: ["pending", now, errorMessage.slice(0, 2000), id],
   });
 }
 
@@ -286,8 +364,8 @@ export async function markTaskFailed(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?
           WHERE id = ?`,
-    args: ["failed", now, errorMessage.slice(0, 2000), id],
+    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });
 }

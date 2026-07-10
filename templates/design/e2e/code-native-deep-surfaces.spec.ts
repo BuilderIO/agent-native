@@ -608,6 +608,10 @@ test("export actions include multi-file content across HTML, SVG, ZIP, and PDF p
 
   const pdf = await getAction(request, "export-pdf", { id: designId });
   expect(pdf.exportInfo.format).toBe("pdf");
+  expect(pdf.exportInfo.note).toContain("single-page raster PDF");
+  expect(pdf.exportInfo.note).toContain(
+    "does not provide selectable/vector text",
+  );
   expect(pdf.files.map((file: { filename: string }) => file.filename)).toEqual(
     expect.arrayContaining(["index.html", "secondary.html", "theme.css"]),
   );

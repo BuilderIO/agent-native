@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
+import { appPath, designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
 const SOURCE_HTML = `<!doctype html>
 <html lang="en">
@@ -41,13 +41,98 @@ const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 
 test.describe("editor keyboard layer clipboard", () => {
   let designId: string;
+  let additionalDesignIds: string[] = [];
 
   test.afterEach(async ({ request, baseURL }) => {
-    if (!designId) return;
-    await postAction(request, baseURL, "delete-design", { id: designId }).catch(
-      () => {},
+    await Promise.all(
+      [designId, ...additionalDesignIds]
+        .filter(Boolean)
+        .map((id) =>
+          postAction(request, baseURL, "delete-design", { id }).catch(() => {}),
+        ),
     );
     designId = "";
+    additionalDesignIds = [];
+  });
+
+  test("round-trips a styled nested layer across independent designs, route remounts, and browser tabs as one undo step", async ({
+    page,
+    context,
+    request,
+    baseURL,
+  }) => {
+    designId = await createKeyboardDesign(
+      request,
+      baseURL,
+      "E2E Cross Design Clipboard Source",
+    );
+    const targetDesignId = await createKeyboardDesign(
+      request,
+      baseURL,
+      "E2E Cross Design Clipboard Target",
+    );
+    additionalDesignIds.push(targetDesignId);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(actionBaseUrl(baseURL)).origin,
+    });
+
+    await gotoEditor(page, designId);
+    await selectLayerRow(page, "Copy Card");
+    await pressPrimaryShortcut(page, "c");
+
+    // Recreate the reported flow: leave the source editor (the designs grid
+    // remounts the editor), enter another design, then paste there.
+    await page.goto(appPath("/"));
+    await gotoEditor(page, targetDesignId);
+    await selectScreenRow(page, "Target");
+    await pressPrimaryShortcut(page, "v");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, ">Nested CTA<")).toBe(1);
+        expect(html).toContain("border-radius: 16px");
+        expect(html).not.toContain('data-agent-native-node-id="source-card"');
+        expect(allNodeIdsAreUnique(html)).toBe(true);
+      },
+    );
+
+    // A second editor tab has no shared React refs. Copy in that tab and paste
+    // back in the target tab to prove the OS clipboard representation is the
+    // source of truth rather than same-page memory.
+    const sourceTab = await context.newPage();
+    await gotoEditor(sourceTab, designId);
+    await selectLayerRow(sourceTab, "Copy Card");
+    await pressPrimaryShortcut(sourceTab, "c");
+    await sourceTab.close();
+    await page.bringToFront();
+    await pressPrimaryShortcut(page, "v");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
+        expect(count(html, ">Nested CTA<")).toBe(2);
+        expect(allNodeIdsAreUnique(html)).toBe(true);
+      },
+    );
+
+    await pressPrimaryShortcut(page, "z");
+    await expectFileContent(
+      request,
+      baseURL,
+      targetDesignId,
+      "target.html",
+      (html) => {
+        expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(1);
+        expect(count(html, ">Nested CTA<")).toBe(1);
+      },
+    );
   });
 
   test("pastes a nested selected layer on the same screen and another screen with fresh ids after reload", async ({

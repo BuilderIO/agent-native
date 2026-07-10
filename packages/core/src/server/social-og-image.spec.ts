@@ -49,6 +49,18 @@ describe("social OG image", () => {
     expect(svg).not.toContain('font-weight="850"');
   });
 
+  it("renders evenly spaced horizontal and vertical grid lines", () => {
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain(
+      '<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">',
+    );
+    expect(svg).toContain('d="M 0 0.5 H 48 M 0.5 0 V 48"');
+    expect(svg).toContain(
+      'stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"',
+    );
+  });
+
   it("renders Arabic titles with a bundled RTL font", () => {
     const svg = renderAgentNativeOgImageSvg({
       title: "الخطوات الأولى",

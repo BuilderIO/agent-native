@@ -25,14 +25,15 @@ import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { PageHeader } from "./page-header";
 import { RecordingCard } from "./recording-card";
+import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view: "library" | "space" | "archive" | "trash" | "all";
+  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   /** What empty-state illustration to render. Defaults from `view`. */
-  emptyKind?: "library" | "folder" | "space" | "archive" | "trash";
+  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   tagFilter?: string | null;
   onClearTag?: () => void;
@@ -122,6 +123,7 @@ export function LibraryGrid({
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
   const moveRecording = useMoveRecording();
+  const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
   const { data: scopedFolders } = useFolders(
     {
@@ -240,11 +242,13 @@ export function LibraryGrid({
       ? "archive"
       : view === "trash"
         ? "trash"
-        : view === "space"
-          ? "space"
-          : folderId
-            ? "folder"
-            : "library");
+        : view === "shared"
+          ? "shared"
+          : view === "space"
+            ? "space"
+            : folderId
+              ? "folder"
+              : "library");
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -263,14 +267,18 @@ export function LibraryGrid({
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 shrink-0">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
               {title}
             </h1>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <SearchBar
+          side="bottom"
+          className="hidden min-w-52 max-w-xl flex-1 md:block"
+        />
+        <div className="ms-auto flex shrink-0 items-center gap-2">
           {extraActions}
           <SortMenu value={sort} onChange={setSort} />
         </div>
@@ -322,41 +330,60 @@ export function LibraryGrid({
                 <RecordingCard
                   key={r.id}
                   recording={r}
-                  selected={selected.has(r.id)}
-                  selectionMode={selectionMode}
-                  onToggleSelect={toggleSelect}
-                  onShare={(rec) => setSharingRec(rec)}
+                  selected={
+                    canManageRecordings ? selected.has(r.id) : undefined
+                  }
+                  selectionMode={canManageRecordings && selectionMode}
+                  onToggleSelect={
+                    canManageRecordings ? toggleSelect : undefined
+                  }
+                  onShare={
+                    canManageRecordings
+                      ? (rec) => setSharingRec(rec)
+                      : undefined
+                  }
                   moveTargets={moveTargets}
                   onMove={canMoveSelection ? moveSingle : undefined}
                   isMovePending={moveRecording.isPending}
-                  onTrash={(rec) => {
-                    trashRecording.mutate(
-                      { id: rec.id },
-                      {
-                        onSuccess: () =>
-                          toast.success(t("libraryGrid.movedToTrash")),
-                      },
-                    );
-                  }}
-                  onArchive={(rec) => {
-                    if (rec.archivedAt) {
-                      restoreRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () =>
-                            toast.success(t("libraryGrid.restoredFromArchive")),
-                        },
-                      );
-                    } else {
-                      archiveRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () =>
-                            toast.success(t("libraryGrid.archived")),
-                        },
-                      );
-                    }
-                  }}
+                  onTrash={
+                    canManageRecordings
+                      ? (rec) => {
+                          trashRecording.mutate(
+                            { id: rec.id },
+                            {
+                              onSuccess: () =>
+                                toast.success(t("libraryGrid.movedToTrash")),
+                            },
+                          );
+                        }
+                      : undefined
+                  }
+                  onArchive={
+                    canManageRecordings
+                      ? (rec) => {
+                          if (rec.archivedAt) {
+                            restoreRecording.mutate(
+                              { id: rec.id },
+                              {
+                                onSuccess: () =>
+                                  toast.success(
+                                    t("libraryGrid.restoredFromArchive"),
+                                  ),
+                              },
+                            );
+                          } else {
+                            archiveRecording.mutate(
+                              { id: rec.id },
+                              {
+                                onSuccess: () =>
+                                  toast.success(t("libraryGrid.archived")),
+                              },
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                  readOnly={!canManageRecordings}
                 />
               ))}
             </div>
@@ -364,7 +391,7 @@ export function LibraryGrid({
         </div>
 
         {/* Sticky bulk-action toolbar */}
-        {selected.size > 0 && (
+        {canManageRecordings && selected.size > 0 && (
           <div className="pointer-events-none sticky bottom-0 flex justify-center pb-4">
             <div className="pointer-events-auto">
               <BulkActionToolbar

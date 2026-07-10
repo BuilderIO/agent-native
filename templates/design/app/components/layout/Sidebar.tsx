@@ -8,6 +8,7 @@ import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconPencil,
+  IconTemplate,
   IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
     icon: IconPalette,
     labelKey: "navigation.designSystems",

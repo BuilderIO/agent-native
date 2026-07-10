@@ -68,6 +68,7 @@ function dashboard() {
 function createBrowser(
   options: {
     waitForFails?: boolean;
+    gotoError?: Error;
     captureBox?: { width: number; height: number };
   } = {},
 ) {
@@ -86,7 +87,9 @@ function createBrowser(
     setDefaultTimeout: vi.fn(),
     emulateMedia: vi.fn(async () => {}),
     addInitScript: vi.fn(async () => {}),
-    goto: vi.fn(async () => {}),
+    goto: vi.fn(async () => {
+      if (options.gotoError) throw options.gotoError;
+    }),
     locator: vi.fn(() => locator),
     waitForFunction: vi.fn(async () => {}),
     evaluate: vi.fn(async () => {}),
@@ -209,6 +212,29 @@ describe("dashboard report email", () => {
         html: expect.stringContaining("dashboard image was unavailable"),
         text: expect.stringContaining("Dashboard image unavailable"),
       }),
+    );
+  });
+
+  it("redacts embed tokens from screenshot errors", async () => {
+    const navigationError = new Error(
+      "page.goto failed at https://analytics.example.test/dashboards/example?__an_embed_token=example-signed-token&embedded=1",
+    );
+    const first = createBrowser({ gotoError: navigationError });
+    const second = createBrowser({ gotoError: navigationError });
+    mocks.launch
+      .mockResolvedValueOnce(first.browser)
+      .mockResolvedValueOnce(second.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result.screenshotError).toContain(
+      "__an_embed_token=[REDACTED]&embedded=1",
+    );
+    expect(result.screenshotError).not.toContain("example-signed-token");
+    expect(mocks.sendEmail).toHaveBeenCalledOnce();
+    expect(console.error).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("example-signed-token"),
     );
   });
 

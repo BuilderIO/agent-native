@@ -298,6 +298,21 @@ queue + retry job for at-least-once delivery.
 6. **Reply not delivered?** The processor likely succeeded but
    `adapter.sendResponse` failed — check the adapter's outbound logs.
 
+## Automation connectors
+
+Workflow systems such as n8n and Zapier are not messaging channels. Do not add
+them as `PlatformAdapter`s or route them through `provider-api`.
+
+For n8n-style workflow invocation and callbacks, use
+`@agent-native/core/automation` with static workflow IDs and allow-listed
+origins. Agents provide structured input, never a target URL or credential.
+Callbacks must verify a configured secret/signature, claim a durable event ID,
+enqueue work through the established queue, and acknowledge quickly.
+
+Zapier is blueprint-only unless the app implements Zapier's explicit REST Hook
+subscribe/unsubscribe contract or configures a separate Zapier MCP connection.
+Do not imply a generic Zapier workflow-execution API exists.
+
 ## Related Skills
 
 - `server-plugins` — How `/_agent-native/` routes get mounted

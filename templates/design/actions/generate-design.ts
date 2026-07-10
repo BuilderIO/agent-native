@@ -32,6 +32,7 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -417,6 +418,8 @@ const generateDesignAction = defineAction({
             updatedAt: null,
           };
           const live = await readLiveSourceFile(workspaceFile);
+
+          assertLockedLayersPreserved(live.content, file.content);
 
           await writeInlineSourceFile({
             designId: existing.designId,

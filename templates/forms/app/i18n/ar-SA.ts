@@ -192,6 +192,9 @@ const messages = {
       successMessage: "رسالة النجاح",
       defaultSuccessMessage: "شكرا لك! تم تسجيل ردك.",
       redirectUrl: "رابط إعادة التوجيه (اختياري)",
+      anonymousResponses: "ردود مجهولة الهوية",
+      anonymousResponsesDescription:
+        "عدم الاحتفاظ بعناوين IP أو هوية المجيب أو بيانات المصدر الوصفية.",
       saveSettings: "حفظ الإعدادات",
     },
     integrations: {

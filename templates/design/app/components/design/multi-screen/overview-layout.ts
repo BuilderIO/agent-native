@@ -26,6 +26,19 @@ export interface LineupRecenterDuplicateArm {
   addedCount: number;
 }
 
+/** An explicit bounds-fit command owns the next camera commit. The automatic
+ * screen-count lineup recenter must stand down until that nonce is handled or
+ * it can briefly paint the all-screens camera before the requested target fit. */
+export function shouldDeferLineupRecenterToCameraCommand(args: {
+  cameraCommandNonce?: number;
+  lastHandledCameraCommandNonce: number | null;
+}): boolean {
+  return (
+    args.cameraCommandNonce !== undefined &&
+    args.cameraCommandNonce !== args.lastHandledCameraCommandNonce
+  );
+}
+
 export function shouldSuppressLineupRecenter(args: {
   armed: LineupRecenterDuplicateArm | null;
   nowMs: number;

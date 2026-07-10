@@ -116,9 +116,9 @@ describe("DesignCanvas text editing bridge", () => {
   });
 
   it("treats Escape as an unfocus/commit gesture for inline text", () => {
-    expect(source).toContain('if (ev.key === "Escape")');
-    expect(source).toContain("finish(true)");
-    expect(source).not.toContain("finish(false)");
+    expect(source).toMatch(
+      /if \(ev\.key === "Escape"\) \{\s*ev\.preventDefault\(\);\s*finish\(true\);\s*target\.blur\(\);\s*return;\s*\}/,
+    );
   });
 
   it("lets forced document replacements bypass active inline text editing", () => {

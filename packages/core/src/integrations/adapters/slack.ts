@@ -3,18 +3,45 @@ import { createError, getHeader, readRawBody } from "h3";
 
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
+import { getRequestContext } from "../../server/request-context.js";
+import { getIntegrationRequestContext } from "../../server/request-context.js";
+import { createIntegrationControl } from "../controls-store.js";
+import {
+  getActiveIntegrationInstallationByKey,
+  getActiveIntegrationInstallationForTenant,
+  listIntegrationInstallations,
+  resolveIntegrationTokenBundle,
+} from "../installations-store.js";
+import { hasActivePendingTask } from "../pending-tasks-store.js";
+import { slackInstallationKey } from "../slack-oauth.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
   OutboundTarget,
+  PlatformRunProgress,
+  IntegrationContextMessage,
+  IntegrationFileReference,
 } from "../types.js";
 
 /** Slack's max message length */
 const SLACK_MAX_LENGTH = 4000;
 const SLACK_SECTION_TEXT_MAX_LENGTH = 3000;
 const SLACK_API_TIMEOUT_MS = 10_000;
+// Permalink lookup happens on Slack's acknowledgement path, so keep it well
+// inside Slack's three-second Events API deadline. Failure is non-fatal: the
+// normalized message still carries channel/thread ids for replies.
+const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
+const SLACK_CONTEXT_MESSAGE_LIMIT = 15;
+const SLACK_CONTEXT_TEXT_LIMIT = 2_000;
+
+export interface SlackAdapterOptions {
+  /** Resolve the bot token for the exact Slack installation. */
+  resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
+  /** Override active-thread detection for hosted adapters/tests. */
+  isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
+}
 
 /**
  * Create a Slack platform adapter.
@@ -36,19 +63,51 @@ const SLACK_API_TIMEOUT_MS = 10_000;
  *   (`api_app_id`) to additionally pin events to. Useful when the same
  *   signing secret rotation surfaces multiple app installs.
  */
-export function slackAdapter(): PlatformAdapter {
+export function slackAdapter(
+  options: SlackAdapterOptions = {},
+): PlatformAdapter {
+  const resolveBotToken = async (incoming: IncomingMessage) =>
+    (await options.resolveBotToken?.(incoming)) ??
+    (await resolveManagedSlackBotToken(incoming)) ??
+    (await resolveSecret("SLACK_BOT_TOKEN")) ??
+    undefined;
+
   return {
     platform: "slack",
     label: "Slack",
+    capabilities: {
+      replyText: true,
+      proactiveMessages: true,
+      nativeThreads: true,
+      contextualReplies: true,
+      deferredWebhookResponse: false,
+      interactionOnly: false,
+      nativeContextHydration: true,
+      liveRunProgress: true,
+    },
 
     getRequiredEnvKeys(): EnvKeyConfig[] {
       return [
         {
           key: "SLACK_BOT_TOKEN",
           label: "Slack Bot Token",
-          required: true,
+          required: false,
           helpText:
             "In your Slack app's left nav: OAuth & Permissions → Bot User OAuth Token (starts with `xoxb-`).",
+        },
+        {
+          key: "SLACK_CLIENT_ID",
+          label: "Slack OAuth Client ID",
+          required: false,
+          helpText:
+            "Slack app Basic Information → App Credentials → Client ID.",
+        },
+        {
+          key: "SLACK_CLIENT_SECRET",
+          label: "Slack OAuth Client Secret",
+          required: false,
+          helpText:
+            "Slack app Basic Information → App Credentials → Client Secret.",
         },
         {
           key: "SLACK_SIGNING_SECRET",
@@ -132,7 +191,7 @@ export function slackAdapter(): PlatformAdapter {
       // handler, so this is purely a tenant-isolation gate (not a forgery
       // defense). When unset in production we surface a one-time warning
       // recommending it be configured.
-      enforceWorkspaceAllowlist(payload);
+      await enforceWorkspaceAllowlist(payload);
 
       // Handle Events API wrapper
       if (payload.type === "event_callback") {
@@ -145,9 +204,27 @@ export function slackAdapter(): PlatformAdapter {
         if (e.subtype === "message_changed" || e.subtype === "message_deleted")
           return null;
 
-        // Handle both direct messages and app_mentions
+        // Handle DMs and explicit mentions. Ordinary channel replies are only
+        // accepted while this exact workspace-qualified thread has queued or
+        // executing work; broad message subscriptions must never invoke the
+        // agent for general channel chatter.
         const text = e.text?.trim();
         if (!text) return null;
+
+        const teamId =
+          typeof payload.team_id === "string" ? payload.team_id : "unknown";
+        const apiAppId =
+          typeof payload.api_app_id === "string"
+            ? payload.api_app_id
+            : "unknown";
+        const agentContext = normalizeSlackAgentContext(e.app_context, teamId);
+        const isDm =
+          typeof e.channel_type === "string"
+            ? e.channel_type === "im"
+            : typeof e.channel === "string" && e.channel.startsWith("D");
+        const isMention = e.type === "app_mention";
+        const isThreadReply = !isDm && !isMention && !!e.thread_ts;
+        if (!isDm && !isMention && !isThreadReply) return null;
 
         // Remove bot mention from text (e.g., "<@U123> do something" → "do something")
         const cleanText = text.replace(/<@[A-Z0-9]+>/g, "").trim();
@@ -155,26 +232,74 @@ export function slackAdapter(): PlatformAdapter {
 
         // Thread ID: use thread_ts if in a thread, otherwise message ts
         const threadTs = e.thread_ts || e.ts;
-        const externalThreadId = `${e.channel}:${threadTs}`;
-
-        return {
+        const externalThreadId = `${apiAppId}:${teamId}:${e.channel}:${threadTs}`;
+        const partialIncoming: IncomingMessage = {
           platform: "slack",
           externalThreadId,
           text: cleanText,
           senderName: e.user,
           senderId: e.user,
+          triggerKind: isDm ? "dm" : isMention ? "mention" : "thread_reply",
+          conversationType: isDm ? "dm" : "unknown",
+          tenantId: teamId,
+          actorTrust: { memberType: "unknown", verified: true },
           platformContext: {
             channelId: e.channel,
-            threadTs: threadTs,
+            channelType: e.channel_type,
+            threadTs,
             messageTs: e.ts,
-            teamId: payload.team_id,
+            teamId,
+            apiAppId,
+            enterpriseId:
+              typeof payload.enterprise_id === "string"
+                ? payload.enterprise_id
+                : undefined,
             eventId: payload.event_id,
+            ...(agentContext
+              ? {
+                  agentContext: agentContext.entities,
+                  activeContextChannelId: agentContext.channelId,
+                }
+              : {}),
           },
+          threadRef: threadTs,
+          replyRef: e.ts,
           timestamp: Math.floor(parseFloat(e.ts) * 1000),
+        };
+
+        if (isThreadReply) {
+          const active = options.isThreadActive
+            ? await options.isThreadActive(partialIncoming)
+            : await hasActivePendingTask("slack", externalThreadId);
+          if (!active) return null;
+        }
+
+        const token = await resolveBotToken(partialIncoming);
+        const threadPermalink = await resolveSlackThreadPermalink(
+          e.channel,
+          threadTs,
+          token,
+        );
+
+        return {
+          ...partialIncoming,
+          platformContext: {
+            ...partialIncoming.platformContext,
+            ...(threadPermalink ? { threadPermalink } : {}),
+          },
+          ...(threadPermalink ? { sourceUrl: threadPermalink } : {}),
         };
       }
 
       return null;
+    },
+
+    getLegacyExternalThreadIds(incoming: IncomingMessage): string[] {
+      const channelId = incoming.platformContext.channelId;
+      const threadTs = incoming.platformContext.threadTs;
+      return typeof channelId === "string" && typeof threadTs === "string"
+        ? [`${channelId}:${threadTs}`]
+        : [];
     },
 
     async postProcessingPlaceholder(
@@ -186,18 +311,35 @@ export function slackAdapter(): PlatformAdapter {
       // redundant and added an extra chunk that we then had to overwrite.
       // We just set the native status and return null so sendResponse posts
       // the final reply as a fresh message.
-      const token = await resolveSecret("SLACK_BOT_TOKEN");
+      const token = await resolveBotToken(incoming);
       if (!token) return null;
 
       const channelId = incoming.platformContext.channelId as string;
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      // Best-effort: flip the native AI-assistant "is thinking…" status bar
-      // in the channel input area. Requires `assistant:write` scope on the
-      // app — otherwise silently no-ops.
+      // Best-effort: flip the native Agent "is thinking…" status bar in the
+      // channel input area. Slack accepts chat:write for this method. The
+      // canonical manifest separately requests assistant:write for Agent View
+      // and app_context_changed events.
       setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
       return null;
+    },
+
+    async hydrateIncomingMessage(
+      incoming: IncomingMessage,
+    ): Promise<IncomingMessage> {
+      const token = await resolveBotToken(incoming);
+      if (!token) return incoming;
+      return hydrateSlackContext(token, incoming);
+    },
+
+    async startRunProgress(
+      incoming: IncomingMessage,
+    ): Promise<PlatformRunProgress | null> {
+      const token = await resolveBotToken(incoming);
+      if (!token) return null;
+      return startSlackRunProgress(token, incoming);
     },
 
     async sendResponse(
@@ -205,7 +347,7 @@ export function slackAdapter(): PlatformAdapter {
       context: IncomingMessage,
       opts?: { placeholderRef?: string },
     ): Promise<void> {
-      const token = await resolveSecret("SLACK_BOT_TOKEN");
+      const token = await resolveBotToken(context);
       if (!token) {
         console.error("[slack] SLACK_BOT_TOKEN not configured");
         return;
@@ -298,7 +440,19 @@ export function slackAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
-      const token = await resolveSecret("SLACK_BOT_TOKEN");
+      const targetContext: IncomingMessage = {
+        platform: "slack",
+        externalThreadId: `${target.tenantId ?? "unknown"}:${target.destination}:${target.threadRef ?? "root"}`,
+        text: "",
+        platformContext: {
+          channelId: target.destination,
+          threadTs: target.threadRef,
+          teamId: target.tenantId,
+        },
+        tenantId: target.tenantId,
+        timestamp: Date.now(),
+      };
+      const token = await resolveBotToken(targetContext);
       if (!token) {
         console.error("[slack] SLACK_BOT_TOKEN not configured");
         return;
@@ -351,7 +505,21 @@ export function slackAdapter(): PlatformAdapter {
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
       const hasToken = !!(await resolveSecret("SLACK_BOT_TOKEN"));
       const hasSecret = !!(await resolveSecret("SLACK_SIGNING_SECRET"));
-      const configured = hasToken && hasSecret;
+      const ctx = getRequestContext();
+      const managedInstallations = ctx?.userEmail
+        ? await listIntegrationInstallations(
+            {
+              userEmail: ctx.userEmail,
+              orgId: ctx.orgId ?? null,
+            },
+            "slack",
+          ).catch(() => [])
+        : [];
+      const connectedInstallations = managedInstallations.filter(
+        (installation) => installation.status === "connected",
+      );
+      const configured =
+        hasSecret && (hasToken || connectedInstallations.length > 0);
 
       return {
         platform: "slack",
@@ -361,9 +529,18 @@ export function slackAdapter(): PlatformAdapter {
         details: {
           hasToken,
           hasSecret,
+          managedInstallationCount: connectedInstallations.length,
+          managedInstallations: connectedInstallations.map((installation) => ({
+            id: installation.id,
+            teamId: installation.teamId,
+            teamName: installation.teamName,
+            enterpriseId: installation.enterpriseId,
+            health: installation.health,
+            scopes: installation.scopes,
+          })),
         },
         error: !configured
-          ? "Save SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in settings"
+          ? "Connect a Slack workspace with OAuth or save a bot token and signing secret"
           : undefined,
       };
     },
@@ -384,6 +561,50 @@ function parseAllowlistEnv(name: string): Set<string> | null {
     .filter((v) => v.length > 0);
   if (values.length === 0) return null;
   return new Set(values);
+}
+
+async function resolveManagedSlackBotToken(
+  incoming: IncomingMessage,
+): Promise<string | undefined> {
+  const teamId =
+    typeof incoming.platformContext.teamId === "string"
+      ? incoming.platformContext.teamId
+      : incoming.tenantId;
+  const apiAppId =
+    typeof incoming.platformContext.apiAppId === "string"
+      ? incoming.platformContext.apiAppId
+      : undefined;
+  const enterpriseId =
+    typeof incoming.platformContext.enterpriseId === "string"
+      ? incoming.platformContext.enterpriseId
+      : undefined;
+  if (!teamId && !enterpriseId) return undefined;
+  try {
+    let installation = apiAppId
+      ? await getActiveIntegrationInstallationByKey(
+          "slack",
+          slackInstallationKey({ teamId, enterpriseId, apiAppId }),
+        )
+      : null;
+    if (!installation && teamId) {
+      installation = await getActiveIntegrationInstallationForTenant(
+        "slack",
+        teamId,
+      );
+    }
+    if (!installation && enterpriseId) {
+      installation = await getActiveIntegrationInstallationForTenant(
+        "slack",
+        enterpriseId,
+      );
+    }
+    const key =
+      installation?.installationKey ??
+      slackInstallationKey({ teamId, enterpriseId, apiAppId });
+    return (await resolveIntegrationTokenBundle("slack", key))?.accessToken;
+  } catch {
+    return undefined;
+  }
 }
 
 let _missingAllowlistWarned = false;
@@ -414,7 +635,7 @@ let _missingAllowlistWarned = false;
  * received, which the integrations plugin surfaces to the caller as
  * "Unrecognized Slack workspace" without enqueuing the event.
  */
-function enforceWorkspaceAllowlist(payload: any): void {
+async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
   const teamId =
     typeof payload?.team_id === "string" ? payload.team_id : undefined;
   const apiAppId =
@@ -425,10 +646,17 @@ function enforceWorkspaceAllowlist(payload: any): void {
 
   if (!allowedTeamIds) {
     if (process.env.NODE_ENV === "production") {
-      throw createError({
-        statusCode: 401,
-        statusMessage: "Slack workspace allowlist is not configured",
-      });
+      let managed = false;
+      try {
+        const key = slackInstallationKey({ teamId, apiAppId });
+        managed = !!(await getActiveIntegrationInstallationByKey("slack", key));
+      } catch {}
+      if (!managed) {
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Slack workspace is not connected",
+        });
+      }
     }
     if (!_missingAllowlistWarned) {
       _missingAllowlistWarned = true;
@@ -569,10 +797,10 @@ function markdownToSlackMrkdwn(text: string): string {
 }
 
 /**
- * Optionally set Slack's native AI-assistant status indicator (the small
- * "is thinking…" line under the message composer) for an app configured
- * with the `assistant:write` scope. Pure best-effort — fails silently for
- * apps that aren't set up as AI assistants.
+ * Optionally set Slack's native Agent status indicator (the small "is
+ * thinking…" line under the message composer). The method uses chat:write;
+ * Agent View itself is configured separately by the Slack app manifest.
+ * Pure best-effort — failures never block the response.
  */
 function setSlackAssistantStatus(
   token: string,
@@ -671,11 +899,12 @@ async function postFresh(
 async function slackApiFetch(
   url: string,
   init: RequestInit,
+  timeoutMs = SLACK_API_TIMEOUT_MS,
 ): Promise<Response> {
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : undefined;
   const timer = controller
-    ? setTimeout(() => controller.abort(), SLACK_API_TIMEOUT_MS)
+    ? setTimeout(() => controller.abort(), timeoutMs)
     : undefined;
   try {
     return await fetch(url, {
@@ -685,4 +914,609 @@ async function slackApiFetch(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function resolveSlackThreadPermalink(
+  channelId: unknown,
+  threadTs: unknown,
+  resolvedToken?: string,
+): Promise<string | undefined> {
+  if (typeof channelId !== "string" || typeof threadTs !== "string") {
+    return undefined;
+  }
+  const token = resolvedToken ?? (await resolveSecret("SLACK_BOT_TOKEN"));
+  if (!token) return undefined;
+
+  try {
+    const url = new URL("https://slack.com/api/chat.getPermalink");
+    url.searchParams.set("channel", channelId);
+    url.searchParams.set("message_ts", threadTs);
+    const res = await slackApiFetch(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      SLACK_PERMALINK_TIMEOUT_MS,
+    );
+    const data = (await res.json()) as {
+      ok?: boolean;
+      permalink?: unknown;
+    };
+    if (!data.ok || typeof data.permalink !== "string") return undefined;
+
+    const permalink = new URL(data.permalink);
+    const isSlackHost =
+      permalink.hostname === "slack.com" ||
+      permalink.hostname.endsWith(".slack.com");
+    if (permalink.protocol !== "https:" || !isSlackHost) return undefined;
+    return permalink.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function boundedSlackText(value: unknown): string {
+  return typeof value === "string"
+    ? value.slice(0, SLACK_CONTEXT_TEXT_LIMIT)
+    : "";
+}
+
+function normalizeSlackAgentContext(
+  value: unknown,
+  eventTeamId: string,
+): {
+  entities: Array<{ type: string; value: string; teamId?: string }>;
+  channelId?: string;
+} | null {
+  if (!value || typeof value !== "object") return null;
+  const rawEntities = (value as { entities?: unknown }).entities;
+  if (!Array.isArray(rawEntities)) return null;
+  const entities = rawEntities.slice(0, 10).flatMap((entity) => {
+    if (!entity || typeof entity !== "object") return [];
+    const record = entity as Record<string, unknown>;
+    if (typeof record.type !== "string" || typeof record.value !== "string") {
+      return [];
+    }
+    const teamId =
+      typeof record.team_id === "string" ? record.team_id : undefined;
+    if (teamId && eventTeamId !== "unknown" && teamId !== eventTeamId) {
+      return [];
+    }
+    return [
+      {
+        type: record.type.slice(0, 100),
+        value: record.value.slice(0, 200),
+        ...(teamId ? { teamId } : {}),
+      },
+    ];
+  });
+  if (!entities.length) return null;
+  const channelId = entities.find(
+    (entity) =>
+      entity.type === "slack#/types/channel_id" &&
+      /^[CDG][A-Z0-9]+$/.test(entity.value),
+  )?.value;
+  return { entities, ...(channelId ? { channelId } : {}) };
+}
+
+function slackFileReference(value: unknown): IntegrationFileReference | null {
+  if (!value || typeof value !== "object") return null;
+  const file = value as Record<string, unknown>;
+  if (typeof file.id !== "string") return null;
+  return {
+    id: file.id,
+    ...(typeof file.name === "string" ? { name: file.name } : {}),
+    ...(typeof file.mimetype === "string" ? { mimetype: file.mimetype } : {}),
+    ...(typeof file.size === "number" ? { size: file.size } : {}),
+    ...(typeof file.permalink === "string"
+      ? { permalink: file.permalink }
+      : {}),
+    ...(typeof file.url_private_download === "string"
+      ? { downloadUrl: file.url_private_download }
+      : {}),
+  };
+}
+
+async function slackJson(
+  token: string,
+  method: string,
+  params: Record<string, string>,
+  timeoutMs = 2_000,
+): Promise<Record<string, any> | null> {
+  try {
+    const url = new URL(`https://slack.com/api/${method}`);
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+    const response = await slackApiFetch(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${token}` } },
+      timeoutMs,
+    );
+    const body = (await response.json()) as Record<string, any>;
+    return body.ok ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+async function hydrateSlackContext(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<IncomingMessage> {
+  const channelId = incoming.platformContext.channelId;
+  const threadTs = incoming.platformContext.threadTs;
+  const senderId = incoming.senderId;
+  if (typeof channelId !== "string" || typeof threadTs !== "string") {
+    return incoming;
+  }
+
+  const [thread, history, pins, conversation, user] = await Promise.all([
+    slackJson(token, "conversations.replies", {
+      channel: channelId,
+      ts: threadTs,
+      limit: String(SLACK_CONTEXT_MESSAGE_LIMIT),
+    }),
+    slackJson(token, "conversations.history", {
+      channel: channelId,
+      latest: String(incoming.platformContext.messageTs ?? threadTs),
+      inclusive: "true",
+      limit: String(SLACK_CONTEXT_MESSAGE_LIMIT),
+    }),
+    slackJson(token, "pins.list", { channel: channelId }),
+    slackJson(token, "conversations.info", { channel: channelId }),
+    senderId ? slackJson(token, "users.info", { user: senderId }) : null,
+  ]);
+
+  // Agent View can attach the Slack surface the user is currently viewing to
+  // a DM. Treat it only as a context hint: Slack requires us to prove the bot
+  // can access the referenced channel with conversations.info before reading
+  // any history from it.
+  const activeContextChannelId =
+    typeof incoming.platformContext.activeContextChannelId === "string"
+      ? incoming.platformContext.activeContextChannelId
+      : null;
+  const activeContextConversation =
+    activeContextChannelId && activeContextChannelId !== channelId
+      ? await slackJson(token, "conversations.info", {
+          channel: activeContextChannelId,
+        })
+      : null;
+  const activeContextHistory = activeContextConversation
+    ? await slackJson(token, "conversations.history", {
+        channel: activeContextChannelId!,
+        limit: "5",
+      })
+    : null;
+  const activeContextName =
+    typeof activeContextConversation?.channel?.name === "string"
+      ? activeContextConversation.channel.name
+      : null;
+  const activeContextMessages = Array.isArray(activeContextHistory?.messages)
+    ? activeContextHistory.messages.map((message: Record<string, any>) => ({
+        ...message,
+        text: `[Active Slack context${activeContextName ? ` #${activeContextName}` : ""}] ${boundedSlackText(message.text)}`,
+      }))
+    : [];
+
+  const rawMessages = [
+    ...(Array.isArray(history?.messages) ? history.messages : []),
+    ...(Array.isArray(pins?.items)
+      ? pins.items
+          .map((item: Record<string, any>) => item.message)
+          .filter(Boolean)
+      : []),
+    ...(Array.isArray(thread?.messages) ? thread.messages : []),
+    ...activeContextMessages,
+  ];
+  const uniqueMessages = [
+    ...new Map(
+      rawMessages.map((message: Record<string, any>, index) => [
+        typeof message.ts === "string" ? message.ts : `unknown:${index}`,
+        message,
+      ]),
+    ).values(),
+  ].slice(-SLACK_CONTEXT_MESSAGE_LIMIT);
+
+  const messages: IntegrationContextMessage[] = uniqueMessages.length
+    ? uniqueMessages.map((message: Record<string, any>) => {
+        const files = Array.isArray(message.files)
+          ? message.files
+              .map(slackFileReference)
+              .filter(
+                (
+                  file: IntegrationFileReference | null,
+                ): file is IntegrationFileReference => file !== null,
+              )
+          : undefined;
+        const reactions = Array.isArray(message.reactions)
+          ? message.reactions
+              .filter(
+                (reaction: any) =>
+                  typeof reaction?.name === "string" &&
+                  typeof reaction?.count === "number",
+              )
+              .map((reaction: any) => ({
+                name: reaction.name,
+                count: reaction.count,
+              }))
+          : undefined;
+        return {
+          ...(typeof message.user === "string"
+            ? { senderId: message.user }
+            : {}),
+          text: boundedSlackText(message.text),
+          timestamp:
+            typeof message.ts === "string"
+              ? Math.floor(parseFloat(message.ts) * 1000)
+              : incoming.timestamp,
+          ...(reactions?.length ? { reactions } : {}),
+          ...(files?.length ? { files } : {}),
+        };
+      })
+    : [];
+
+  const profile = user?.user?.profile;
+  const isGuest = user?.user?.is_restricted === true;
+  const isExternal = user?.user?.is_ultra_restricted === true;
+  const isPrivate = conversation?.channel?.is_private === true;
+  const isExternalShared = conversation?.channel?.is_ext_shared === true;
+  const isMpim = conversation?.channel?.is_mpim === true;
+  const isIm = conversation?.channel?.is_im === true;
+  const conversationType = isIm
+    ? "dm"
+    : isMpim
+      ? "group_dm"
+      : isPrivate
+        ? "private_channel"
+        : "channel";
+
+  const attachedFiles = messages.flatMap((message) => message.files ?? []);
+  const detailedFiles = await Promise.all(
+    [...new Set(attachedFiles.map((file) => file.id))]
+      .slice(0, 5)
+      .map(async (fileId) => {
+        const result = await slackJson(token, "files.info", { file: fileId });
+        return slackFileReference(result?.file);
+      }),
+  );
+  const fileById = new Map(
+    detailedFiles
+      .filter((file): file is IntegrationFileReference => file !== null)
+      .map((file) => [file.id, file]),
+  );
+  const hydratedMessages = messages.map((message) => ({
+    ...message,
+    ...(message.files?.length
+      ? {
+          files: message.files.map((file) => ({
+            ...file,
+            ...(fileById.get(file.id) ?? {}),
+          })),
+        }
+      : {}),
+  }));
+  const hydratedFiles = hydratedMessages.flatMap(
+    (message) => message.files ?? [],
+  );
+  return {
+    ...incoming,
+    ...(typeof profile?.display_name === "string" && profile.display_name
+      ? { senderName: profile.display_name }
+      : typeof profile?.real_name === "string" && profile.real_name
+        ? { senderName: profile.real_name }
+        : {}),
+    ...(typeof profile?.email === "string"
+      ? { senderEmail: profile.email, senderVerified: true }
+      : {}),
+    conversationType,
+    actorTrust: {
+      memberType: isExternal ? "external" : isGuest ? "guest" : "member",
+      verified: true,
+    },
+    contextMessages: hydratedMessages,
+    ...(hydratedFiles.length ? { files: hydratedFiles.slice(0, 20) } : {}),
+    platformContext: {
+      ...incoming.platformContext,
+      channelName:
+        typeof conversation?.channel?.name === "string"
+          ? conversation.channel.name
+          : undefined,
+      isExternalShared,
+      ...(activeContextChannelId
+        ? {
+            activeContextChannelId,
+            ...(activeContextName
+              ? { activeContextChannelName: activeContextName }
+              : {}),
+          }
+        : {}),
+    },
+  };
+}
+
+function shortTaskTitle(value: unknown): string {
+  const text = typeof value === "string" ? value : "Working";
+  return text.replace(/[-_]/g, " ").slice(0, 200);
+}
+
+async function postSlackJson(
+  token: string,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, any>> {
+  const response = await slackApiFetch(`https://slack.com/api/${method}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json()) as Record<string, any>;
+  if (!data.ok) throw new Error(data.error || `${method} failed`);
+  return data;
+}
+
+async function startSlackRunProgress(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<PlatformRunProgress | null> {
+  const channel = incoming.platformContext.channelId;
+  const threadTs = incoming.platformContext.threadTs;
+  if (typeof channel !== "string" || typeof threadTs !== "string") return null;
+
+  let started: Record<string, any>;
+  try {
+    started = await postSlackJson(token, "chat.startStream", {
+      channel,
+      thread_ts: threadTs,
+      ...(incoming.tenantId ? { recipient_team_id: incoming.tenantId } : {}),
+      ...(incoming.senderId ? { recipient_user_id: incoming.senderId } : {}),
+      task_display_mode: "plan",
+      markdown_text: "Working on your request…",
+      chunks: [
+        {
+          type: "plan_update",
+          title: "Working on your request",
+        },
+        {
+          type: "task_update",
+          id: "agent-native:context",
+          title: "Understand the request",
+          status: "in_progress",
+          details: "Loading relevant context",
+        },
+      ],
+    });
+  } catch {
+    return null;
+  }
+
+  const streamTs = started.ts;
+  if (typeof streamTs !== "string") return null;
+  const tasks = new Map<string, { title: string; status: string }>();
+  const toolTaskIds = new Map<string, string>();
+  tasks.set("agent-native:context", {
+    title: "Understand the request",
+    status: "in_progress",
+  });
+  let sequence = 0;
+  let lastWriteAt = 0;
+  let pending: Record<string, unknown> | null = null;
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let approvalControls: { approve: string; deny: string } | null = null;
+  let cancelControl: string | null = null;
+
+  const append = async (chunk: Record<string, unknown>) => {
+    const now = Date.now();
+    const write = async (value: Record<string, unknown>) => {
+      lastWriteAt = Date.now();
+      await postSlackJson(token, "chat.appendStream", {
+        channel,
+        ts: streamTs,
+        markdown_text: "Progress updated.",
+        chunks: [value],
+      }).catch(() => {});
+    };
+    if (now - lastWriteAt >= 900) {
+      await write(chunk);
+      return;
+    }
+    pending = chunk;
+    if (!pendingTimer) {
+      pendingTimer = setTimeout(
+        () => {
+          const value = pending;
+          pending = null;
+          pendingTimer = null;
+          if (value) void write(value);
+        },
+        900 - (now - lastWriteAt),
+      );
+    }
+  };
+
+  const taskId = (prefix: string, explicit?: string) =>
+    `${prefix}:${explicit || ++sequence}`.slice(0, 240);
+
+  return {
+    async onEvent(event) {
+      if (!cancelControl) {
+        const context = getIntegrationRequestContext();
+        const ownerEmail = getRequestContext()?.userEmail;
+        if (
+          context?.lineage?.runId &&
+          ownerEmail &&
+          incoming.senderId &&
+          incoming.tenantId
+        ) {
+          cancelControl = await createIntegrationControl({
+            action: "cancel",
+            ownerEmail,
+            orgId: getRequestContext()?.orgId ?? null,
+            requesterId: incoming.senderId,
+            teamId: incoming.tenantId,
+            apiAppId:
+              typeof incoming.platformContext.apiAppId === "string"
+                ? incoming.platformContext.apiAppId
+                : null,
+            channelId: channel,
+            messageTs: streamTs,
+            runId: context.lineage.runId,
+            incoming,
+          });
+          await append({
+            type: "blocks",
+            blocks: [
+              {
+                type: "actions",
+                block_id: `agent-native-running-${Date.now()}`,
+                elements: [
+                  {
+                    type: "button",
+                    text: { type: "plain_text", text: "Cancel" },
+                    style: "danger",
+                    action_id: "agent_native_cancel",
+                    value: cancelControl,
+                  },
+                ],
+              },
+            ],
+          });
+        }
+      }
+      if (event.type === "approval_required") {
+        const context = getIntegrationRequestContext();
+        const ownerEmail = getRequestContext()?.userEmail;
+        if (context && ownerEmail && incoming.senderId && incoming.tenantId) {
+          const common = {
+            ownerEmail,
+            orgId: getRequestContext()?.orgId ?? null,
+            requesterId: incoming.senderId,
+            teamId: incoming.tenantId,
+            apiAppId:
+              typeof incoming.platformContext.apiAppId === "string"
+                ? incoming.platformContext.apiAppId
+                : null,
+            channelId: channel,
+            messageTs: streamTs,
+            runId: context.lineage?.runId ?? null,
+            approvalKey: event.approvalKey,
+            incoming,
+          };
+          const [approve, deny] = await Promise.all([
+            createIntegrationControl({ ...common, action: "approve" }),
+            createIntegrationControl({ ...common, action: "deny" }),
+          ]);
+          approvalControls = { approve, deny };
+        }
+        await append({
+          type: "task_update",
+          id: "agent-native:approval",
+          title: `Approve ${shortTaskTitle(event.tool)}`,
+          status: "pending",
+          details: "Waiting for the requester",
+        });
+      } else if (event.type === "tool_start") {
+        const key = event.id || event.tool;
+        const id = taskId("tool", event.id);
+        toolTaskIds.set(key, id);
+        const title = shortTaskTitle(event.tool);
+        tasks.set(id, { title, status: "in_progress" });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status: "in_progress",
+        });
+      } else if (event.type === "tool_done") {
+        const key = event.id || event.tool;
+        const id = toolTaskIds.get(key) ?? taskId("tool", event.id);
+        const title = tasks.get(id)?.title ?? shortTaskTitle(event.tool);
+        tasks.set(id, {
+          title,
+          status: event.isError ? "error" : "complete",
+        });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status: event.isError ? "error" : "complete",
+        });
+      } else if (event.type === "agent_call") {
+        const id = taskId("agent", event.agent);
+        const status =
+          event.status === "start"
+            ? "in_progress"
+            : event.status === "done"
+              ? "complete"
+              : "error";
+        const title = `Ask ${shortTaskTitle(event.agent)}`;
+        tasks.set(id, { title, status });
+        await append({ type: "task_update", id, title, status });
+      } else if (event.type === "activity") {
+        await append({
+          type: "task_update",
+          id: "agent-native:context",
+          title: "Understand the request",
+          status: "in_progress",
+          details: shortTaskTitle(event.label),
+        });
+      }
+    },
+    async complete(message) {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      const finalChunks = [...tasks.entries()].map(([id, task]) => ({
+        type: "task_update",
+        id,
+        title: task.title,
+        status: task.status === "in_progress" ? "complete" : task.status,
+      }));
+      const messageBlocks = Array.isArray(message.platformContext.blocks)
+        ? message.platformContext.blocks
+        : [];
+      const controlBlocks = approvalControls
+        ? [
+            {
+              type: "actions",
+              block_id: `agent-native-approval-${Date.now()}`,
+              elements: [
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Approve" },
+                  style: "primary",
+                  action_id: "agent_native_approve",
+                  value: approvalControls.approve,
+                },
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Deny" },
+                  style: "danger",
+                  action_id: "agent_native_deny",
+                  value: approvalControls.deny,
+                },
+              ],
+            },
+          ]
+        : [];
+      await postSlackJson(token, "chat.stopStream", {
+        channel,
+        ts: streamTs,
+        markdown_text: message.text || "Done.",
+        ...(finalChunks.length ? { chunks: finalChunks } : {}),
+        ...(messageBlocks.length || controlBlocks.length
+          ? { blocks: [...messageBlocks, ...controlBlocks].slice(0, 50) }
+          : {}),
+      });
+      setSlackAssistantStatus(token, channel, threadTs, "");
+    },
+    async fail(message) {
+      if (pendingTimer) clearTimeout(pendingTimer);
+      await postSlackJson(token, "chat.stopStream", {
+        channel,
+        ts: streamTs,
+        markdown_text: message.slice(0, SLACK_MAX_LENGTH),
+      }).catch(() => {});
+      setSlackAssistantStatus(token, channel, threadTs, "");
+    },
+  };
 }

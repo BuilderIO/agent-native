@@ -1318,11 +1318,18 @@ export default function AppSettings({
 
 export function AddAppDialog({
   onSave,
+  onCreated,
   onCancel,
 }: {
   onSave: (app: AppConfig) => void | Promise<void>;
+  onCreated: (result: DesktopCreateAppResult) => void;
   onCancel: () => void;
 }) {
+  const [prompt, setPrompt] = useState("");
+  const [appsRoot, setAppsRoot] = useState("");
+  const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [mode, setMode] = useState<"prod" | "dev">("dev");
   const [name, setName] = useState("");
   const [prodUrl, setProdUrl] = useState("");
@@ -1338,6 +1345,59 @@ export function AddAppDialog({
   const trimmedDevUrl = devUrl.trim();
   const requiredUrl = mode === "prod" ? trimmedProdUrl : trimmedDevUrl;
   const canSave = Boolean(trimmedName && requiredUrl);
+
+  useEffect(() => {
+    window.electronAPI?.appConfig
+      ?.getCreationSettings()
+      .then((settings) => setAppsRoot(settings.appsRoot))
+      .catch(() => {});
+  }, []);
+
+  async function saveAppsRoot(nextRoot: string) {
+    const trimmed = nextRoot.trim();
+    if (!trimmed) return;
+    const settings =
+      await window.electronAPI?.appConfig?.updateCreationSettings({
+        appsRoot: trimmed,
+      });
+    if (settings?.appsRoot) setAppsRoot(settings.appsRoot);
+  }
+
+  async function chooseAppsRoot() {
+    setBuildError("");
+    try {
+      const result = await window.electronAPI?.appConfig?.chooseLocalFolder();
+      if (!result?.ok || !result.folder) return;
+      setAppsRoot(result.folder.path);
+      await saveAppsRoot(result.folder.path);
+    } catch (err) {
+      setBuildError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleBuild() {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt || building) return;
+    setBuilding(true);
+    setBuildError("");
+    try {
+      const result = await window.electronAPI?.appConfig?.createFromPrompt({
+        prompt: trimmedPrompt,
+        appsRoot: appsRoot.trim() || undefined,
+      });
+      if (!result) {
+        setBuildError("App creation is only available in Desktop.");
+      } else if (!result.ok || !result.app) {
+        setBuildError(result.error || result.message);
+      } else {
+        onCreated(result);
+      }
+    } catch (err) {
+      setBuildError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBuilding(false);
+    }
+  }
 
   async function chooseLocalFolder() {
     setChoosingFolder(true);
@@ -1402,168 +1462,260 @@ export function AddAppDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="settings-form-header">
-          <h3>Add App</h3>
+          <h3>New App</h3>
           <p className="settings-form-subtitle">
-            Add a localhost dev server or a deployed app.
+            Describe what you want. The coding agent will build it and add it to
+            your sidebar.
           </p>
         </div>
 
-        <div className="settings-choice-grid" aria-label="App target">
+        <textarea
+          className="settings-create-prompt"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              (event.metaKey || event.ctrlKey) &&
+              !building
+            ) {
+              event.preventDefault();
+              void handleBuild();
+            }
+          }}
+          placeholder="Build me a lightweight CRM for tracking investor conversations, with follow-ups and a clean pipeline view…"
+          rows={5}
+          autoFocus
+        />
+
+        <div className="settings-create-location">
+          <IconFolder size={13} strokeWidth={1.8} />
+          <span>Creates in</span>
+          <input
+            value={appsRoot}
+            onChange={(event) => setAppsRoot(event.target.value)}
+            onBlur={() => void saveAppsRoot(appsRoot)}
+            aria-label="Folder for new apps"
+            spellCheck={false}
+          />
           <button
             type="button"
-            className={`settings-choice-btn${mode === "prod" ? " settings-choice-btn--active" : ""}`}
-            onClick={() => setMode("prod")}
-            aria-pressed={mode === "prod"}
+            className="settings-create-location-button"
+            onClick={() => void chooseAppsRoot()}
+            title="Choose folder"
+            aria-label="Choose folder for new apps"
           >
-            <IconWorld size={17} />
-            <span>
-              <strong>Production</strong>
-              <small>Hosted URL</small>
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`settings-choice-btn${mode === "dev" ? " settings-choice-btn--active" : ""}`}
-            onClick={() => setMode("dev")}
-            aria-pressed={mode === "dev"}
-            title="Use this for a cloned local app folder; Desktop opens the inferred localhost URL."
-          >
-            <IconTerminal2 size={17} />
-            <span>
-              <strong>Local dev</strong>
-              <small>Choose folder</small>
-            </span>
+            <IconFolderPlus size={14} strokeWidth={1.8} />
           </button>
         </div>
 
-        {mode === "prod" ? (
-          <>
-            <label>
-              Name *
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Dispatch"
-                required
-              />
-            </label>
-
-            <label>
-              Production URL *
-              <input
-                type="url"
-                value={prodUrl}
-                onChange={(e) => setProdUrl(e.target.value)}
-                placeholder="https://dispatch.agent-native.com"
-                required
-              />
-            </label>
-          </>
-        ) : (
-          <>
-            <div className="settings-folder-picker">
-              <div className="settings-folder-picker__label">
-                <span>Local Folder</span>
-                {localPath && <small>Selected</small>}
-              </div>
-              <button
-                type="button"
-                className={`settings-folder-btn${localPath ? " settings-folder-btn--selected" : ""}`}
-                onClick={chooseLocalFolder}
-                disabled={choosingFolder}
-              >
-                {localPath ? (
-                  <IconFolder size={16} strokeWidth={1.8} />
-                ) : (
-                  <IconFolderPlus size={16} strokeWidth={1.8} />
-                )}
-                <span>
-                  <strong>
-                    {localPath
-                      ? localPath.split(/[\\/]/).filter(Boolean).at(-1)
-                      : "Choose app folder"}
-                  </strong>
-                  <small>
-                    {localPath || "Select the folder you cloned or created."}
-                  </small>
-                </span>
-                {choosingFolder && (
-                  <IconLoader2
-                    size={14}
-                    strokeWidth={1.8}
-                    className="settings-spinner"
-                  />
-                )}
-              </button>
-              {folderError && (
-                <p className="settings-folder-message settings-folder-message--error">
-                  <IconAlertCircle size={13} strokeWidth={1.8} />
-                  {folderError}
-                </p>
-              )}
-              {folderWarning && (
-                <p className="settings-folder-message">
-                  <IconAlertCircle size={13} strokeWidth={1.8} />
-                  {folderWarning}
-                </p>
-              )}
-            </div>
-
-            <label>
-              Name *
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="My local app"
-                required
-              />
-            </label>
-
-            <label>
-              Dev URL *
-              <input
-                type="url"
-                value={devUrl}
-                onChange={(e) => setDevUrl(e.target.value)}
-                placeholder="http://localhost:3000"
-                required
-              />
-              <span className="settings-field-hint">
-                Auto-filled from the folder when possible. You can still edit it
-                manually.
-              </span>
-            </label>
-
-            <label>
-              Dev Command
-              <input
-                type="text"
-                value={devCommand}
-                onChange={(e) => setDevCommand(e.target.value)}
-                placeholder="pnpm dev"
-              />
-            </label>
-          </>
+        {buildError && (
+          <p className="settings-folder-message settings-folder-message--error">
+            <IconAlertCircle size={13} strokeWidth={1.8} />
+            {buildError}
+          </p>
         )}
 
-        <div className="settings-form-actions">
+        <div className="settings-form-actions settings-create-actions">
           <button
             type="button"
             className="settings-btn settings-btn--ghost"
             onClick={onCancel}
+            disabled={building}
           >
             Cancel
           </button>
           <button
-            type="submit"
+            type="button"
             className="settings-btn settings-btn--primary"
-            disabled={!canSave}
+            onClick={() => void handleBuild()}
+            disabled={!prompt.trim() || building}
           >
-            <IconCheck size={14} /> {mode === "dev" ? "Open App" : "Add App"}
+            {building ? (
+              <IconLoader2 size={14} className="settings-spinner" />
+            ) : (
+              <IconPlus size={14} />
+            )}
+            {building ? "Starting agent…" : "Build App"}
           </button>
         </div>
+
+        <button
+          type="button"
+          className="settings-advanced-trigger"
+          onClick={() => setAdvancedOpen((current) => !current)}
+          aria-expanded={advancedOpen}
+        >
+          {advancedOpen ? (
+            <IconChevronDown size={14} />
+          ) : (
+            <IconChevronRight size={14} />
+          )}
+          Add an existing app
+        </button>
+
+        {advancedOpen && (
+          <>
+            <div className="settings-choice-grid" aria-label="App target">
+              <button
+                type="button"
+                className={`settings-choice-btn${mode === "prod" ? " settings-choice-btn--active" : ""}`}
+                onClick={() => setMode("prod")}
+                aria-pressed={mode === "prod"}
+              >
+                <IconWorld size={17} />
+                <span>
+                  <strong>Production</strong>
+                  <small>Hosted URL</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={`settings-choice-btn${mode === "dev" ? " settings-choice-btn--active" : ""}`}
+                onClick={() => setMode("dev")}
+                aria-pressed={mode === "dev"}
+                title="Use this for a cloned local app folder; Desktop opens the inferred localhost URL."
+              >
+                <IconTerminal2 size={17} />
+                <span>
+                  <strong>Local dev</strong>
+                  <small>Choose folder</small>
+                </span>
+              </button>
+            </div>
+
+            {mode === "prod" ? (
+              <>
+                <label>
+                  Name *
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Dispatch"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Production URL *
+                  <input
+                    type="url"
+                    value={prodUrl}
+                    onChange={(e) => setProdUrl(e.target.value)}
+                    placeholder="https://dispatch.agent-native.com"
+                    required
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <div className="settings-folder-picker">
+                  <div className="settings-folder-picker__label">
+                    <span>Local Folder</span>
+                    {localPath && <small>Selected</small>}
+                  </div>
+                  <button
+                    type="button"
+                    className={`settings-folder-btn${localPath ? " settings-folder-btn--selected" : ""}`}
+                    onClick={chooseLocalFolder}
+                    disabled={choosingFolder}
+                  >
+                    {localPath ? (
+                      <IconFolder size={16} strokeWidth={1.8} />
+                    ) : (
+                      <IconFolderPlus size={16} strokeWidth={1.8} />
+                    )}
+                    <span>
+                      <strong>
+                        {localPath
+                          ? localPath.split(/[\\/]/).filter(Boolean).at(-1)
+                          : "Choose app folder"}
+                      </strong>
+                      <small>
+                        {localPath ||
+                          "Select the folder you cloned or created."}
+                      </small>
+                    </span>
+                    {choosingFolder && (
+                      <IconLoader2
+                        size={14}
+                        strokeWidth={1.8}
+                        className="settings-spinner"
+                      />
+                    )}
+                  </button>
+                  {folderError && (
+                    <p className="settings-folder-message settings-folder-message--error">
+                      <IconAlertCircle size={13} strokeWidth={1.8} />
+                      {folderError}
+                    </p>
+                  )}
+                  {folderWarning && (
+                    <p className="settings-folder-message">
+                      <IconAlertCircle size={13} strokeWidth={1.8} />
+                      {folderWarning}
+                    </p>
+                  )}
+                </div>
+
+                <label>
+                  Name *
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="My local app"
+                    required
+                  />
+                </label>
+
+                <label>
+                  Dev URL *
+                  <input
+                    type="url"
+                    value={devUrl}
+                    onChange={(e) => setDevUrl(e.target.value)}
+                    placeholder="http://localhost:3000"
+                    required
+                  />
+                  <span className="settings-field-hint">
+                    Auto-filled from the folder when possible. You can still
+                    edit it manually.
+                  </span>
+                </label>
+
+                <label>
+                  Dev Command
+                  <input
+                    type="text"
+                    value={devCommand}
+                    onChange={(e) => setDevCommand(e.target.value)}
+                    placeholder="pnpm dev"
+                  />
+                </label>
+              </>
+            )}
+
+            <div className="settings-form-actions">
+              <button
+                type="button"
+                className="settings-btn settings-btn--ghost"
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="settings-btn settings-btn--primary"
+                disabled={!canSave}
+              >
+                <IconCheck size={14} />{" "}
+                {mode === "dev" ? "Open App" : "Add App"}
+              </button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   );
@@ -1571,7 +1723,7 @@ export function AddAppDialog({
 
 // ─── Inline edit form ─────────────────────────────────────────────
 
-function AppEditForm({
+export function AppEditForm({
   app,
   onSave,
   onCancel,

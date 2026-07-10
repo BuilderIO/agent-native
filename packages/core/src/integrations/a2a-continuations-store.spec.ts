@@ -242,6 +242,7 @@ describe("A2A continuations store", () => {
         externalThreadId: "C123:123.456",
         text: "make a deck",
         platformContext: {},
+        responseContext: { interactionToken: "active-token-example" },
         timestamp: 1,
       },
       ownerEmail: "alice+qa@agent-native.test",
@@ -253,13 +254,50 @@ describe("A2A continuations store", () => {
     expect(continuation.integrationTaskId).toBe("task-existing");
     expect(continuation.agentName).toBe("Analytics");
     expect(continuation.a2aTaskId).toBe("a2a-task-new");
-    expect(
-      executeMock.mock.calls.some(([query]) =>
-        querySql(query)
-          .trim()
-          .startsWith("INSERT INTO integration_a2a_continuations"),
-      ),
-    ).toBe(true);
+    const insertCall = executeMock.mock.calls.find(([query]) =>
+      querySql(query)
+        .trim()
+        .startsWith("INSERT INTO integration_a2a_continuations"),
+    );
+    expect(insertCall).toBeDefined();
+    expect(JSON.parse(String(queryArgs(insertCall![0])[4]))).toMatchObject({
+      responseContext: { interactionToken: "active-token-example" },
+    });
+  });
+
+  it("scrubs short-lived delivery context from terminal continuation rows", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { completeA2AContinuation, failA2AContinuation } = await loadStore();
+
+    await completeA2AContinuation("cont-completed");
+    await failA2AContinuation("cont-failed", "remote task failed");
+
+    const terminalUpdates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_a2a_continuations"),
+      );
+    expect(terminalUpdates).toHaveLength(2);
+    for (const update of terminalUpdates) {
+      expect(update.sql).toContain("incoming_payload = ?");
+      expect(update.sql).toContain("a2a_auth_token = NULL");
+    }
+    expect(terminalUpdates[0].args).toEqual([
+      "completed",
+      expect.any(Number),
+      expect.any(Number),
+      "{}",
+      "cont-completed",
+    ]);
+    expect(terminalUpdates[1].args).toEqual([
+      "failed",
+      expect.any(Number),
+      "remote task failed",
+      "{}",
+      "cont-failed",
+    ]);
   });
 
   it("atomically marks a processing continuation as delivering before platform send", async () => {

@@ -35,8 +35,22 @@
  *     file's spec docblock for the rationale).
  */
 
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
+
 import { parseCssColorExtended } from "../../shared/color-utils.js";
 import { importPlaywright, launchChromium } from "./playwright-runtime.js";
+
+export const MAX_EMBEDDED_IMAGE_BYTES = 8 * 1024 * 1024;
+const EMBEDDED_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
 
 // ---------------------------------------------------------------------------
 // Scene types
@@ -628,10 +642,21 @@ function renderBox(node: FigmaSvgNode, ctx: RenderCtx): string {
   // on top, so emit layers in reverse (last CSS layer first). Only the
   // topmost (last-emitted) shape carries the shadow filter — lower layers
   // must not double-apply it.
+  //
+  // A box with no fills, no border, and no shadow filter is a pure layout
+  // wrapper — a flex container div, or <body> itself when exporting a whole
+  // screen — that paints nothing in the browser. Emitting a `fill="none"`
+  // placeholder shape for it anyway produces a phantom layer Figma imports
+  // as a real (if invisible) shape at whatever oversized bounds that
+  // wrapper happens to have (e.g. <body>'s own box stretching to the full
+  // render viewport width). Only synthesize a shapeless carrier rect when a
+  // shadow filter needs geometry to attach to.
   const layers =
     fills.length > 0
       ? fills
-      : [{ kind: "solid", color: "none" } as FigmaSvgFillLayer];
+      : filterId
+        ? [{ kind: "solid", color: "none" } as FigmaSvgFillLayer]
+        : [];
   const reversedLayers = layers.slice().reverse();
   let body = reversedLayers
     .map((f, i) => {
@@ -1093,6 +1118,41 @@ function collectRawFigmaSvgScene(
     return offsets;
   }
 
+  /**
+   * `Range.getClientRects()` can return MORE THAN ONE rect for a single
+   * visual line: a wrapped trailing space "hangs" at the end of the
+   * previous line as its own thin rect, and bidi/font-fallback boundaries
+   * can split one line into multiple runs. Treating the raw rect count as
+   * the line count over-splits real wrapped text into an extra bogus
+   * "line" that lands at the SAME y as the line it actually belongs to —
+   * this was the multi-line wrap-loss bug (a wrapped line rendered as a
+   * second tspan glued onto the first line's baseline instead of dropping
+   * to its own line). Merge same-top rects (rounded to a whole px, since
+   * sub-pixel layout can jitter the exact float) into one rect spanning
+   * their full horizontal extent before counting/splitting real visual
+   * lines.
+   */
+  function groupRectsByLine(rects: DOMRect[]): DOMRect[] {
+    const lines: DOMRect[] = [];
+    for (const r of rects) {
+      if (r.width === 0 && r.height === 0) continue;
+      const prev = lines[lines.length - 1];
+      if (prev && Math.round(prev.top) === Math.round(r.top)) {
+        const left = Math.min(prev.left, r.left);
+        const right = Math.max(prev.right, r.right);
+        lines[lines.length - 1] = new DOMRect(
+          left,
+          prev.top,
+          right - left,
+          Math.max(prev.height, r.height),
+        );
+      } else {
+        lines.push(r);
+      }
+    }
+    return lines;
+  }
+
   function extractTextLines(el: Element): RawFigmaSvgTextLine[] | null {
     const textNode = Array.from(el.childNodes).find(
       (c) =>
@@ -1103,11 +1163,23 @@ function collectRawFigmaSvgScene(
     const full = textNode.textContent || "";
     const range = document.createRange();
     range.selectNodeContents(textNode);
-    const lineRects = Array.from(range.getClientRects());
+    const rawRects = Array.from(range.getClientRects());
+    if (rawRects.length === 0) return null;
+    const lineRects = groupRectsByLine(rawRects);
     if (lineRects.length === 0) return null;
 
     const style = getComputedStyle(el);
     const textAlign = style.textAlign;
+    const elRect = el.getBoundingClientRect();
+    // Vertical centers use the ELEMENT's own CSS line-height box, not the
+    // Range's tight glyph-metrics rect: Chromium's getClientRects() height
+    // reflects font ascent/descent, which is usually shorter than the
+    // line-height the surrounding layout actually reserves, so
+    // `dominant-baseline="central"` measured against the tight rect lands a
+    // few px off from where the line visually centers (this was the global
+    // baseline-offset bug).
+    const lineHeightPx =
+      Number.parseFloat(style.lineHeight) || elRect.height / lineRects.length;
     const anchorX = (rect: DOMRect) => {
       if (textAlign === "center") return rect.left + rect.width / 2;
       if (textAlign === "right" || textAlign === "end") return rect.right;
@@ -1120,7 +1192,7 @@ function collectRawFigmaSvgScene(
         {
           text: full.trim(),
           x: anchorX(r) - originRect.left,
-          y: r.top + r.height / 2 - originRect.top,
+          y: elRect.top + elRect.height / 2 - originRect.top,
         },
       ];
     }
@@ -1134,7 +1206,7 @@ function collectRawFigmaSvgScene(
       return {
         text,
         x: anchorX(r) - originRect.left,
-        y: r.top + r.height / 2 - originRect.top,
+        y: elRect.top + lineHeightPx * (i + 0.5) - originRect.top,
       };
     });
   }
@@ -1281,22 +1353,43 @@ export interface RenderFigmaSvgOptions {
   embedImages?: boolean;
 }
 
-async function embedRemoteImages(node: FigmaSvgNode): Promise<void> {
+export async function embedRemoteImages(
+  node: FigmaSvgNode,
+  fetchImage: (url: string) => Promise<string | null> = fetchImageAsDataUri,
+): Promise<Array<{ node: string; reason: string }>> {
   const jobs: Array<Promise<void>> = [];
+  const omitted: Array<{ node: string; reason: string }> = [];
 
   function visit(n: FigmaSvgNode) {
     if (n.kind === "image" && n.image && /^https?:\/\//i.test(n.image.href)) {
       jobs.push(
-        fetchAsDataUri(n.image.href).then((dataUri) => {
-          if (dataUri && n.image) n.image.href = dataUri;
+        fetchImage(n.image.href).then((dataUri) => {
+          if (!n.image) return;
+          if (dataUri) {
+            n.image.href = dataUri;
+          } else {
+            n.image.href = "";
+            omitted.push({
+              node: n.name || n.id,
+              reason: "Remote image could not be safely embedded",
+            });
+          }
         }),
       );
     }
     for (const fill of n.fills ?? []) {
       if (fill.kind === "image" && /^https?:\/\//i.test(fill.href)) {
         jobs.push(
-          fetchAsDataUri(fill.href).then((dataUri) => {
-            if (dataUri) fill.href = dataUri;
+          fetchImage(fill.href).then((dataUri) => {
+            if (dataUri) {
+              fill.href = dataUri;
+            } else {
+              fill.href = "";
+              omitted.push({
+                node: n.name || n.id,
+                reason: "Remote background image could not be safely embedded",
+              });
+            }
           }),
         );
       }
@@ -1305,17 +1398,86 @@ async function embedRemoteImages(node: FigmaSvgNode): Promise<void> {
   }
   visit(node);
   await Promise.all(jobs);
+  return omitted;
 }
 
-async function fetchAsDataUri(url: string): Promise<string | null> {
+type SafeImageFetch = typeof ssrfSafeFetch;
+
+export async function fetchImageAsDataUri(
+  url: string,
+  safeFetch: SafeImageFetch = ssrfSafeFetch,
+): Promise<string | null> {
   try {
-    const res = await fetch(url);
+    const res = await safeFetch(
+      url,
+      { signal: AbortSignal.timeout(10_000) },
+      { maxRedirects: 3 },
+    );
     if (!res.ok) return null;
-    const contentType = res.headers.get("content-type") || "image/png";
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = (res.headers.get("content-type") || "")
+      .split(";", 1)[0]
+      .trim()
+      .toLowerCase();
+    if (!EMBEDDED_IMAGE_MIME_TYPES.has(contentType)) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const advertisedLength = Number(res.headers.get("content-length") || 0);
+    if (
+      Number.isFinite(advertisedLength) &&
+      advertisedLength > MAX_EMBEDDED_IMAGE_BYTES
+    ) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    const reader = res.body?.getReader();
+    if (!reader) {
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.byteLength > MAX_EMBEDDED_IMAGE_BYTES) return null;
+      return `data:${contentType};base64,${buffer.toString("base64")}`;
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_EMBEDDED_IMAGE_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    const buffer = Buffer.concat(
+      chunks.map((chunk) => Buffer.from(chunk)),
+      total,
+    );
     return `data:${contentType};base64,${buffer.toString("base64")}`;
   } catch {
     return null;
+  }
+}
+
+export async function isAllowedFigmaSvgRenderRequest(
+  url: string,
+  isBlocked: typeof isBlockedExtensionUrlWithDns = isBlockedExtensionUrlWithDns,
+): Promise<boolean> {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol === "data:" ||
+      parsed.protocol === "blob:" ||
+      parsed.protocol === "about:"
+    ) {
+      return true;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+    return !(await isBlocked(parsed.href));
+  } catch {
+    return false;
   }
 }
 
@@ -1354,11 +1516,38 @@ async function rasterizeUnsupportedNodes(
 }
 
 /**
+ * Thrown when `rootSelector` doesn't match any element in the rendered page.
+ * A dedicated, classifiable error (rather than a plain `Error` matched by
+ * message text) so callers like `export-design-as-figma-svg`'s action can
+ * fail SOFT — falling back to a whole-screen export with a warning — instead
+ * of a raw 500, which is what happened when a caller passed a live-DOM
+ * code-layer id (e.g. `html:<hash>`) that doesn't exist verbatim in the
+ * persisted HTML this renders.
+ */
+export class FigmaSvgRootSelectorNotFoundError extends Error {
+  readonly rootSelector: string;
+  constructor(rootSelector: string) {
+    super(`No element matched rootSelector "${rootSelector}"`);
+    this.name = "FigmaSvgRootSelectorNotFoundError";
+    this.rootSelector = rootSelector;
+  }
+}
+
+export function isMissingRootSelectorError(
+  err: unknown,
+): err is FigmaSvgRootSelectorNotFoundError {
+  return err instanceof FigmaSvgRootSelectorNotFoundError;
+}
+
+/**
  * Renders `html` in headless Chromium, walks the live DOM to build a
  * `FigmaSvgNode` scene, and serializes it into a genuinely vector SVG
  * document via `buildFigmaSvgDocument`. Throws when no Chromium binary is
  * available — callers should catch and fall back (mirrors
- * `take-design-screenshot.ts`'s `chromiumUnavailableReason` pattern).
+ * `take-design-screenshot.ts`'s `chromiumUnavailableReason` pattern). Throws
+ * `FigmaSvgRootSelectorNotFoundError` when `rootSelector` matches nothing —
+ * callers should catch that specific error and fail soft (see
+ * `isMissingRootSelectorError`).
  */
 export async function renderDesignToFigmaSvg(
   options: RenderFigmaSvgOptions,
@@ -1368,6 +1557,31 @@ export async function renderDesignToFigmaSvg(
   try {
     const context = await browser.newContext({
       viewport: { width: options.width, height: options.height },
+    });
+    // `collectRawFigmaSvgScene` below is passed straight to `page.evaluate`,
+    // which serializes it via `Function.prototype.toString()` and runs it
+    // inside the page. Under esbuild's `keepNames` (on by default for
+    // dev-time tsx runs of this action), every named helper function inside
+    // it (`walk`, `extractTextLines`, `groupRectsByLine`, ...) gets rewritten
+    // to `__name(function walk() {...}, "walk")`, and `__name` doesn't exist
+    // in the page's isolated context — same root cause already fixed for
+    // `packages/core/src/cli/recap.ts`'s `page.evaluate` calls (see
+    // `RECAP_SHOT_NAME_SHIM`). Define it as a no-op identity function before
+    // anything evaluates in the page; harmless on the tsc-built path, which
+    // never emits `__name` in the first place.
+    await context.addInitScript(
+      "globalThis.__name = globalThis.__name || function (value) { return value; };",
+    );
+    // Stored HTML is untrusted input. Its <img>, CSS, font, script, and iframe
+    // URLs must not turn headless Chromium into an SSRF primitive. Validate
+    // every request, including redirects initiated by the browser, and fail
+    // closed when DNS validation itself fails.
+    await context.route("**/*", async (route) => {
+      if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
+        await route.continue();
+      } else {
+        await route.abort("blockedbyclient");
+      }
     });
     const page = await context.newPage();
     try {
@@ -1379,11 +1593,10 @@ export async function renderDesignToFigmaSvg(
         options.rootSelector ?? null,
       )) as RawFigmaSvgSceneResult | null;
       if (!scene) {
-        throw new Error(
-          options.rootSelector
-            ? `No element matched rootSelector "${options.rootSelector}"`
-            : "Design screen has no renderable content",
-        );
+        if (options.rootSelector) {
+          throw new FigmaSvgRootSelectorNotFoundError(options.rootSelector);
+        }
+        throw new Error("Design screen has no renderable content");
       }
 
       // Capture a real cropped screenshot for every node the DOM walk
@@ -1393,16 +1606,27 @@ export async function renderDesignToFigmaSvg(
       await rasterizeUnsupportedNodes(page, scene.root, scene.originOffset);
 
       const root = hydrateRawFigmaSvgNode(scene.root);
-      if (options.embedImages) {
-        await embedRemoteImages(root);
-      }
+      const embeddedImageOmissions = options.embedImages
+        ? await embedRemoteImages(root)
+        : [];
 
-      return buildFigmaSvgDocument({
-        width: options.width,
-        height: options.height,
+      // The SVG document's own width/height/viewBox must reflect the
+      // EXPORTED SUBTREE's real bounds, not the Chromium viewport used to
+      // lay it out — a 400x300 screen was exporting a 1440x1200 root
+      // whenever the caller's render viewport didn't happen to match the
+      // screen's own frame size (e.g. the action's legacy 1440x1200
+      // default). `root.rect` is always relative to itself (x=0, y=0 by
+      // construction — see `collectRawFigmaSvgScene`'s `originRect`
+      // subtraction), so its width/height are exactly the rendered root
+      // element's own bounding box, honest regardless of viewport size.
+      const result = buildFigmaSvgDocument({
+        width: root.rect.width,
+        height: root.rect.height,
         title: options.title,
         root,
       });
+      result.report.omitted.push(...embeddedImageOmissions);
+      return result;
     } finally {
       await context.close().catch(() => {});
     }

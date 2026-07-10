@@ -52,7 +52,7 @@ export default defineAction({
       })),
       exportInfo: {
         format: "pdf",
-        note: "Use client-side rendering (e.g. html2canvas + jsPDF) to generate the PDF from the returned design data.",
+        note: "The Design editor renders the active artboard as a single-page raster PDF at its fixed authored size. This preserves visual appearance but does not provide selectable/vector text; export separate screens individually.",
       },
     };
   },

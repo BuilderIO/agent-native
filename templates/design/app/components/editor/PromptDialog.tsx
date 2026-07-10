@@ -296,7 +296,7 @@ interface PromptPopoverProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  onSkip?: () => void;
+  onSkip?: () => void | Promise<void>;
   skipLabel?: string;
   onSubmit: (
     prompt: string,
@@ -398,6 +398,8 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [skipInFlight, setSkipInFlight] = useState(false);
+  const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
@@ -416,6 +418,11 @@ export default function PromptPopover({
     setRestoredPromptText(text);
     setRestoredPromptKey((key) => key + 1);
   }, []);
+  useEffect(() => {
+    if (open) return;
+    skipInFlightRef.current = false;
+    setSkipInFlight(false);
+  }, [open]);
   // While the nested design-system Select is open, Radix disables pointer
   // events on everything else and the click that closes the Select also
   // moves focus back to its trigger. That focus-return is itself reported to
@@ -831,11 +838,24 @@ export default function PromptPopover({
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
+              disabled={loading || skipInFlight}
               onClick={() => {
-                onSkip();
-                onOpenChange(false);
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    await onSkip();
+                    onOpenChange(false);
+                  } catch {
+                    // The caller owns error presentation. Keep the prompt open
+                    // and usable so the user can retry or submit a prompt.
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
               }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
+              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {skipLabel ?? t("promptDialog.skipPrompt")}
             </button>

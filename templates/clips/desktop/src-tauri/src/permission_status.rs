@@ -19,14 +19,18 @@ pub fn check_permission_statuses() -> PermissionStatuses {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // TODO: implement
+        // Windows and Linux permissions are granted through the WebView and,
+        // on Linux, the XDG desktop portal. There is no reliable synchronous
+        // preflight equivalent to macOS TCC here, so report unavailable rather
+        // than claiming permissions were granted. The non-macOS UI relies on
+        // the actual media prompt and does not render these values.
         PermissionStatuses {
-            screen: true,
-            camera: true,
-            microphone: true,
-            speech: true,
-            accessibility: true,
-            input_monitoring: true,
+            screen: false,
+            camera: false,
+            microphone: false,
+            speech: false,
+            accessibility: false,
+            input_monitoring: false,
         }
     }
 }

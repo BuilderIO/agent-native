@@ -64,6 +64,7 @@ import {
   type ContentDatabaseFilter,
   type ContentDatabaseFilterMode,
   type ContentDatabaseFilterOperator,
+  type ContentDatabaseFormQuestion,
   type ContentDatabaseOpenPagesIn,
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
@@ -75,6 +76,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "@shared/api";
+import { contentDatabaseFormQuestions } from "@shared/database-form";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -108,6 +110,7 @@ import {
   IconEyeOff,
   IconFilter,
   IconFileText,
+  IconForms,
   IconGripVertical,
   IconLayoutKanban,
   IconLayoutGrid,
@@ -229,6 +232,7 @@ import {
   releasePreviewDocumentSaveController,
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
+import { DatabaseFormView } from "./FormView";
 
 export interface DatabaseViewProps {
   databaseId: string;
@@ -255,7 +259,7 @@ const DEFAULT_NAME_COLUMN_WIDTH = 240;
 const DEFAULT_PROPERTY_COLUMN_WIDTH = 180;
 const MIN_COLUMN_WIDTH = 96;
 const MAX_COLUMN_WIDTH = 640;
-const ACTION_COLUMN_WIDTH = 48;
+const ACTION_COLUMN_WIDTH = 36;
 const EMPTY_DEFAULT_ADD_PROPERTY_COLUMN_WIDTH = 220;
 const EMPTY_DEFAULT_BLANK_ROW_COUNT = 5;
 const DATABASE_DRAG_THRESHOLD = 6;
@@ -266,6 +270,7 @@ const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "list",
   "timeline",
   "calendar",
+  "form",
 ];
 const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
   "preview",
@@ -1330,6 +1335,10 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, openPagesIn }));
   }
 
+  function setFormQuestions(formQuestions: ContentDatabaseFormQuestion[]) {
+    updateActiveView((view) => ({ ...view, formQuestions }));
+  }
+
   function setGroupCollapsed(groupId: string, collapsed: boolean) {
     updateActiveView((view) =>
       setDatabaseViewCollapsedGroup(view, groupId, collapsed),
@@ -1805,7 +1814,16 @@ function DatabaseTable({
         }}
       />
 
-      {activeView.type === "board" ? (
+      {activeView.type === "form" ? (
+        <DatabaseFormView
+          databaseId={databaseId}
+          databaseDocumentId={document.id}
+          databaseTitle={data?.database.title ?? document.title}
+          view={activeView}
+          properties={orderedProperties}
+          canEdit={canEdit}
+        />
+      ) : activeView.type === "board" ? (
         <DatabaseBoardView
           activeView={activeView}
           properties={orderedProperties}
@@ -2177,6 +2195,7 @@ function DatabaseTable({
         }
         onWrapCellsChange={setWrapCells}
         onOpenPagesInChange={setOpenPagesIn}
+        onFormQuestionsChange={setFormQuestions}
         onPropertyHiddenChange={setPropertyHiddenInActiveView}
         onPropertiesHiddenChange={setPropertiesHiddenInActiveView}
         onGroupByChange={(propertyId) =>
@@ -3812,7 +3831,7 @@ function DatabaseTableView({
           />
         ) : null}
         <div
-          className="grid border-y border-border/45 text-xs font-medium text-muted-foreground/70"
+          className="grid border-y border-border/35 text-xs font-medium text-muted-foreground/80"
           style={{
             gridTemplateColumns: databaseGridColumns(
               properties,
@@ -3871,7 +3890,7 @@ function DatabaseTableView({
               className={cn(
                 "flex h-8 items-center",
                 cleanDefaultTable
-                  ? "justify-start border-r border-border/40 px-1"
+                  ? "justify-start border-r border-border/30 px-1"
                   : "justify-center",
               )}
             >
@@ -4102,11 +4121,7 @@ function DatabaseActiveConstraintsBar({
     return null;
   const hasSearchOrSortConstraints =
     searchQuery.trim().length > 0 || sorts.length > 0;
-  const showViewActionControls =
-    hasPersonalQueryChanges ||
-    constraintCount > 0 ||
-    filters.length > 0 ||
-    hasSearchOrSortConstraints;
+  const showViewActionControls = hasPersonalQueryChanges;
   const filterEntries = filters.map((filter, index) => ({ filter, index }));
   const advancedFilterEntries = filterEntries.filter(({ filter }) =>
     isAdvancedDatabaseFilter(filter),
@@ -4117,7 +4132,7 @@ function DatabaseActiveConstraintsBar({
   const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
 
   return (
-    <div className="mb-2 flex min-h-8 flex-wrap items-center gap-1 border-b border-border pb-2 text-xs text-muted-foreground">
+    <div className="flex min-h-8 flex-wrap items-center gap-1 py-0.5 text-xs text-muted-foreground">
       {sorts.map((sort, index) => (
         <DatabaseInlineSortControl
           key={`${sort.key}-${index}`}
@@ -4202,7 +4217,7 @@ function DatabaseActiveConstraintsBar({
         />
       ) : null}
       <div className="ml-auto flex items-center gap-1 pl-2">
-        {hasSearchOrSortConstraints ? (
+        {hasSearchOrSortConstraints && !hasPersonalQueryChanges ? (
           <Button
             type="button"
             size="sm"
@@ -4315,7 +4330,7 @@ function DatabaseInlineSortControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 max-w-[16rem] rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            "relative h-7 max-w-[16rem] rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
             open && "border-[#2383e2]/40 bg-[#2383e2]/15",
           )}
         >
@@ -4654,7 +4669,7 @@ function DatabaseAdvancedFilterGroupControl({
           size="sm"
           variant="ghost"
           className={cn(
-            "relative h-7 rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
+            "relative h-7 rounded border border-[#2383e2]/30 bg-[#2383e2]/10 px-2 text-xs font-normal text-[#0f5ea8] shadow-none hover:bg-[#2383e2]/15 focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
             open && "border-[#2383e2]/40 bg-[#2383e2]/15",
           )}
         >
@@ -5172,7 +5187,7 @@ function DatabaseInlineFilterControl({
           className={cn(
             "relative h-7 max-w-[16rem] rounded border border-border/70 bg-background px-2 text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:border-[#2383e2]/40 focus-visible:ring-[#2383e2]/25",
             filterIsComplete &&
-              "border-[#2383e2]/30 bg-[#2383e2]/10 text-[#0f5ea8] hover:bg-[#2383e2]/15",
+              "border-[#2383e2]/30 bg-[#2383e2]/10 text-[#0f5ea8] hover:bg-[#2383e2]/15 dark:border-[#529cca]/35 dark:bg-[#529cca]/15 dark:text-[#8ec7ff] dark:hover:bg-[#529cca]/20",
             open && "border-[#2383e2]/40 bg-[#2383e2]/15",
             !filterIsComplete && "text-muted-foreground",
           )}
@@ -5445,6 +5460,7 @@ function DatabaseSettingsPanelSheet({
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
+  onFormQuestionsChange,
   onPropertyHiddenChange,
   onPropertiesHiddenChange,
   onGroupByChange,
@@ -5487,6 +5503,7 @@ function DatabaseSettingsPanelSheet({
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+  onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
   onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
   onGroupByChange: (propertyId: string | null) => void;
@@ -5586,9 +5603,11 @@ function DatabaseSettingsPanelSheet({
         ) : panel === "layout" ? (
           <DatabaseSettingsLayoutPanel
             activeView={activeView}
+            properties={properties}
             onViewTypeChange={onViewTypeChange}
             onWrapCellsChange={onWrapCellsChange}
             onOpenPagesInChange={onOpenPagesInChange}
+            onFormQuestionsChange={onFormQuestionsChange}
           />
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
@@ -5950,28 +5969,6 @@ function DatabaseSettingsSourcePanel({
     isBuilderSource &&
     (source?.syncState === "error" || Boolean(source?.lastError));
 
-  // Auto-sync: the manual Refresh button is gone, so pull the read-only
-  // snapshot when the panel opens and whenever the window regains focus.
-  // Throttled so rapid focus changes don't hammer Builder; the refresh
-  // mutation is silent (no toast), so this stays quiet in the background.
-  const refreshSourceRef = useRef(onRefreshSource);
-  refreshSourceRef.current = onRefreshSource;
-  const lastAutoSyncRef = useRef(0);
-  const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
-  useEffect(() => {
-    if (!autoSyncEnabled) return;
-    const maybeSync = () => {
-      const now = Date.now();
-      if (now - lastAutoSyncRef.current < 15_000) return;
-      lastAutoSyncRef.current = now;
-      refreshSourceRef.current();
-    };
-    maybeSync();
-    const onFocus = () => maybeSync();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [autoSyncEnabled]);
-
   const top = nav[nav.length - 1];
 
   // ── Sources list (root) ───────────────────────────────────────────────
@@ -6270,23 +6267,38 @@ function DatabaseSettingsSourcePanel({
             <span className="truncate font-medium" title={source.sourceName}>
               {source.sourceName}
             </span>
-            {isBuilderSource ? (
-              source.capabilities.liveWritesEnabled ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  <IconPencil className="size-3" />
-                  {dbText("liveWritesOn")}
-                </span>
+            <div className="flex shrink-0 items-center gap-1">
+              {isBuilderSource ? (
+                source.capabilities.liveWritesEnabled ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
+                    <IconPencil className="size-3" />
+                    {dbText("liveWritesOn")}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <IconLock className="size-3" />
+                    {dbText("readOnly")}
+                  </span>
+                )
               ) : (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  {dbText("readOnly")}
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {source.syncState}
                 </span>
-              )
-            ) : (
-              <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {source.syncState}
-              </span>
-            )}
+              )}
+              {isBuilderSource && !builderSyncFailed ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={() => onRefreshSource(source.id)}
+                >
+                  <IconRefresh className="size-3" />
+                  {dbText("refreshSource")}
+                </Button>
+              ) : null}
+            </div>
           </div>
           <div className="min-w-0 break-words text-xs text-muted-foreground">
             {builderSyncFailed ? (
@@ -8206,14 +8218,18 @@ function DatabaseSettingsSwitch({
 
 function DatabaseSettingsLayoutPanel({
   activeView,
+  properties,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
+  onFormQuestionsChange,
 }: {
   activeView: ContentDatabaseView;
+  properties: DocumentProperty[];
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
+  onFormQuestionsChange: (formQuestions: ContentDatabaseFormQuestion[]) => void;
 }) {
   const wrapCells = activeView.wrapCells === true;
   const openPagesIn = activeView.openPagesIn ?? "preview";
@@ -8251,6 +8267,151 @@ function DatabaseSettingsLayoutPanel({
         value={openPagesIn}
         onChange={onOpenPagesInChange}
       />
+      {activeView.type === "form" ? (
+        <DatabaseFormQuestionsSetting
+          activeView={activeView}
+          properties={properties}
+          onChange={onFormQuestionsChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DatabaseFormQuestionsSetting({
+  activeView,
+  properties,
+  onChange,
+}: {
+  activeView: ContentDatabaseView;
+  properties: DocumentProperty[];
+  onChange: (questions: ContentDatabaseFormQuestion[]) => void;
+}) {
+  const questions = contentDatabaseFormQuestions(activeView, properties);
+  const propertyById = new Map(
+    properties.map((property) => [property.definition.id, property]),
+  );
+
+  function updateQuestion(
+    key: string,
+    patch: Partial<ContentDatabaseFormQuestion>,
+  ) {
+    onChange(
+      questions.map((question) =>
+        question.key === key ? { ...question, ...patch } : question,
+      ),
+    );
+  }
+
+  function moveQuestion(index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= questions.length) return;
+    const next = [...questions];
+    const target = next[targetIndex];
+    next[targetIndex] = next[index];
+    next[index] = target;
+    onChange(next);
+  }
+
+  return (
+    <div className="grid gap-2 border-t border-border pt-4">
+      <div className="grid gap-0.5">
+        <div className="text-sm font-medium text-foreground">
+          {dbText("formQuestions")}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {dbText("formQuestionsDescription")}
+        </div>
+      </div>
+      <div className="grid gap-1">
+        {questions.map((question, index) => {
+          const label =
+            question.key === "name"
+              ? dbText("formName")
+              : (propertyById.get(question.key)?.definition.name ??
+                question.key);
+          return (
+            <div
+              key={question.key}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border px-2 py-2"
+            >
+              <div className="min-w-0 truncate text-sm text-foreground">
+                {label}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-label={dbText("formMoveQuestionUp", { name: label })}
+                  disabled={index === 0}
+                  className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={() => moveQuestion(index, -1)}
+                >
+                  <IconArrowUp className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={dbText("formMoveQuestionDown", { name: label })}
+                  disabled={index === questions.length - 1}
+                  className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={() => moveQuestion(index, 1)}
+                >
+                  <IconArrowDown className="size-3.5" />
+                </button>
+              </div>
+              <div className="col-span-2 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={question.enabled}
+                  className="flex items-center gap-2 text-xs text-muted-foreground"
+                  onClick={() =>
+                    updateQuestion(question.key, {
+                      enabled: !question.enabled,
+                      required: question.enabled ? false : question.required,
+                    })
+                  }
+                >
+                  <span
+                    className={cn(
+                      "flex size-4 items-center justify-center rounded border border-input",
+                      question.enabled &&
+                        "border-primary bg-primary text-primary-foreground",
+                    )}
+                  >
+                    {question.enabled ? <IconCheck className="size-3" /> : null}
+                  </span>
+                  {dbText("formShowQuestion")}
+                </button>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={question.required}
+                  disabled={!question.enabled}
+                  className="flex items-center gap-2 text-xs text-muted-foreground disabled:opacity-40"
+                  onClick={() =>
+                    updateQuestion(question.key, {
+                      required: !question.required,
+                    })
+                  }
+                >
+                  <span
+                    className={cn(
+                      "flex size-4 items-center justify-center rounded border border-input",
+                      question.required &&
+                        "border-primary bg-primary text-primary-foreground",
+                    )}
+                  >
+                    {question.required ? (
+                      <IconCheck className="size-3" />
+                    ) : null}
+                  </span>
+                  {dbText("formRequired")}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -11784,7 +11945,7 @@ function NewDatabaseRow({
       aria-label={dbText("newDatabaseRow")}
       disabled={disabled}
       className={cn(
-        "grid w-full border-t border-border/45 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
+        "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
         databaseTableRowDensityClass(rowDensity),
       )}
       style={{
@@ -11799,7 +11960,7 @@ function NewDatabaseRow({
     >
       <span
         className={cn(
-          "flex min-w-0 items-center gap-2 border-r border-border/45",
+          "flex min-w-0 items-center gap-2 border-r border-border/35",
           databaseTableCellDensityClass(rowDensity),
         )}
       >
@@ -11815,7 +11976,7 @@ function NewDatabaseRow({
       {properties.map((property) => (
         <span
           key={property.definition.id}
-          className="border-r border-border/45 last:border-r-0"
+          className="border-r border-border/35 last:border-r-0"
         />
       ))}
       <span />
@@ -11835,7 +11996,7 @@ function DatabaseBlankDefaultRows({
       {Array.from({ length: rowCount }).map((_, index) => (
         <div
           key={index}
-          className="grid h-9 border-t border-border/35"
+          className="grid h-8 border-t border-border/30"
           style={{
             gridTemplateColumns: databaseGridColumns(
               [],
@@ -11922,6 +12083,7 @@ export function createDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -12076,6 +12238,7 @@ export function duplicateDatabaseView(
       wrapCells: view.wrapCells,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
+      formQuestions: view.formQuestions,
     },
     view.type,
   );
@@ -12168,7 +12331,8 @@ function normalizeClientDatabaseView(
     value.type === "list" ||
     value.type === "gallery" ||
     value.type === "calendar" ||
-    value.type === "timeline"
+    value.type === "timeline" ||
+    value.type === "form"
       ? value.type
       : "table";
   return createDatabaseView(
@@ -12203,9 +12367,29 @@ function normalizeClientDatabaseView(
       wrapCells: value.wrapCells === true,
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
+      formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
     },
     type,
   );
+}
+
+function normalizeClientDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as Partial<ContentDatabaseFormQuestion>;
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeClientCalculations(value: unknown) {
@@ -12683,6 +12867,7 @@ function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "gallery") return IconLayoutGrid;
   if (type === "calendar") return IconCalendar;
   if (type === "timeline") return IconTimeline;
+  if (type === "form") return IconForms;
   return IconTable;
 }
 
@@ -12692,6 +12877,7 @@ function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "gallery") return "Gallery";
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
+  if (type === "form") return "Form";
   return "Table";
 }
 
@@ -13839,7 +14025,7 @@ function DatabaseNameHeader({
   const partiallySelected = selectedCount > 0 && !allSelected;
 
   return (
-    <div className="group flex h-8 min-w-0 items-center border-r border-border/45 px-1">
+    <div className="group flex h-8 min-w-0 items-center border-r border-border/35 px-1">
       <DatabaseRowSelectionControl
         checked={allSelected}
         indeterminate={partiallySelected}
@@ -14639,7 +14825,7 @@ function DatabasePropertyHeader({
     <div
       data-database-property-id={property.definition.id}
       className={cn(
-        "group relative flex h-8 min-w-0 items-center border-r border-border/45 px-1 transition-colors",
+        "group relative flex h-8 min-w-0 items-center border-r border-border/35 px-1 transition-colors",
         canEdit && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
@@ -16675,19 +16861,19 @@ export function normalizeClientDatabaseFilterMode(
 export function databaseTableRowDensityClass(rowDensity: DatabaseRowDensity) {
   if (rowDensity === "compact") return "min-h-8";
   if (rowDensity === "comfortable") return "min-h-12";
-  return "min-h-9";
+  return "min-h-8";
 }
 
 export function databaseTableCellDensityClass(rowDensity: DatabaseRowDensity) {
   if (rowDensity === "compact") return "px-2 py-0.5";
   if (rowDensity === "comfortable") return "px-2.5 py-2";
-  return "px-2 py-1";
+  return "px-2 py-0.5";
 }
 
 function databaseRowNameCellDensityClass(rowDensity: DatabaseRowDensity) {
   if (rowDensity === "compact") return "px-1 py-0.5";
   if (rowDensity === "comfortable") return "px-1.5 py-2";
-  return "px-1 py-1";
+  return "px-1 py-0.5";
 }
 
 function databaseTitleButtonDensityClass(
@@ -16868,7 +17054,7 @@ function DatabaseTableRow({
   return (
     <div
       className={cn(
-        "group grid border-t border-border/45 transition-colors",
+        "group grid border-t border-border/35 transition-colors",
         databaseTableRowDensityClass(rowDensity),
         selected && "bg-muted/20",
         isDragging && "opacity-50",
@@ -16930,7 +17116,7 @@ function DatabaseTableRow({
           <div
             key={property.definition.id}
             className={cn(
-              "flex min-w-0 border-r border-border/55 last:border-r-0 hover:bg-muted/30",
+              "flex min-w-0 border-r border-border/35 last:border-r-0 hover:bg-muted/25",
               databaseTableCellDensityClass(rowDensity),
               wrapCells ? "items-start" : "items-center",
             )}
@@ -17197,7 +17383,7 @@ function RowNameCell({
   return (
     <div
       className={cn(
-        "group group/name flex min-w-0 gap-1 border-r border-border/55 hover:bg-muted/30",
+        "group group/name flex min-w-0 gap-1 border-r border-border/35 hover:bg-muted/25",
         databaseRowNameCellDensityClass(rowDensity),
         wrapCells ? "items-start" : "items-center",
       )}

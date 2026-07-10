@@ -342,6 +342,48 @@ ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash 
       name: "design-localhost-preview-token",
       sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
     },
+    {
+      version: 23,
+      name: "design-templates",
+      sql: `CREATE TABLE IF NOT EXISTS design_templates (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'other',
+    source_design_id TEXT,
+    design_system_id TEXT,
+    data TEXT NOT NULL DEFAULT '{}',
+    width INTEGER,
+    height INTEGER,
+    locked_layer_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  );
+CREATE TABLE IF NOT EXISTS design_template_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+CREATE TABLE IF NOT EXISTS design_template_files (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content TEXT NOT NULL,
+    file_type TEXT NOT NULL DEFAULT 'html',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_templates (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
+    },
   ],
   { table: "design_migrations" },
 );

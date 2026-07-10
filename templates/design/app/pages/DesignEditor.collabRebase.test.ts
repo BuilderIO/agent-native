@@ -5,7 +5,10 @@ import {
   shouldApplyRemotePreviewContent,
   shouldRebaseCollabDocFromStoredContent,
 } from "./design-editor/collab-sync";
-import { shouldAdoptExternalReconcileContent } from "./design-editor/editor-session";
+import {
+  shouldAdoptExternalReconcileContent,
+  shouldCheckpointAgentContent,
+} from "./design-editor/editor-session";
 
 const OLD_HTML =
   '<!doctype html><html><body><div data-agent-native-node-id="an-1">old</div></body></html>';
@@ -241,6 +244,49 @@ describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)",
         appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
         dbUpdatedAt: null,
         agentActive: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldCheckpointAgentContent (attachment/design undo boundary)", () => {
+  it("checkpoints an agent replacement so Cmd+Z can restore the pre-run design", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: false,
+        previousContent: "<main>Attachment design</main>",
+        nextContent: "<main>Agent redesign</main>",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not put human peer transactions into this user's undo history", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: false,
+        isLocalEdit: false,
+        previousContent: "before",
+        nextContent: "peer change",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not duplicate local edits or no-op agent echoes", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: true,
+        previousContent: "before",
+        nextContent: "local change",
+      }),
+    ).toBe(false);
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: false,
+        previousContent: "same",
+        nextContent: "same",
       }),
     ).toBe(false);
   });

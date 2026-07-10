@@ -32,6 +32,7 @@ import type {
   ContentDatabaseSourceWriteOwner,
   BuilderCmsModelFieldSummary,
   DocumentProperty,
+  DocumentPropertyOptions,
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
@@ -550,11 +551,27 @@ function sameMappedSourceFieldValue(
   localValue: unknown,
   sourceValue: unknown,
   type: DocumentProperty["definition"]["type"] | null | undefined,
+  options?: DocumentPropertyOptions,
 ): boolean {
+  const normalizedLocalValue = type
+    ? normalizePropertyValueWithOptions(type, localValue, options)
+    : localValue;
   const normalizedSourceValue = type
-    ? normalizePropertyValue(type, sourceValue)
+    ? normalizePropertyValueWithOptions(type, sourceValue, options)
     : sourceValue;
-  return sameSourceFieldValue(localValue, normalizedSourceValue);
+  if (
+    type === "multi_select" &&
+    Array.isArray(normalizedLocalValue) &&
+    Array.isArray(normalizedSourceValue)
+  ) {
+    // Builder option order is not meaningful. Compare the canonical option IDs
+    // as sets so a reordered response does not become an outbound edit.
+    return sameSourceFieldValue(
+      [...normalizedLocalValue].sort(),
+      [...normalizedSourceValue].sort(),
+    );
+  }
+  return sameSourceFieldValue(normalizedLocalValue, normalizedSourceValue);
 }
 
 function stringSourceValue(
@@ -2047,6 +2064,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldKey: string;
     sourceFieldLabel: string;
     propertyType?: DocumentProperty["definition"]["type"] | null;
+    propertyOptions?: DocumentPropertyOptions;
   }>;
   // Row-union scoping (multi-source). Documents owned by ANOTHER source must
   // never be create candidates for this one — each row belongs to exactly one
@@ -2107,7 +2125,12 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         const localValue = rowLocalValues.get(field.localFieldKey);
         const baseValue = rowSourceValues[field.sourceFieldKey];
         if (
-          sameMappedSourceFieldValue(localValue, baseValue, field.propertyType)
+          sameMappedSourceFieldValue(
+            localValue,
+            baseValue,
+            field.propertyType,
+            field.propertyOptions,
+          )
         ) {
           continue;
         }
@@ -2117,7 +2140,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           localFieldKey: field.localFieldKey,
           sourceFieldKey: field.sourceFieldKey,
           currentValue: (field.propertyType
-            ? normalizePropertyValue(field.propertyType, baseValue)
+            ? normalizePropertyValueWithOptions(
+                field.propertyType,
+                baseValue,
+                field.propertyOptions,
+              )
             : (baseValue ?? null)) as DocumentPropertyValue,
           proposedValue: localValue as DocumentPropertyValue,
         });
@@ -2139,12 +2166,25 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       }
       return (
         changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some(
-            (change) =>
-              change.localFieldKey === stored.localFieldKey &&
-              sameSourceFieldValue(change.currentValue, stored.currentValue) &&
-              sameSourceFieldValue(change.proposedValue, stored.proposedValue),
-          ),
+          fieldChanges.some((change) => {
+            if (change.localFieldKey !== stored.localFieldKey) return false;
+            const writableField = args.writableFields?.find(
+              (field) => field.localFieldKey === change.localFieldKey,
+            );
+            const sameStoredValue = (current: unknown, previous: unknown) =>
+              writableField
+                ? sameMappedSourceFieldValue(
+                    current,
+                    previous,
+                    writableField.propertyType,
+                    writableField.propertyOptions,
+                  )
+                : sameSourceFieldValue(current, previous);
+            return (
+              sameStoredValue(change.currentValue, stored.currentValue) &&
+              sameStoredValue(change.proposedValue, stored.proposedValue)
+            );
+          }),
         ) ||
         (!!bodyChange && !!changeSet.bodyChange)
       );
@@ -2616,6 +2656,7 @@ async function loadSourceSnapshot(
           id: schema.documentPropertyDefinitions.id,
           name: schema.documentPropertyDefinitions.name,
           type: schema.documentPropertyDefinitions.type,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
         })
         .from(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
@@ -2629,6 +2670,9 @@ async function loadSourceSnapshot(
       row.id,
       row.type as DocumentProperty["definition"]["type"],
     ]),
+  );
+  const propertyOptionsById = new Map(
+    propertyDefs.map((row) => [row.id, parsePropertyOptions(row.optionsJson)]),
   );
   const fields = fieldRows.map((row) =>
     serializeSourceField(
@@ -2705,6 +2749,9 @@ async function loadSourceSnapshot(
       propertyType: row.propertyId
         ? (propertyTypeById.get(row.propertyId) ?? null)
         : null,
+      propertyOptions: row.propertyId
+        ? propertyOptionsById.get(row.propertyId)
+        : undefined,
     }));
   // Row-union ownership scoping (Builder only). Determine which documents belong
   // to OTHER sources and whether this source is the primary (oldest), so the
@@ -4253,11 +4300,11 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     maxPages: args.runFullRefresh
       ? undefined
       : BUILDER_CMS_REFRESH_INITIAL_PAGES,
+    limit: args.runFullRefresh ? 10_000 : undefined,
     offset: continueOffset,
   });
   const incrementalRead =
     builderRead.state === "live" &&
-    !args.runFullRefresh &&
     (builderRead.progress?.partial === true ||
       (builderRead.progress?.startOffset ?? 0) > 0);
   const builderEntries =

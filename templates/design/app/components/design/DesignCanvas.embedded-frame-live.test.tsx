@@ -15,6 +15,10 @@ vi.mock("@agent-native/core/client", async (importOriginal) => {
   };
 });
 
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
 describe("DesignCanvas live embedded-frame offset", () => {
   it("keeps the iframe identity stable when a board render window reanchors", async () => {
     const container = document.createElement("div");
@@ -142,6 +146,113 @@ describe("DesignCanvas live embedded-frame offset", () => {
           (message as { type?: string }).type === "runtime-structure-move",
       ).length;
       expect(matchingCallsAfter).toBe(matchingCallsBefore);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("replays the forced interaction state after every iframe document load", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content='<!doctype html><html><body><button id="save">Save</button></body></html>'
+            contentKey="state-replay"
+            screenId="screen-a"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+            editMode
+            statePreviewTarget={{
+              nodeId: "runtime-save",
+              selector: "#save",
+              selectorCandidates: ["#save"],
+              state: "focus-visible",
+              previewStyles: { outline: "2px solid rgb(59, 130, 246)" },
+            }}
+          />,
+        );
+      });
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.contentWindow).toBeTruthy();
+      const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+      const firstLoadCount = postMessage.mock.calls.filter(
+        ([message]) => (message as { type?: string }).type === "state-preview",
+      ).length;
+      expect(firstLoadCount).toBeGreaterThan(0);
+
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+      const stateMessages = postMessage.mock.calls
+        .map(([message]) => message as { type?: string; state?: string })
+        .filter((message) => message.type === "state-preview");
+      expect(stateMessages.length).toBeGreaterThan(firstLoadCount);
+      expect(stateMessages[stateMessages.length - 1]).toMatchObject({
+        nodeId: "runtime-save",
+        selector: "#save",
+        selectorCandidates: ["#save"],
+        state: "focus-visible",
+        previewStyles: { outline: "2px solid rgb(59, 130, 246)" },
+      });
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("enters Interact mode with the latest persisted content instead of the edit-mode snapshot", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const initial =
+      '<!doctype html><html><body><button data-agent-native-node-id="save">Save</button></body></html>';
+    const withState = `${initial}<style data-test="state-latest">[data-agent-native-node-id="save"]:hover{opacity:.5!important}</style>`;
+    const render = (content: string, interactMode: boolean) => (
+      <DesignCanvas
+        content={content}
+        contentKey="interact-latest-content"
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={interactMode}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        editMode={!interactMode}
+      />
+    );
+
+    try {
+      await act(async () => root.render(render(initial, false)));
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
+
+      // Same-screen edit echoes stay bridge-only in Edit mode to avoid an
+      // iframe reload/flash.
+      await act(async () => root.render(render(withState, false)));
+      expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
+
+      // Interact omits that bridge, so its rebuilt document must consume the
+      // latest persisted source immediately.
+      await act(async () => root.render(render(withState, true)));
+      const interactIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(interactIframe?.srcdoc).toContain('data-test="state-latest"');
+      expect(interactIframe?.srcdoc).toContain(":hover{opacity:.5!important}");
     } finally {
       await act(async () => root.unmount());
       container.remove();

@@ -20,6 +20,38 @@ export function createEditorSaveOperationSource(
 export const LOCAL_EDIT_ORIGIN = `${TAB_ID}:local`;
 
 /**
+ * Agent-authored design replacements are remote Yjs transactions (or, when
+ * the Yjs update is missed entirely — backgrounded tab, no live collab
+ * session — a plain polled DB content refresh), but from the user's
+ * perspective they are one undoable editor operation (for example, "change
+ * this attached design"). Human peer edits remain outside the local undo
+ * stack. The Yjs `ytext.observe` handler uses this predicate when an active
+ * collaboration session identifies the remote transaction as agent-authored.
+ * The authoritative DB reconcile fallback cannot reliably distinguish an
+ * agent write from a human peer write when that live signal was missed, so it
+ * records any genuinely newer external replacement separately. Both paths
+ * preserve a before/after checkpoint for Cmd+Z.
+ */
+export function shouldCheckpointAgentContent(args: {
+  agentActive: boolean;
+  isLocalEdit: boolean;
+  previousContent: string | null | undefined;
+  nextContent: string;
+}): args is {
+  agentActive: true;
+  isLocalEdit: false;
+  previousContent: string;
+  nextContent: string;
+} {
+  return Boolean(
+    args.agentActive &&
+    !args.isLocalEdit &&
+    typeof args.previousContent === "string" &&
+    args.previousContent !== args.nextContent,
+  );
+}
+
+/**
  * TIE-BREAK: decides whether polled DB content should be adopted into the
  * live editor during the file-content reconcile effect (DesignEditor.tsx).
  * Callers only reach this decision once BOTH of the effect's own

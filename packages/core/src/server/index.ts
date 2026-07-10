@@ -3,6 +3,13 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
+export {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  dispatchPathTargetsNetlifyBackgroundFunction,
+  resolveDurableBackgroundDispatchPath,
+} from "../agent/durable-background.js";
 
 export {
   readBody,
@@ -339,12 +346,31 @@ export {
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,
+  discordAdapter,
+  microsoftTeamsAdapter,
   emailAdapter,
+  assertPlatformCapability,
   type PlatformAdapter,
   type IncomingMessage,
   type OutgoingMessage,
+  type PlatformAdapterCapabilities,
+  type ImmediateWebhookResponse,
   type IntegrationStatus,
   type IntegrationsPluginOptions,
+  type IntegrationExecutionContext,
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
 } from "../integrations/index.js";
 
 export {
