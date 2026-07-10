@@ -3508,6 +3508,21 @@ export function DesignCanvas({
     [handToolActive, spacePanActive],
   );
 
+  // Clicking the empty grey canvas background deselects the current element.
+  // Preview-iframe clicks never bubble to the parent document (that path uses
+  // postMessage → onClearSelection), so a plain left click that reaches this
+  // scroll surface means the user clicked outside the framed preview.
+  const handleScrollSurfaceBackgroundClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      if (handToolActive || spacePanActive) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".design-canvas-iframe-wrapper")) return;
+      onClearSelection?.();
+    },
+    [handToolActive, spacePanActive, onClearSelection],
+  );
+
   const panCursor = isPanningState
     ? "grabbing"
     : handToolActive || spacePanActive
@@ -4019,6 +4034,7 @@ export function DesignCanvas({
       onPointerEnter={focusScrollSurface}
       onMouseEnter={focusScrollSurface}
       onMouseDown={handleScrollSurfaceMouseDown}
+      onClick={handleScrollSurfaceBackgroundClick}
       className="relative flex-1 h-full overflow-auto"
       style={{ cursor: panCursor || undefined }}
     >
