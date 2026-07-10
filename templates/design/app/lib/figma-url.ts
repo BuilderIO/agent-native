@@ -15,8 +15,8 @@ function trimTrailingPunctuation(value: string): string {
 
 /**
  * Extract the first Figma file/frame URL from arbitrary composer text.
- * Only known Figma editor paths are accepted; lookalike hosts and community
- * links are intentionally ignored.
+ * The shared parser validates the hostname, effective branch file key, and
+ * optional node id so lookalike hosts cannot trigger the integration UI.
  */
 export function extractFigmaLink(text: string): FigmaLink | null {
   const candidates = text.match(FIGMA_URL_RE) ?? [];

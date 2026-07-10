@@ -6,10 +6,10 @@ describe("extractFigmaLink", () => {
   it("detects a Figma frame link inside ordinary composer text", () => {
     expect(
       extractFigmaLink(
-        "Can you import https://www.figma.com/design/AbC_123/Checkout?node-id=12%3A34 please?",
+        "Can you import https://www.figma.com/design/AbC_1234/Checkout?node-id=12%3A34 please?",
       ),
     ).toEqual({
-      url: "https://www.figma.com/design/AbC_123/Checkout?node-id=12%3A34",
+      url: "https://www.figma.com/design/AbC_1234/Checkout?node-id=12%3A34",
       fileKey: "AbC_1234",
       nodeId: "12:34",
       kind: "frame",
