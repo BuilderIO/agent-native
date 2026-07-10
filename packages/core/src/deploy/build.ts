@@ -2437,6 +2437,73 @@ export const config = {
 const NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT =
   "/* /.netlify/functions/server 200";
 
+function hasBareYjsRuntimeImport(source: string): boolean {
+  return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs(?:\/[^"']*)?["']/.test(
+    source,
+  );
+}
+
+function walkServerJavaScriptFiles(
+  dir: string,
+  onFile: (filePath: string) => void,
+): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkServerJavaScriptFiles(entryPath, onFile);
+      continue;
+    }
+    if (/\.(?:[cm]?js)$/.test(entry.name)) onFile(entryPath);
+  }
+}
+
+/**
+ * Nitro can preserve Vite's `yjs` external in a split server chunk even when
+ * its own server build has emitted `_libs/yjs.mjs`. Netlify does not install
+ * that bare package at runtime, so make every emitted server chunk use the
+ * bundled copy before its function is packaged.
+ */
+export function rewriteBareYjsImportsForServerlessOutput(
+  serverDir: string,
+): string[] {
+  const bareImports: string[] = [];
+  const bundledYjsPath = path.join(serverDir, "_libs", "yjs.mjs");
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    if (hasBareYjsRuntimeImport(source)) bareImports.push(filePath);
+  });
+
+  if (bareImports.length === 0) return [];
+  if (!fs.existsSync(bundledYjsPath)) {
+    throw new Error(
+      `[deploy] Serverless output left yjs as a runtime import but did not emit ${bundledYjsPath}`,
+    );
+  }
+
+  for (const filePath of bareImports) {
+    const bundledImport = path
+      .relative(path.dirname(filePath), bundledYjsPath)
+      .split(path.sep)
+      .join("/");
+    const relativeBundledImport = bundledImport.startsWith(".")
+      ? bundledImport
+      : `./${bundledImport}`;
+    const source = fs.readFileSync(filePath, "utf-8");
+    fs.writeFileSync(
+      filePath,
+      source.replace(
+        /(\b(?:from\s*|import\s*\(\s*|import\s*))(["'])yjs\2/g,
+        (_match, importPrefix: string, quote: string) =>
+          `${importPrefix}${quote}${relativeBundledImport}${quote}`,
+      ),
+    );
+  }
+
+  return bareImports;
+}
+
 export function assertSingleTemplateNetlifyBuildOutput(
   projectCwd: string,
 ): void {
@@ -2517,6 +2584,23 @@ export function assertSingleTemplateNetlifyBuildOutput(
         "Netlify server entry must keep preferStatic: true so /assets/* is served from dist before the SSR catch-all",
       );
     }
+  }
+
+  // Netlify's function packager does not install arbitrary runtime package
+  // imports left in Nitro chunks. A bare Yjs import here would deploy
+  // successfully but fail on the first SSR request with ERR_MODULE_NOT_FOUND.
+  // Keep this check adjacent to the output guard so both local builds and CI
+  // reject that artifact before it reaches Netlify.
+  const bareYjsImports: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (hasBareYjsRuntimeImport(fs.readFileSync(filePath, "utf-8"))) {
+      bareYjsImports.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (bareYjsImports.length > 0) {
+    failures.push(
+      `Netlify server bundle leaves yjs as a runtime import: ${bareYjsImports.join(", ")}`,
+    );
   }
 
   if (isDurableBackgroundDeployEnabled()) {
@@ -2970,6 +3054,32 @@ const BROWSER_ONLY_SERVER_LIBS = [
 ];
 
 /**
+ * Dependencies that must be bundled into every Nitro server output instead of
+ * being left as runtime package imports.
+ *
+ * `yjs` is a direct core dependency, but it is deliberately externalized from
+ * the intermediate Vite SSR graph so that Vite and Nitro do not create two
+ * incompatible Yjs constructors. On file-traced serverless presets, leaving it
+ * external at Nitro's final build can emit `import "yjs"` into a function
+ * chunk without placing the package in that function's `node_modules`. Bundle
+ * it in Nitro's final output so every template receives the one portable copy.
+ */
+export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
+
+/**
+ * Edge runtimes have no node_modules, while Node/serverless outputs only need
+ * the small set above bundled to keep their package manifests traceable.
+ */
+export function nitroNoExternalsForPreset(
+  targetPreset: string,
+): true | readonly string[] {
+  return targetPreset.startsWith("cloudflare") ||
+    targetPreset.startsWith("deno")
+    ? true
+    : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
+}
+
+/**
  * Rolldown plugin for the Nitro server bundle that replaces the browser-only
  * renderers above with an inert proxy module.
  *
@@ -3124,11 +3234,11 @@ export default bundle;
       ? { plugins: [providedPluginsNitroPlugin] }
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
-    // For edge presets (cloudflare, deno), bundle all deps — node_modules
-    // aren't available at runtime. Netlify/Vercel/Node have node_modules.
-    ...(preset.startsWith("cloudflare") || preset.startsWith("deno")
-      ? { noExternals: true }
-      : {}),
+    // Edge presets (cloudflare, deno) bundle all deps because node_modules are
+    // unavailable at runtime. Node/serverless presets also bundle Yjs: Nitro's
+    // file tracer otherwise leaves a bare import that Netlify function bundles
+    // cannot resolve under pnpm.
+    noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
   await runNitroBuildPipeline({
@@ -3145,6 +3255,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    rewriteBareYjsImportsForServerlessOutput(nitro.options.output.serverDir);
   }
 
   // Durable background agent runs (default-OFF / opt-in; enable with a truthy

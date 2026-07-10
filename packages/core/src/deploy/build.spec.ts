@@ -25,6 +25,8 @@ import {
   getNodeBuiltinNames,
   isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
+  nitroNoExternalsForPreset,
+  rewriteBareYjsImportsForServerlessOutput,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -38,6 +40,19 @@ const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
   "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
+
+describe("nitroNoExternalsForPreset", () => {
+  it("bundles Yjs in Node/serverless output", () => {
+    expect(nitroNoExternalsForPreset("netlify")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("vercel")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
+  });
+
+  it("bundles every dependency for edge output", () => {
+    expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
+    expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
 
 function expectDefaultWorkerSsrCacheHeaders(response: Response) {
   expect(response.headers.get("cache-control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
@@ -1343,6 +1358,8 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     fs.mkdirSync(serverDir, { recursive: true });
     fs.writeFileSync(path.join(serverDir, "main.mjs"), "export default {};\n");
     fs.writeFileSync(path.join(serverDir, "server.mjs"), SERVER_ENTRY);
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "_libs", "yjs.mjs"), "export {};\n");
     return cwd;
   }
 
@@ -1562,6 +1579,50 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /preferStatic: true/,
     );
+  });
+
+  it("fails deploy output with a bare Yjs runtime import", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const collabChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "collab.mjs",
+    );
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.writeFileSync(collabChunk, 'import * as Y from "yjs";\nexport { Y };\n');
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves yjs as a runtime import/,
+    );
+  });
+
+  it("rewrites bare Yjs imports to the bundled server copy", () => {
+    const cwd = setupNetlifyOutput();
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.writeFileSync(
+      collabChunk,
+      'import * as Y from "yjs";\nconst dynamic = import("yjs");\nexport { Y, dynamic };\n',
+    );
+
+    expect(rewriteBareYjsImportsForServerlessOutput(serverDir)).toEqual([
+      collabChunk,
+    ]);
+    const rewritten = fs.readFileSync(collabChunk, "utf-8");
+    expect(rewritten).toContain('from "../_libs/yjs.mjs"');
+    expect(rewritten).toContain('import("../_libs/yjs.mjs")');
+    prepareSingleTemplateNetlifyOutput(cwd);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
 
   it("fails deploy output that would publish without client assets in dist", () => {
