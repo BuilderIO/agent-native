@@ -28,7 +28,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  data,
   type HeadersArgs,
   type LoaderFunctionArgs,
   type MetaFunction,
@@ -84,6 +83,7 @@ import {
   clipsSharePageTitle,
   displayRecordingTitle,
 } from "../../shared/share-meta";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
 
 type SharePageMetaRecording = {
   id: string;
@@ -104,10 +104,6 @@ type SharePageLoaderData = {
   shareUrl: string | null;
 };
 
-const PRIVATE_AGENT_SHARE_HEADERS = {
-  "Cache-Control": "private, max-age=0, no-store",
-  "Referrer-Policy": "no-referrer",
-};
 const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
 function emptyLoaderData(url: URL): SharePageLoaderData {
@@ -124,9 +120,7 @@ function shareLoaderData(
   privateAgentAccess = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return data(payload, {
-    headers: PRIVATE_AGENT_SHARE_HEADERS,
-  });
+  return privateShareLoaderData(payload);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -222,7 +216,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return emptyLoaderData(url);
+    if (!access) return privateShareLoaderData(emptyLoaderData(url));
   }
 
   const recording: SharePageMetaRecording = {

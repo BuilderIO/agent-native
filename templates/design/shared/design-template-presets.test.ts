@@ -21,6 +21,12 @@ describe("Design template presets", () => {
     );
     for (const preset of DESIGN_TEMPLATE_PRESETS) {
       expect(countLockedLayers(preset.content)).toBe(2);
+      expect(preset.content).toMatch(
+        /data-agent-native-node-id="template-background"[^>]*style=|style="[^"]*"[^>]*data-agent-native-node-id="template-background"/,
+      );
+      expect(preset.content).toMatch(
+        /data-agent-native-node-id="template-logo"[^>]*style=|style="[^"]*"[^>]*data-agent-native-node-id="template-logo"/,
+      );
     }
   });
 });
