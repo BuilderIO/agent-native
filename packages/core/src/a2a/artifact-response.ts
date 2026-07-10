@@ -232,6 +232,7 @@ function documentUrlForId(
   parsed: Record<string, unknown>,
   id: string,
   additionalCandidates: Array<string | undefined> = [],
+  options: { requireContentOrigin?: boolean } = {},
 ): string | undefined {
   const candidates = [
     stringValue(parsed.url),
@@ -242,9 +243,18 @@ function documentUrlForId(
     ...additionalCandidates,
   ].filter((value): value is string => !!value);
 
-  return candidates.find((candidate) =>
-    artifactUrlReferencesId(candidate, "document", id),
-  );
+  return candidates.find((candidate) => {
+    if (!artifactUrlReferencesId(candidate, "document", id)) return false;
+    return !options.requireContentOrigin || isContentDocumentUrl(candidate);
+  });
+}
+
+function isContentDocumentUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).origin === "https://content.agent-native.com";
+  } catch {
+    return false;
+  }
 }
 
 function addDocumentReadArtifact(
@@ -253,12 +263,15 @@ function addDocumentReadArtifact(
   options: {
     allowWithoutUrl: boolean;
     additionalUrlCandidates?: Array<string | undefined>;
+    requireContentOrigin?: boolean;
   },
 ): void {
   const id = stringValue(parsed.documentId) ?? stringValue(parsed.id);
   if (!id) return;
 
-  const url = documentUrlForId(parsed, id, options.additionalUrlCandidates);
+  const url = documentUrlForId(parsed, id, options.additionalUrlCandidates, {
+    requireContentOrigin: options.requireContentOrigin,
+  });
   if (!url && !options.allowWithoutUrl) return;
 
   documents.set(id, {
@@ -320,12 +333,16 @@ function addGenericDocumentReadArtifact(
   // Unknown read actions are accepted only when their result pairs a document
   // ID with a canonical page URL containing that exact ID. An ID by itself is
   // insufficient, preserving the fabrication guard for unrelated actions.
-  addDocumentReadArtifact(documents, parsed, { allowWithoutUrl: false });
+  addDocumentReadArtifact(documents, parsed, {
+    allowWithoutUrl: false,
+    requireContentOrigin: true,
+  });
 
   const document = asRecord(parsed.document);
   if (!document) return;
   addDocumentReadArtifact(documents, document, {
     allowWithoutUrl: false,
+    requireContentOrigin: true,
     additionalUrlCandidates: [
       stringValue(parsed.url),
       stringValue(parsed.urlPath),

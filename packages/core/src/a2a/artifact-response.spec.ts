@@ -631,6 +631,27 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("does not let a generic read result prove a document URL on another origin", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain(
+      "https://content.agent-native.com/page/doc_read",
+    );
+  });
+
   it("does not let a generic read result prove a mismatched document URL", () => {
     const text = appendA2AArtifactLinks(
       "Document: https://content.agent-native.com/page/doc_fake",
