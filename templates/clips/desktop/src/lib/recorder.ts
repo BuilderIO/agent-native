@@ -3597,11 +3597,12 @@ async function startRecordingInner(
       // `recorder.stop()` has already been requested, so recorded duration is
       // fixed even if launching the browser takes a moment. Open the existing
       // recording row now and let its page poll while upload/finalize continues.
-      try {
-        await openExternal(absoluteViewUrl);
-      } catch (err) {
-        console.error("[clips-recorder] openExternal failed:", err);
-      }
+      //
+      // This must claim the native upload-open slot before launching. The
+      // Finalizing overlay receives the completion event later and uses the
+      // same claim; without it, browser recordings opened once here and then a
+      // second time when finalization completed.
+      await openNativeUploadUrl(id, absoluteViewUrl);
       await recorderStopped;
       // Recorder has fully stopped and flushed its trailing chunk — this is the
       // true end of recorded content. Everything after (transcript, thumbnail,
