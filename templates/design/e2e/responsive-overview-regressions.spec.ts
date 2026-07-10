@@ -422,18 +422,31 @@ test("add duplicate undo and redo keep the created screen selected and visible",
             const target = document
               .querySelector(`[data-frame-id="${CSS.escape(targetId)}"]`)
               ?.querySelector("[data-screen-card]");
-            if (!world?.parentElement || !target) return false;
+            if (!world?.parentElement || !target) {
+              return JSON.stringify({
+                intersects: false,
+                targetId,
+                availableFrameIds: Array.from(
+                  document.querySelectorAll("[data-frame-id]"),
+                ).map((node) => node.getAttribute("data-frame-id")),
+              });
+            }
             const canvas = world.parentElement.getBoundingClientRect();
             const card = target.getBoundingClientRect();
-            return (
-              card.right > canvas.left &&
-              card.left < canvas.right &&
-              card.bottom > canvas.top &&
-              card.top < canvas.bottom
-            );
+            return JSON.stringify({
+              intersects:
+                card.right > canvas.left &&
+                card.left < canvas.right &&
+                card.bottom > canvas.top &&
+                card.top < canvas.bottom,
+              targetId,
+              canvas: canvas.toJSON(),
+              card: card.toJSON(),
+              worldTransform: getComputedStyle(world).transform,
+            });
           }, screenId),
         )
-        .toBe(true);
+        .toContain('"intersects":true');
       await page.waitForTimeout(250);
       expect(
         new Set(cameraTransforms.filter(Boolean)).size,

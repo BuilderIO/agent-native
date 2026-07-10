@@ -4464,8 +4464,9 @@ function DesignEditor() {
   // Synchronous per-file content lineage for repeated paste/undo cycles. A
   // save acknowledgement may clear the generic pending-local map before the
   // React query/collab mirrors have rendered its content, leaving a brief
-  // stale-base gap. Keep the last locally-applied document until an
-  // authoritative external `updatedAt` snapshot arrives.
+  // stale-base gap. Keep this mirror current for both local applications and
+  // authoritative host-sync snapshots; the latter replaces, rather than
+  // clears, the known content so there is never an undefined gap.
   const latestClipboardMutationContentRef = useRef<Map<string, string>>(
     new Map(),
   );
@@ -11346,14 +11347,7 @@ function DesignEditor() {
         });
         return;
       }
-      if (options.updatedAt) {
-        latestClipboardMutationContentRef.current.delete(activeFile.id);
-      } else {
-        latestClipboardMutationContentRef.current.set(
-          activeFile.id,
-          nextContent,
-        );
-      }
+      latestClipboardMutationContentRef.current.set(activeFile.id, nextContent);
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11570,11 +11564,7 @@ function DesignEditor() {
         });
         return;
       }
-      if (options.updatedAt) {
-        latestClipboardMutationContentRef.current.delete(fileId);
-      } else {
-        latestClipboardMutationContentRef.current.set(fileId, nextContent);
-      }
+      latestClipboardMutationContentRef.current.set(fileId, nextContent);
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       if (
