@@ -72,11 +72,13 @@ function OptionQuestion({
   property,
   value,
   invalid,
+  errorId,
   onChange,
 }: {
   property: DocumentProperty;
   value: unknown;
   invalid: boolean;
+  errorId?: string;
   onChange: (value: DocumentPropertyValue) => void;
 }) {
   const t = useT();
@@ -107,6 +109,7 @@ function OptionQuestion({
           type="button"
           variant="outline"
           aria-invalid={invalid}
+          aria-describedby={invalid ? errorId : undefined}
           className="h-auto min-h-9 w-full justify-between gap-2 px-3 py-1.5 font-normal"
         >
           <span className="flex min-w-0 flex-1 flex-wrap gap-1">
@@ -163,11 +166,13 @@ function PropertyQuestion({
   property,
   value,
   invalid,
+  errorId,
   onChange,
 }: {
   property: DocumentProperty;
   value: unknown;
   invalid: boolean;
+  errorId?: string;
   onChange: (value: DocumentPropertyValue) => void;
 }) {
   const t = useT();
@@ -179,6 +184,7 @@ function PropertyQuestion({
         property={property}
         value={value}
         invalid={invalid}
+        errorId={errorId}
         onChange={onChange}
       />
     );
@@ -192,6 +198,7 @@ function PropertyQuestion({
         role="checkbox"
         aria-checked={checked}
         aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
         className="flex h-9 w-full items-center gap-2 rounded-md border border-input px-3 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => onChange(!checked)}
       >
@@ -221,6 +228,7 @@ function PropertyQuestion({
               : ""
         }
         aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
         placeholder={
           type === "blocks"
             ? t("database.formLongAnswerPlaceholder")
@@ -257,6 +265,7 @@ function PropertyQuestion({
       }
       value={typeof value === "number" || typeof value === "string" ? value : ""}
       aria-invalid={invalid}
+      aria-describedby={invalid ? errorId : undefined}
       onChange={(event) =>
         onChange(
           type === "number"
@@ -390,6 +399,7 @@ export function DatabaseFormView({
                 property={property}
                 value={values[question.key]}
                 invalid={invalid}
+                errorId={errorId}
                 onChange={(value) =>
                   setValues((current) => ({ ...current, [question.key]: value }))
                 }

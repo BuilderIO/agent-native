@@ -3508,18 +3508,19 @@ async function startRecordingInner(
         await Promise.allSettled(pending);
       }
       inflight.clear();
-      // Ensure the local backup is fully written before we either delete it
-      // (on success) or leave it in place for recovery (on failure).
-      await Promise.allSettled([...backupWrites]);
       if (failed) {
-        console.error("[clips-recorder] chunk upload failed:", failed);
-        await markBrowserRecordingBackupError(id, failed.message).catch(
-          () => {},
-        );
-        await abortRecordingUpload(params.serverUrl, id, failed.message);
-        invoke("hide_finalizing").catch((err) =>
-          console.error("[clips-recorder] hide_finalizing failed:", err),
-        );
+        try {
+          // Keep the guard until the final metadata and every trailing chunk
+          // backup are durable, even though this upload cannot be finalized.
+          await Promise.allSettled([...backupWrites]);
+          console.error("[clips-recorder] chunk upload failed:", failed);
+          await markBrowserRecordingBackupError(id, failed.message).catch(
+            () => {},
+          );
+          await abortRecordingUpload(params.serverUrl, id, failed.message);
+        } finally {
+          await releaseFinalizingFeedback();
+        }
         throw failed;
       }
 
@@ -3549,62 +3550,58 @@ async function startRecordingInner(
         uploadMode,
         anyFailed: !!failed,
       });
-      try {
-        const finalRes = await fetch(finalizeUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/octet-stream" },
-          credentials: "include",
-          body: finalBody,
-          signal: AbortSignal.timeout(FINALIZE_UPLOAD_TIMEOUT_MS),
-        });
-        const bodyText = await finalRes.text().catch(() => "");
-        console.log(
-          "[clips-recorder] finalize response:",
-          finalRes.status,
-          bodyText.slice(0, 500),
-        );
-        if (!finalRes.ok) {
-          throw new Error(
-            `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
-          );
-        }
-      } catch (err) {
-        console.error("[clips-recorder] finalize fetch failed:", err);
-        const error = err instanceof Error ? err : new Error(String(err));
-        if (
-          await recoverReadyRecordingAfterFinalizeError({
-            serverUrl: params.serverUrl,
-            recordingId: id,
-            authToken: params.authToken,
-          })
-        ) {
-          const viewUrl = `/r/${id}`;
+      return finalizeAfterDurableBackup({
+        // Opening the browser must not make the desktop look idle until every
+        // trailing backup write and the final metadata are durable.
+        ensureBackupDurable: async () => {
+          await Promise.allSettled([...backupWrites]);
+        },
+        attemptFinalize: async () => {
           try {
-            await openExternal(
-              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+            const finalRes = await fetch(finalizeUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/octet-stream" },
+              credentials: "include",
+              body: finalBody,
+              signal: AbortSignal.timeout(FINALIZE_UPLOAD_TIMEOUT_MS),
+            });
+            const bodyText = await finalRes.text().catch(() => "");
+            console.log(
+              "[clips-recorder] finalize response:",
+              finalRes.status,
+              bodyText.slice(0, 500),
             );
-          } catch (openErr) {
-            console.error("[clips-recorder] openExternal failed:", openErr);
+            if (!finalRes.ok) {
+              throw new Error(
+                `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
+              );
+            }
+          } catch (err) {
+            console.error("[clips-recorder] finalize fetch failed:", err);
+            const error = err instanceof Error ? err : new Error(String(err));
+            if (
+              await recoverReadyRecordingAfterFinalizeError({
+                serverUrl: params.serverUrl,
+                recordingId: id,
+                authToken: params.authToken,
+              })
+            ) {
+              return { recordingId: id, viewUrl };
+            }
+            await markBrowserRecordingBackupError(id, error.message).catch(
+              () => {},
+            );
+            await abortRecordingUpload(params.serverUrl, id, error.message);
+            throw error;
           }
-          invoke("hide_finalizing").catch((hideErr) =>
-            console.error("[clips-recorder] hide_finalizing failed:", hideErr),
-          );
-          return { recordingId: id, viewUrl };
-        }
-        await markBrowserRecordingBackupError(id, error.message).catch(
-          () => {},
-        );
-        await abortRecordingUpload(params.serverUrl, id, error.message);
-        invoke("hide_finalizing").catch((hideErr) =>
-          console.error("[clips-recorder] hide_finalizing failed:", hideErr),
-        );
-        throw error;
-      }
-      await deleteBrowserRecordingBackup(id).catch((err) => {
-        console.warn("[clips-recorder] local backup cleanup failed:", err);
-      });
+          await deleteBrowserRecordingBackup(id).catch((err) => {
+            console.warn("[clips-recorder] local backup cleanup failed:", err);
+          });
 
-      return { recordingId: id, viewUrl };
+          return { recordingId: id, viewUrl };
+        },
+        releaseGuard: releaseFinalizingFeedback,
+      });
     },
 
     async cancel() {

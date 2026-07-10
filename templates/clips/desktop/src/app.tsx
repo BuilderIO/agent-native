@@ -2361,10 +2361,11 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
-        // Detach the React Start/bubble gate immediately. Native stop already
-        // released the camera and cleared Rust `is_recording_active` mid-
-        // finalize; keeping `recorder` set through the whole upload made
-        // reopen show a blank preview and made Start a silent no-op.
+        // Detach the React Start/bubble gate immediately. The recorder keeps
+        // Rust `is_recording_active` and the finalizing overlay guarded until
+        // its durable backup/finalize boundary; keeping this React handle set
+        // through the whole upload made reopen show a blank preview and made
+        // Start a silent no-op.
         const handle = recorder;
         recordingStopFinalizingRef.current = true;
         bubbleStreamTransferredToRecorder.current = false;
