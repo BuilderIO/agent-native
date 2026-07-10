@@ -227,54 +227,25 @@ This interface is deliberately the seam for a future remote/durable sandbox. A r
 
 Register it under a new `AGENT_NATIVE_SANDBOX` value (e.g. `remote`) and/or via `registerSandboxAdapter()`. The agent loop and `run-code.ts` never change.
 
-> [!TIP]
-> The `agent-native add sandbox docker` blueprint emits a full, self-contained recipe for implementing a Docker adapter against this seam. See [Blueprint Installer](/docs/blueprint-installer).
+<Callout id="doc-block-adap1tip" tone="info">
 
-# CLI Adapters
+The `agent-native add sandbox docker` blueprint emits a full, self-contained recipe for implementing a Docker adapter against this seam. See [Blueprint Installer](/docs/blueprint-installer).
 
-The other adapter seam wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Every CLI adapter implements `CliAdapter`:
+</Callout>
 
-```ts
-import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+## CLI Adapters {#cli-adapters}
 
-interface CliAdapter {
-  name: string; // "gh", "stripe", "ffmpeg"
-  description: string; // What the agent sees during discovery
-  isAvailable(): Promise<boolean>;
-  execute(args: string[]): Promise<CliResult>;
-}
+The other adapter seam wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) behind a `CliAdapter` contract, so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result.
 
-interface CliResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-```
-
-For most CLIs, `ShellCliAdapter` wraps any binary with sensible defaults, and `CliRegistry` collects adapters for runtime discovery:
-
-```ts
-import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
-
-const cliRegistry = new CliRegistry();
-cliRegistry.register(
-  new ShellCliAdapter({
-    command: "gh",
-    description: "GitHub CLI — manage repos, PRs, issues, and releases",
-  }),
-);
-
-await cliRegistry.describe(); // [{ name, description, available }] for discovery
-const gh = cliRegistry.get("gh");
-const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
-```
-
-Wrap a CLI call in `defineAction` to expose it on the action surface. See the [CLI Adapters](/docs/cli-adapters) quick reference for `ShellCliAdapter` options, custom adapters, and the action-wrapping pattern.
+See [CLI Adapters](/docs/cli-adapters) for the `CliAdapter` contract, `ShellCliAdapter`, `CliRegistry`, and the action-wrapping pattern — this page only covers the seam it shares with sandbox adapters.
 
 ## Edge and serverless {#edge-serverless}
 
-> [!WARNING]
-> Both adapter seams rely on Node.js system bindings. The sandbox `LocalChildProcessAdapter` and CLI adapters (`ShellCliAdapter` and custom adapters) use `node:child_process` (`execFile` / `spawn`), which **does not exist** on edge/worker runtimes such as Cloudflare Workers or Netlify Edge Functions. If you deploy server routes to these edge presets, executing these adapters throws a runtime exception. Run adapter endpoints and tasks in a standard Node.js environment (traditional server containers or serverless Node functions) — or, for the sandbox seam, register a remote adapter that ships work out of process.
+<Callout id="doc-block-adap1edge" tone="warning">
+
+Both adapter seams rely on Node.js system bindings. The sandbox `LocalChildProcessAdapter` and CLI adapters (`ShellCliAdapter` and custom adapters) use `node:child_process` (`execFile` / `spawn`), which **does not exist** on edge/worker runtimes such as Cloudflare Workers or Netlify Edge Functions. If you deploy server routes to these edge presets, executing these adapters throws a runtime exception. Run adapter endpoints and tasks in a standard Node.js environment (traditional server containers or serverless Node functions) — or, for the sandbox seam, register a remote adapter that ships work out of process.
+
+</Callout>
 
 ## What's next
 

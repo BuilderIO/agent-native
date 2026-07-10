@@ -325,18 +325,7 @@ Templates can add a comments system with threaded discussions on documents. The 
 - Agent actions: `list-comments`, `add-comment`
 - Notion comment sync: `sync-notion-comments` action for bidirectional pull/push
 
-## Collab routes {#collab-routes}
-
-All collab routes are auto-mounted under `/_agent-native/collab/` by the collab plugin:
-
-| Route                         | Purpose                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | Fetch full Y.Doc state (base64)          |
-| `POST /:docId/update`         | Apply client Yjs update                  |
-| `POST /:docId/text`           | Apply full text replacement (diff-based) |
-| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment   |
-| `POST /:docId/awareness`      | Sync cursor/presence state               |
-| `GET /:docId/users`           | List active users on a document          |
+All collab routes are auto-mounted under `/_agent-native/collab/` — see the [route table](#routes) for the full list.
 
 ## Agent edit action {#edit-document}
 
@@ -352,8 +341,6 @@ pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 # Delete text
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
-
----
 
 ## Presence Kit {#presence-kit}
 
@@ -423,7 +410,7 @@ import {
 
 ### Fast awareness {#fast-awareness}
 
-Awareness state changes now propagate at ~150ms instead of the 2s poll cycle:
+Awareness state changes propagate at ~150ms instead of waiting for the full poll cycle:
 
 - **Client → server**: any call to `setPresence()` or `awareness.setLocalStateField()` triggers a throttled POST to `/_agent-native/collab/:docId/awareness` within 150ms, coalescing rapid changes into one request.
 - **Server → clients**: the `postAwareness` handler emits an `AWARENESS_CHANGE_EVENT` after storing. The `/_agent-native/poll-events` SSE stream forwards these events push-style to connected peers. Polling-only deployments continue to work — cursors degrade to poll cadence without errors.
@@ -569,8 +556,6 @@ try {
 ```
 
 The selection metadata flows through `usePresence` on connected clients as `other.presence.selection`.
-
----
 
 ## Route table {#routes}
 
