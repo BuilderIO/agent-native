@@ -47,9 +47,9 @@ const SKIP_SUBSTRINGS = [
 ];
 
 let installed = false;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 let demoEnabled = false;
 let originalFetch: typeof fetch | null = null;
+let refreshPromise: Promise<void> | null = null;
 
 // Set once the first demo-status check completes. We DO NOT block requests on
 // it — if status isn't known yet a response is simply passed through
@@ -105,8 +105,21 @@ async function refreshDemoFlag(): Promise<void> {
   }
 }
 
+/** Refresh demo mode after the shared DB-sync stream reports a real change. */
+export function refreshDemoModeFetchInterceptor(): Promise<void> {
+  if (!installed) return Promise.resolve();
+  if (!refreshPromise) {
+    refreshPromise = refreshDemoFlag().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 /**
- * Install the demo-mode fetch interceptor and start polling demo status.
+ * Install the demo-mode fetch interceptor and read demo status once. Later
+ * changes are driven by the shared DB-sync transport instead of a separate
+ * fixed polling loop.
  * Idempotent and browser-only — safe to call from any hook that runs in
  * every template root (we call it from `useDbSync`). A no-op until demo
  * mode is actually on.
@@ -173,13 +186,5 @@ export function ensureDemoModeFetchInterceptor(): void {
     }
   };
 
-  void refreshDemoFlag();
-  pollTimer = setInterval(() => void refreshDemoFlag(), 4_000);
-  if (typeof pollTimer === "object" && "unref" in pollTimer) {
-    try {
-      (pollTimer as unknown as { unref: () => void }).unref();
-    } catch {
-      // unref unavailable in the browser — fine, interval is cheap.
-    }
-  }
+  void refreshDemoModeFetchInterceptor();
 }

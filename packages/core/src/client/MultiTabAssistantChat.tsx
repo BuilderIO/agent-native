@@ -62,6 +62,7 @@ import { isTrustedFrameMessage } from "./frame.js";
 import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
+import { useChangeVersion } from "./use-change-version.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -2246,13 +2247,15 @@ export function MultiTabAssistantChat({
     }
   }, []);
 
-  // Watch for agent-issued chat-command in application-state
+  // Watch for agent-issued chat-command in application-state. The shared
+  // DB-sync transport advances this key-specific version, so the command gets
+  // one initial read and one read per actual write instead of a 2s loop.
   const lastChatCommandRef = useRef(0);
+  const chatCommandVersion = useChangeVersion("app-state:chat-command");
   useEffect(() => {
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function pollChatCommand() {
+    async function readChatCommand() {
       if (stopped) return;
       try {
         const res = await fetch(
@@ -2268,9 +2271,9 @@ export function MultiTabAssistantChat({
             lastChatCommandRef.current = data.value.timestamp;
             const threadId = data.value.threadId as string;
             // Open the thread as a tab and focus it
-            if (!openTabIds.includes(threadId)) {
-              setOpenTabIds((prev) => [...prev, threadId]);
-            }
+            setOpenTabIds((prev) =>
+              prev.includes(threadId) ? prev : [...prev, threadId],
+            );
             switchThread(threadId);
             // Clear the command
             fetch(
@@ -2283,17 +2286,13 @@ export function MultiTabAssistantChat({
           }
         }
       } catch {}
-      if (!stopped) {
-        timer = setTimeout(pollChatCommand, 2000);
-      }
     }
 
-    pollChatCommand();
+    void readChatCommand();
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
     };
-  }, [openTabIds, switchThread]);
+  }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {

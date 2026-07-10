@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  ensureDemoModeFetchInterceptor,
+  refreshDemoModeFetchInterceptor,
+} from "../demo/fetch-interceptor.js";
 import { agentNativePath } from "./api-path.js";
 import {
   ensureEmbedAuthFetchInterceptor,
@@ -21,6 +24,7 @@ interface QueryClient {
 
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 15_000;
+const IDLE_POLL_INTERVAL_MS = 15_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
@@ -192,6 +196,10 @@ interface TransportSubscription {
    * subscribers so the most-frequent caller is satisfied.
    */
   interval: number;
+  /** Requested poll interval while the tab has no active agent/collab work. */
+  idleInterval: number;
+  /** Keeps the shared transport on the active cadence while mounted. */
+  active: boolean;
   /** Requested fallback interval while SSE is connected. */
   fallbackInterval: number;
   /**
@@ -213,6 +221,7 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private activeChatIds = new Set<string>();
 
   constructor(
     private readonly pollUrl: string,
@@ -225,10 +234,17 @@ class SyncTransport {
 
   add(id: symbol, sub: TransportSubscription): void {
     const wasEmpty = this.subscribers.size === 0;
+    const wasActive = this.isActive;
     this.subscribers.set(id, sub);
     if (wasEmpty) {
       this.stopped = false;
       this.start();
+    } else if (!wasActive && this.isActive) {
+      // A collab surface (or other active subscriber) just joined. Catch up
+      // immediately rather than waiting out an idle-cadence timer.
+      this.pollNow();
+    } else {
+      this.reschedule();
     }
     sub.onSseStateChange?.(this.sseConnected);
   }
@@ -264,6 +280,22 @@ class SyncTransport {
     return isFinite(min) ? min : 2000;
   }
 
+  private get effectiveIdleInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.idleInterval < min) min = sub.idleInterval;
+    }
+    return isFinite(min) ? min : IDLE_POLL_INTERVAL_MS;
+  }
+
+  private get isActive(): boolean {
+    if (this.activeChatIds.size > 0) return true;
+    for (const sub of this.subscribers.values()) {
+      if (sub.active) return true;
+    }
+    return false;
+  }
+
   private get effectiveFallbackInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -277,6 +309,15 @@ class SyncTransport {
   // -------------------------------------------------------------------------
 
   private fan(events: SyncEvent[], version: number | undefined): void {
+    if (
+      events.some(
+        (event) =>
+          event.source === "app-state" &&
+          (event.key === "demo-mode" || event.key === "*"),
+      )
+    ) {
+      void refreshDemoModeFetchInterceptor();
+    }
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version);
     }
@@ -310,9 +351,11 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const base = this.sseConnected
-      ? this.effectiveFallbackInterval
-      : this.effectiveInterval;
+    const base = this.isActive
+      ? this.effectiveInterval
+      : this.sseConnected
+        ? this.effectiveFallbackInterval
+        : this.effectiveIdleInterval;
     // Exponential backoff while polls keep failing (500s during a deploy,
     // DNS blips, a struggling DB). Auth failures have their own cooldown
     // above; this covers everything else so a down server isn't hammered at
@@ -461,6 +504,40 @@ class SyncTransport {
     this.pollNow();
   };
 
+  private handleChatRunning = (event: Event): void => {
+    const detail = (
+      event as CustomEvent<{
+        isRunning?: unknown;
+        running?: unknown;
+        tabId?: unknown;
+      }>
+    ).detail;
+    const running =
+      typeof detail?.isRunning === "boolean"
+        ? detail.isRunning
+        : typeof detail?.running === "boolean"
+          ? detail.running
+          : null;
+    if (running === null) return;
+
+    const id =
+      typeof detail?.tabId === "string" && detail.tabId
+        ? detail.tabId
+        : "__default__";
+    const wasActive = this.isActive;
+    if (running) this.activeChatIds.add(id);
+    else this.activeChatIds.delete(id);
+    if (wasActive === this.isActive) return;
+
+    if (this.isActive) {
+      // Run start is a high-signal indication that cross-process writes are
+      // imminent. Catch up now, then stay on the active cadence.
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+  };
+
   private start(): void {
     // Universal demo-mode redaction for the UI. Idempotent + browser-only +
     // a no-op until demo mode is on. Lives here because every template root
@@ -473,6 +550,7 @@ class SyncTransport {
       void this.poll();
     }
     window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
   }
 
@@ -484,6 +562,10 @@ class SyncTransport {
       this.timer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener(
+      "agentNative.chatRunning",
+      this.handleChatRunning,
+    );
     document.removeEventListener(
       "visibilitychange",
       this.handleVisibilityChange,
@@ -543,6 +625,10 @@ export interface SubscribeSyncEventsOptions {
    * useDbSync (mounted by every template root) already sets the pace.
    */
   interval?: number;
+  /** Poll cadence while this subscriber is idle. Defaults to `interval`. */
+  idleInterval?: number;
+  /** Keep the shared transport on the active cadence while subscribed. */
+  active?: boolean;
   fallbackInterval?: number;
 }
 
@@ -568,6 +654,8 @@ export function subscribeSyncEvents(
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? true,
     interval: options.interval ?? 60_000,
+    idleInterval: options.idleInterval ?? options.interval ?? 60_000,
+    active: options.active ?? false,
     fallbackInterval: options.fallbackInterval ?? 60_000,
   });
   return () => {
@@ -597,6 +685,9 @@ export function subscribeSyncEvents(
  *   Pass false to disable SSE and use polling only.
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
+ * @param options.idleInterval - Poll interval when no agent run or active
+ *   subscriber needs low latency. Default: 15000 (or `interval` when callers
+ *   explicitly override the active interval for backwards compatibility).
  * @param options.fallbackInterval - Poll interval while SSE is connected.
  *   Default: 15000
  * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
@@ -622,6 +713,7 @@ export function useDbSync(
     eventsUrl?: string;
     onEvent?: (data: any) => void;
     interval?: number;
+    idleInterval?: number;
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
     ignoreSource?: string;
@@ -634,6 +726,11 @@ export function useDbSync(
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
+    idleInterval = Math.max(
+      options.idleInterval ??
+        (options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval),
+      interval,
+    ),
     fallbackInterval = Math.max(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
@@ -742,7 +839,12 @@ export function useDbSync(
       for (const evt of relevant) {
         const src = typeof evt.source === "string" ? evt.source : "";
         const ver = typeof evt.version === "number" ? evt.version : 0;
-        if (src && ver > 0) bumpChangeVersion(src, ver);
+        if (src && ver > 0) {
+          bumpChangeVersion(src, ver);
+          if (typeof evt.key === "string" && evt.key) {
+            bumpChangeVersion(`${src}:${evt.key}`, ver);
+          }
+        }
       }
 
       // Awareness (cursor/presence) events never change action/extension/
@@ -796,7 +898,12 @@ export function useDbSync(
           const hasDataChangingEvent = invalidating.some(
             (evt) => evt.source !== "app-state",
           );
-          if (hasDataChangingEvent) {
+          // The broad action invalidate above already covers every fixed
+          // framework prefix. Re-invalidating ["action"] immediately after it
+          // cancels/restarts the same active reads and creates a duplicate
+          // request wave. Keep the fixed-prefix pass for non-action sources;
+          // action batches get exactly one compatibility invalidation.
+          if (hasDataChangingEvent && !hasActionEvent) {
             queryClient.invalidateQueries({ queryKey: ["action"] });
             queryClient.invalidateQueries({ queryKey: ["extension"] });
             queryClient.invalidateQueries({ queryKey: ["extensions"] });
@@ -856,6 +963,8 @@ export function useDbSync(
       onEvents,
       pauseWhenHidden,
       interval,
+      idleInterval,
+      active: false,
       fallbackInterval,
     });
 
@@ -880,6 +989,7 @@ export function useDbSync(
     sseUrl,
     queryClient,
     interval,
+    idleInterval,
     fallbackInterval,
     pauseWhenHidden,
   ]);
@@ -912,6 +1022,7 @@ export function useScreenRefreshKey(
     pollUrl?: string;
     sseUrl?: string | false;
     interval?: number;
+    idleInterval?: number;
     fallbackInterval?: number;
     pauseWhenHidden?: boolean;
   } = {},
@@ -920,6 +1031,11 @@ export function useScreenRefreshKey(
     pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll"),
     sseUrl = resolveSseUrl(options.sseUrl),
     interval = 2000,
+    idleInterval = Math.max(
+      options.idleInterval ??
+        (options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval),
+      interval,
+    ),
     fallbackInterval = Math.max(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
@@ -958,6 +1074,8 @@ export function useScreenRefreshKey(
       onEvents,
       pauseWhenHidden,
       interval,
+      idleInterval,
+      active: false,
       fallbackInterval,
     });
 
@@ -967,7 +1085,14 @@ export function useScreenRefreshKey(
         releaseTransport(pollUrl, sseUrl);
       }
     };
-  }, [pollUrl, sseUrl, interval, fallbackInterval, pauseWhenHidden]);
+  }, [
+    pollUrl,
+    sseUrl,
+    interval,
+    idleInterval,
+    fallbackInterval,
+    pauseWhenHidden,
+  ]);
 
   return key;
 }

@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useChangeVersion } from "../use-change-version.js";
 
 interface DemoStatus {
   enabled?: boolean;
@@ -30,9 +31,10 @@ const DEMO_MODE_WRITE_URL = agentNativePath(
 
 export function DemoModeSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const demoModeVersion = useChangeVersion("app-state:demo-mode");
 
   const { data } = useQuery({
-    queryKey: ["agent-native", "demo-mode"],
+    queryKey: ["agent-native", "demo-mode", demoModeVersion],
     queryFn: async () => {
       const res = await fetch(DEMO_STATUS_URL, {
         credentials: "same-origin",
@@ -40,8 +42,7 @@ export function DemoModeSection() {
       if (!res.ok) return null;
       return (await res.json()) as DemoStatus | null;
     },
-    refetchInterval: 4_000,
-    staleTime: 2_000,
+    staleTime: Infinity,
   });
 
   const serverEnabled = data?.enabled;
