@@ -191,32 +191,6 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(html).toContain("letter-spacing: 1px");
       },
     );
-    await expect
-      .poll(async () =>
-        page.evaluate(() => {
-          const entries = (
-            window as typeof window & {
-              __designClipboardLineageForQa?: () => Array<
-                [string, { content: string; mutationId: number }]
-              >;
-            }
-          ).__designClipboardLineageForQa?.();
-          const target = entries?.find(([, value]) =>
-            value.content.includes("Target Screen"),
-          )?.[1];
-          return target
-            ? {
-                cards:
-                  target.content.split(
-                    'data-agent-native-layer-name="Copy Card"',
-                  ).length - 1,
-                mutationId: target.mutationId,
-              }
-            : null;
-        }),
-      )
-      .toMatchObject({ cards: 0, mutationId: expect.any(Number) });
-
     // Rapid consecutive undo: paste two distinct clones from the same live
     // system clipboard, then remove the latest and the prior clone with two
     // immediate Cmd+Z presses.
@@ -308,7 +282,7 @@ test.describe("editor keyboard layer clipboard", () => {
     );
   });
 
-  test("keeps two responsive pastes distinct across a settled second undo", async ({
+  test("keeps two responsive pastes distinct across settled undo and redo", async ({
     page,
     request,
     baseURL,
@@ -321,7 +295,24 @@ test.describe("editor keyboard layer clipboard", () => {
     await gotoEditor(page, designId);
     await selectLayerRow(page, "Copy Card");
     await pressPrimaryShortcut(page, "c");
-    await selectScreenRow(page, "Target");
+    const createdDesign = await getDesign(request, baseURL, designId);
+    const targetFileId = createdDesign.files.find(
+      (file: { filename?: string }) => file.filename === "target.html",
+    )?.id;
+    expect(targetFileId).toBeTruthy();
+    await page.goto(
+      appPath(`/design/${designId}?view=overview&screen=${targetFileId}`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await expect(
+      designFrame(page, targetFileId).getByText("Target Screen", {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 30_000 });
 
     for (const expected of [1, 2]) {
       await pressPrimaryShortcut(page, "v");
@@ -363,6 +354,22 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(html).toContain("letter-spacing: 1px");
       },
     );
+
+    for (const expected of [1, 2]) {
+      await pressPrimaryShortcut(page, "z", { shift: true });
+      await expectFileContent(
+        request,
+        baseURL,
+        designId,
+        "target.html",
+        (html) => {
+          expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(
+            expected,
+          );
+          expect(count(html, "font-size: 22px")).toBe(expected);
+        },
+      );
+    }
   });
 
   test("pastes a nested selected layer on the same screen and another screen with fresh ids after reload", async ({

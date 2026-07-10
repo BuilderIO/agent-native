@@ -4479,19 +4479,6 @@ function DesignEditor() {
   >(new Map());
   const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
   const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    const debugWindow = window as typeof window & {
-      __designClipboardLineageForQa?: () => Array<
-        [string, ClipboardContentLineage]
-      >;
-    };
-    debugWindow.__designClipboardLineageForQa = () =>
-      Array.from(latestClipboardMutationContentRef.current.entries());
-    return () => {
-      delete debugWindow.__designClipboardLineageForQa;
-    };
-  }, []);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -11341,8 +11328,11 @@ function DesignEditor() {
       nextContent: string;
       origin: ClipboardContentMutationOrigin;
     }): ClipboardContentMutationPublication | null => {
+      const current = latestClipboardMutationContentRef.current.get(
+        args.fileId,
+      );
       const nextLineage = publishClipboardContentMutation({
-        current: latestClipboardMutationContentRef.current.get(args.fileId),
+        current,
         baseContentHash: sourceContentHash(args.baseContent),
         nextContent: args.nextContent,
         nextContentHash: sourceContentHash(args.nextContent),
@@ -11415,31 +11405,14 @@ function DesignEditor() {
         });
         return;
       }
-      if (options.clipboardMutation) {
-        acknowledgeAuthoritativeClipboardMutation({
-          fileId: activeFile.id,
-          nextContent,
-          publication: options.clipboardMutation,
-        });
-      } else if (!options.updatedAt && options.recordHistory !== false) {
-        // Existing user-edit callers publish at this central seam. The
-        // previous-content hash is a compare-and-swap guard: an edit computed
-        // from a pre-undo snapshot may still render, but cannot become the
-        // authoritative base for a later paste.
-        publishAuthoritativeClipboardMutation({
-          fileId: activeFile.id,
-          baseContent: previousContent,
-          nextContent,
-          origin: "user",
-        });
-      } else {
-        // Save/query/Yjs echoes and other untracked rewrites never advance
-        // lineage. Exact-content acknowledgements preserve the current id.
-        acknowledgeAuthoritativeClipboardMutation({
-          fileId: activeFile.id,
-          nextContent,
-        });
-      }
+      // No implicit authority from `recordHistory`: save/query/Yjs echoes can
+      // traverse this same function with history enabled. Only a publication
+      // allocated synchronously at a user-action boundary may advance lineage.
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId: activeFile.id,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11599,7 +11572,6 @@ function DesignEditor() {
       id,
       isSynced,
       markPendingLocalFileContent,
-      publishAuthoritativeClipboardMutation,
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
@@ -11661,22 +11633,11 @@ function DesignEditor() {
         });
         return;
       }
-      if (options.clipboardMutation) {
-        acknowledgeAuthoritativeClipboardMutation({
-          fileId,
-          nextContent,
-          publication: options.clipboardMutation,
-        });
-      } else if (!options.updatedAt && options.recordHistory !== false) {
-        publishAuthoritativeClipboardMutation({
-          fileId,
-          baseContent: previousContent,
-          nextContent,
-          origin: "user",
-        });
-      } else {
-        acknowledgeAuthoritativeClipboardMutation({ fileId, nextContent });
-      }
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       if (
@@ -11774,7 +11735,6 @@ function DesignEditor() {
       overviewIsSynced,
       overviewPresenceFileId,
       overviewYdoc,
-      publishAuthoritativeClipboardMutation,
       queryClient,
       recordContentHistoryEntry,
       saveFileContent,
@@ -16876,14 +16836,14 @@ function DesignEditor() {
           origin: "clipboard-paste",
         });
         if (!clipboardMutation) return false;
-        const usesOverviewHistory = viewModeRef.current === "overview";
-        if (usesOverviewHistory && nextContent !== baseContent) {
+        if (nextContent !== baseContent) {
           // Capture the exact immutable pre-paste document here, before the
           // optimistic cache/collab mirrors can advance independently. The
-          // generic update path may otherwise resolve its `previousContent`
-          // from a newer collab ref and collapse two rapid pastes into one
-          // overview history entry. DOM insertion + every remapped managed
-          // rule stay in this single before/after snapshot.
+          // dedicated stack owns paste history in both single and overview
+          // mode: generic Yjs/local history can be destroyed by a view switch
+          // and cannot publish the authoritative clipboard generation on
+          // undo. DOM insertion + every remapped managed rule stay in this
+          // single before/after snapshot.
           clipboardPasteUndoStackRef.current = [
             ...clipboardPasteUndoStackRef.current.slice(
               -(MAX_DESIGN_UNDO_STACK - 1),
@@ -16902,14 +16862,14 @@ function DesignEditor() {
           applyLocalContentUpdate(nextContent, {
             forcePreviewFullDocument: true,
             clipboardMutation,
-            ...(usesOverviewHistory ? { recordHistory: false } : {}),
+            recordHistory: false,
           });
           return true;
         }
         applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
           clipboardMutation,
-          ...(usesOverviewHistory ? { recordHistory: false } : {}),
+          recordHistory: false,
         });
         return true;
       };
