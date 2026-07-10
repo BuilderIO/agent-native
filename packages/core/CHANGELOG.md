@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.94.1
+
+### Patch Changes
+
+- bb1e5c8: Prevent delayed errors from older background runs from reappearing after a newer chat response succeeds.
+
 ## 0.94.0
 
 ### Minor Changes
