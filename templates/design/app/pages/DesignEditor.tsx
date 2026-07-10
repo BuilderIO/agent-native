@@ -11368,7 +11368,23 @@ function DesignEditor() {
       const clipboardLineage = latestClipboardMutationContentRef.current.get(
         activeFile.id,
       );
-      if (!options.updatedAt || !clipboardLineage) {
+      const clipboardUndoBaseline = clipboardUndoBaselineRef.current.get(
+        activeFile.id,
+      );
+      const explicitLocalMutation =
+        !options.updatedAt && options.recordHistory !== false;
+      if (explicitLocalMutation) {
+        clipboardUndoBaselineRef.current.delete(activeFile.id);
+      }
+      const staleUntrackedReplay =
+        clipboardUndoBaseline !== undefined &&
+        !options.updatedAt &&
+        options.recordHistory === false &&
+        nextContent !== clipboardUndoBaseline;
+      if (staleUntrackedReplay) {
+        // A pre-undo untracked rewrite arrived late. It is neither an explicit
+        // user mutation nor an acknowledgement of the current generation.
+      } else if (!options.updatedAt || !clipboardLineage) {
         latestClipboardMutationContentRef.current.set(activeFile.id, {
           content: nextContent,
           generation: (clipboardLineage?.generation ?? 0) + 1,
@@ -11597,7 +11613,21 @@ function DesignEditor() {
       }
       const clipboardLineage =
         latestClipboardMutationContentRef.current.get(fileId);
-      if (!options.updatedAt || !clipboardLineage) {
+      const clipboardUndoBaseline =
+        clipboardUndoBaselineRef.current.get(fileId);
+      const explicitLocalMutation =
+        !options.updatedAt && options.recordHistory !== false;
+      if (explicitLocalMutation) {
+        clipboardUndoBaselineRef.current.delete(fileId);
+      }
+      const staleUntrackedReplay =
+        clipboardUndoBaseline !== undefined &&
+        !options.updatedAt &&
+        options.recordHistory === false &&
+        nextContent !== clipboardUndoBaseline;
+      if (staleUntrackedReplay) {
+        // Same generation rule as the active-file path above.
+      } else if (!options.updatedAt || !clipboardLineage) {
         latestClipboardMutationContentRef.current.set(fileId, {
           content: nextContent,
           generation: (clipboardLineage?.generation ?? 0) + 1,
