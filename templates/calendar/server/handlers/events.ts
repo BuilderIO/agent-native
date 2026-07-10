@@ -43,10 +43,17 @@ async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
+  if (requestAccountEmail === ownerEmail) {
     return ownerEmail;
   }
   const status = await googleCalendar.getAuthStatus(ownerEmail);
+  if (!requestAccountEmail) {
+    return (
+      status.accounts.find((account) => account.email === ownerEmail)?.email ??
+      status.accounts[0]?.email ??
+      ownerEmail
+    );
+  }
   const isOwned = status.accounts.some((a) => a.email === requestAccountEmail);
   if (!isOwned) {
     throw new ForbiddenError("Account not owned by current user");
@@ -290,6 +297,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
+      account: { ownerEmail: email, accountEmail: acctEmail },
       addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
         addGoogleMeet:
           typeof addGoogleMeet === "boolean" ? addGoogleMeet : undefined,
@@ -372,7 +380,10 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
-      existingEvent ??= await googleCalendar.getEvent(googleEventId, acctEmail);
+      existingEvent ??= await googleCalendar.getEvent(googleEventId, {
+        ownerEmail: email,
+        accountEmail: acctEmail,
+      });
       return existingEvent;
     };
 
@@ -415,6 +426,7 @@ export const updateEvent = defineEventHandler(async (event: H3Event) => {
 
     try {
       const result = await googleCalendar.updateEvent(googleEventId, updates, {
+        account: { ownerEmail: email, accountEmail: acctEmail },
         sendUpdates:
           sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
         addGoogleMeet: addGoogleMeet === true,
@@ -521,7 +533,10 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
     const shouldNotifyGuests = !!guestNotificationMessage && !removeOnly;
     const effectiveSendUpdates = removeOnly ? "none" : sendUpdates;
     const eventForNotification = shouldNotifyGuests
-      ? await googleCalendar.getEvent(googleEventId, accountEmail)
+      ? await googleCalendar.getEvent(googleEventId, {
+          ownerEmail: email,
+          accountEmail,
+        })
       : undefined;
 
     try {
@@ -529,15 +544,19 @@ export const deleteEvent = defineEventHandler(async (event: H3Event) => {
         // Non-organizer: decline the event to remove from calendar
         await googleCalendar.removeEventFromCalendar(
           googleEventId,
-          accountEmail,
+          { ownerEmail: email, accountEmail },
           { scope, sendUpdates: effectiveSendUpdates },
         );
       } else {
         // Organizer: actually delete the event
-        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
-          scope,
-          sendUpdates: effectiveSendUpdates,
-        });
+        await googleCalendar.deleteEvent(
+          googleEventId,
+          { ownerEmail: email, accountEmail },
+          {
+            scope,
+            sendUpdates: effectiveSendUpdates,
+          },
+        );
       }
     } catch (error: any) {
       setResponseStatus(event, 500);
@@ -614,7 +633,7 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
       await googleCalendar.rsvpEvent(
         googleEventId,
         status,
-        acctEmail,
+        { ownerEmail: email, accountEmail: acctEmail },
         scope,
         note,
         sendUpdates,

@@ -58,7 +58,7 @@ export default defineAction({
     await googleCalendar.rsvpEvent(
       googleEventId,
       args.status,
-      accountEmail,
+      { ownerEmail, accountEmail },
       args.scope,
       args.note?.trim() ?? args.note,
       args.sendUpdates,

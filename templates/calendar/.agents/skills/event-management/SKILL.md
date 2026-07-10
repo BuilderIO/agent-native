@@ -85,7 +85,22 @@ pnpm action create-event \
 ```
 
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
-Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
+Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
+
+When multiple Google accounts are connected, choose the destination account's
+primary calendar with `--accountEmail`:
+
+```bash
+pnpm action create-event \
+  --title "Team standup" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T09:30:00 \
+  --accountEmail secondary@example.com
+```
+
+Creating without `accountEmail` is only unambiguous when one Google account is
+connected. The action does not support arbitrary non-primary Google calendar
+IDs.
 
 When attendees are invited and no video link/provider is supplied, Calendar
 automatically adds a Google Meet link by default. Pass `--addGoogleMeet=false`
@@ -179,10 +194,12 @@ location, attendees, reminders, attachments, color, and video provider.
 
 ### update-event
 
-Update an existing Google Calendar event. Use the event `id` from `list-events`, `search-events`, or `get-event`. If the event includes `accountEmail`, pass it through so multi-account calendars update the right connected account.
+Update an existing Google Calendar event. Use the event `id` from `list-events`,
+`search-events`, or `get-event`. Always preserve the event's `accountEmail` on
+the update so multi-account calendars use the right connected account.
 
 ```bash
-pnpm action update-event --id google-event-id --title "New title"
+pnpm action update-event --id google-event-id --accountEmail secondary@example.com --title "New title"
 pnpm action update-event --id google-event-id --start 2026-04-03T10:00:00 --end 2026-04-03T10:30:00
 
 # Replace attendee list (Google sends invites to anyone newly added)
@@ -232,10 +249,25 @@ pnpm action update-event \
 
 Delete an event if the user is the organizer, or remove it from their own calendar with `--removeOnly true` when they are not. For recurring events, use `--scope single`, `--scope all`, or `--scope thisAndFollowing`.
 
+Pass the event's `accountEmail` on deletes, including recurring-series choices
+and attendee removals, so the operation uses the account that owns the event.
+
 ```bash
-pnpm action delete-event --id google-event-id --scope single
+pnpm action delete-event --id google-event-id --accountEmail secondary@example.com --scope single
 pnpm action delete-event --id google-event-id --scope thisAndFollowing
 pnpm action delete-event --id google-event-id --removeOnly true
+```
+
+### rsvp-event
+
+Accept, decline, or tentatively accept an invitation with the event's
+`accountEmail`. Preserve it for recurring RSVP scope as well:
+
+```bash
+pnpm action rsvp-event \
+  --id google-event-id \
+  --accountEmail secondary@example.com \
+  --status accepted
 ```
 
 ## Date Patterns

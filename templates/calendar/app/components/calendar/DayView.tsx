@@ -50,8 +50,12 @@ interface DayViewProps {
     options?: { explicitDuration?: boolean },
   ) => void;
   quickEditEventId?: string | null;
-  onQuickEditSave?: (eventId: string, title: string) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -210,8 +214,12 @@ interface DayEventCardProps {
   onDeleteEvent: (eventId: string) => void;
   isDraft: boolean;
   defaultOpen: boolean;
-  onQuickEditSave?: (eventId: string, title: string) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: DayViewProps["onDraftUpdate"];
   onDraftCreate?: DayViewProps["onDraftCreate"];
   onDraftDiscard?: DayViewProps["onDraftDiscard"];

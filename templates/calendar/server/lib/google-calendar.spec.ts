@@ -11,6 +11,7 @@ const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
+const calendarDeleteEventMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
@@ -49,7 +50,7 @@ vi.mock("./google-api.js", () => ({
   calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
   calendarInsertEvent: calendarInsertEventMock,
-  calendarDeleteEvent: vi.fn(),
+  calendarDeleteEvent: calendarDeleteEventMock,
   calendarPatchEvent: calendarPatchEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
 }));
@@ -62,6 +63,9 @@ import {
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   createEvent,
+  deleteEvent,
+  getClientForAccount,
+  getDefaultAccountSelection,
   listEvents,
   listOverlayEvents,
   rsvpEvent,
@@ -486,31 +490,39 @@ describe("calendar event creation", () => {
   });
 
   it("sends attendee RSVP statuses when creating an event", async () => {
-    await createEvent({
-      id: "",
-      title: "Planning",
-      description: "",
-      location: "",
-      start: "2026-07-09T16:00:00.000Z",
-      end: "2026-07-09T16:30:00.000Z",
-      allDay: false,
-      source: "google",
-      accountEmail: "steve@example.com",
-      attendees: [
-        {
-          email: "steve@example.com",
-          organizer: true,
-          self: true,
-          responseStatus: "accepted",
+    await createEvent(
+      {
+        id: "",
+        title: "Planning",
+        description: "",
+        location: "",
+        start: "2026-07-09T16:00:00.000Z",
+        end: "2026-07-09T16:30:00.000Z",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        attendees: [
+          {
+            email: "steve@example.com",
+            organizer: true,
+            self: true,
+            responseStatus: "accepted",
+          },
+          {
+            email: "guest@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+        createdAt: "2026-07-09T15:00:00.000Z",
+        updatedAt: "2026-07-09T15:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
         },
-        {
-          email: "guest@example.com",
-          responseStatus: "needsAction",
-        },
-      ],
-      createdAt: "2026-07-09T15:00:00.000Z",
-      updatedAt: "2026-07-09T15:00:00.000Z",
-    });
+      },
+    );
 
     expect(calendarInsertEventMock).toHaveBeenCalledWith(
       "access-token",
@@ -571,7 +583,13 @@ describe("calendar recurring event updates", () => {
         start: "2026-05-20T16:00:00Z",
         end: "2026-05-20T17:00:00Z",
       },
-      { scope: "all" },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        scope: "all",
+      },
     );
 
     expect(calendarPatchEventMock).toHaveBeenCalledWith(
@@ -605,7 +623,10 @@ describe("calendar RSVP updates", () => {
     await rsvpEvent(
       "event-1",
       "declined",
-      "steve@example.com",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
       "single",
       "I have a conflict",
     );
@@ -629,7 +650,16 @@ describe("calendar RSVP updates", () => {
   });
 
   it("sends an empty comment so an RSVP note can be cleared", async () => {
-    await rsvpEvent("event-1", "accepted", "steve@example.com", "single", "");
+    await rsvpEvent(
+      "event-1",
+      "accepted",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+      "",
+    );
 
     expect(calendarPatchEventMock).toHaveBeenCalledWith(
       "access-token",
@@ -646,6 +676,108 @@ describe("calendar RSVP updates", () => {
         attendeesOmitted: true,
       },
       { sendUpdates: "none" },
+    );
+  });
+});
+
+describe("owner-aware Google Calendar writes", () => {
+  const ownerEmail = "owner@example.com";
+  const secondaryEmail = "secondary@example.com";
+  const account = { ownerEmail, accountEmail: secondaryEmail };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: ownerEmail,
+        tokens: {
+          access_token: "owner-access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: secondaryEmail,
+        tokens: {
+          access_token: "secondary-access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarInsertEventMock.mockResolvedValue({ id: "event-secondary" });
+    calendarPatchEventMock.mockResolvedValue({ id: "event-secondary" });
+    calendarDeleteEventMock.mockResolvedValue(undefined);
+  });
+
+  it("resolves a secondary account beneath the signed-in owner", async () => {
+    await expect(getClientForAccount(account)).resolves.toEqual({
+      accessToken: "secondary-access-token",
+    });
+    expect(listOAuthAccountsByOwnerMock).toHaveBeenCalledWith(
+      "google",
+      ownerEmail,
+    );
+  });
+
+  it("keeps legacy owner-scoped callers on the owner's default account", async () => {
+    await expect(getDefaultAccountSelection(ownerEmail)).resolves.toEqual({
+      ownerEmail,
+      accountEmail: ownerEmail,
+    });
+  });
+
+  it("fails loudly when the selected account is not connected for the owner", async () => {
+    await expect(
+      getClientForAccount({
+        ownerEmail,
+        accountEmail: "missing@example.com",
+      }),
+    ).rejects.toThrow(
+      "Google Calendar account not connected for this user: missing@example.com",
+    );
+  });
+
+  it("routes create, update, delete, and RSVP through the secondary account", async () => {
+    const event = {
+      id: "",
+      title: "Secondary planning",
+      description: "",
+      location: "",
+      start: "2026-07-09T16:00:00.000Z",
+      end: "2026-07-09T16:30:00.000Z",
+      allDay: false,
+      source: "google" as const,
+      accountEmail: secondaryEmail,
+      createdAt: "2026-07-09T15:00:00.000Z",
+      updatedAt: "2026-07-09T15:00:00.000Z",
+    };
+
+    await createEvent(event, { account });
+    await updateEvent(
+      "event-secondary",
+      { accountEmail: secondaryEmail, title: "Updated" },
+      { account },
+    );
+    await deleteEvent("event-secondary", account);
+    await rsvpEvent("event-secondary", "accepted", account);
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      expect.any(Object),
+      undefined,
+    );
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      "event-secondary",
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      "event-secondary",
+      undefined,
     );
   });
 });

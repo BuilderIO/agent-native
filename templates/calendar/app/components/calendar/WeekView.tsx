@@ -55,8 +55,12 @@ interface WeekViewProps {
     options?: { explicitDuration?: boolean },
   ) => void;
   quickEditEventId?: string | null;
-  onQuickEditSave?: (eventId: string, title: string) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -281,8 +285,12 @@ interface WeekEventCardProps {
   onDeleteEvent: (eventId: string) => void;
   isDraft: boolean;
   defaultOpen: boolean;
-  onQuickEditSave?: (eventId: string, title: string) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: WeekViewProps["onDraftUpdate"];
   onDraftCreate?: WeekViewProps["onDraftCreate"];
   onDraftDiscard?: WeekViewProps["onDraftDiscard"];
