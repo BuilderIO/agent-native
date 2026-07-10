@@ -398,6 +398,18 @@ describe("standard agent chat runtime connectors", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         { type: "start", messageId: "message-1" },
+        { type: "reasoning-start", id: "reasoning-1" },
+        {
+          type: "reasoning-delta",
+          id: "reasoning-1",
+          delta: "I should check ",
+        },
+        {
+          type: "reasoning-delta",
+          id: "reasoning-1",
+          delta: "the submission count.",
+        },
+        { type: "reasoning-end", id: "reasoning-1" },
         { type: "text-start", id: "text-1" },
         { type: "text-delta", id: "text-1", delta: "Checking " },
         { type: "text-delta", id: "text-1", delta: "submissions." },
@@ -436,6 +448,8 @@ describe("standard agent chat runtime connectors", () => {
       "message-start",
       "message-delta",
       "message-delta",
+      "message-delta",
+      "message-delta",
       "tool-start",
       "tool-delta",
       "tool-done",
@@ -446,16 +460,39 @@ describe("standard agent chat runtime connectors", () => {
     expect(events[1]).toMatchObject({
       type: "message-delta",
       messageId: "message-1",
-      delta: { type: "text", text: "Checking " },
+      delta: {
+        type: "reasoning",
+        text: "I should check ",
+        partId: "reasoning-1",
+      },
     });
-    expect(events[5]).toMatchObject({
+    expect(events[3]).toMatchObject({
+      type: "message-delta",
+      messageId: "message-1",
+      delta: { type: "text", text: "Checking ", partId: "text-1" },
+    });
+    expect(events[7]).toMatchObject({
       type: "tool-done",
       toolCallId: "tool-1",
       resultText: '{"count":34}',
     });
-    expect(events[6]).toMatchObject({
+    expect(events[8]).toMatchObject({
       type: "usage",
       usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+    });
+    expect(events[9]).toMatchObject({
+      type: "message-done",
+      message: {
+        id: "message-1",
+        content: [
+          {
+            type: "reasoning",
+            id: "reasoning-1",
+            text: "I should check the submission count.",
+          },
+          { type: "text", id: "text-1", text: "Checking submissions." },
+        ],
+      },
     });
   });
 
