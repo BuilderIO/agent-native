@@ -1,0 +1,68 @@
+---
+id: F2
+title: Custom fields
+status: done
+order: 2
+---
+
+# F2 — Custom fields
+
+<!-- status: done -->
+
+## What it is
+
+**Custom fields** extend [F1 tasks](./f1-tasks.mdx) with user-defined properties — due dates, notes, priority, and anything else the user models. Fields are defined once for the app; each task fills in its own values. [F3 Projects](./f3-projects.mdx) are not extended by custom fields — only tasks are.
+
+**Completion** (complete / incomplete) is **not** a custom field — it is built into every task. There is no separate built-in "description" or "due date" either; users can model those as custom fields.
+
+## What users can do
+
+- **Create** a field with a name and type.
+- **Edit** a field's name or option list (for select fields).
+- **Delete** a field definition (removes stored values on all tasks).
+
+## Field types
+
+| Type              | Example use                                               |
+| ----------------- | --------------------------------------------------------- |
+| **Text**          | Short label, reference number                             |
+| **Rich text**     | Notes, context, links, checklists                         |
+| **Number**        | Story points, quantity; decimal precision (`0` means whole numbers only) and optional positive-only constraints |
+| **Percent**       | Completion %; optional decimal precision                  |
+| **Currency**      | Budget, cost; currency symbol and decimal precision       |
+| **Single-select** | Priority, workflow stage — one option from a defined list |
+| **Multi-select**  | Tags, categories — multiple options                       |
+| **Date**          | Due date, follow-up                                       |
+
+### Rich text
+
+Bold, italic, headings, bulleted and numbered lists, links, and paragraphs.
+
+### Select fields
+
+Options are defined when the field is created (name and optional color per option). Single-select allows one choice; multi-select allows many.
+
+## How it behaves
+
+- Empty fields stay blank — values are not required.
+- The task **title** stays the primary label in lists; field values show in the detail area or optional columns.
+- [F5 Views](./f5-views.mdx) can filter, sort, and group by custom fields and by built-in **completion**.
+- [F6 Search](./f6-search.mdx) matches **task titles** only — custom field values are not searchable.
+
+### Field type cannot change
+
+Once a field is created, its **type cannot be changed**. To use a different type, create a new field and move values over manually. If the old field is no longer needed, delete it — stored values are removed from all tasks.
+
+### Deleting a field
+
+Deleting a field definition removes its values on every task. Saved [views](./f5-views.mdx) that filter, sort, or group by that field may need to be updated.
+
+## Shipped contract
+
+<!-- status: done -->
+
+- **Fields** in the sidebar opens the definition manager.
+- Task rows open a pinned field editor for setting values on promoted tasks.
+- Configured field values can be shown on the main task card; which fields appear is chosen on the Fields page and persisted per user in SQL (max 3).
+- Field definitions have dedicated actions; task values are read with `list-tasks` `includeFields` and written with `update-task` `fieldValues`.
+- Task-card visibility uses `list-visible-task-fields` and `update-visible-task-fields`.

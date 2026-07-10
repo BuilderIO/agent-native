@@ -1,0 +1,65 @@
+---
+id: F5
+title: Views
+status: planned
+order: 5
+---
+
+# F5 — Views
+
+<!-- status: todo -->
+
+## What it is
+
+A **view** is how the [F1 task](./f1-tasks.mdx) list is arranged: what's visible, in what order, and how rows are clustered. **Views** impose structure: filter to a subset, sort by a field, or group under headings. Users change the arrangement ad hoc or **save** it under a name and switch between saved views later.
+
+The main task page today uses a simple **completed-task filter** (see F1). Saved views, sort, and group ship with this feature.
+
+Examples: "Open", "High priority", "By project".
+
+## What users can do
+
+### Arrange the list
+
+- **Filter** — show only tasks matching criteria (completion, [project](./f3-projects.mdx), [custom fields](./f2-custom-fields.mdx)); multiple filters use AND logic. Quick filter: **Incomplete tasks**.
+- **Sort** — by completion, title, project, custom field, date created, etc., or **None** for manual order.
+- **Group** — cluster rows under headings (by project, completion, custom field, etc.). Grouping is display-only.
+
+Filter, sort, and group work together on the current list.
+
+### Saved views
+
+- **Create** a view with a name and chosen filter, sort, and group settings.
+- **Switch**, **modify**, **duplicate**, or **delete** views.
+- A default view ("All tasks") always exists; it can be renamed but not deleted.
+
+### Scope
+
+| Where | Views available |
+| --- | --- |
+| **Main task page** | Global views — all tasks across projects |
+| **Project page** | Project views — only that project's tasks |
+
+Global and project view lists are separate; the same name can exist in different projects.
+
+## How it behaves
+
+### Sort and manual order
+
+- **Sort: None** — manual drag-and-drop order applies (F1). This is the only mode where reordering works.
+- **Sort by a field** — tasks order by that field; **drag reorder is disabled** until sort is set back to None.
+- **Group by** a field — tasks cluster under headings. You can **sort within groups** (e.g. group by project, sort by due date inside each group).
+- Switching away from a sorted view and back to **None** restores the last manual order.
+
+### Saved views
+
+Filter, sort, and group settings are stored in the view. Opening a saved view applies that layout. Starter views ship with the app ([F7](./f7-first-run.mdx)).
+
+- Switching views changes display only — tasks are not modified.
+- One view is active at a time per page.
+- Only **ready** tasks appear ([F4 Inbox](./f4-inbox.mdx) excluded).
+
+## Limits (v1)
+
+- List layout only — no board or calendar view types.
+- No OR filter logic or shared views between users.
