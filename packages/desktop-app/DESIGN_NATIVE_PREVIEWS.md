@@ -1,7 +1,9 @@
 # Native Design previews in the desktop app
 
-Status: proposed architecture; native rendering is deliberately not enabled
-until the compositor and IPC acceptance gates below are complete.
+Status: Phase A live Interact rendering and the bounded Phase B snapshot
+handoff are implemented. This is not yet a general native DOM editing
+compositor: semantic Edit still requires the existing inspectable local source
+bridge, while native pixels can safely back parent-owned Draw/Comment chrome.
 
 ## Decision
 
@@ -49,6 +51,73 @@ introducing incorrect selection, stale pixels, misplaced views, and clicks
 through rounded corners.
 
 ## Target architecture
+
+## Implemented Phase A seam
+
+The desktop shell now creates at most one native Design preview per window.
+The Design guest reports bounded geometry through a narrow preload API; the
+main process supplies the trusted app-webview bounds and independently runs
+`resolveDesktopDesignPreviewPlacement()` before showing native content.
+
+- Production Design talks directly to the preload bridge. In framed local
+  development, the top-level frame relays only messages from its exact app
+  iframe `Window` and configured origin, then offsets child geometry into the
+  frame viewport. Nested arbitrary iframes cannot invoke Electron IPC.
+- Every app-tab, owner-navigation, host-bounds, screen, URL, mode, visibility,
+  or stale-generation change hides or destroys the native child before it can
+  paint stale pixels over shell chrome. The DOM iframe remains mounted as the
+  seamless fallback and until the native page finishes loading.
+- Sessions use
+  `persist:design-preview:<sha256(app-id + workspace-id + connection-id)>`.
+  Pages in one Design connection therefore share cookies and storage, while
+  different designs/connections are isolated. Current URL screens pass their
+  persisted `screenMetadata.connectionId`; legacy URL screens without that
+  metadata fall back to the URL origin for backward compatibility.
+- Remote content must be HTTPS. HTTP is accepted only for loopback local
+  editing. Credentials embedded in URLs, popup creation, cross-origin top-level
+  navigation, and all permission requests fail closed. Blocked link intent is
+  reported back to Design without replacing the editor route.
+- The renderer sends a fresh layout heartbeat while eligible. Main accepts
+  strictly increasing generations and hides the native view if layout becomes
+  stale. A late load cannot resurrect a view after fallback, navigation, owner
+  change, or teardown.
+
+Phase A does not attempt OAuth popups, device permissions, arbitrary
+cross-origin login redirects, transformed previews, DOM editor overlays, or
+multi-screen native composition. Those remain explicit Phase B/C work rather
+than partially trusted exceptions.
+
+### Bounded Phase B snapshot handoff
+
+When an eligible authenticated native preview transitions out of Interact,
+Desktop keeps its isolated `WebContents` alive and captures one bounded fresh
+PNG instead of reloading or copying the page into SQL/source. Capture freezes
+CSS motion and running Web Animations temporarily, blocks navigation for the
+capture window, and restores both afterward without persisting a mutation.
+
+- The native view stays painted until the Design guest decodes and renders the
+  blob-backed image, then acknowledges its version. A two-second fail-closed
+  timeout prevents a broken renderer from permanently covering editor UI.
+- IPC payloads are limited to PNG, 4096 pixels per edge, 16 megapixels, and
+  8 MiB. Only one native view, one snapshot, and one coalesced capture are kept
+  per window; hidden handoffs expire after 30 seconds.
+- Snapshot identity includes connection, screen, requested URL, viewport,
+  generation, and DPR. Navigation, owner, bounds, URL, connection, and native
+  Interact changes invalidate it.
+- Draw and Comment use the snapshot as the page-pixel layer, with their
+  parent-owned overlay chrome at higher stacking levels. Transformed overview
+  can reuse that bitmap only for the active screen that previously owned the
+  live native view.
+- Edit deliberately does **not** put the bitmap above iframe-internal selection
+  chrome. When the authenticated local live-edit/source bridge is available,
+  the snapshot is only a no-flash handoff layer beneath the real inspectable
+  DOM. Without that bridge, Edit fails closed to the existing DOM/error surface
+  and does not pretend that screenshot pixels are selectable elements.
+
+Therefore this phase does not provide arbitrary DOM inspection for
+`frame-ancestors`/XFO-blocked third-party pages and should not be described as
+full native compositor editing. A native editor-chrome sibling or offscreen
+DOM/texture backend remains necessary for that claim.
 
 ### 1. One bridge, two backends
 

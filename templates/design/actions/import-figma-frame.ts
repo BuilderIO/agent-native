@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
@@ -7,7 +8,10 @@ import {
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
-import { saveImportedDesignFiles } from "../server/lib/import-design-files.js";
+import {
+  resolveImportDesignId,
+  saveImportedDesignFiles,
+} from "../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 
 const schemaInput = z
@@ -67,6 +71,13 @@ export default defineAction({
     const requestedNodeId =
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
+    // Validate the target before any provider fetch, rendered-fallback
+    // download, or durable upload. saveImportedDesignFiles checks again at
+    // mutation time, but waiting until then leaves external work and orphaned
+    // assets behind when a caller names a design they cannot edit.
+    const designId = await resolveImportDesignId(args.designId);
+    await assertAccess("design", designId, "editor");
+
     const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
     const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
@@ -79,7 +90,7 @@ export default defineAction({
     );
 
     const saved = await saveImportedDesignFiles({
-      designId: args.designId,
+      designId,
       sourceType: "figma-import",
       files,
     });

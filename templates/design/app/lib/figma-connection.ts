@@ -128,15 +128,27 @@ export async function saveFigmaAccessToken(
   const token = value.trim();
   if (!token) throw new Error("Enter a Figma access token.");
 
-  const response = await fetch(
-    `${SECRETS_ENDPOINT}/${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
-    {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: token }),
-    },
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `${SECRETS_ENDPOINT}/${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: token }),
+      },
+    );
+  } catch (reason) {
+    // Transport errors can be constructed by an intermediary and may reflect
+    // request headers or bodies. Redact the raw, encoded, and JSON-escaped
+    // submitted token before the message can reach a toast or error boundary.
+    const message =
+      reason instanceof Error && reason.message.trim()
+        ? reason.message
+        : "Could not connect Figma.";
+    throw new Error(redactSubmittedSecret(message, token));
+  }
   if (!response.ok) {
     const message = await responseError(response, "Could not connect Figma");
     // The server already redacts validator/storage errors. Keep a final client

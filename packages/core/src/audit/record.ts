@@ -113,6 +113,7 @@ export async function recordActionAudit(
     const recordInputs = input.config?.recordInputs !== false;
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
 
+    const hasExplicitTargetVisibility = target?.visibility !== undefined;
     const event: AuditEvent = {
       id: crypto.randomUUID(),
       createdAt: Date.now(),
@@ -137,7 +138,11 @@ export async function recordActionAudit(
     const lineage = getIntegrationRequestContext()?.lineage;
     const integration = getIntegrationRequestContext();
     if (integration) {
-      if (ctx?.orgId && event.visibility === "private") {
+      if (
+        ctx?.orgId &&
+        event.visibility === "private" &&
+        !hasExplicitTargetVisibility
+      ) {
         event.visibility = "org";
       }
       event.runId = lineage?.runId ?? null;

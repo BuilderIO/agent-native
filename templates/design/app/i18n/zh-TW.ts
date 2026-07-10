@@ -435,6 +435,23 @@ const messages = {
       desktop: "桌面",
       tablet: "平板",
       phone: "手機",
+      scope: {
+        label: "響應式編輯範圍",
+        cascadeSmaller: "此中斷點及更小尺寸",
+        only: "僅此中斷點",
+        firstEditGuidance:
+          "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
+      },
+    },
+    screenDeletion: {
+      titleOne: "刪除此畫面？",
+      titleMany: "刪除 {{count}} 個畫面？",
+      descriptionOne:
+        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
+      descriptionMany:
+        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
+      cancel: "取消",
+      confirm: "刪除",
     },
     motion: {
       dockLabel: "動態面板",
@@ -538,6 +555,10 @@ const messages = {
       importFigmaUrl: "從 Figma 匯入",
       saveKeyAndImport: "儲存金鑰並匯入",
       figmaUrlSuccess: "已從 Figma 匯入。",
+      figmaImageFallbackWarning:
+        "圖像備援：{{count}}。外觀會保留，但這些圖層無法完整編輯。",
+      figmaApproximationWarning:
+        "近似圖層：{{count}}。HTML/CSS 無法精確呈現所有 Figma 屬性。",
       figmaPasteTitle: "從 Figma 貼上",
       figmaPasteDescription:
         "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
@@ -652,6 +673,7 @@ const messages = {
     downloadSvg: "下載 SVG",
     downloadFigmaSvg: "下載用於 Figma 的 SVG",
     downloadZip: "下載 ZIP",
+    downloadPdfAllScreens: "下載 PDF（所有畫面）",
     exportHtml: "匯出HTML",
     exportPdf: "匯出PDF",
     copyCodingHandoff: "複製編碼交接",
@@ -675,6 +697,8 @@ const messages = {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
+    tweaksHelp:
+      "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     noTweakControls: "還沒有調整控制項。",
     extensions: "擴充功能",
     addExtension: "擴充功能",
@@ -780,6 +804,7 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
       svgExportError: "無法匯出 SVG",
@@ -857,11 +882,11 @@ const messages = {
   multiScreenCanvas: {
     duplicate: "複製",
     fork: "分支",
-    fullView: "完整檢視",
+    fullView: "互動",
     preview: "預覽",
-    openAndDuplicate: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-    openAndPreview: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-    doubleClickToEdit: "使用完整檢視進行聚焦捲動",
+    openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+    openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+    doubleClickToEdit: "使用互動模式進行聚焦捲動",
     sources: {
       localhost: { label: "本機", title: "由本機開發伺服器渲染" },
       fusion: { label: "Fusion 遠端", title: "由 Fusion 渲染" },

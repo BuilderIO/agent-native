@@ -13,6 +13,15 @@ beforeEach(() => {
 });
 
 describe("clips navigate action", () => {
+  it("accepts the shared-with-me view", async () => {
+    const result = await action.run({ view: "shared" });
+
+    expect(mockWriteAppState).toHaveBeenCalledWith("navigate", {
+      view: "shared",
+    });
+    expect(result).toBe("Navigating to shared");
+  });
+
   it("accepts the renamed dictate view", async () => {
     const result = await action.run({ view: "dictate" });
 

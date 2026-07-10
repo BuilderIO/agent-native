@@ -69,6 +69,7 @@ interface RecordingCardProps {
   isMovePending?: boolean;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
+  readOnly?: boolean;
 }
 
 export function RecordingCard({
@@ -82,6 +83,7 @@ export function RecordingCard({
   isMovePending = false,
   onArchive,
   onTrash,
+  readOnly = false,
 }: RecordingCardProps) {
   const navigate = useNavigate();
   const t = useT();
@@ -118,6 +120,9 @@ export function RecordingCard({
       recording.failureReason ?? "",
     );
   const canMove = Boolean(onMove && moveTargets.length > 0);
+  const canSelect = Boolean(onToggleSelect) && !readOnly;
+  const showActions =
+    !readOnly && Boolean(onShare || onMove || onArchive || onTrash);
   const hasDefaultTitle = isDefaultTitle(recording.title);
   const displayTitle = hasDefaultTitle
     ? t("editableTitle.untitled")
@@ -221,7 +226,7 @@ export function RecordingCard({
         </div>
 
         {/* Selection checkbox */}
-        {(selectionMode || hovered || selected) && (
+        {canSelect && (selectionMode || hovered || selected) && (
           <div
             onClick={handleCheckbox}
             className="absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
@@ -276,7 +281,7 @@ export function RecordingCard({
                       : failureReason}
                 </div>
               </div>
-              {!waitingForStorage && (
+              {!waitingForStorage && onTrash && (
                 <button
                   type="button"
                   onClick={handleRemoveFailed}
@@ -311,7 +316,7 @@ export function RecordingCard({
               />
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
-              {recording.viewCount > 0 ? (
+              {recording.viewCount > 0 && !readOnly ? (
                 <ViewedByPopover
                   recordingId={recording.id}
                   className="underline-offset-2 hover:underline hover:text-foreground"
@@ -332,74 +337,82 @@ export function RecordingCard({
             </div>
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <button
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={t("clipsFinalRaw.recordingMenu")}
+          {showActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label={t("clipsFinalRaw.recordingMenu")}
+                >
+                  <IconDots className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onClick={(e) => e.stopPropagation()}
               >
-                <IconDots className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <DropdownMenuItem onSelect={() => onShare?.(recording)}>
-                <IconShare className="h-4 w-4 me-2" />{" "}
-                {t("recordingPage.share")}
-              </DropdownMenuItem>
-              {canMove ? (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <IconFolder className="h-4 w-4 me-2" />{" "}
-                    {t("clipsFinalRaw.moveToFolder")}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-64">
-                    {moveTargets.map((target, index) => (
-                      <DropdownMenuItem
-                        key={target.id ?? `root-${index}`}
-                        disabled={target.disabled || isMovePending}
-                        onSelect={() => onMove?.(recording, target.id)}
-                      >
-                        <span
-                          className="truncate"
-                          style={{
-                            paddingInlineStart: (target.depth ?? 0) * 12,
-                          }}
+                {onShare && (
+                  <DropdownMenuItem onSelect={() => onShare(recording)}>
+                    <IconShare className="h-4 w-4 me-2" />{" "}
+                    {t("recordingPage.share")}
+                  </DropdownMenuItem>
+                )}
+                {canMove ? (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <IconFolder className="h-4 w-4 me-2" />{" "}
+                      {t("clipsFinalRaw.moveToFolder")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64">
+                      {moveTargets.map((target, index) => (
+                        <DropdownMenuItem
+                          key={target.id ?? `root-${index}`}
+                          disabled={target.disabled || isMovePending}
+                          onSelect={() => onMove?.(recording, target.id)}
                         >
-                          {target.name}
-                        </span>
-                        {target.disabled && (
-                          <span className="ms-auto text-xs text-muted-foreground">
-                            {t("clipsFinalRaw.current")}
+                          <span
+                            className="truncate"
+                            style={{
+                              paddingInlineStart: (target.depth ?? 0) * 12,
+                            }}
+                          >
+                            {target.name}
                           </span>
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ) : null}
-              <DropdownMenuSeparator />
-              {recording.archivedAt ? (
-                <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconCheck className="h-4 w-4 me-2" />{" "}
-                  {t("clipsFinalRaw.unarchive")}
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconArchive className="h-4 w-4 me-2" />{" "}
-                  {t("navigation.archive")}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onSelect={() => onTrash?.(recording)}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconTrash className="h-4 w-4 me-2" /> {t("folderTree.delete")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                          {target.disabled && (
+                            <span className="ms-auto text-xs text-muted-foreground">
+                              {t("clipsFinalRaw.current")}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : null}
+                {(onArchive || onTrash) && <DropdownMenuSeparator />}
+                {onArchive &&
+                  (recording.archivedAt ? (
+                    <DropdownMenuItem onSelect={() => onArchive(recording)}>
+                      <IconCheck className="h-4 w-4 me-2" />{" "}
+                      {t("clipsFinalRaw.unarchive")}
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onSelect={() => onArchive(recording)}>
+                      <IconArchive className="h-4 w-4 me-2" />{" "}
+                      {t("navigation.archive")}
+                    </DropdownMenuItem>
+                  ))}
+                {onTrash && (
+                  <DropdownMenuItem
+                    onSelect={() => onTrash(recording)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash className="h-4 w-4 me-2" />{" "}
+                    {t("folderTree.delete")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

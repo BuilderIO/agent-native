@@ -1,9 +1,65 @@
-import { buildCodeLayerProjection } from "./code-layer.js";
+import {
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerProjection,
+} from "./code-layer.js";
 
 export interface LockedLayerSnapshot {
   id: string;
   label: string;
   source: string;
+  ancestorIds: string[];
+  parentId: string | null;
+  siblingIndex: number;
+  previousSiblingId: string | null;
+  nextSiblingId: string | null;
+}
+
+function durableNodeIdentity(node: CodeLayerNode): string {
+  const stableId = node.dataAttributes["data-agent-native-node-id"];
+  if (stableId) return `node:${stableId}`;
+  const htmlId = node.attributes.id;
+  if (typeof htmlId === "string" && htmlId.length > 0) return `id:${htmlId}`;
+  return node.id;
+}
+
+function lockedLayerPlacement(
+  projection: CodeLayerProjection,
+  node: CodeLayerNode,
+): Omit<LockedLayerSnapshot, "id" | "label" | "source"> {
+  const nodesById = new Map(
+    projection.nodes.map((candidate) => [candidate.id, candidate]),
+  );
+  const ancestors: CodeLayerNode[] = [];
+  let parent = node.parentId ? nodesById.get(node.parentId) : undefined;
+  while (parent) {
+    ancestors.unshift(parent);
+    parent = parent.parentId ? nodesById.get(parent.parentId) : undefined;
+  }
+
+  const siblingIds = node.parentId
+    ? (nodesById.get(node.parentId)?.children ?? [])
+    : projection.rootNodeIds;
+  const siblingIndex = siblingIds.indexOf(node.id);
+  const previousSibling =
+    siblingIndex > 0 ? nodesById.get(siblingIds[siblingIndex - 1]!) : undefined;
+  const nextSibling =
+    siblingIndex >= 0 && siblingIndex < siblingIds.length - 1
+      ? nodesById.get(siblingIds[siblingIndex + 1]!)
+      : undefined;
+
+  return {
+    ancestorIds: ancestors.map(durableNodeIdentity),
+    parentId:
+      ancestors.length > 0
+        ? durableNodeIdentity(ancestors[ancestors.length - 1]!)
+        : null,
+    siblingIndex,
+    previousSiblingId: previousSibling
+      ? durableNodeIdentity(previousSibling)
+      : null,
+    nextSiblingId: nextSibling ? durableNodeIdentity(nextSibling) : null,
+  };
 }
 
 /**
@@ -25,6 +81,7 @@ export function lockedLayerSnapshots(html: string): LockedLayerSnapshot[] {
         id: node.id,
         label: node.layerName,
         source: html.slice(node.source.start, node.source.end),
+        ...lockedLayerPlacement(projection, node),
       },
     ];
   });
@@ -68,7 +125,20 @@ export function assertLockedLayersPreserved(
       continue;
     }
     const nextSource = after.slice(next.source.start, next.source.end);
-    if (nextSource !== snapshot.source) changed.push(snapshot.label);
+    const nextPlacement = lockedLayerPlacement(nextProjection, next);
+    if (
+      nextSource !== snapshot.source ||
+      nextPlacement.parentId !== snapshot.parentId ||
+      nextPlacement.siblingIndex !== snapshot.siblingIndex ||
+      nextPlacement.previousSiblingId !== snapshot.previousSiblingId ||
+      nextPlacement.nextSiblingId !== snapshot.nextSiblingId ||
+      nextPlacement.ancestorIds.length !== snapshot.ancestorIds.length ||
+      nextPlacement.ancestorIds.some(
+        (ancestorId, index) => ancestorId !== snapshot.ancestorIds[index],
+      )
+    ) {
+      changed.push(snapshot.label);
+    }
   }
 
   if (changed.length > 0) {

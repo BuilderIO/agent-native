@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Biblioteca",
+    sharedWithMe: "Compartido conmigo",
     spaces: "Espacios",
     meetings: "Reuniones",
     dictate: "Dictar",
@@ -82,6 +83,10 @@ const messages = {
       title: "Tu biblioteca está vacía",
       body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
       cta: "Grabar tu primer Clip",
+    },
+    shared: {
+      title: "Aún no han compartido clips contigo",
+      body: "Los clips que tus compañeros compartan contigo aparecerán aquí.",
     },
     folder: {
       title: "Esta carpeta está vacía",

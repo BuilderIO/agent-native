@@ -57,6 +57,7 @@ function makeRuntime(
         }),
     ),
     claimInboundEvent: vi.fn(async () => true),
+    releaseInboundEvent: vi.fn(async () => {}),
     enqueueInboundEvent: vi.fn(async () => {}),
     ...overrides,
   });
@@ -280,8 +281,13 @@ describe("automation runtime", () => {
 
   it("claims callback event IDs durably before enqueueing", async () => {
     const claimInboundEvent = vi.fn(async () => false);
+    const releaseInboundEvent = vi.fn(async () => {});
     const enqueueInboundEvent = vi.fn(async () => {});
-    const runtime = makeRuntime({ claimInboundEvent, enqueueInboundEvent });
+    const runtime = makeRuntime({
+      claimInboundEvent,
+      releaseInboundEvent,
+      enqueueInboundEvent,
+    });
     const rawBody = '{"release":"v1"}';
     const signature = callbackSignature(rawBody);
 
@@ -300,6 +306,52 @@ describe("automation runtime", () => {
       eventId: "provider-event-1",
     });
     expect(enqueueInboundEvent).not.toHaveBeenCalled();
+    expect(releaseInboundEvent).not.toHaveBeenCalled();
+  });
+
+  it("releases failed enqueue claims so provider retries can enqueue", async () => {
+    const claimedEventIds = new Set<string>();
+    const claimInboundEvent = vi.fn(async (input: { eventId: string }) => {
+      if (claimedEventIds.has(input.eventId)) return false;
+      claimedEventIds.add(input.eventId);
+      return true;
+    });
+    const releaseInboundEvent = vi.fn(async (input: { eventId: string }) => {
+      claimedEventIds.delete(input.eventId);
+    });
+    const enqueueInboundEvent = vi
+      .fn(async () => {})
+      .mockRejectedValueOnce(new Error("queue temporarily unavailable"));
+    const runtime = makeRuntime({
+      claimInboundEvent,
+      releaseInboundEvent,
+      enqueueInboundEvent,
+    });
+    const rawBody = '{"release":"v1"}';
+    const input = {
+      workflowId: "notify-release",
+      rawBody,
+      headers: new Headers({
+        "x-event-id": "provider-event-retry",
+        "x-signature": callbackSignature(rawBody),
+      }),
+    };
+
+    await expect(runtime.receiveCallback(input)).rejects.toThrow(
+      "queue temporarily unavailable",
+    );
+    expect(releaseInboundEvent).toHaveBeenCalledWith({
+      workflow,
+      eventId: "provider-event-retry",
+    });
+
+    await expect(runtime.receiveCallback(input)).resolves.toEqual({
+      accepted: true,
+      duplicate: false,
+      eventId: "provider-event-retry",
+    });
+    expect(claimInboundEvent).toHaveBeenCalledTimes(2);
+    expect(enqueueInboundEvent).toHaveBeenCalledTimes(2);
   });
 
   it("requires a provider event ID before agent-triggering callbacks enqueue", async () => {
@@ -321,10 +373,12 @@ describe("automation runtime", () => {
     expect(enqueueInboundEvent).not.toHaveBeenCalled();
   });
 
-  it("fails closed when agent-triggering callbacks lack durable handlers", async () => {
+  it("fails closed when agent-triggering callbacks lack a release handler", async () => {
     const runtime = createAutomationRuntime({
       workflows: [workflow],
       resolveSecret: async () => "test-only-secret-not-real",
+      claimInboundEvent: vi.fn(async () => true),
+      enqueueInboundEvent: vi.fn(async () => {}),
     });
     const rawBody = "{}";
     const signature = callbackSignature(rawBody);
@@ -335,7 +389,85 @@ describe("automation runtime", () => {
         rawBody,
         headers: new Headers({ "x-signature": signature }),
       }),
-    ).rejects.toBeInstanceOf(AutomationConnectorError);
+    ).rejects.toMatchObject({
+      code: "invalid_configuration",
+    } satisfies Partial<AutomationConnectorError>);
+  });
+
+  it("returns 5xx and releases the claim when durable enqueueing fails", async () => {
+    const releaseInboundEvent = vi.fn(async () => {});
+    const runtime = makeRuntime({
+      releaseInboundEvent,
+      enqueueInboundEvent: vi.fn(async () => {
+        throw new Error("queue temporarily unavailable");
+      }),
+    });
+    const rawBody = '{"release":"v1"}';
+    const response = await callbackApp(runtime).request(
+      "https://app.example.test/callback/notify-release",
+      {
+        method: "POST",
+        headers: {
+          "x-event-id": "provider-event-5xx",
+          "x-signature": callbackSignature(rawBody),
+        },
+        body: rawBody,
+      },
+    );
+
+    expect(response.status).toBe(500);
+    expect(releaseInboundEvent).toHaveBeenCalledWith({
+      workflow,
+      eventId: "provider-event-5xx",
+    });
+  });
+
+  it("keeps authentication and missing event ID failures as 4xx", async () => {
+    const runtime = makeRuntime();
+    const rawBody = '{"release":"v1"}';
+    const unauthenticated = await callbackApp(runtime).request(
+      "https://app.example.test/callback/notify-release",
+      {
+        method: "POST",
+        headers: {
+          "x-event-id": "provider-event-auth",
+          "x-signature": "wrong",
+        },
+        body: rawBody,
+      },
+    );
+    const missingEventId = await callbackApp(runtime).request(
+      "https://app.example.test/callback/notify-release",
+      {
+        method: "POST",
+        headers: { "x-signature": callbackSignature(rawBody) },
+        body: rawBody,
+      },
+    );
+
+    expect(unauthenticated.status).toBe(401);
+    expect(missingEventId.status).toBe(400);
+  });
+
+  it("returns 5xx for callback configuration failures", async () => {
+    const runtime = createAutomationRuntime({
+      workflows: [workflow],
+      resolveSecret: async () => "test-only-secret-not-real",
+    });
+    const rawBody = "{}";
+    const response = await callbackApp(runtime).request(
+      "https://app.example.test/callback/notify-release",
+      {
+        method: "POST",
+        headers: {
+          "x-event-id": "provider-event-config",
+          "x-signature": callbackSignature(rawBody),
+        },
+        body: rawBody,
+      },
+    );
+
+    expect(response.status).toBe(500);
   });
 
   it("rejects declared oversized callback bodies before reading them", async () => {

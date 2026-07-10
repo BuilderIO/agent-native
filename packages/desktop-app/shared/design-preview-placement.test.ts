@@ -19,9 +19,7 @@ const BASE_INPUT: DesktopDesignPreviewPlacementInput = {
   visible: true,
 };
 
-function resolve(
-  overrides: Partial<DesktopDesignPreviewPlacementInput> = {},
-) {
+function resolve(overrides: Partial<DesktopDesignPreviewPlacementInput> = {}) {
   return resolveDesktopDesignPreviewPlacement({
     ...BASE_INPUT,
     ...overrides,
@@ -76,24 +74,44 @@ describe("native Design preview placement", () => {
   }
 
   it("rejects overview before considering its accompanying scale", () => {
-    assert.deepEqual(
-      resolve({ presentation: "overview", scale: 0.6 }),
-      { kind: "dom", reason: "overview-transform" },
-    );
+    assert.deepEqual(resolve({ presentation: "overview", scale: 0.6 }), {
+      kind: "dom",
+      reason: "overview-transform",
+    });
   });
 
   it("rejects partial clipping on every edge", () => {
     for (const previewBounds of [
-      { x: -1, y: 20, width: 100, height: 100 },
-      { x: 20, y: -1, width: 100, height: 100 },
-      { x: 1_021, y: 20, width: 100, height: 100 },
-      { x: 20, y: 621, width: 100, height: 100 },
+      { x: 9, y: 20, width: 100, height: 100 },
+      { x: 20, y: 9, width: 100, height: 100 },
+      { x: 1_011, y: 20, width: 100, height: 100 },
+      { x: 20, y: 611, width: 100, height: 100 },
     ]) {
-      assert.deepEqual(resolve({ previewBounds }), {
-        kind: "dom",
-        reason: "clipped",
-      });
+      assert.deepEqual(
+        resolve({
+          previewBounds,
+          clipBounds: { x: 10, y: 10, width: 1100, height: 700 },
+        }),
+        {
+          kind: "dom",
+          reason: "clipped",
+        },
+      );
     }
+  });
+
+  it("rejects spoofed clip or preview rectangles outside the owner viewport", () => {
+    assert.deepEqual(
+      resolve({
+        hostBounds: { x: 50, y: 50, width: 100, height: 100 },
+        clipBounds: { x: 0, y: 0, width: 10_000, height: 10_000 },
+        previewBounds: { x: 9_000, y: 9_000, width: 100, height: 100 },
+      }),
+      {
+        kind: "dom",
+        reason: "invalid-geometry",
+      },
+    );
   });
 
   it("accepts a preview exactly touching every clip edge", () => {

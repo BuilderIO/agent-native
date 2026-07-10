@@ -24,6 +24,8 @@ import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_PROCESSOR_A2A,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "../agent/durable-background.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
@@ -2351,6 +2353,12 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
     AGENT_BACKGROUND_PROCESSOR_FIELD,
   );
   const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorRoute = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  );
+  const backgroundProcessorRouteField = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  );
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2365,13 +2373,30 @@ const PROCESS_RUN_PATH = ${processRunPath};
 const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
 const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
 const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
+const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
 
-function isA2AProcessorBody(body) {
-  if (!body) return false;
+function processorPathFromBody(body) {
+  if (!body) return null;
   try {
-    return JSON.parse(body)?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A;
+    const parsed = JSON.parse(body);
+    if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
+      return A2A_PROCESS_TASK_PATH;
+    }
+    const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
+      typeof route === "string" &&
+      route.startsWith("/") &&
+      route.includes("/api/_agent-native-background/") &&
+      !route.includes("?") &&
+      !route.includes("#")
+    ) {
+      return route;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -2393,10 +2418,7 @@ export default async function handler(request, context) {
     const method = request.method || "POST";
     const hasBody = method !== "GET" && method !== "HEAD";
     const body = hasBody ? await request.text() : undefined;
-    url.pathname = PROCESS_RUN_PATH;
-    if (isA2AProcessorBody(body)) {
-      url.pathname = A2A_PROCESS_TASK_PATH;
-    }
+    url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH;
     const rewritten = new Request(url.toString(), {
       method,
       headers: request.headers,

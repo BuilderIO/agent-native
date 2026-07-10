@@ -23,6 +23,7 @@ interface ClipboardItemConstructor {
 export interface DesignClipboardEnvironment {
   clipboard?: ClipboardLike | null;
   ClipboardItem?: ClipboardItemConstructor | null;
+  legacyCopy?: (representations: DesignClipboardRepresentations) => boolean;
 }
 
 export interface DesignClipboardRepresentations {
@@ -44,6 +45,36 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
       typeof globalThis.ClipboardItem === "undefined"
         ? null
         : globalThis.ClipboardItem,
+    legacyCopy:
+      typeof document === "undefined" ||
+      typeof document.execCommand !== "function"
+        ? undefined
+        : (representations) => {
+            let wroteRepresentations = false;
+            const handleCopy = (event: ClipboardEvent) => {
+              if (!event.clipboardData) return;
+              event.clipboardData.setData(
+                "text/plain",
+                representations.plainText,
+              );
+              event.clipboardData.setData("text/html", representations.html);
+              event.preventDefault();
+              wroteRepresentations = true;
+            };
+            document.addEventListener("copy", handleCopy, {
+              capture: true,
+              once: true,
+            });
+            try {
+              // The synchronous copy-event path remains available in browsers
+              // that deny the async Clipboard API. It preserves Design's rich
+              // marker across files/tabs without leaking that marker into the
+              // human-readable text/plain representation.
+              return document.execCommand("copy") && wroteRepresentations;
+            } finally {
+              document.removeEventListener("copy", handleCopy, true);
+            }
+          },
   };
 }
 
@@ -68,6 +99,7 @@ export async function writeDesignClipboard(
 ): Promise<void> {
   const clipboard = environment.clipboard;
   const ClipboardItemCtor = environment.ClipboardItem;
+  let richWriteError: unknown;
 
   if (
     clipboard?.write &&
@@ -88,11 +120,14 @@ export async function writeDesignClipboard(
       ]);
       return;
     } catch (error) {
-      if (!clipboard.writeText) throw error;
+      richWriteError = error;
     }
   }
 
+  if (environment.legacyCopy?.(representations)) return;
+
   if (!clipboard?.writeText) {
+    if (richWriteError) throw richWriteError;
     throw new Error("Clipboard writing is not supported");
   }
   await clipboard.writeText(representations.plainText);

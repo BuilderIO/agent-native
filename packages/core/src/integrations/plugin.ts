@@ -2225,6 +2225,7 @@ export function createIntegrationsPlugin(
             appId: options?.appId,
             ownerEmail: executionContext.ownerEmail,
             orgId: executionContext.orgId,
+            principalType: executionContext.principalType,
             beforeProcess: options?.beforeProcess,
             incoming,
           });

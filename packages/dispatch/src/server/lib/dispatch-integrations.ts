@@ -427,13 +427,6 @@ export async function resolveDispatchExecutionContext(
   };
   let scope = await getIntegrationScope(key, access);
   if (!scope && incoming.triggerKind === "mention") {
-    const serviceOwnerEmail = installation.orgId
-      ? `dispatch+slack-${crypto
-          .createHash("sha256")
-          .update(`${teamId}:${channelId}`)
-          .digest("hex")
-          .slice(0, 16)}@service.agent-native.local`
-      : installation.ownerEmail;
     scope = await saveIntegrationScope(
       {
         ...key,
@@ -441,7 +434,6 @@ export async function resolveDispatchExecutionContext(
         trust: conversation.trust,
         orgId: installation.orgId,
         installationId: installation.id,
-        serviceOwnerEmail,
       },
       access,
     );

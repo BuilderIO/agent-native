@@ -83,28 +83,6 @@ function isGenericFigFormatCaveat(warning: string): boolean {
   return /Figma's \.fig format is proprietary and undocumented/i.test(warning);
 }
 
-function figmaFidelityWarnings(
-  fidelityReport: FigmaFidelityReport | undefined,
-): string[] {
-  if (!fidelityReport) return [];
-  const warnings: string[] = [];
-  const fallbackCount = fidelityReport.imageFallbacks.length;
-  if (fallbackCount > 0) {
-    warnings.push(
-      fallbackCount === 1
-        ? "1 layer uses an image fallback to preserve its appearance and is not fully editable."
-        : `${fallbackCount} layers use image fallbacks to preserve their appearance and are not fully editable.`,
-    );
-  }
-  const approximatedCount = fidelityReport.approximated.length;
-  if (approximatedCount > 0) {
-    warnings.push(
-      `${approximatedCount} ${approximatedCount === 1 ? "layer was" : "layers were"} approximated because HTML/CSS cannot represent every Figma property exactly.`,
-    );
-  }
-  return warnings;
-}
-
 /**
  * Builds one import notification instead of stacking a success toast and a
  * warning toast. The generic experimental `.fig` caveat is already disclosed
@@ -114,13 +92,14 @@ function figmaFidelityWarnings(
 export function importResultNotification(
   result: ImportResult | undefined,
   fallback: string,
+  options?: { fidelityWarnings?: string[] },
 ): ImportResultNotification {
   const title = importResultSummary(result, fallback);
   const actionableWarnings = [
     ...(result?.warnings ?? []).filter(
       (warning) => !isGenericFigFormatCaveat(warning),
     ),
-    ...figmaFidelityWarnings(result?.fidelityReport),
+    ...(options?.fidelityWarnings ?? []),
   ].slice(0, 3);
 
   if (actionableWarnings.length === 0) {
@@ -244,6 +223,127 @@ export interface DesignClipboardPayload {
 }
 
 const CLIPBOARD_MARKER_PREFIX = "agent-native-clipboard-v1:";
+const MAX_CLIPBOARD_MARKER_DATA_CHARS = 16_000_000;
+const MAX_CLIPBOARD_CONTENT_CHARS = 8_000_000;
+const MAX_CLIPBOARD_LAYER_ENTRIES = 1_000;
+const MAX_CLIPBOARD_SCREEN_ENTRIES = 100;
+
+function clipboardString(value: unknown, max = 1_024): value is string {
+  return typeof value === "string" && value.length <= max;
+}
+
+function isPortableClipboardStyleSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.version !== 1 || !Array.isArray(snapshot.nodes)) return false;
+  if (snapshot.nodes.length > 5_000) return false;
+  if (
+    snapshot.rootSourceId !== undefined &&
+    !clipboardString(snapshot.rootSourceId)
+  ) {
+    return false;
+  }
+  return snapshot.nodes.every((rawNode) => {
+    if (!rawNode || typeof rawNode !== "object" || Array.isArray(rawNode)) {
+      return false;
+    }
+    const node = rawNode as Record<string, unknown>;
+    if (node.sourceId !== undefined && !clipboardString(node.sourceId)) {
+      return false;
+    }
+    if (
+      !Array.isArray(node.path) ||
+      node.path.length > 128 ||
+      !node.path.every((part) => Number.isInteger(part) && Number(part) >= 0)
+    ) {
+      return false;
+    }
+    if (!node.styles || typeof node.styles !== "object") return false;
+    const styles = Object.entries(node.styles as Record<string, unknown>);
+    return (
+      styles.length <= 256 &&
+      styles.every(
+        ([property, value]) =>
+          clipboardString(property, 256) && clipboardString(value, 16_384),
+      )
+    );
+  });
+}
+
+function validateDesignClipboardPayload(
+  value: unknown,
+): DesignClipboardPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  if (payload.version !== 1 || !Array.isArray(payload.entries)) return null;
+  if (payload.entries.length > MAX_CLIPBOARD_LAYER_ENTRIES) return null;
+  const screens = payload.screens;
+  if (
+    screens !== undefined &&
+    (!Array.isArray(screens) || screens.length > MAX_CLIPBOARD_SCREEN_ENTRIES)
+  ) {
+    return null;
+  }
+  let contentChars = 0;
+  for (const rawEntry of payload.entries) {
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
+      return null;
+    }
+    const entry = rawEntry as Record<string, unknown>;
+    if (
+      !clipboardString(entry.html, MAX_CLIPBOARD_CONTENT_CHARS) ||
+      !clipboardString(entry.sourceFileId) ||
+      (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
+      (entry.portableStyleSnapshot !== undefined &&
+        !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot))
+    ) {
+      return null;
+    }
+    contentChars += entry.html.length;
+  }
+  for (const rawScreen of (screens as unknown[] | undefined) ?? []) {
+    if (
+      !rawScreen ||
+      typeof rawScreen !== "object" ||
+      Array.isArray(rawScreen)
+    ) {
+      return null;
+    }
+    const screen = rawScreen as Record<string, unknown>;
+    if (
+      !clipboardString(screen.filename, 512) ||
+      screen.filename.includes("..") ||
+      screen.filename.includes("/") ||
+      screen.filename.includes("\\") ||
+      !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
+      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+    ) {
+      return null;
+    }
+    if (screen.canvasFrame !== undefined) {
+      if (
+        !screen.canvasFrame ||
+        typeof screen.canvasFrame !== "object" ||
+        Array.isArray(screen.canvasFrame)
+      ) {
+        return null;
+      }
+      if (
+        Object.values(screen.canvasFrame as Record<string, unknown>).some(
+          (part) =>
+            typeof part !== "number" ||
+            !Number.isFinite(part) ||
+            Math.abs(part) > 10_000_000,
+        )
+      ) {
+        return null;
+      }
+    }
+    contentChars += screen.content.length;
+  }
+  if (contentChars > MAX_CLIPBOARD_CONTENT_CHARS) return null;
+  return value as DesignClipboardPayload;
+}
 
 function encodeClipboardMarkerData(payload: DesignClipboardPayload): string {
   // btoa is UTF-16-unsafe for non-Latin1 text; encodeURIComponent first so
@@ -254,18 +354,11 @@ function encodeClipboardMarkerData(payload: DesignClipboardPayload): string {
 function decodeClipboardMarkerData(
   data: string,
 ): DesignClipboardPayload | null {
+  if (data.length > MAX_CLIPBOARD_MARKER_DATA_CHARS) return null;
   try {
     const json = decodeURIComponent(atob(data));
     const parsed = JSON.parse(json) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      (parsed as { version?: unknown }).version !== 1 ||
-      !Array.isArray((parsed as { entries?: unknown }).entries)
-    ) {
-      return null;
-    }
-    return parsed as DesignClipboardPayload;
+    return validateDesignClipboardPayload(parsed);
   } catch {
     return null;
   }

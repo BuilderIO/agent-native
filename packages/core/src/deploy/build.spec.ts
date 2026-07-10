@@ -1477,15 +1477,21 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
     );
-    expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+    expect(entry).toContain(
+      "url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH",
+    );
     expect(entry).toContain(
       'const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task"',
     );
     expect(entry).toContain(
       'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
     );
-    expect(entry).toContain("if (isA2AProcessorBody(body))");
-    expect(entry).toContain("url.pathname = A2A_PROCESS_TASK_PATH");
+    expect(entry).toContain('const BACKGROUND_PROCESSOR_ROUTE = "route"');
+    expect(entry).toContain(
+      'const BACKGROUND_PROCESSOR_ROUTE_FIELD = "__agentNativeProcessorRoute"',
+    );
+    expect(entry).toContain("function processorPathFromBody(body)");
+    expect(entry).toContain('route.includes("/api/_agent-native-background/")');
     // It preserves the body (read once) and ALL headers (the HMAC Authorization
     // Bearer MUST survive — the plugin verifies it).
     expect(entry).toContain("await request.text()");

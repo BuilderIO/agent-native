@@ -44,7 +44,7 @@ import {
 import {
   IconCopy,
   IconDots,
-  IconMaximize,
+  IconHandClick,
   IconPlus,
 } from "@tabler/icons-react";
 import {
@@ -208,6 +208,7 @@ import {
   getBoardSurfaceStaticPreviewViewport,
   isLineupShrinkOnlyChange,
   OVERVIEW_FRAME_WIDTH,
+  shouldDeferLineupRecenterToCameraCommand,
   shouldRenderBoardSurfaceStaticPreview,
   shouldSuppressLineupRecenter,
   SURFACE_PADDING,
@@ -413,6 +414,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onDeleteSelection,
   onZoomChange,
   renderScreenContent,
+  renderBreakpointContent,
   onScreenSelectionChange,
   selectAllRequest,
   clearSelectionRequest,
@@ -1290,6 +1292,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       screens: screens.map((screen) => ({
         id: screen.id,
         metadata: getResolvedMetadata(screen),
+        breakpointWidths: screen.breakpointWidths,
       })),
       currentGeometryById: frameGeometryRef.current,
       persistedGeometryById: geometryById,
@@ -1402,6 +1405,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previousCount,
         screenCount: screens.length,
         deviceFrameChanged,
+      })
+    ) {
+      return;
+    }
+    if (
+      shouldDeferLineupRecenterToCameraCommand({
+        cameraCommandNonce: cameraCommand?.nonce,
+        lastHandledCameraCommandNonce: lastCameraCommandNonceRef.current,
       })
     ) {
       return;
@@ -7523,6 +7534,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               geometry={geometry}
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
+              renderBreakpointContent={renderBreakpointContent}
               cullTier={screenCullTierById.get(screen.id) ?? "visible"}
               isActive={screen.id === activeId}
               isTopScreen={screen.id === topScreenId}
@@ -8804,6 +8816,7 @@ interface ScreenProps {
   chromeScale: number;
   chromeSettling: boolean;
   screenContent?: ReactNode;
+  renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   /** Overview viewport culling tier (PF22) — see computeScreenCullTier.
    *  "visible": render screenContent normally. "culled": screenContent (if
    *  any) stays mounted but is hidden from paint (visibility/
@@ -8875,6 +8888,7 @@ const Screen = memo(function Screen({
   onStartRotate,
   onStartDuplicateGesture,
   screenContent,
+  renderBreakpointContent,
   cullTier,
   onAddBreakpoint,
   onActiveBreakpointChange,
@@ -8953,7 +8967,7 @@ const Screen = memo(function Screen({
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   // Keep frame actions inside their own frame so closely spaced screens cannot
-  // cover one another. Narrow frames collapse Full view to its familiar icon;
+  // cover one another. Narrow frames collapse Interact to its familiar icon;
   // the accessible name and native tooltip preserve the action's meaning.
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
   const labelInfoMaxWidth = Math.max(
@@ -9088,8 +9102,8 @@ const Screen = memo(function Screen({
             transformOrigin: "right center",
             transition: getChromeLabelTransition(chromeSettling),
           }}
-          aria-label={t("multiScreenCanvas.fullView")}
-          title={t("multiScreenCanvas.fullView")}
+          aria-label={t("designEditor.modes.interact")}
+          title={t("designEditor.modes.interact")}
           onClick={(event) => onEdit(screen.id, event)}
           onMouseDown={(event) => {
             event.preventDefault();
@@ -9098,9 +9112,9 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          <IconMaximize className="size-3 shrink-0" />
+          <IconHandClick className="size-3 shrink-0" />
           <span className={cn("truncate", compactFullView && "sr-only")}>
-            {t("multiScreenCanvas.fullView")}
+            {t("designEditor.modes.interact")}
           </span>
         </button>
       </div>
@@ -9321,6 +9335,8 @@ const Screen = memo(function Screen({
           naturalAspect={metadata.height / Math.max(1, metadata.width)}
           previewUrl={previewUrl}
           srcdocWithHitTest={srcdocWithHitTest}
+          metadata={metadata}
+          renderBreakpointContent={renderBreakpointContent}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
           penActive={penActive}
@@ -9369,6 +9385,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
   return (
     prev.screen === next.screen &&
     prev.screenContent === next.screenContent &&
+    prev.renderBreakpointContent === next.renderBreakpointContent &&
     prev.cullTier === next.cullTier &&
     sameResolvedMetadata(prev.metadata, next.metadata) &&
     sameFrameGeometry(prev.geometry, next.geometry) &&
@@ -9442,6 +9459,8 @@ function BreakpointPreviewRow({
   naturalAspect,
   previewUrl,
   srcdocWithHitTest,
+  metadata,
+  renderBreakpointContent,
   activeBreakpointWidth,
   isScreenSelected,
   penActive,
@@ -9478,6 +9497,8 @@ function BreakpointPreviewRow({
    * the active edit scope (see getActiveScreenIframeId).
    */
   srcdocWithHitTest: string;
+  metadata: ResolvedScreenMetadata;
+  renderBreakpointContent?: MultiScreenCanvasProps["renderBreakpointContent"];
   activeBreakpointWidth: number | undefined;
   /** Whether the OWNING screen (base frame) is the current selection —
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
@@ -9510,12 +9531,12 @@ function BreakpointPreviewRow({
   /** Item 8b — "…" menu "Change width" for one breakpoint frame. */
   onChangeBreakpointWidth?: (widthPx: number, nextWidthPx: number) => void;
   /** Item 8b — full-view entry for one breakpoint frame (double-click or its
-   *  own full-view button), mirroring the base frame's onEdit/full-view
+   *  own Interact button), mirroring the base frame's onEdit/full-view
    *  affordance. */
   onEditBreakpoint?: (widthPx: number) => void;
   /** Gates the "…" menu's mutating items (Remove / Change width) — mirrors
    *  BreakpointBar's own canEdit. Full-view entry is never gated by this,
-   *  same as the base frame's own full-view button. */
+   *  same as the base frame's own Interact button. */
   canEdit?: boolean;
 }) {
   const t = useT();
@@ -9540,6 +9561,13 @@ function BreakpointPreviewRow({
         const { frameWidth, frameHeight, naturalHeight, scale } =
           getBreakpointFrameGeometry({ widthPx, naturalAspect, primaryScale });
         const isActive = activeBreakpointWidth === widthPx;
+        const editableContent = renderBreakpointContent?.(screen, metadata, {
+          widthPx,
+          viewportHeight: naturalHeight,
+          displayWidth: frameWidth,
+          displayHeight: frameHeight,
+          active: isActive,
+        });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
         // BP-DEEP item 5 — clicking a frame in the group always SELECTS it
@@ -9801,8 +9829,8 @@ function BreakpointPreviewRow({
                     transform: `scale(${chromeScale})`,
                     transformOrigin: "right center",
                   }}
-                  aria-label={t("multiScreenCanvas.fullView")}
-                  title={t("multiScreenCanvas.fullView")}
+                  aria-label={t("designEditor.modes.interact")}
+                  title={t("designEditor.modes.interact")}
                   onClick={(e) => {
                     e.stopPropagation();
                     activateThisFrame(e);
@@ -9813,7 +9841,7 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  <IconMaximize className="size-3" />
+                  <IconHandClick className="size-3" />
                 </button>
               ) : null}
               <span
@@ -9835,6 +9863,8 @@ function BreakpointPreviewRow({
                       {breakpointLabel(widthPx)}
                     </span>
                   </div>
+                ) : editableContent ? (
+                  editableContent
                 ) : (
                   <iframe
                     // Distinct id per breakpoint sub-frame — the primary iframe

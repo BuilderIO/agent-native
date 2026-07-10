@@ -109,6 +109,44 @@ describe("integration scope authorization", () => {
       ),
     ).rejects.toThrow("Not authorized");
   });
+
+  it("derives org service principals instead of accepting caller identities", async () => {
+    const access = { ownerEmail: "owner@example.com", orgId: "org-example" };
+    const first = await saveIntegrationScope(
+      {
+        ...key,
+        conversationType: "channel",
+        serviceOwnerEmail: "victim@example.com",
+      } as Parameters<typeof saveIntegrationScope>[0],
+      access,
+    );
+    const second = await saveIntegrationScope(
+      {
+        ...key,
+        conversationType: "channel",
+      },
+      access,
+    );
+
+    expect(first.serviceOwnerEmail).toMatch(
+      /^integration\+[a-f0-9]{24}@service\.agent-native\.local$/,
+    );
+    expect(first.serviceOwnerEmail).not.toBe("victim@example.com");
+    expect(second.serviceOwnerEmail).toBe(first.serviceOwnerEmail);
+  });
+
+  it("keeps personal scopes bound to their verified owner", async () => {
+    const scope = await saveIntegrationScope(
+      {
+        ...key,
+        conversationType: "direct_message",
+        orgId: null,
+      },
+      { ownerEmail: "personal@example.com", orgId: null },
+    );
+
+    expect(scope.serviceOwnerEmail).toBe("personal@example.com");
+  });
 });
 
 describe("integration scope policy", () => {

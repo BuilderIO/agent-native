@@ -74,6 +74,7 @@ import {
 } from "@shared/design-source-capabilities";
 import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import {
@@ -143,6 +144,7 @@ import {
   IconDownload,
   IconClipboard,
   IconFileExport,
+  IconFileStack,
   IconFileImport,
   IconPlayerPlay,
   IconDeviceFloppy,
@@ -258,6 +260,7 @@ import {
 } from "@/components/design/multi-screen/frame-geometry";
 import {
   findCanvasIframeForScreen,
+  getBreakpointIframeId,
   getPrimaryIframeId,
 } from "@/components/design/multi-screen/iframe-targeting";
 import { authoredElementPosition } from "@/components/design/multi-screen/primitive-drop-target";
@@ -470,6 +473,7 @@ import {
   shouldApplyRemotePreviewContent,
   shouldRebaseCollabDocFromStoredContent,
 } from "./design-editor/collab-sync";
+import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import {
   adaptAutoTextColorForCrossScreenNode,
   BOARD_TEXT_AUTO_COLOR_MARKER,
@@ -521,10 +525,12 @@ import {
 import {
   buildStaticForeignObjectSvg,
   computeExportCropBox,
+  createMultiPageRasterPdf,
   createSinglePageRasterPdf,
   EDITOR_CHROME_OVERLAY_SELECTOR,
   getExportCompositeBounds,
   PDF_MIN_PRINT_RASTER_SCALE,
+  type RasterPdfPage,
   resolveRasterExportScale,
   stripNonStaticXmlAttributes,
   unionExportCropRects,
@@ -542,12 +548,14 @@ import {
   type FileCreationHistoryEntry,
   type FileDeletionHistoryEntry,
   filterFileDeletionHistoryEntry,
+  finalizeTextCreationHistory,
   findLastContentHistoryChangeIndex,
   contentHistoryScopeForViewMode,
   getAvailableContentHistoryChanges,
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
+  type PendingTextCreationHistory,
   MAX_DESIGN_UNDO_STACK,
   mergeLocalContentHistoryFallback,
   pruneFileCreationHistoryStack,
@@ -637,6 +645,10 @@ import {
   buildRuntimeReactStructureMoveHandoff,
   resolveRuntimeStructureMoveExecutionMode,
 } from "./design-editor/react-semantic-handoff";
+import {
+  classifyDesignSaveFailure,
+  designSaveErrorMessage,
+} from "./design-editor/save-failure";
 import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
@@ -3978,6 +3990,19 @@ function DesignEditor() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
+  // MultiScreenCanvas owns overview pan, so every external reveal/fit request
+  // (including a screen that was just created) travels through this bounded
+  // camera command rather than remounting the canvas or imperatively reaching
+  // into its DOM. Keeping the command state with the rest of the editor view
+  // state also lets creation handlers issue the reveal in the same React
+  // commit that selects the optimistic file, avoiding a one-frame flash at the
+  // old camera position.
+  const [cameraCommand, setCameraCommand] = useState<{
+    fitBounds: FrameBounds;
+    nonce: number;
+    paddingScreenPx?: number;
+  } | null>(null);
+  const cameraCommandNonceRef = useRef(0);
   // Per-screen zoom memory for single-screen mode: remembers each screen's
   // last zoom level (keyed by file id) so re-entering a screen restores where
   // the user left off instead of always resetting to FOCUSED_SCREEN_ZOOM. A
@@ -4305,6 +4330,12 @@ function DesignEditor() {
   // use. Lets handlePrimitiveCreated trigger begin-text-edit without needing
   // the primitive kind in its signature.
   const pendingTextEditNodeIdRef = useRef<string | null>(null);
+  // Overview text creation stays one atomic history transaction from the
+  // empty inserted node through the final contenteditable commit. The exact
+  // before/created snapshots are freshness guards: any intervening peer/user
+  // edit makes finalization fail closed instead of rewriting unrelated undo.
+  const pendingTextCreationHistoryRef =
+    useRef<PendingTextCreationHistory | null>(null);
   // T6: tracks the screen/node of a newly-created TEXT primitive whose
   // begin-text-edit retry loop (scheduleBeginTextEditForScreen) is still
   // in flight, plus that loop's cancel function. Used so:
@@ -4573,6 +4604,10 @@ function DesignEditor() {
   const [activeBreakpointWidthState, setActiveBreakpointWidthState] = useState<
     number | undefined
   >(undefined);
+  type ResponsiveEditScope = "cascade-smaller" | "only";
+  const [responsiveEditScope, setResponsiveEditScope] =
+    useState<ResponsiveEditScope>("cascade-smaller");
+  const responsiveEditScopeRef = useRef<ResponsiveEditScope>("cascade-smaller");
   // BP-DEEP item 5 — latest-ref mirror of activeBreakpointWidthState so
   // click-to-target handlers (handleOverviewScreenPick, the global Escape
   // handler) can read the CURRENT value without listing it as a useCallback
@@ -4995,6 +5030,42 @@ function DesignEditor() {
       );
     },
     [],
+  );
+  const finalizePendingTextCreation = useCallback(
+    (
+      fileId: string,
+      nodeIds: readonly (string | null | undefined)[],
+      finalContent: string,
+    ) => {
+      const pending = pendingTextCreationHistoryRef.current;
+      if (
+        !pending ||
+        pending.fileId !== fileId ||
+        !nodeIds.some((nodeId) => nodeId === pending.nodeId)
+      ) {
+        return false;
+      }
+      const result = finalizeTextCreationHistory(
+        contentUndoStackRef.current,
+        pending,
+        finalContent,
+      );
+      pendingTextCreationHistoryRef.current = null;
+      if (result.status === "stale") return false;
+      contentUndoStackRef.current = result.stack;
+      if (result.status === "rolled-back") {
+        contentUndoSelectionStackRef.current =
+          contentUndoSelectionStackRef.current.slice(0, -1);
+        historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+          historyOrderRef.current,
+          "file-content",
+          1,
+        );
+      }
+      syncUndoRedoState();
+      return true;
+    },
+    [syncUndoRedoState],
   );
   const recordExternalContentHistoryCheckpoint = useCallback(
     (change: ContentHistoryChange) => {
@@ -5719,11 +5790,13 @@ function DesignEditor() {
         await journalDesignSaveOutboxEntry(entry);
         return true;
       } catch {
-        warnChangesWillRetry();
+        // IndexedDB can be unavailable in private/embedded contexts. The
+        // network mutation still runs below, so this is not a disconnect and
+        // must not show “save when reconnected” on every edit.
         return false;
       }
     },
-    [warnChangesWillRetry],
+    [],
   );
 
   const acknowledgeOutboxEntry = useCallback(
@@ -5731,10 +5804,12 @@ function DesignEditor() {
       try {
         await acknowledgeDesignSaveOutboxEntry(entry);
       } catch {
-        warnChangesWillRetry();
+        // The server save already succeeded. A local outbox cleanup failure
+        // is neither data loss nor a connectivity warning; operation ids make
+        // a later replay idempotent.
       }
     },
-    [warnChangesWillRetry],
+    [],
   );
 
   const retryDesignSaveOutbox = useCallback(async () => {
@@ -5749,9 +5824,13 @@ function DesignEditor() {
           queryKey: ["action", "get-design"],
         });
       }
-      if (result.failed.length > 0) warnChangesWillRetry();
-    } catch {
-      warnChangesWillRetry();
+      if (result.failed.length > 0 && navigator.onLine === false) {
+        warnChangesWillRetry();
+      }
+    } catch (error) {
+      if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
+        warnChangesWillRetry();
+      }
     }
   }, [designSaveActorScope, id, queryClient, warnChangesWillRetry]);
 
@@ -5827,7 +5906,7 @@ function DesignEditor() {
       delete latestFileSaveForUnloadRef.current[fileId];
       const entry = queued ? createFileSaveOutboxEntry(queued) : null;
       if (entry) {
-        void discardDesignSaveOutboxEntry(entry).catch(warnChangesWillRetry);
+        void discardDesignSaveOutboxEntry(entry).catch(() => {});
       }
     },
     [createFileSaveOutboxEntry, warnChangesWillRetry],
@@ -5919,7 +5998,12 @@ function DesignEditor() {
             if (persistedContentMatches && outboxEntry) {
               await acknowledgeOutboxEntry(outboxEntry);
             } else if (!persistedContentMatches) {
-              warnChangesWillRetry();
+              // A stale/no-op save result is a source conflict, not a lost
+              // connection. Refetch below rebases the editor; never promise
+              // that simply reconnecting will save this obsolete snapshot.
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
             }
             if (
               shouldClearLatestUnloadSave(
@@ -5944,7 +6028,18 @@ function DesignEditor() {
             queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
-            warnChangesWillRetry();
+            const failureKind = classifyDesignSaveFailure(
+              error,
+              navigator.onLine,
+            );
+            if (failureKind === "offline") {
+              warnChangesWillRetry();
+            } else if (failureKind !== "intentional-abort") {
+              toast.error(
+                designSaveErrorMessage(error) ?? t("common.genericError"),
+                { id: `design-save-error:${pending.id}` },
+              );
+            }
             setPatchProof((prev) =>
               prev && prev.fileId === pending.id && prev.status === "queued"
                 ? {
@@ -6063,19 +6158,16 @@ function DesignEditor() {
       void attempt.completion
         .then((result: unknown) => {
           if (!updateFileResultPersistedContent(result, pending.content)) {
-            warnChangesWillRetry();
             return;
           }
           return acknowledgeOutboxEntry(entry);
         })
-        .catch(warnChangesWillRetry);
+        // Pagehide/navigation can intentionally abort this request. The
+        // journaled operation remains available for replay, and there is no
+        // useful visible surface for a toast while the page is leaving.
+        .catch(() => {});
     },
-    [
-      acknowledgeOutboxEntry,
-      createFileSaveOutboxEntry,
-      journalOutboxEntry,
-      warnChangesWillRetry,
-    ],
+    [acknowledgeOutboxEntry, createFileSaveOutboxEntry, journalOutboxEntry],
   );
 
   useEffect(() => {
@@ -6755,6 +6847,7 @@ function DesignEditor() {
           previewState: stringValue("previewState"),
           status: stringValue("status"),
           title: stringValue("title"),
+          layoutGroupId: stringValue("variantSetId"),
           width: numberValue("width"),
           height: numberValue("height"),
           url: stringValue("url"),
@@ -7638,6 +7731,11 @@ function DesignEditor() {
   // uses them.
   const handleBreakpointBarSelect = useCallback(
     (widthPx: number | undefined) => {
+      // Selection and bridge events from a breakpoint iframe can be followed
+      // by a style commit in the same browser task. Mirror synchronously so
+      // that commit cannot observe the previous frame's scope while React is
+      // still scheduling the state update.
+      activeBreakpointWidthStateRef.current = widthPx;
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bp = designBreakpoints.find((b) => b.widthPx === widthPx);
@@ -7649,9 +7747,29 @@ function DesignEditor() {
       void setActiveBreakpointMutation.mutateAsync({
         designId: id,
         breakpointId,
+        editScope: responsiveEditScopeRef.current,
       });
     },
     [id, designBreakpoints, setActiveBreakpointMutation],
+  );
+  const handleResponsiveEditScopeChange = useCallback(
+    (scope: ResponsiveEditScope) => {
+      responsiveEditScopeRef.current = scope;
+      setResponsiveEditScope(scope);
+      if (!id) return;
+      const activeWidth = activeBreakpointWidthStateRef.current;
+      const breakpointId =
+        activeWidth === undefined
+          ? "auto"
+          : (designBreakpoints.find((bp) => bp.widthPx === activeWidth)?.id ??
+            "auto");
+      void setActiveBreakpointMutation.mutateAsync({
+        designId: id,
+        breakpointId,
+        editScope: scope,
+      });
+    },
+    [designBreakpoints, id, setActiveBreakpointMutation],
   );
 
   // Item 9 — agent→UI breakpoint sync. `set-active-breakpoint` (the action
@@ -7678,6 +7796,7 @@ function DesignEditor() {
       const value = await readClientAppState<{
         designId?: string;
         activeBreakpointId?: string;
+        responsiveEditScope?: ResponsiveEditScope;
       }>(`design-active-breakpoint:${id}`).catch(() => null);
       if (cancelled || !value || value.designId !== id) return;
       const nextBreakpointId = value.activeBreakpointId ?? "auto";
@@ -7685,6 +7804,10 @@ function DesignEditor() {
         return;
       }
       lastAppliedActiveBreakpointIdRef.current = nextBreakpointId;
+      const nextScope =
+        value.responsiveEditScope === "only" ? "only" : "cascade-smaller";
+      responsiveEditScopeRef.current = nextScope;
+      setResponsiveEditScope(nextScope);
       const nextWidthPx =
         nextBreakpointId !== "auto"
           ? designBreakpoints.find((bp) => bp.id === nextBreakpointId)?.widthPx
@@ -8114,6 +8237,71 @@ function DesignEditor() {
     };
   }, [appStateVersion, applyDesignEditorCommand, browserTabId, id]);
 
+  const optimisticallyInsertCreatedFile = useCallback(
+    (args: {
+      fileId: string;
+      filename: string;
+      fileType: DesignFile["fileType"];
+      content: string;
+      result?: Record<string, unknown> | null;
+    }) => {
+      if (!id) return;
+      const now = new Date().toISOString();
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+          return old;
+        }
+        const optimisticFile: DesignFile = {
+          id: args.fileId,
+          filename: args.filename,
+          fileType: args.fileType,
+          content: args.content,
+          createdAt:
+            typeof args.result?.createdAt === "string"
+              ? args.result.createdAt
+              : now,
+          updatedAt:
+            typeof args.result?.updatedAt === "string"
+              ? args.result.updatedAt
+              : now,
+        };
+        return {
+          ...old,
+          files: old.files.some((file: DesignFile) => file.id === args.fileId)
+            ? old.files.map((file: DesignFile) =>
+                file.id === args.fileId ? optimisticFile : file,
+              )
+            : [...old.files, optimisticFile],
+        };
+      });
+    },
+    [id, queryClient],
+  );
+
+  const focusCreatedScreen = useCallback(
+    (screenId: string, geometry: FrameGeometry) => {
+      const plan = getCreatedScreenNavigationPlan({ screenId, geometry });
+      pendingOverviewScreenSelectionRef.current = screenId;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      setActiveFileId(plan.activeFileId);
+      setSelectedElement(null);
+      setSelectedLayerIdsState(plan.selectedLayerIds);
+      setOverviewSelectedScreenIds(plan.selectedScreenIds);
+      setActiveTool("move");
+      setMode("edit");
+      viewModeRef.current = plan.viewMode;
+      setViewMode(plan.viewMode);
+      cameraCommandNonceRef.current += 1;
+      setCameraCommand({
+        ...plan.camera,
+        nonce: cameraCommandNonceRef.current,
+      });
+    },
+    [clearPendingOverviewLayerSelectionTimer],
+  );
+
   const handleDuplicateScreen = useCallback(
     (
       screenId: string,
@@ -8127,14 +8315,21 @@ function DesignEditor() {
       const filename = nextDuplicatedFilename(files, source.filename);
       const content = reassignDuplicatedNodeIds(source.content);
       const fileType = normalizedDesignFileType(source.fileType);
-      const createdGeometry: CanvasFrameGeometry | undefined =
-        request?.canvasPosition
-          ? {
-              ...canvasFrameGeometryById[screenId],
-              x: request.canvasPosition.x,
-              y: request.canvasPosition.y,
-            }
-          : canvasFrameGeometryById[screenId];
+      const sourceOverviewScreen = overviewScreens.find(
+        (screen) => screen.id === screenId,
+      );
+      const fallbackGeometry = getInitialFrameGeometry(overviewScreens.length, {
+        width: sourceOverviewScreen?.width ?? 1280,
+        height: sourceOverviewScreen?.height ?? 2560,
+      });
+      const createdGeometry: FrameGeometry = request?.canvasPosition
+        ? {
+            ...fallbackGeometry,
+            ...canvasFrameGeometryById[screenId],
+            x: request.canvasPosition.x,
+            y: request.canvasPosition.y,
+          }
+        : fallbackGeometry;
 
       createFileMutation.mutate(
         {
@@ -8150,33 +8345,21 @@ function DesignEditor() {
               queryKey: ["action", "get-design"],
             });
             if (nextId) {
-              setActiveFileId(nextId);
-              setActiveTool("move");
-              viewModeRef.current = "overview";
-              setViewMode("overview");
-              if (request?.canvasPosition) {
-                // B5-9: use the same immediate-optimistic-write path as
-                // handleCreateScreenFrame (writeFrameGeometrySnapshot) instead
-                // of the debounced queueFrameGeometrySave. queueFrameGeometrySave
-                // shares its 500ms debounce timer with MultiScreenCanvas's own
-                // reactive onGeometryChange sync (fired whenever a newly
-                // appeared screen briefly falls back to
-                // getInitialFrameGeometry()'s default SCREEN_WIDTH before this
-                // duplicate's real geometry round-trips back) — that reactive
-                // call could land last and silently overwrite this correct
-                // geometry with the disposable fallback. Writing synchronously
-                // here (query cache + mutation, no debounce window) means the
-                // duplicate's real width/height/position are visible to
-                // MultiScreenCanvas before any fallback has a chance to exist.
-                writeFrameGeometrySnapshot({
-                  ...canvasFrameGeometryById,
-                  [nextId]: {
-                    ...canvasFrameGeometryById[screenId],
-                    x: request.canvasPosition.x,
-                    y: request.canvasPosition.y,
-                  },
-                });
-              }
+              optimisticallyInsertCreatedFile({
+                fileId: nextId,
+                filename,
+                fileType,
+                content,
+                result,
+              });
+              // Use the same immediate optimistic geometry path for every
+              // duplicate entry point. This makes the frame, selection, and
+              // camera agree before the authoritative refetch completes.
+              writeFrameGeometrySnapshot({
+                ...canvasFrameGeometryById,
+                [nextId]: createdGeometry,
+              });
+              focusCreatedScreen(nextId, createdGeometry);
               recordFileCreationHistoryEntry({
                 filename,
                 content,
@@ -8260,8 +8443,11 @@ function DesignEditor() {
       canvasFrameGeometryById,
       createFileMutation,
       files,
+      focusCreatedScreen,
       recordFileCreationHistoryEntry,
       id,
+      optimisticallyInsertCreatedFile,
+      overviewScreens,
       queryClient,
       t,
       updateDesignMutation,
@@ -8273,6 +8459,10 @@ function DesignEditor() {
     if (!id || !canEditDesign) return;
     const filename = nextBlankScreenFilename(files);
     const content = blankScreenHtml(prettyScreenName(filename));
+    const nextGeometry = getInitialFrameGeometry(overviewScreens.length, {
+      width: 1280,
+      height: 2560,
+    });
     createFileMutation.mutate(
       {
         designId: id,
@@ -8284,59 +8474,23 @@ function DesignEditor() {
         onSuccess: (result: any) => {
           const nextId = typeof result?.id === "string" ? result.id : null;
           if (nextId) {
-            const now = new Date().toISOString();
-            queryClient.setQueryData(
-              ["action", "get-design", { id }],
-              (old: any) => {
-                if (
-                  !old ||
-                  typeof old !== "object" ||
-                  !Array.isArray(old.files)
-                ) {
-                  return old;
-                }
-                const optimisticFile: DesignFile = {
-                  id: nextId,
-                  filename,
-                  fileType: "html",
-                  content,
-                  createdAt:
-                    typeof result?.createdAt === "string"
-                      ? result.createdAt
-                      : now,
-                  updatedAt:
-                    typeof result?.updatedAt === "string"
-                      ? result.updatedAt
-                      : now,
-                };
-                return {
-                  ...old,
-                  files: old.files.some(
-                    (file: DesignFile) => file.id === nextId,
-                  )
-                    ? old.files.map((file: DesignFile) =>
-                        file.id === nextId ? optimisticFile : file,
-                      )
-                    : [...old.files, optimisticFile],
-                };
-              },
-            );
-            pendingOverviewScreenSelectionRef.current = nextId;
-            pendingOverviewLayerSelectionRef.current = null;
-            clearPendingOverviewLayerSelectionTimer();
-            setCreatedOverviewLayerSelection(null);
-            setActiveFileId(nextId);
-            setSelectedElement(null);
-            setSelectedLayerIdsState([nextId]);
-            setOverviewSelectedScreenIds([nextId]);
-            setActiveTool("move");
-            setMode("edit");
-            viewModeRef.current = "overview";
-            setViewMode("overview");
+            optimisticallyInsertCreatedFile({
+              fileId: nextId,
+              filename,
+              fileType: "html",
+              content,
+              result,
+            });
+            writeFrameGeometrySnapshot({
+              ...canvasFrameGeometryById,
+              [nextId]: nextGeometry,
+            });
+            focusCreatedScreen(nextId, nextGeometry);
             recordFileCreationHistoryEntry({
               filename,
               content,
               fileType: "html",
+              geometry: nextGeometry,
             });
           }
           queryClient.invalidateQueries({
@@ -8354,13 +8508,17 @@ function DesignEditor() {
     );
   }, [
     canEditDesign,
-    clearPendingOverviewLayerSelectionTimer,
+    canvasFrameGeometryById,
     createFileMutation,
     files,
+    focusCreatedScreen,
     id,
+    optimisticallyInsertCreatedFile,
+    overviewScreens.length,
     queryClient,
     recordFileCreationHistoryEntry,
     t,
+    writeFrameGeometrySnapshot,
   ]);
 
   const handleCreateScreenFrame = useCallback(
@@ -8385,59 +8543,18 @@ function DesignEditor() {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
             if (nextId) {
-              const now = new Date().toISOString();
-              queryClient.setQueryData(
-                ["action", "get-design", { id }],
-                (old: any) => {
-                  if (
-                    !old ||
-                    typeof old !== "object" ||
-                    !Array.isArray(old.files)
-                  ) {
-                    return old;
-                  }
-                  const optimisticFile: DesignFile = {
-                    id: nextId,
-                    filename,
-                    fileType: "html",
-                    content,
-                    createdAt:
-                      typeof result?.createdAt === "string"
-                        ? result.createdAt
-                        : now,
-                    updatedAt:
-                      typeof result?.updatedAt === "string"
-                        ? result.updatedAt
-                        : now,
-                  };
-                  return {
-                    ...old,
-                    files: old.files.some(
-                      (file: DesignFile) => file.id === nextId,
-                    )
-                      ? old.files.map((file: DesignFile) =>
-                          file.id === nextId ? optimisticFile : file,
-                        )
-                      : [...old.files, optimisticFile],
-                  };
-                },
-              );
-              pendingOverviewScreenSelectionRef.current = nextId;
-              pendingOverviewLayerSelectionRef.current = null;
-              clearPendingOverviewLayerSelectionTimer();
-              setCreatedOverviewLayerSelection(null);
-              setActiveFileId(nextId);
-              setSelectedElement(null);
-              setSelectedLayerIdsState([nextId]);
-              setOverviewSelectedScreenIds([nextId]);
-              setActiveTool("move");
-              setMode("edit");
-              viewModeRef.current = "overview";
-              setViewMode("overview");
+              optimisticallyInsertCreatedFile({
+                fileId: nextId,
+                filename,
+                fileType: "html",
+                content,
+                result,
+              });
               writeFrameGeometrySnapshot({
                 ...canvasFrameGeometryById,
                 [nextId]: nextGeometry,
               });
+              focusCreatedScreen(nextId, nextGeometry);
               recordFileCreationHistoryEntry({
                 filename,
                 content,
@@ -8462,10 +8579,11 @@ function DesignEditor() {
     [
       canEditDesign,
       canvasFrameGeometryById,
-      clearPendingOverviewLayerSelectionTimer,
       createFileMutation,
       files,
+      focusCreatedScreen,
       id,
+      optimisticallyInsertCreatedFile,
       queryClient,
       recordFileCreationHistoryEntry,
       t,
@@ -10002,6 +10120,18 @@ function DesignEditor() {
       const existing = liveScreenSnapshotsById[screenId];
       if (!existing) return false;
       if (existing.html === html) return true;
+      try {
+        assertDesignHtmlEditIntegrity({
+          previousContent: existing.html,
+          nextContent: html,
+          fileType: "html",
+        });
+      } catch (error) {
+        toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
+          id: `design-source-integrity:${screenId}`,
+        });
+        return false;
+      }
       // U20: URL-backed/localhost ("live snapshot") screen edits never went
       // through applyFileContentUpdate/applyLocalContentUpdate (the 3 call
       // sites all write here directly), so no undo/redo entry was ever
@@ -10027,6 +10157,7 @@ function DesignEditor() {
       liveScreenSnapshotsById,
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
+      t,
     ],
   );
   const recordPendingVisualStyleEdit = useCallback(
@@ -10116,6 +10247,7 @@ function DesignEditor() {
               breakpoint: {
                 activeWidthPx: activeBreakpointWidthState,
                 upperBoundPx: activeBreakpointUpperBoundPx,
+                editScope: responsiveEditScopeRef.current,
               },
             }
           : {}),
@@ -11175,6 +11307,18 @@ function DesignEditor() {
               typeof collabContentRef.current === "string"
             ? collabContentRef.current
             : (activeFile.content ?? "");
+      try {
+        assertDesignHtmlEditIntegrity({
+          previousContent,
+          nextContent,
+          fileType: activeFile.fileType,
+        });
+      } catch (error) {
+        toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
+          id: `design-source-integrity:${activeFile.id}`,
+        });
+        return;
+      }
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11338,6 +11482,7 @@ function DesignEditor() {
       recordLocalContentHistoryEntry,
       recordLocalContentHistoryChangeFallback,
       syncUndoRedoState,
+      t,
       ydoc,
     ],
   );
@@ -11378,6 +11523,18 @@ function DesignEditor() {
       const previousFile = files.find((file) => file.id === fileId);
       const previousContent =
         getScreenContent(fileId) ?? previousFile?.content ?? "";
+      try {
+        assertDesignHtmlEditIntegrity({
+          previousContent,
+          nextContent,
+          fileType: previousFile?.fileType ?? "html",
+        });
+      } catch (error) {
+        toast.error(designSaveErrorMessage(error) ?? t("common.genericError"), {
+          id: `design-source-integrity:${fileId}`,
+        });
+        return;
+      }
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       if (
@@ -11477,6 +11634,7 @@ function DesignEditor() {
       queryClient,
       recordContentHistoryEntry,
       saveFileContent,
+      t,
     ],
   );
 
@@ -12018,6 +12176,18 @@ function DesignEditor() {
           )?.id
         : null;
 
+      pendingTextCreationHistoryRef.current =
+        primitive.kind === "text" &&
+        primitive.nodeId &&
+        viewModeRef.current === "overview"
+          ? {
+              fileId: targetFile.id,
+              nodeId: primitive.nodeId,
+              before: baseContent,
+              created: nextContent,
+            }
+          : null;
+
       if (targetFile.id === activeFile?.id) {
         applyLocalContentUpdate(nextContent, {
           forcePreviewFullDocument: true,
@@ -12106,7 +12276,15 @@ function DesignEditor() {
       if (hasContent) return;
       const nextContent = removeCodeLayerNodeFromHtml(content, node);
       if (!nextContent || nextContent === content) return;
-      applyFileContentUpdate(screenId, nextContent, { refreshPreview: false });
+      const finalizedCreation = finalizePendingTextCreation(
+        screenId,
+        [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
+        nextContent,
+      );
+      applyFileContentUpdate(screenId, nextContent, {
+        refreshPreview: false,
+        recordHistory: !finalizedCreation,
+      });
       setSelectedLayerIdsState((current) =>
         current.filter((id) => id !== node.id),
       );
@@ -12114,7 +12292,7 @@ function DesignEditor() {
         current?.sourceId === nodeId || current?.id === nodeId ? null : current,
       );
     },
-    [applyFileContentUpdate, getScreenContent],
+    [applyFileContentUpdate, finalizePendingTextCreation, getScreenContent],
   );
 
   const handlePrimitiveCreated = useCallback(
@@ -12998,6 +13176,7 @@ function DesignEditor() {
         }
         return undefined;
       })(),
+      responsiveEditScope,
       breakpointSetId: (() => {
         try {
           const raw = (designDataJson as Record<string, unknown>)
@@ -13033,6 +13212,7 @@ function DesignEditor() {
       motion: selection.motion,
       breakpoint: selection.breakpoint,
       activeBreakpointId: selection.activeBreakpointId,
+      responsiveEditScope: selection.responsiveEditScope,
       breakpointSetId: selection.breakpointSetId,
       selectedStateId: selection.selectedStateId,
       ownerId: designSelectionOwnerIdRef.current,
@@ -13126,6 +13306,7 @@ function DesignEditor() {
     zoom,
     motionDockOpen,
     activeBreakpointWidthState,
+    responsiveEditScope,
     designDataJson,
     selectedStateId,
   ]);
@@ -13382,7 +13563,10 @@ function DesignEditor() {
       screenId: string,
       info: ElementInfo,
       intent?: ElementSelectionIntent,
-      options: { persistPendingNodeId?: boolean } = {},
+      options: {
+        persistPendingNodeId?: boolean;
+        breakpointWidthPx?: number;
+      } = {},
     ) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
@@ -13527,15 +13711,23 @@ function DesignEditor() {
       }
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
-        // BP-DEEP item 5 — Framer click-to-target: an element click in
-        // OVERVIEW always lands inside a PRIMARY (base) frame's iframe —
-        // breakpoint sub-frames are pointer-events-none — so clicking into
-        // that content means the user is now targeting Base; return the
-        // active edit scope there. Deliberately overview-only: in
-        // single-screen mode the one visible iframe IS the active
-        // breakpoint's viewport, so element clicks there are edits AT that
-        // breakpoint and must not reset it.
-        if (activeBreakpointWidthStateRef.current !== undefined) {
+        // A responsive sub-frame now owns a full editor bridge, so selection
+        // carries its exact width into the edit scope. Primary-frame clicks
+        // still return to Base. This prevents two identical selectors in the
+        // base and responsive runtimes from racing for one global scope.
+        if (options.breakpointWidthPx !== undefined) {
+          handleBreakpointBarSelect(options.breakpointWidthPx);
+          const guidanceKey = `design-responsive-edit-guidance:${id}:${screenId}`;
+          if (window.localStorage.getItem(guidanceKey) !== "shown") {
+            window.localStorage.setItem(guidanceKey, "shown");
+            toast.info(
+              t("designEditor.breakpointBar.scope.firstEditGuidance"),
+              {
+                duration: 6000,
+              },
+            );
+          }
+        } else if (activeBreakpointWidthStateRef.current !== undefined) {
           handleBreakpointBarSelect(undefined);
         }
       }
@@ -13553,11 +13745,12 @@ function DesignEditor() {
       handleBreakpointBarSelect,
       id,
       selectedLayerIdsState,
+      t,
     ],
   );
 
   const handleScreenElementClear = useCallback(
-    (screenId: string) => {
+    (screenId: string, breakpointWidthPx?: number) => {
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
       if (
@@ -13584,10 +13777,9 @@ function DesignEditor() {
       setSelectedLayerIdsState([]);
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
-        // BP-DEEP item 5 — see handleScreenElementSelect's matching comment:
-        // a clear click also lands inside the base frame's content, so it
-        // returns the edit scope to Base in overview.
-        if (activeBreakpointWidthStateRef.current !== undefined) {
+        if (breakpointWidthPx !== undefined) {
+          handleBreakpointBarSelect(breakpointWidthPx);
+        } else if (activeBreakpointWidthStateRef.current !== undefined) {
           handleBreakpointBarSelect(undefined);
         }
       }
@@ -14115,6 +14307,10 @@ function DesignEditor() {
             property,
             value,
             upperBoundPx: activeBreakpointUpperBoundPx,
+            lowerBoundPx:
+              responsiveEditScopeRef.current === "only"
+                ? activeBreakpointWidthStateRef.current
+                : null,
           });
           if (patch.result.status !== "applied") {
             return {
@@ -14186,6 +14382,26 @@ function DesignEditor() {
               committedNodeId,
             )
           : resolvedNextContentAfterFontLink;
+
+      try {
+        assertDesignHtmlEditIntegrity({
+          previousContent: baseContent,
+          nextContent: resolvedNextContent,
+          fileType: activeFile.fileType,
+        });
+      } catch (error) {
+        const message =
+          designSaveErrorMessage(error) ?? t("common.genericError");
+        toast.error(message, {
+          id: `design-source-integrity:${activeFile.id}`,
+        });
+        setPatchProof((previous) =>
+          previous?.id === proofId
+            ? { ...previous, status: "failed", error: message }
+            : previous,
+        );
+        return;
+      }
 
       const nextProjection = buildCodeLayerProjection(resolvedNextContent);
       const resolvedNode = selectedElement
@@ -14415,6 +14631,10 @@ function DesignEditor() {
               property,
               value,
               upperBoundPx: activeBreakpointUpperBoundPx,
+              lowerBoundPx:
+                responsiveEditScopeRef.current === "only"
+                  ? activeBreakpointWidthStateRef.current
+                  : null,
             });
             if (patch.result.status !== "applied") return;
             nextContent = patch.content;
@@ -14553,6 +14773,10 @@ function DesignEditor() {
             property,
             value: nextValue,
             upperBoundPx: activeBreakpointUpperBoundPx,
+            lowerBoundPx:
+              responsiveEditScopeRef.current === "only"
+                ? activeBreakpointWidthStateRef.current
+                : null,
           });
           if (patch.result.status !== "applied") return;
           nextContent = patch.content;
@@ -15493,10 +15717,24 @@ function DesignEditor() {
         );
         return;
       }
+      const finalizedCreation = finalizePendingTextCreation(
+        activeFile.id,
+        [
+          elementInfo?.sourceId,
+          targetNode?.id,
+          targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+        ],
+        nextContent,
+      );
       if (activeLiveSnapshot) {
-        updateLiveScreenSnapshotContent(activeFile.id, nextContent);
+        updateLiveScreenSnapshotContent(activeFile.id, nextContent, {
+          recordHistory: !finalizedCreation,
+        });
       } else {
-        applyLocalContentUpdate(nextContent, { skipPreview: true });
+        applyLocalContentUpdate(nextContent, {
+          skipPreview: true,
+          recordHistory: !finalizedCreation,
+        });
       }
       // T8: committing text editing should return to the move tool (matches
       // the creation path, which already does this), not re-arm the text
@@ -15544,6 +15782,7 @@ function DesignEditor() {
       activeCanvasSourceType,
       applyLocalContentUpdate,
       canEditDesign,
+      finalizePendingTextCreation,
       getFreshActiveContent,
       liveScreenSnapshotsById,
       recordPendingLiveTextEdit,
@@ -15610,6 +15849,10 @@ function DesignEditor() {
             property,
             value,
             upperBoundPx: activeBreakpointUpperBoundPx,
+            lowerBoundPx:
+              responsiveEditScopeRef.current === "only"
+                ? activeBreakpointWidthStateRef.current
+                : null,
           });
           if (patch.result.status !== "applied") {
             return {
@@ -15971,10 +16214,24 @@ function DesignEditor() {
         );
         return;
       }
+      const finalizedCreation = finalizePendingTextCreation(
+        screenId,
+        [
+          elementInfo?.sourceId,
+          targetNode?.id,
+          targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+        ],
+        nextContent,
+      );
       if (liveSnapshot) {
-        updateLiveScreenSnapshotContent(screenId, nextContent);
+        updateLiveScreenSnapshotContent(screenId, nextContent, {
+          recordHistory: !finalizedCreation,
+        });
       } else {
-        applyFileContentUpdate(screenId, nextContent, { skipPreview: true });
+        applyFileContentUpdate(screenId, nextContent, {
+          skipPreview: true,
+          recordHistory: !finalizedCreation,
+        });
       }
       setActiveFileId(screenId);
       // T8: see the matching note in handleTextContentChange — commit
@@ -16021,6 +16278,7 @@ function DesignEditor() {
       applyFileContentUpdate,
       canEditDesign,
       designSourceType,
+      finalizePendingTextCreation,
       getScreenContent,
       handleTextContentChange,
       liveScreenSnapshotsById,
@@ -17400,6 +17658,10 @@ function DesignEditor() {
               property: "display",
               value: "none",
               upperBoundPx: activeBreakpointUpperBoundPx,
+              lowerBoundPx:
+                responsiveEditScopeRef.current === "only"
+                  ? activeBreakpointWidthStateRef.current
+                  : null,
             });
             if (patch.result.status !== "applied") continue;
             content = patch.content;
@@ -17504,6 +17766,10 @@ function DesignEditor() {
             property: "display",
             value: "none",
             upperBoundPx: activeBreakpointUpperBoundPx,
+            lowerBoundPx:
+              responsiveEditScopeRef.current === "only"
+                ? activeBreakpointWidthStateRef.current
+                : null,
           })
         : null;
       if (patch && patch.result.status === "applied") {
@@ -21363,6 +21629,8 @@ function DesignEditor() {
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "file-created",
       ];
+      fileHistoryMutationPendingRef.current = true;
+      syncUndoRedoState();
       createFileMutation.mutate(
         {
           designId: id,
@@ -21373,17 +21641,62 @@ function DesignEditor() {
         {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
+            if (nextId) {
+              const geometry = {
+                ...getInitialFrameGeometry(overviewScreens.length, {
+                  width: 1280,
+                  height: 2560,
+                }),
+                ...entry.geometry,
+              };
+              optimisticallyInsertCreatedFile({
+                fileId: nextId,
+                filename: entry.filename,
+                fileType: entry.fileType,
+                content: entry.content,
+                result,
+              });
+              writeFrameGeometrySnapshot({
+                ...getCanvasFrameGeometry(designDataJsonRef.current),
+                [nextId]: geometry,
+              });
+              focusCreatedScreen(nextId, geometry);
+            }
+            fileHistoryMutationPendingRef.current = false;
+            syncUndoRedoState();
             queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
-            if (nextId && entry.geometry) {
-              writeFrameGeometrySnapshot({
-                ...getCanvasFrameGeometry(designDataJsonRef.current),
-                [nextId]: entry.geometry,
-              });
-            }
           },
           onError: (error: unknown) => {
+            // The optimistic history move happened before the request. Put the
+            // entry back exactly where it came from so a failed redo remains
+            // retryable and does not leave a phantom undo operation behind.
+            if (
+              fileCreationUndoStackRef.current[
+                fileCreationUndoStackRef.current.length - 1
+              ] === entry
+            ) {
+              fileCreationUndoStackRef.current =
+                fileCreationUndoStackRef.current.slice(0, -1);
+            }
+            historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+              historyOrderRef.current,
+              "file-created",
+              1,
+            );
+            fileCreationRedoStackRef.current = [
+              ...fileCreationRedoStackRef.current.slice(
+                -(MAX_DESIGN_UNDO_STACK - 1),
+              ),
+              entry,
+            ];
+            redoOrderRef.current = [
+              ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+              "file-created",
+            ];
+            fileHistoryMutationPendingRef.current = false;
+            syncUndoRedoState();
             toast.error(
               error instanceof Error
                 ? error.message
@@ -21490,10 +21803,13 @@ function DesignEditor() {
     canEditDesign,
     createFileMutation,
     files,
+    focusCreatedScreen,
     id,
     isSynced,
     liveScreenSnapshotsById,
     markPendingLocalFileContent,
+    optimisticallyInsertCreatedFile,
+    overviewScreens.length,
     performDeleteFiles,
     queryClient,
     queueFileContentSave,
@@ -21524,13 +21840,6 @@ function DesignEditor() {
   // for this component to know the real pan offset. This just resolves the
   // world-space bounds to fit and bumps a nonce; passing the same nonce
   // twice, or null bounds, is a no-op on the receiving end.
-  const [cameraCommand, setCameraCommand] = useState<{
-    fitBounds: FrameBounds;
-    nonce: number;
-    paddingScreenPx?: number;
-  } | null>(null);
-  const cameraCommandNonceRef = useRef(0);
-
   const handleZoomToFit = useCallback(() => {
     viewModeRef.current = "overview";
     setViewMode("overview");
@@ -21681,7 +21990,7 @@ function DesignEditor() {
         if (fileId && fileId === activeFileId) {
           // Re-focusing the screen that's already active is a deliberate
           // "reset view" affordance (e.g. re-clicking the same screen's
-          // full-view button) — reset to the default zoom rather than
+          // Interact button) — reset to the default zoom rather than
           // restoring the remembered one, mirroring the previous behavior.
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
         }
@@ -23714,6 +24023,97 @@ function DesignEditor() {
     ],
   );
 
+  /** One PDF page per overview screen, each rasterized at its own authored
+   * width/height (see createMultiPageRasterPdf) instead of the single active
+   * artboard handleDownloadPdf captures. Mirrors handleDownloadPdf's busy-state
+   * guard and error handling — showPngCaptureError's messaging is about the
+   * underlying raster capture step, which this shares with the single-page
+   * path, not the PDF assembly step. */
+  const handleDownloadAllScreensPdf = useCallback(async () => {
+    if (pngExportingRef.current) return;
+    if (overviewScreens.length < 2) return;
+    pngExportingRef.current = true;
+    setPngExporting(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const pages: RasterPdfPage[] = [];
+      for (const screen of overviewScreens) {
+        const iframe = document.querySelector<HTMLIFrameElement>(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screen.id)}"]`,
+        );
+        if (!iframe) throw new PngCaptureError("no-preview");
+        let doc: Document | null = null;
+        try {
+          doc = iframe.contentDocument;
+          if (!doc?.documentElement) doc = null;
+        } catch {
+          doc = null;
+        }
+        if (!doc) {
+          const sourceType =
+            normalizeDesignSourceType(iframe.dataset.designSourceType) ??
+            activeCanvasSourceType;
+          if (sourceType !== "inline") {
+            throw new PngCaptureError("external-preview");
+          }
+          if (!canEditDesign) {
+            throw new PngCaptureError("read-only-preview");
+          }
+          throw new PngCaptureError("no-preview");
+        }
+        const geometry = canvasFrameGeometryById[screen.id] ?? {};
+        const pageWidth = Math.max(
+          1,
+          geometry.width ?? screen.width ?? iframe.clientWidth,
+        );
+        const pageHeight = Math.max(
+          1,
+          geometry.height ?? screen.height ?? iframe.clientHeight,
+        );
+        const rendered = await renderExportDocumentCanvas({
+          doc,
+          iframe,
+          // Same print-quality floor as the single-page path: a 1x capture
+          // stretched to fill a fixed physical page size reads as blurry.
+          exportScale: PDF_MIN_PRINT_RASTER_SCALE,
+          render: html2canvas,
+        });
+        const view = doc.defaultView;
+        const viewportCanvas = cropCanvasToRect(
+          rendered.canvas,
+          {
+            x: view?.scrollX ?? 0,
+            y: view?.scrollY ?? 0,
+            width: Math.max(1, iframe.clientWidth),
+            height: Math.max(1, iframe.clientHeight),
+          },
+          rendered.scale,
+        );
+        const dataUrl = (viewportCanvas ?? rendered.canvas).toDataURL(
+          "image/png",
+        );
+        pages.push({ dataUrl, width: pageWidth, height: pageHeight });
+      }
+      const pdf = await createMultiPageRasterPdf(pages);
+      triggerBlobDownload(pdf, fallbackExportName("pdf", "all-screens"));
+      toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
+    } catch (error) {
+      showPngCaptureError(error);
+    } finally {
+      pngExportingRef.current = false;
+      setPngExporting(false);
+    }
+  }, [
+    activeCanvasSourceType,
+    canEditDesign,
+    canvasFrameGeometryById,
+    fallbackExportName,
+    overviewScreens,
+    showPngCaptureError,
+    t,
+    triggerBlobDownload,
+  ]);
+
   const handleCopyAsPng = useCallback(async () => {
     if (pngExportingRef.current) return;
     if (!canCopyPngToClipboard()) {
@@ -25310,11 +25710,13 @@ function DesignEditor() {
     (breakpointId: string) => {
       // "auto" = clear the active breakpoint (overview).
       if (breakpointId === "auto") {
+        activeBreakpointWidthStateRef.current = undefined;
         setActiveBreakpointWidthState(undefined);
         if (id) {
           void setActiveBreakpointMutation.mutateAsync({
             designId: id,
             breakpointId: "auto",
+            editScope: responsiveEditScopeRef.current,
           });
         }
         return;
@@ -25323,11 +25725,13 @@ function DesignEditor() {
         statesPanelBreakpoints.find((b) => b.id === breakpointId) ??
         DEFAULT_STATES_PANEL_BREAKPOINTS.find((b) => b.id === breakpointId);
       if (!bp) return;
+      activeBreakpointWidthStateRef.current = bp.widthPx;
       setActiveBreakpointWidthState(bp.widthPx);
       if (id) {
         void setActiveBreakpointMutation.mutateAsync({
           designId: id,
           breakpointId,
+          editScope: responsiveEditScopeRef.current,
         });
       }
     },
@@ -27568,13 +27972,27 @@ function DesignEditor() {
   // screen's DesignCanvas on every unrelated DesignEditor render. Previously
   // this was an inline arrow passed straight to the renderScreenContent prop,
   // so it got a brand-new identity every render no matter what changed.
-  const renderScreenContent = useCallback<
-    NonNullable<
-      React.ComponentProps<typeof MultiScreenCanvas>["renderScreenContent"]
-    >
-  >(
-    (screen, metadata, geometry) => {
-      const screenIsActive = screen.id === activeFile?.id;
+  type OverviewScreenRenderer = NonNullable<
+    React.ComponentProps<typeof MultiScreenCanvas>["renderScreenContent"]
+  >;
+  type OverviewBreakpointRenderer = NonNullable<
+    React.ComponentProps<typeof MultiScreenCanvas>["renderBreakpointContent"]
+  >;
+  type OverviewScreenRendererArgs = Parameters<OverviewScreenRenderer>;
+  type OverviewBreakpointRendererArgs = Parameters<OverviewBreakpointRenderer>;
+  const renderEditableScreenContent = useCallback(
+    (
+      screen: OverviewScreenRendererArgs[0],
+      metadata: OverviewScreenRendererArgs[1],
+      geometry: OverviewScreenRendererArgs[2],
+      breakpointFrame?: OverviewBreakpointRendererArgs[2],
+    ) => {
+      const breakpointWidthPx = breakpointFrame?.widthPx;
+      const screenIsActive =
+        screen.id === activeFile?.id &&
+        (breakpointWidthPx === undefined
+          ? activeBreakpointWidthState === undefined
+          : activeBreakpointWidthState === breakpointWidthPx);
       const screenContent = getScreenContent(screen.id);
       const screenSourceType =
         normalizeDesignSourceType(screen.sourceType) ??
@@ -27597,7 +28015,7 @@ function DesignEditor() {
             content: screenContent,
           })
         : undefined;
-      const screenContentKey = getOverviewScreenContentKey({
+      const baseScreenContentKey = getOverviewScreenContentKey({
         screenId: screen.id,
         screenIsActive,
         contentRenderRevision,
@@ -27605,6 +28023,14 @@ function DesignEditor() {
         content: screenContent,
         useRuntimeReplacement,
       });
+      const screenContentKey =
+        breakpointWidthPx === undefined
+          ? baseScreenContentKey
+          : `${baseScreenContentKey}::breakpoint-${breakpointWidthPx}`;
+      const activateResponsiveScope = () => {
+        if (breakpointWidthPx === undefined) return;
+        handleBreakpointBarSelect(breakpointWidthPx);
+      };
 
       return (
         <DesignCanvas
@@ -27658,10 +28084,17 @@ function DesignEditor() {
               : null
           }
           screenId={screen.id}
+          previewFrameId={
+            breakpointWidthPx === undefined
+              ? undefined
+              : getBreakpointIframeId(screen.id, breakpointWidthPx)
+          }
           zoom={100}
           deviceFrame="none"
           sourceType={screenSourceType}
           bridgeUrl={screenBridgeUrl}
+          connectionId={screen.connectionId}
+          nativePreviewActive={screenIsActive}
           previewToken={screenPreviewToken}
           externalSnapshotHtml={screenSnapshot}
           onExternalContentSnapshot={(snapshot) =>
@@ -27697,11 +28130,16 @@ function DesignEditor() {
               ? statePreviewTarget
               : null
           }
-          embeddedFrame={getEmbeddedFrame(
-            screen.id,
-            geometry.width,
-            geometry.height,
-          )}
+          embeddedFrame={
+            breakpointFrame
+              ? {
+                  viewportWidth: breakpointFrame.widthPx,
+                  viewportHeight: breakpointFrame.viewportHeight,
+                  displayWidth: breakpointFrame.displayWidth,
+                  displayHeight: breakpointFrame.displayHeight,
+                }
+              : getEmbeddedFrame(screen.id, geometry.width, geometry.height)
+          }
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={mode === "edit"}
@@ -27729,34 +28167,43 @@ function DesignEditor() {
           }
           lockedSelectors={getLayerSelectorsForFile(screen.id, lockedLayerIds)}
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
-          onElementSelect={(info, intent) =>
-            handleScreenElementSelect(screen.id, info, intent)
-          }
-          onElementMarqueeSelect={(infos, intent) =>
-            handleScreenElementMarqueeSelect(screen.id, infos, intent)
-          }
+          onElementSelect={(info, intent) => {
+            activateResponsiveScope();
+            handleScreenElementSelect(screen.id, info, intent, {
+              breakpointWidthPx,
+            });
+          }}
+          onElementMarqueeSelect={(infos, intent) => {
+            activateResponsiveScope();
+            handleScreenElementMarqueeSelect(screen.id, infos, intent);
+          }}
           onElementHover={(info) => handleScreenElementHover(screen.id, info)}
           onEditorDragStateChange={handleEditorDragStateChange}
-          onClearSelection={() => handleScreenElementClear(screen.id)}
+          onClearSelection={() => {
+            activateResponsiveScope();
+            handleScreenElementClear(screen.id, breakpointWidthPx);
+          }}
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
           onIframeContextMenu={handleIframeContextMenu}
-          onVisualStyleChange={(selector, styles, info, metadata) =>
+          onVisualStyleChange={(selector, styles, info, metadata) => {
+            activateResponsiveScope();
             handleScreenVisualStyleChange(
               screen.id,
               selector,
               styles,
               info,
               metadata,
-            )
-          }
+            );
+          }}
           onVisualStructureChange={(
             selector,
             anchorSelector,
             placement,
             info,
             details,
-          ) =>
+          ) => {
+            activateResponsiveScope();
             handleScreenVisualStructureChange(
               screen.id,
               selector,
@@ -27764,26 +28211,28 @@ function DesignEditor() {
               placement,
               info,
               details,
-            )
-          }
-          onVisualDuplicateChange={(selector, cloneHtml, info, details) =>
+            );
+          }}
+          onVisualDuplicateChange={(selector, cloneHtml, info, details) => {
+            activateResponsiveScope();
             handleScreenVisualDuplicateChange(
               screen.id,
               selector,
               cloneHtml,
               info,
               details,
-            )
-          }
-          onTextContentChange={(selector, value, info, details) =>
+            );
+          }}
+          onTextContentChange={(selector, value, info, details) => {
+            activateResponsiveScope();
             handleScreenTextContentChange(
               screen.id,
               selector,
               value,
               info,
               details,
-            )
-          }
+            );
+          }}
           onTextEditingStateChange={(state) =>
             handleTextEditingStateChangeForScreen(screen.id, state)
           }
@@ -27802,7 +28251,9 @@ function DesignEditor() {
     },
     [
       activeFile?.id,
+      activeBreakpointWidthState,
       getScreenContent,
+      handleBreakpointBarSelect,
       designSourceType,
       liveScreenSnapshotsById,
       pendingVisualStyleRevertRequest,
@@ -27858,6 +28309,26 @@ function DesignEditor() {
       design?.title,
       t,
     ],
+  );
+  const renderScreenContent = useCallback<OverviewScreenRenderer>(
+    (screen, metadata, geometry) =>
+      renderEditableScreenContent(screen, metadata, geometry),
+    [renderEditableScreenContent],
+  );
+  const renderBreakpointContent = useCallback<OverviewBreakpointRenderer>(
+    (screen, metadata, frame) =>
+      renderEditableScreenContent(
+        screen,
+        metadata,
+        {
+          x: 0,
+          y: 0,
+          width: frame.displayWidth,
+          height: frame.displayHeight,
+        },
+        frame,
+      ),
+    [renderEditableScreenContent],
   );
 
   // PF8: the board <DesignCanvas> callbacks below curry `boardFileId` into the
@@ -28072,6 +28543,7 @@ function DesignEditor() {
         void setActiveBreakpointMutation.mutateAsync({
           designId: id,
           breakpointId: "auto",
+          editScope: responsiveEditScopeRef.current,
         });
       }
       void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
@@ -28171,6 +28643,7 @@ function DesignEditor() {
   );
   const handleOverviewActiveBreakpointChange = useCallback(
     (_screenId: string, widthPx: number | undefined) => {
+      activeBreakpointWidthStateRef.current = widthPx;
       setActiveBreakpointWidthState(widthPx);
       if (!id) return;
       const bpSet = (() => {
@@ -28199,6 +28672,7 @@ function DesignEditor() {
       void setActiveBreakpointMutation.mutateAsync({
         designId: id,
         breakpointId,
+        editScope: responsiveEditScopeRef.current,
       });
     },
     [id, designDataJson, setActiveBreakpointMutation],
@@ -28314,6 +28788,30 @@ function DesignEditor() {
       onChangeWidth={canEditDesign ? handleBreakpointChangeWidth : undefined}
     />
   );
+  const responsiveEditScopeControl =
+    activeBreakpointWidthState === undefined ? null : (
+      <Select
+        value={responsiveEditScope}
+        onValueChange={(value) =>
+          handleResponsiveEditScopeChange(value as ResponsiveEditScope)
+        }
+      >
+        <SelectTrigger
+          className="h-7 w-[190px] shrink-0 !text-[11px]"
+          aria-label={t("designEditor.breakpointBar.scope.label")}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="cascade-smaller">
+            {t("designEditor.breakpointBar.scope.cascadeSmaller")}
+          </SelectItem>
+          <SelectItem value="only">
+            {t("designEditor.breakpointBar.scope.only")}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    );
 
   const projectMenu = (
     <DropdownMenu>
@@ -28393,6 +28891,15 @@ function DesignEditor() {
               <IconArchive className="mr-2 h-4 w-4" />
               {t("designEditor.downloadZip")}
             </DropdownMenuItem>
+            {viewMode === "overview" && overviewScreens.length >= 2 ? (
+              <DropdownMenuItem
+                onClick={() => void handleDownloadAllScreensPdf()}
+                disabled={pngExporting}
+              >
+                <IconFileStack className="mr-2 h-4 w-4" />
+                {t("designEditor.downloadPdfAllScreens")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={handleCopyCodingHandoff}
@@ -28912,7 +29419,10 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 items-center">{deviceFrameControl}</div>
+      <div className="mt-1 flex min-w-0 items-center gap-1.5">
+        {deviceFrameControl}
+        {responsiveEditScopeControl}
+      </div>
     </div>
   );
 
@@ -29735,6 +30245,7 @@ function DesignEditor() {
                         }
                         onEditBreakpoint={handleOverviewEditBreakpoint}
                         renderScreenContent={renderScreenContent}
+                        renderBreakpointContent={renderBreakpointContent}
                       />
                       {/* §6.4 — the compact/full breakpoint bar itself now
                           renders as a non-overlapping chrome row ABOVE
@@ -29822,6 +30333,7 @@ function DesignEditor() {
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
                         bridgeUrl={activeScreenBridgeUrl}
+                        connectionId={activeOverviewScreen?.connectionId}
                         previewToken={activeScreenPreviewToken}
                         externalSnapshotHtml={activeScreenExternalSnapshotHtml}
                         onExternalContentSnapshot={(snapshot) => {
@@ -30299,31 +30811,29 @@ function DesignEditor() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {
-                pendingScreenDeletion &&
-                pendingScreenDeletion.files.length === 1
-                  ? "Delete this screen?" /* i18n-ignore screen-delete confirm title */
-                  : `Delete ${pendingScreenDeletion?.files.length ?? 0} screens?` /* i18n-ignore screen-delete confirm title */
-              }
+              {pendingScreenDeletion?.files.length === 1
+                ? t("designEditor.screenDeletion.titleOne")
+                : t("designEditor.screenDeletion.titleMany", {
+                    count: pendingScreenDeletion?.files.length ?? 0,
+                  })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {
-                pendingScreenDeletion &&
-                pendingScreenDeletion.files.length === 1
-                  ? `"${pendingScreenDeletion.files[0]?.filename}" will be deleted. You can undo this while the editor remains open.` /* i18n-ignore screen-delete confirm description */
-                  : "These screens will be deleted. You can undo this while the editor remains open." /* i18n-ignore screen-delete confirm description */
-              }
+              {pendingScreenDeletion?.files.length === 1
+                ? t("designEditor.screenDeletion.descriptionOne", {
+                    filename: pendingScreenDeletion.files[0]?.filename ?? "",
+                  })
+                : t("designEditor.screenDeletion.descriptionMany")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleCancelScreenDeletion}>
-              {"Cancel" /* i18n-ignore screen-delete confirm cancel */}
+              {t("designEditor.screenDeletion.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleConfirmScreenDeletion}
             >
-              {"Delete" /* i18n-ignore screen-delete confirm action */}
+              {t("designEditor.screenDeletion.confirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "클립",
     library: "라이브러리",
+    sharedWithMe: "나와 공유됨",
     spaces: "스페이스",
     meetings: "회의",
     dictate: "받아쓰기",
@@ -81,6 +82,10 @@ const messages = {
       title: "라이브러리가 비어 있습니다",
       body: "첫 화면 녹화를 만들면 공유할 준비가 된 상태로 여기에 표시됩니다.",
       cta: "첫 Clip 녹화하기",
+    },
+    shared: {
+      title: "아직 공유된 클립이 없습니다",
+      body: "팀원이 나와 공유한 클립이 여기에 표시됩니다.",
     },
     folder: {
       title: "이 폴더는 비어 있습니다",

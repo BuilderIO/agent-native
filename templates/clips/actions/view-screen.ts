@@ -3,7 +3,7 @@
  *
  * Reads `navigation` application state and fetches the relevant context
  * (recording + transcript + comments if viewing a recording, folder contents
- * if on library, space list if on spaces, etc.). Returns a single JSON
+ * if on library/shared-with-me, space list if on spaces, etc.). Returns a single JSON
  * snapshot the agent can reason over.
  *
  * Usage:
@@ -17,7 +17,18 @@ import {
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  not,
+  notInArray,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -158,13 +169,40 @@ async function fetchBugReportSummary(recordingId: string) {
   };
 }
 
-async function fetchLibrary(folderId?: string) {
+async function fetchLibrary({
+  folderId,
+  shared = false,
+  organizationId,
+}: {
+  folderId?: string;
+  shared?: boolean;
+  organizationId?: string | null;
+}) {
   const db = getDb();
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return [];
   const conditions = [
     accessFilter(schema.recordings, schema.recordingShares),
     isNull(schema.recordings.archivedAt),
     isNull(schema.recordings.trashedAt),
   ];
+  if (shared) {
+    conditions.push(
+      not(ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail)),
+    );
+  } else {
+    conditions.push(
+      ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+    );
+    if (organizationId) {
+      conditions.push(eq(schema.recordings.organizationId, organizationId));
+    }
+  }
+  const meetingRecordingIds = db
+    .select({ id: schema.meetings.recordingId })
+    .from(schema.meetings)
+    .where(isNotNull(schema.meetings.recordingId));
+  conditions.push(notInArray(schema.recordings.id, meetingRecordingIds));
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
@@ -451,7 +489,7 @@ async function fetchShare(shareId: string) {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, folder contents on library, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -531,7 +569,10 @@ export default defineAction({
       }
       case "library": {
         const [recordings, folders] = await Promise.all([
-          fetchLibrary(nav.folderId),
+          fetchLibrary({
+            folderId: nav.folderId,
+            organizationId,
+          }),
           fetchFoldersForSpace(null),
         ]);
         screen.library = {
@@ -540,6 +581,17 @@ export default defineAction({
           count: recordings.length,
           recordings,
           folders,
+        };
+        break;
+      }
+      case "shared": {
+        const recordings = await fetchLibrary({
+          shared: true,
+          organizationId,
+        });
+        screen.shared = {
+          count: recordings.length,
+          recordings,
         };
         break;
       }

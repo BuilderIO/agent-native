@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   executeProviderApiRequest: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  assertAccess: vi.fn(),
+  resolveImportDesignId: vi.fn(),
   saveImportedDesignFiles: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   uploadFile: vi.fn(),
@@ -20,6 +22,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
+vi.mock("@agent-native/core/sharing", () => ({
+  assertAccess: mocks.assertAccess,
+}));
+
 vi.mock("../server/lib/provider-api.js", () => ({
   executeProviderApiRequest: mocks.executeProviderApiRequest,
 }));
@@ -29,6 +35,7 @@ vi.mock("../server/lib/import-design-files.js", () => ({
     (content: string, label: string) =>
       `<!doctype html><html><head><!-- ${label} --></head><body>${content}</body></html>`,
   ),
+  resolveImportDesignId: mocks.resolveImportDesignId,
   saveImportedDesignFiles: mocks.saveImportedDesignFiles,
 }));
 
@@ -57,6 +64,10 @@ describe("import-figma-frame", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRequestUserEmail.mockReturnValue("designer@example.com");
+    mocks.resolveImportDesignId.mockImplementation(
+      async (designId?: string) => designId ?? "design-1",
+    );
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
     mocks.ssrfSafeFetch.mockImplementation(
       async () =>
         new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
@@ -74,6 +85,29 @@ describe("import-figma-frame", () => {
       overview: true,
       urlPath: "/design/design-1",
     });
+  });
+
+  it("checks target access before any Figma fetch or durable upload", async () => {
+    mocks.assertAccess.mockRejectedValue(new Error("No access"));
+
+    await expect(
+      action.run({
+        figmaUrl: "https://www.figma.com/design/abcDEF12345/App?node-id=1-2",
+        designId: "private-design",
+        asNewScreen: true,
+      } as any),
+    ).rejects.toThrow("No access");
+
+    expect(mocks.resolveImportDesignId).toHaveBeenCalledWith("private-design");
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      "private-design",
+      "editor",
+    );
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+    expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });
 
   it("imports a frame from a figmaUrl with an explicit node-id", async () => {

@@ -47,6 +47,7 @@ const messages = {
   navigation: {
     brand: "المقاطع",
     library: "المكتبة",
+    sharedWithMe: "تمت مشاركته معي",
     spaces: "المساحات",
     meetings: "الاجتماعات",
     dictate: "إملاء",
@@ -80,6 +81,10 @@ const messages = {
       title: "مكتبتك فارغة",
       body: "التقط أول تسجيل شاشة وسيظهر هنا جاهزًا للمشاركة.",
       cta: "سجّل أول Clip لك",
+    },
+    shared: {
+      title: "لم تتم مشاركة أي مقاطع معك بعد",
+      body: "ستظهر هنا المقاطع التي يشاركها زملاؤك معك.",
     },
     folder: {
       title: "هذا المجلد فارغ",

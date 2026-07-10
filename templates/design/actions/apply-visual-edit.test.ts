@@ -45,7 +45,7 @@ const mocks = vi.hoisted(() => {
 
   const updateChain = { set: vi.fn(), where: vi.fn() };
   updateChain.set.mockReturnValue(updateChain);
-  updateChain.where.mockResolvedValue(undefined);
+  updateChain.where.mockResolvedValue({ rowsAffected: 1 });
 
   const db = {
     select: vi.fn(() => fileSelectChain),
@@ -74,6 +74,7 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
     and: vi.fn((...parts) => ({ parts })),
     eq: vi.fn((left, right) => ({ left, right })),
+    isNull: vi.fn((value) => ({ isNull: value })),
     applyVisualEdit: vi.fn(),
     agentEnterDocument: vi.fn(),
     agentLeaveDocument: vi.fn(),
@@ -109,6 +110,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -172,7 +174,7 @@ describe("apply-visual-edit", () => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
-    mocks.updateChain.where.mockResolvedValue(undefined);
+    mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.hasCollabState.mockResolvedValue(false);
     setFile("<main>Hello</main>");
   });

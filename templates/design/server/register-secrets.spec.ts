@@ -82,4 +82,24 @@ describe("Figma secret registration", () => {
     expect(JSON.stringify(result)).toContain("current_user:read");
     expect(JSON.stringify(result)).not.toContain(exampleToken);
   });
+
+  it("does not reflect transport exception details", async () => {
+    const exampleToken = "<FIGMA_ACCESS_TOKEN>";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`request failed with X-Figma-Token ${exampleToken}`),
+        ),
+    );
+
+    const result = await figmaSecret().validator?.(exampleToken);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Could not reach Figma. Check your network and try again.",
+    });
+    expect(JSON.stringify(result)).not.toContain(exampleToken);
+  });
 });

@@ -7,6 +7,7 @@ import {
   DISPATCH_APP_ID,
   executeProviderApiRequest,
 } from "../server/lib/provider-api.js";
+import { buildProviderApiAuditSummary } from "./provider-api-audit.js";
 
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
@@ -204,8 +205,7 @@ export default defineAction({
       id: String(args.provider),
       visibility: "private",
     }),
-    summary: (args) =>
-      `${String(args.method || "GET").toUpperCase()} ${String(args.provider)} ${String(args.path).slice(0, 200)}`,
+    summary: (args) => buildProviderApiAuditSummary(args),
   },
   run: async (args) => {
     if (args.stageAs) {

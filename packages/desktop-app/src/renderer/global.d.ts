@@ -622,7 +622,12 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
-  setActiveWebview(target: { appId: string; webContentsId?: number }): void;
+  setActiveWebview(target: {
+    appId: string;
+    webContentsId?: number;
+    active?: boolean;
+    hostBounds?: { x: number; y: number; width: number; height: number };
+  }): void;
 
   clipboard: {
     writeText(text: string): Promise<boolean>;

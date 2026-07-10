@@ -1,13 +1,11 @@
 /** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
+import type { DesktopDesignPreviewRect } from "./design-preview-placement";
 import type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
-import type {
-  DesktopDesignPreviewRect,
-} from "./design-preview-placement";
 
 export const IPC = {
   /** Window control channels (renderer → main) */
@@ -138,6 +136,8 @@ export type UpdateStatus =
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
+  /** False releases this exact owner without racing a newly active tab. */
+  active?: boolean;
   /** App webview bounds in BrowserWindow content coordinates. */
   hostBounds?: DesktopDesignPreviewRect;
 }

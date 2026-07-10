@@ -9,6 +9,9 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AUTO_CREATE_DEFAULT_ORG = "1"
+# Emit the shared 15-minute Netlify background function used by agent chat and
+# Clips post-recording transcription/seekability workers.
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 # Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
 # to bundle the matching ffmpeg-static binary into the server bundle so the
 # server-side audio-only transcription fallback (analyzeAudioSignal / audio

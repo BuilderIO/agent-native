@@ -6698,7 +6698,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var next = target.textContent || "";
         var nextHtml = target.innerHTML || "";
         refreshOverlays();
-        if (target.isConnected && (next !== originalText || nextHtml !== originalHtml)) {
+        if (target.isConnected && (next !== originalText || nextHtml !== originalHtml || programmaticTextEdit && !hasTextCharacters(target))) {
           postTextContentChange(
             target,
             next,
@@ -6756,6 +6756,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "z") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          finish(false);
+          postDesignHotkey(ev);
+          return;
+        }
         if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
           ev.preventDefault();
           document.execCommand("bold");

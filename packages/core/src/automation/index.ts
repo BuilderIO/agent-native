@@ -183,8 +183,19 @@ export interface AutomationRuntimeOptions {
     readonly eventId: string;
   }) => Promise<boolean>;
   /**
+   * Release a claim acquired by claimInboundEvent when durable enqueueing
+   * throws. It is required when callbacks trigger agent execution so a
+   * provider retry can claim the event again.
+   */
+  readonly releaseInboundEvent?: (input: {
+    readonly workflow: AutomationWorkflowDefinition;
+    readonly eventId: string;
+  }) => Promise<void>;
+  /**
    * Persist and dispatch agent work using the app's established durable queue.
-   * Do not run an agent loop in a callback request.
+   * This must be idempotent for the workflow/event ID pair because a transport
+   * failure can make enqueue success ambiguous. Do not run an agent loop in a
+   * callback request.
    */
   readonly enqueueInboundEvent?: (input: {
     readonly workflow: AutomationWorkflowDefinition;
@@ -619,14 +630,18 @@ export function createAutomationRuntime(
       });
     } else {
       const secret = await options.resolveSecret?.(auth.secretRef, {});
-      const supplied = input.headers.get(auth.header) ?? "";
-      if (secret) {
-        const expected =
-          auth.kind === "hmac-sha256"
-            ? `${auth.prefix ?? "sha256="}${createHmac("sha256", secret).update(input.rawBody).digest("hex")}`
-            : `${auth.prefix ?? ""}${secret}`;
-        authenticated = secureEqual(supplied, expected);
+      if (!secret) {
+        throw new AutomationConnectorError(
+          "invalid_configuration",
+          "The configured automation callback credential is unavailable.",
+        );
       }
+      const supplied = input.headers.get(auth.header) ?? "";
+      const expected =
+        auth.kind === "hmac-sha256"
+          ? `${auth.prefix ?? "sha256="}${createHmac("sha256", secret).update(input.rawBody).digest("hex")}`
+          : `${auth.prefix ?? ""}${secret}`;
+      authenticated = secureEqual(supplied, expected);
     }
     if (!authenticated) {
       throw new AutomationConnectorError(
@@ -640,10 +655,14 @@ export function createAutomationRuntime(
       ?.trim();
     let eventId: string;
     if (workflow.inbound.triggersAgentExecution) {
-      if (!options.claimInboundEvent || !options.enqueueInboundEvent) {
+      if (
+        !options.claimInboundEvent ||
+        !options.releaseInboundEvent ||
+        !options.enqueueInboundEvent
+      ) {
         throw new AutomationConnectorError(
           "invalid_configuration",
-          "Agent-triggering callbacks require durable idempotency and queue handlers.",
+          "Agent-triggering callbacks require durable claim, release, and queue handlers.",
         );
       }
       if (!suppliedEventId) {
@@ -661,7 +680,12 @@ export function createAutomationRuntime(
       } catch {
         // A plain-text callback is permitted; the payload bound above still applies.
       }
-      await options.enqueueInboundEvent({ workflow, eventId, payload });
+      try {
+        await options.enqueueInboundEvent({ workflow, eventId, payload });
+      } catch (error) {
+        await options.releaseInboundEvent({ workflow, eventId });
+        throw error;
+      }
     } else {
       eventId =
         suppliedEventId ??
@@ -753,14 +777,24 @@ export function createAutomationCallbackHandler(runtime: AutomationRuntime) {
         eventId: result.eventId,
       };
     } catch (error) {
-      const status =
-        error instanceof AutomationConnectorError &&
-        error.code === "authentication_failed"
-          ? 401
-          : error instanceof AutomationConnectorError &&
-              error.code === "payload_too_large"
-            ? 413
-            : 400;
+      let status = 500;
+      if (error instanceof AutomationConnectorError) {
+        switch (error.code) {
+          case "unknown_workflow":
+          case "unsupported_direction":
+            status = 404;
+            break;
+          case "authentication_failed":
+            status = 401;
+            break;
+          case "missing_idempotency":
+            status = 400;
+            break;
+          case "payload_too_large":
+            status = 413;
+            break;
+        }
+      }
       setResponseStatus(event, status);
       return { error: "Automation callback rejected." };
     }

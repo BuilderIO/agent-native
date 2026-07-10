@@ -170,7 +170,13 @@ describe("s3FileUploadProvider", () => {
     );
     expect(second.updatedMeta).toEqual({
       pendingBytes: 0,
-      parts: [{ partNumber: 1, etag: '"part-1-example"' }],
+      parts: [
+        {
+          partNumber: 1,
+          etag: '"part-1-example"',
+          sizeBytes: firstChunk.byteLength + secondChunk.byteLength,
+        },
+      ],
     });
     session = { ...session, meta: { ...session.meta, ...second.updatedMeta } };
 
@@ -241,13 +247,76 @@ describe("s3FileUploadProvider", () => {
     );
     expect(closed.updatedMeta).toEqual({
       pendingBytes: 0,
-      parts: [{ partNumber: 1, etag: '"final-example"' }],
+      parts: [
+        { partNumber: 1, etag: '"final-example"', sizeBytes: chunk.byteLength },
+      ],
     });
 
     await expect(resumable.abortSession!(session)).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("?uploadId=upload-example"),
       expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("recovers a completed multipart upload when a retry receives NoSuchUpload", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let completeAttempts = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("uploadId=upload-example")) {
+        completeAttempts += 1;
+        if (completeAttempts === 1) {
+          return new Response("<CompleteMultipartUploadResult />");
+        }
+        return new Response(
+          "<Error><Code>NoSuchUpload</Code><Message>The upload does not exist</Message></Error>",
+          { status: 404 },
+        );
+      }
+      if (init?.method === "HEAD" && url.endsWith("/clips/recording.webm")) {
+        return new Response(null, {
+          status: 200,
+          headers: { "content-length": "3" },
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const session = {
+      sessionId: "upload-example",
+      meta: {
+        objectKey: "clips/recording.webm",
+        stagingKey: "clips/.multipart/recording.webm.pending",
+        mimeType: "video/webm",
+        maxBytes: 1024,
+        pendingBytes: 0,
+        parts: [{ partNumber: 1, etag: '"part-example"', sizeBytes: 3 }],
+      },
+    };
+    const resumable = s3FileUploadProvider.resumable!;
+
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");
+    // Simulate finalize failing after S3 completion but before it could delete
+    // the persisted resumable session, then retrying with the same upload id.
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://s3.example.com/clips-bucket/clips/recording.webm",
+      expect.objectContaining({ method: "HEAD" }),
     );
   });
 

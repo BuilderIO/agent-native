@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -69,7 +71,6 @@ export interface SaveIntegrationScopeInput extends IntegrationScopeKey {
    */
   orgId?: string | null;
   installationId?: string | null;
-  serviceOwnerEmail?: string;
   defaultModel?: string | null;
   policy?: Partial<IntegrationScopePolicy>;
 }
@@ -198,6 +199,19 @@ export function integrationScopeSubjectKey(key: IntegrationScopeKey): string {
 
 function scopeId(key: IntegrationScopeKey): string {
   return `scope:${integrationScopeSubjectKey(key)}`;
+}
+
+function serviceOwnerForScope(
+  key: IntegrationScopeKey,
+  access: Required<IntegrationScopeAccess>,
+  orgId: string | null,
+): string {
+  if (!orgId) return access.ownerEmail;
+  const subject = createHash("sha256")
+    .update(`${orgId}:${integrationScopeSubjectKey(key)}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `integration+${subject}@service.agent-native.local`;
 }
 
 function authorizationSql(alias = ""): string {
@@ -342,13 +356,7 @@ export async function saveIntegrationScope(
   if (!TRUST_VALUES.has(trust)) {
     throw new Error("Unsupported integration conversation trust level");
   }
-  const serviceOwnerEmail = normalizeEmail(
-    input.serviceOwnerEmail ?? access.ownerEmail,
-    "serviceOwnerEmail",
-  );
-  if (!orgId && serviceOwnerEmail !== access.ownerEmail) {
-    throw new Error("A personal integration scope must run as its owner");
-  }
+  const serviceOwnerEmail = serviceOwnerForScope(key, access, orgId);
   const installationId = input.installationId
     ? requiredString(input.installationId, "installationId")
     : null;

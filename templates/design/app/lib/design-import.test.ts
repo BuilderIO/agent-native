@@ -82,12 +82,18 @@ describe("import result notifications", () => {
           },
         },
         "Imported from Figma.",
+        {
+          fidelityWarnings: [
+            "Image fallbacks: 2. Appearance is preserved, but these layers are not fully editable.",
+            "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+          ],
+        },
       ),
     ).toEqual({
       variant: "warning",
       title: "Imported Stress-Frame.html.",
       description:
-        "2 layers use image fallbacks to preserve their appearance and are not fully editable.\n1 layer was approximated because HTML/CSS cannot represent every Figma property exactly.",
+        "Image fallbacks: 2. Appearance is preserved, but these layers are not fully editable.\nApproximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
     });
   });
 
@@ -106,6 +112,12 @@ describe("import result notifications", () => {
         },
       },
       "Imported from Figma.",
+      {
+        fidelityWarnings: [
+          "Image fallbacks: 1. Appearance is preserved, but these layers are not fully editable.",
+          "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+        ],
+      },
     );
 
     expect(notification.variant).toBe("warning");
@@ -257,6 +269,42 @@ describe("design clipboard marker round-trip", () => {
         "<div>Hi</div>\n<!--agent-native-clipboard-v1:not-valid-base64!!!-->",
       ),
     ).toBeNull();
+  });
+
+  it("rejects structurally invalid typed payloads", () => {
+    const invalid = {
+      version: 1,
+      entries: [{ html: 42, sourceFileId: "file-1" }],
+    };
+    const marker = btoa(encodeURIComponent(JSON.stringify(invalid)));
+    expect(
+      parseDesignClipboardMarker(`<!--agent-native-clipboard-v1:${marker}-->`),
+    ).toBeNull();
+  });
+
+  it("rejects cross-design screen payloads with unsafe filenames or geometry", () => {
+    for (const screen of [
+      {
+        filename: "../private.html",
+        content: "<main>nope</main>",
+      },
+      {
+        filename: "safe.html",
+        content: "<main>nope</main>",
+        canvasFrame: { x: Number.POSITIVE_INFINITY },
+      },
+    ]) {
+      const marker = btoa(
+        encodeURIComponent(
+          JSON.stringify({ version: 1, entries: [], screens: [screen] }),
+        ),
+      );
+      expect(
+        parseDesignClipboardMarker(
+          `<!--agent-native-clipboard-v1:${marker}-->`,
+        ),
+      ).toBeNull();
+    }
   });
 
   it("ignores an unrelated HTML comment that isn't our marker", () => {

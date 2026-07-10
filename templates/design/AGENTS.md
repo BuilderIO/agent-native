@@ -184,7 +184,7 @@ patterns live in `.agents/skills/`.
   the work involves multiple screens or artboard placement. Overview is the
   primary editing surface: users can select screens, move/resize/drop static
   frames and canvas primitives, edit layers in place, and use the frame's
-  full-view button to enter focused editing.
+  Interact button to enter focused editing.
 - To move the user's editor, call `navigate` with `view: "editor"` and
   `editorView: "overview"` for the screen overview, or `editorView: "single"`
   plus `fileId`, `filename`, or `screen` to focus one screen.
@@ -350,6 +350,8 @@ patterns live in `.agents/skills/`.
   frame new edits target. Breakpoint frames are one document with a
   Framer-style cascade (base = widest frame; narrower-frame edits persist as
   width-scoped overrides via `apply-visual-edit` + `activeFrameWidthPx`).
+  `set-active-breakpoint.editScope` is `cascade-smaller` by default; use
+  `only` when the user explicitly wants a bounded, breakpoint-only override.
   Read the `responsive-breakpoints` skill before responsive edits.
 - **Design states**: `create-design-state`, `apply-design-state`,
   `capture-design-state`, `list-design-states`, and `delete-design-state`

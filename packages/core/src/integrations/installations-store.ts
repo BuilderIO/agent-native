@@ -13,6 +13,7 @@ import {
   getDbExec,
   intType,
   isPostgres,
+  isUniqueViolation,
   retryOnDdlRace,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -365,21 +366,23 @@ export async function upsertIntegrationInstallation(
 
   const secretKey =
     existing?.tokenSecretKey ?? tokenSecretKey(platform, installationKey);
-  await writeAppSecret({
-    key: secretKey,
-    value: JSON.stringify(input.tokenBundle),
-    scope: input.secretScope,
-    scopeId: secretScopeId,
-    description: `${platform} OAuth token bundle for a managed installation`,
-  });
+  const persistTokenBundle = (key: string) =>
+    writeAppSecret({
+      key,
+      value: JSON.stringify(input.tokenBundle),
+      scope: input.secretScope,
+      scopeId: secretScopeId,
+      description: `${platform} OAuth token bundle for a managed installation`,
+    });
+  await persistTokenBundle(secretKey);
 
   const now = Date.now();
-  const id = existing?.id ?? randomUUID();
+  let id = existing?.id ?? randomUUID();
   const scopesJson = JSON.stringify(normalizeScopes(input.scopes));
   const tokenExpiresAt =
     input.tokenExpiresAt ?? input.tokenBundle.expiresAt ?? null;
 
-  if (existing) {
+  const updateExisting = async (rowId: string, rowSecretKey: string) => {
     await getDbExec().execute({
       sql: `UPDATE ${TABLE} SET
         team_id = ?, team_name = ?, enterprise_id = ?, enterprise_name = ?,
@@ -401,7 +404,7 @@ export async function upsertIntegrationInstallation(
         input.installedByExternalUserId ?? null,
         ownerEmail,
         orgId,
-        secretKey,
+        rowSecretKey,
         input.secretScope,
         secretScopeId,
         input.status ?? "connected",
@@ -412,48 +415,70 @@ export async function upsertIntegrationInstallation(
         tokenExpiresAt,
         now,
         null,
-        id,
+        rowId,
       ],
     });
+  };
+
+  if (existing) {
+    await updateExisting(existing.id, existing.tokenSecretKey);
   } else {
-    await getDbExec().execute({
-      sql: `INSERT INTO ${TABLE} (
-        id, platform, installation_key, team_id, team_name, enterprise_id,
-        enterprise_name, is_enterprise_install, api_app_id, bot_user_id,
-        scopes_json, installed_by_external_user_id, owner_email, org_id,
-        token_secret_key, secret_scope, secret_scope_id, status, health,
-        last_error, health_checked_at, last_healthy_at, token_expires_at,
-        created_at, updated_at, disconnected_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        id,
-        platform,
-        installationKey,
-        input.teamId ?? null,
-        input.teamName ?? null,
-        input.enterpriseId ?? null,
-        input.enterpriseName ?? null,
-        input.isEnterpriseInstall ? 1 : 0,
-        input.apiAppId ?? null,
-        input.botUserId ?? null,
-        scopesJson,
-        input.installedByExternalUserId ?? null,
-        ownerEmail,
-        orgId,
-        secretKey,
-        input.secretScope,
-        secretScopeId,
-        input.status ?? "connected",
-        input.health ?? "unknown",
-        input.lastError ?? null,
-        input.healthCheckedAt ?? null,
-        input.lastHealthyAt ?? null,
-        tokenExpiresAt,
-        now,
-        now,
-        null,
-      ],
-    });
+    try {
+      await getDbExec().execute({
+        sql: `INSERT INTO ${TABLE} (
+          id, platform, installation_key, team_id, team_name, enterprise_id,
+          enterprise_name, is_enterprise_install, api_app_id, bot_user_id,
+          scopes_json, installed_by_external_user_id, owner_email, org_id,
+          token_secret_key, secret_scope, secret_scope_id, status, health,
+          last_error, health_checked_at, last_healthy_at, token_expires_at,
+          created_at, updated_at, disconnected_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          platform,
+          installationKey,
+          input.teamId ?? null,
+          input.teamName ?? null,
+          input.enterpriseId ?? null,
+          input.enterpriseName ?? null,
+          input.isEnterpriseInstall ? 1 : 0,
+          input.apiAppId ?? null,
+          input.botUserId ?? null,
+          scopesJson,
+          input.installedByExternalUserId ?? null,
+          ownerEmail,
+          orgId,
+          secretKey,
+          input.secretScope,
+          secretScopeId,
+          input.status ?? "connected",
+          input.health ?? "unknown",
+          input.lastError ?? null,
+          input.healthCheckedAt ?? null,
+          input.lastHealthyAt ?? null,
+          tokenExpiresAt,
+          now,
+          now,
+          null,
+        ],
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+
+      const raced = await selectRawByKey(platform, installationKey);
+      if (!raced) throw error;
+      if (!sameScope(raced, ownerEmail, orgId)) {
+        throw new Error(
+          "This provider installation is already connected to another owner or organization.",
+        );
+      }
+
+      id = raced.id;
+      if (raced.tokenSecretKey !== secretKey) {
+        await persistTokenBundle(raced.tokenSecretKey);
+      }
+      await updateExisting(raced.id, raced.tokenSecretKey);
+    }
   }
 
   const stored = await selectRawById(id);

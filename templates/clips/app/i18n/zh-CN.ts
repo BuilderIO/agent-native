@@ -46,6 +46,7 @@ const messages = {
   navigation: {
     brand: "剪辑",
     library: "资料库",
+    sharedWithMe: "与我共享",
     spaces: "空间",
     meetings: "会议",
     dictate: "听写",
@@ -79,6 +80,10 @@ const messages = {
       title: "你的资料库还是空的",
       body: "录制第一个屏幕视频后，它会出现在这里，随时可以分享。",
       cta: "录制第一个 Clip",
+    },
+    shared: {
+      title: "暂时没有与你共享的剪辑",
+      body: "团队成员与你共享的剪辑会显示在这里。",
     },
     folder: {
       title: "这个文件夹是空的",

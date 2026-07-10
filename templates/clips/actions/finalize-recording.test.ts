@@ -114,6 +114,10 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
   })),
 }));
 
+vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: vi.fn(async () => undefined),
+}));
+
 vi.mock("../server/lib/faststart.js", () => ({
   applyFaststart: vi.fn((bytes: Uint8Array) => bytes),
   hasPlayableMp4Metadata: vi.fn(() => true),
@@ -157,10 +161,6 @@ vi.mock("../server/lib/video-storage.js", () => ({
 vi.mock("./lib/ensure-seekable-video.js", () => ({
   ensureRecordingSeekable: vi.fn(),
   markRecordingSeekable: vi.fn(),
-}));
-
-vi.mock("./request-transcript.js", () => ({
-  default: { run: vi.fn() },
 }));
 
 import finalizeRecording from "./finalize-recording";
@@ -419,5 +419,90 @@ describe("finalize-recording media serve verification", () => {
     for (const key of chunkKeys) {
       expect(mockDeleteAppState).toHaveBeenCalledWith(key);
     }
+  });
+});
+
+describe("finalize-recording resumable recovery", () => {
+  it("retries a stored-but-unservable completion and retires its session after persistence", async () => {
+    vi.clearAllMocks();
+    const { deleteResumableSession, getResumableSession } =
+      await import("../server/lib/resumable-session.js");
+    const { resolveResumableUploadProvider } =
+      await import("../server/lib/resumable-upload-provider.js");
+    const completeSession = vi.fn(async () => "https://cdn.example.com/rec_1");
+    vi.mocked(getResumableSession).mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: {
+        filename: "rec_1.webm",
+        objectKey: "clips/rec_1.webm",
+      },
+      bytesUploaded: 3,
+    });
+    vi.mocked(resolveResumableUploadProvider).mockResolvedValue({
+      id: "s3",
+      name: "S3",
+      isConfigured: () => true,
+      upload: vi.fn(),
+      resumable: {
+        startSession: vi.fn(),
+        relayChunk: vi.fn(),
+        completeSession,
+      },
+    });
+    mockState.uploadState = {
+      mimeType: "video/webm",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+    };
+    mockState.selectRows = [
+      [
+        {
+          ...mockState.existingRecording,
+          status: "failed",
+          failureReason:
+            "Upload was stored-but-unservable: media URL timed out",
+        },
+      ],
+      [{ status: "ready" }],
+      [],
+    ];
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-upload-rec_1" ? mockState.uploadState : null,
+    );
+    mockWriteAppState.mockResolvedValue(undefined);
+    mockUpdateWhere.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok", { status: 206 })),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(completeSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "upload-example" }),
+      "rec_1.webm",
+      { stableUrl: true, recordAsset: false },
+    );
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "processing",
+        failureReason: null,
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        videoUrl: "https://cdn.example.com/rec_1",
+      }),
+    );
+    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1");
   });
 });

@@ -13,6 +13,10 @@ const startRunMock = vi.hoisted(() => vi.fn());
 const sendMessageToTargetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
   resourceGet: vi.fn(),

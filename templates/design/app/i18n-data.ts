@@ -455,6 +455,23 @@ const enUS = {
       desktop: "Desktop",
       tablet: "Tablet",
       phone: "Phone",
+      scope: {
+        label: "Responsive edit scope",
+        cascadeSmaller: "This breakpoint and smaller",
+        only: "This breakpoint only",
+        firstEditGuidance:
+          "Responsive edits affect this breakpoint and smaller sizes by default. Change the scope beside the breakpoint control.",
+      },
+    },
+    screenDeletion: {
+      titleOne: "Delete this screen?",
+      titleMany: "Delete {{count}} screens?",
+      descriptionOne:
+        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
+      descriptionMany:
+        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
+      cancel: "Cancel",
+      confirm: "Delete",
     },
     motion: {
       dockLabel: "Motion dock",
@@ -551,6 +568,10 @@ const enUS = {
       importFigmaUrl: "Import from Figma",
       saveKeyAndImport: "Save key and import",
       figmaUrlSuccess: "Imported from Figma.",
+      figmaImageFallbackWarning:
+        "Image fallbacks: {{count}}. Appearance is preserved, but these layers are not fully editable.",
+      figmaApproximationWarning:
+        "Approximated layers: {{count}}. HTML/CSS cannot represent every Figma property exactly.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
         "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
@@ -799,6 +820,7 @@ const enUS = {
     downloadSvg: "Download SVG",
     downloadFigmaSvg: "Download for Figma (SVG)",
     downloadZip: "Download ZIP",
+    downloadPdfAllScreens: "Download PDF (all screens)",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
     copyCodingHandoff: "Copy agent prompt",
@@ -822,6 +844,8 @@ const enUS = {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
+    tweaksHelp:
+      "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     noTweakControls: "No tweak controls yet.",
     extensions: "Extensions",
     addExtension: "Extension",
@@ -930,6 +954,7 @@ const enUS = {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      pdfAllScreensDownloaded: "PDF downloaded (all screens)",
       openScreenSvg: "Open a screen before exporting SVG",
       svgDownloaded: "SVG downloaded",
       svgExportError: "Could not export SVG",
@@ -1016,12 +1041,11 @@ const enUS = {
   multiScreenCanvas: {
     duplicate: "Duplicate",
     fork: "Fork",
-    fullView: "Full view",
+    fullView: "Interact",
     preview: "Preview",
-    openAndDuplicate:
-      "Select {{display}}. Use Full view for focused scrolling.",
-    openAndPreview: "Select {{display}}. Use Full view for focused scrolling.",
-    doubleClickToEdit: "Use Full view for focused scrolling",
+    openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
+    openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
+    doubleClickToEdit: "Use Interact for focused scrolling",
     sources: {
       localhost: {
         label: "Localhost",
@@ -1700,6 +1724,7 @@ const designLocaleOverrides = {
       downloadSvg: "下载 SVG",
       downloadFigmaSvg: "下载用于 Figma 的 SVG",
       downloadZip: "下载 ZIP",
+      downloadPdfAllScreens: "下载 PDF（所有屏幕）",
       copyCodingHandoff: "复制编码交接",
       pickDirection: "选择一个方向",
       variations: "{{count}} 变体",
@@ -1733,6 +1758,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG 下载",
         pngSaveError: "无法保存 PNG",
         pngExportError: "无法导出 PNG",
+        pdfAllScreensDownloaded: "PDF 下载（所有屏幕）",
         openScreenSvg: "导出 SVG 之前打开一个屏幕",
         svgDownloaded: "SVG 下载",
         svgExportError: "无法导出 SVG",
@@ -2099,6 +2125,7 @@ const designLocaleOverrides = {
       downloadPng: "Descargar PNG",
       downloadSvg: "Descargar SVG",
       downloadZip: "Descargar ZIP",
+      downloadPdfAllScreens: "Descargar PDF (todas las pantallas)",
       copyCodingHandoff: "Copiar transferencia de codificación",
       pickDirection: "Elige una dirección",
       variations: "variaciones {{count}}",
@@ -2134,6 +2161,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG descargado",
         pngSaveError: "No se pudo guardar PNG",
         pngExportError: "No se pudo exportar PNG",
+        pdfAllScreensDownloaded: "PDF descargado (todas las pantallas)",
         openScreenSvg: "Abra una pantalla antes de exportar SVG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
@@ -2518,6 +2546,7 @@ const designLocaleOverrides = {
       downloadPng: "Télécharger PNG",
       downloadSvg: "Télécharger SVG",
       downloadZip: "Télécharger ZIP",
+      downloadPdfAllScreens: "Télécharger PDF (tous les écrans)",
       copyCodingHandoff: "Copie du transfert du codage",
       pickDirection: "Choisissez une direction",
       variations: "variantes de {{count}}",
@@ -2555,6 +2584,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG téléchargé",
         pngSaveError: "Impossible d'enregistrer PNG",
         pngExportError: "Impossible d'exporter PNG",
+        pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
         openScreenSvg: "Ouvrir un écran avant d'exporter SVG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d'exporter SVG",
@@ -2941,6 +2971,7 @@ const designLocaleOverrides = {
       downloadPng: "Laden Sie PNG herunter",
       downloadSvg: "Laden Sie SVG herunter",
       downloadZip: "Laden Sie ZIP herunter",
+      downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
       copyCodingHandoff: "Übergabe der Codierung kopieren",
       pickDirection: "Wählen Sie eine Richtung",
       variations: "{{count}}-Variationen",
@@ -2978,6 +3009,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG heruntergeladen",
         pngSaveError: "PNG konnte nicht gespeichert werden",
         pngExportError: "PNG konnte nicht exportiert werden",
+        pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
         openScreenSvg: "Öffnen Sie einen Bildschirm, bevor Sie SVG exportieren",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
@@ -3365,6 +3397,7 @@ const designLocaleOverrides = {
       downloadPng: "ダウンロード",
       downloadSvg: "ダウンロード",
       downloadZip: "ダウンロード",
+      downloadPdfAllScreens: "PDFをダウンロード（すべての画面）",
       copyCodingHandoff: "コピーコーディングのハンドオフ",
       pickDirection: "方向を選択してください",
       variations: "{{count}}のバリエーション",
@@ -3401,6 +3434,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNGがダウンロードされました",
         pngSaveError: "PNG を保存できませんでした",
         pngExportError: "PNG をエクスポートできませんでした",
+        pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
         openScreenSvg: "SVG をエクスポートする前に画面を開く",
         svgDownloaded: "SVGがダウンロードされました",
         svgExportError: "SVG をエクスポートできませんでした",
@@ -3784,6 +3818,7 @@ const designLocaleOverrides = {
       downloadPng: "PNG 다운로드",
       downloadSvg: "SVG 다운로드",
       downloadZip: "ZIP 다운로드",
+      downloadPdfAllScreens: "PDF 다운로드 (모든 화면)",
       copyCodingHandoff: "코딩 전달 복사",
       pickDirection: "방향을 선택하세요",
       variations: "{{count}} 변형",
@@ -3819,6 +3854,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG 다운로드됨",
         pngSaveError: "PNG를 저장할 수 없습니다.",
         pngExportError: "PNG를 내보낼 수 없습니다.",
+        pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
         openScreenSvg: "SVG를 내보내기 전에 화면을 엽니다",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없습니다.",
@@ -4196,6 +4232,7 @@ const designLocaleOverrides = {
       downloadPng: "Baixar PNG",
       downloadSvg: "Baixar SVG",
       downloadZip: "Baixar ZIP",
+      downloadPdfAllScreens: "Baixar PDF (todas as telas)",
       copyCodingHandoff: "Copiar transferência de codificação",
       pickDirection: "Escolha uma direção",
       variations: "variações de {{count}}",
@@ -4232,6 +4269,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG baixado",
         pngSaveError: "Não foi possível salvar PNG",
         pngExportError: "Não foi possível exportar PNG",
+        pdfAllScreensDownloaded: "PDF baixado (todas as telas)",
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
@@ -4614,6 +4652,7 @@ const designLocaleOverrides = {
       downloadPng: "PNG डाउनलोड करें",
       downloadSvg: "SVG डाउनलोड करें",
       downloadZip: "ZIP डाउनलोड करें",
+      downloadPdfAllScreens: "PDF डाउनलोड करें (सभी स्क्रीन)",
       copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",
       pickDirection: "एक दिशा चुनें",
       variations: "{{count}} विविधताएँ",
@@ -4649,6 +4688,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG डाउनलोड किया गया",
         pngSaveError: "PNG को सहेजा नहीं जा सका",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
+        pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
         openScreenSvg: "SVG निर्यात करने से पहले एक स्क्रीन खोलें",
         svgDownloaded: "SVG डाउनलोड किया गया",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
@@ -5024,6 +5064,7 @@ const designLocaleOverrides = {
       downloadPng: "تحميل PNG",
       downloadSvg: "تحميل SVG",
       downloadZip: "تحميل ZIP",
+      downloadPdfAllScreens: "تحميل PDF (كل الشاشات)",
       copyCodingHandoff: "نسخ عملية الترميز",
       pickDirection: "اختر الاتجاه",
       variations: "الاختلافات {{count}}",
@@ -5059,6 +5100,7 @@ const designLocaleOverrides = {
         pngDownloaded: "تم تنزيل PNG",
         pngSaveError: "تعذر حفظ PNG",
         pngExportError: "تعذر تصدير PNG",
+        pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
         openScreenSvg: "افتح الشاشة قبل تصدير SVG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
@@ -7667,11 +7709,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分支",
-      fullView: "完整檢視",
+      fullView: "互動",
       preview: "預覽",
-      openAndDuplicate: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-      openAndPreview: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-      doubleClickToEdit: "使用完整檢視進行聚焦捲動",
+      openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+      openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+      doubleClickToEdit: "使用互動模式進行聚焦捲動",
       sources: {
         localhost: { label: "本機", title: "由本機開發伺服器渲染" },
         fusion: { label: "Fusion 遠端", title: "由 Fusion 渲染" },
@@ -7831,11 +7873,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "复制",
       fork: "分支",
-      fullView: "完整视图",
+      fullView: "互动",
       preview: "预览",
-      openAndDuplicate: "选择 {{display}}。使用完整视图进行聚焦滚动。",
-      openAndPreview: "选择 {{display}}。使用完整视图进行聚焦滚动。",
-      doubleClickToEdit: "使用完整视图进行聚焦滚动",
+      openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
+      openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
+      doubleClickToEdit: "使用互动模式进行聚焦滚动",
       sources: {
         localhost: { label: "本机", title: "由本地开发服务器渲染" },
         fusion: { label: "Fusion 远端", title: "由 Fusion 渲染" },
@@ -7996,13 +8038,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Bifurcar",
-      fullView: "Vista completa",
+      fullView: "Interactuar",
       preview: "Vista previa",
       openAndDuplicate:
-        "Selecciona {{display}}. Usa Vista completa para desplazamiento enfocado.",
+        "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
       openAndPreview:
-        "Selecciona {{display}}. Usa Vista completa para desplazamiento enfocado.",
-      doubleClickToEdit: "Usa Vista completa para desplazamiento enfocado",
+        "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
+      doubleClickToEdit: "Usa Interactuar para desplazamiento enfocado",
       sources: {
         localhost: {
           label: "Local",
@@ -8182,13 +8224,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Dupliquer",
       fork: "Créer une branche",
-      fullView: "Vue complète",
+      fullView: "Interagir",
       preview: "Aperçu",
       openAndDuplicate:
-        "Sélectionner {{display}}. Utilisez la vue complète pour le défilement ciblé.",
+        "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
       openAndPreview:
-        "Sélectionner {{display}}. Utilisez la vue complète pour le défilement ciblé.",
-      doubleClickToEdit: "Utilisez la vue complète pour le défilement ciblé",
+        "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
+      doubleClickToEdit: "Utilisez Interagir pour le défilement ciblé",
       sources: {
         localhost: { label: "Local", title: "Rendu depuis le serveur local" },
         fusion: { label: "Fusion distant", title: "Rendu depuis Fusion" },
@@ -8365,14 +8407,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplizieren",
       fork: "Abzweigen",
-      fullView: "Vollansicht",
+      fullView: "Interagieren",
       preview: "Vorschau",
       openAndDuplicate:
-        "{{display}} auswählen. Verwenden Sie die Vollansicht zum fokussierten Scrollen.",
+        "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
       openAndPreview:
-        "{{display}} auswählen. Verwenden Sie die Vollansicht zum fokussierten Scrollen.",
-      doubleClickToEdit:
-        "Verwenden Sie die Vollansicht zum fokussierten Scrollen",
+        "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
+      doubleClickToEdit: "Verwenden Sie Interagieren zum fokussierten Scrollen",
       sources: {
         localhost: {
           label: "Lokal",
@@ -8554,13 +8595,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分岐",
-      fullView: "フルビュー",
+      fullView: "操作",
       preview: "プレビュー",
       openAndDuplicate:
-        "{{display}} を選択します。集中してスクロールするにはフルビューを使用。",
+        "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
       openAndPreview:
-        "{{display}} を選択します。集中してスクロールするにはフルビューを使用。",
-      doubleClickToEdit: "集中してスクロールするにはフルビューを使用",
+        "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
+      doubleClickToEdit: "集中してスクロールするには操作モードを使用",
       sources: {
         localhost: {
           label: "ローカル",
@@ -8737,13 +8778,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "복제",
       fork: "분기",
-      fullView: "전체 보기",
+      fullView: "상호작용",
       preview: "미리보기",
       openAndDuplicate:
-        "{{display}} 선택. 집중 스크롤에는 전체 보기를 사용하세요.",
+        "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
       openAndPreview:
-        "{{display}} 선택. 집중 스크롤에는 전체 보기를 사용하세요.",
-      doubleClickToEdit: "집중 스크롤에는 전체 보기를 사용하세요",
+        "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
+      doubleClickToEdit: "집중 스크롤에는 상호작용 모드를 사용하세요",
       sources: {
         localhost: { label: "로컬", title: "로컬 개발 서버에서 렌더링됨" },
         fusion: { label: "Fusion 원격", title: "Fusion에서 렌더링됨" },
@@ -8917,13 +8958,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Ramificar",
-      fullView: "Visualização completa",
+      fullView: "Interagir",
       preview: "Prévia",
       openAndDuplicate:
-        "Selecione {{display}}. Use a Visualização completa para rolagem focada.",
+        "Selecione {{display}}. Use Interagir para rolagem focada.",
       openAndPreview:
-        "Selecione {{display}}. Use a Visualização completa para rolagem focada.",
-      doubleClickToEdit: "Use a Visualização completa para rolagem focada",
+        "Selecione {{display}}. Use Interagir para rolagem focada.",
+      doubleClickToEdit: "Use Interagir para rolagem focada",
       sources: {
         localhost: { label: "Local", title: "Renderizado pelo servidor local" },
         fusion: { label: "Fusion remoto", title: "Renderizado pelo Fusion" },
@@ -9097,13 +9138,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "डुप्लिकेट",
       fork: "फोर्क",
-      fullView: "पूर्ण दृश्य",
+      fullView: "इंटरैक्ट करें",
       preview: "पूर्वावलोकन",
       openAndDuplicate:
-        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें।",
+        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
       openAndPreview:
-        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें।",
-      doubleClickToEdit: "केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें",
+        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
+      doubleClickToEdit: "केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें",
       sources: {
         localhost: { label: "स्थानीय", title: "स्थानीय dev server से render" },
         fusion: { label: "Fusion remote", title: "Fusion से render" },
@@ -9277,11 +9318,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "تكرار",
       fork: "تفريع",
-      fullView: "العرض الكامل",
+      fullView: "تفاعل",
       preview: "معاينة",
-      openAndDuplicate: "حدد {{display}}. استخدم العرض الكامل للتمرير المركّز.",
-      openAndPreview: "حدد {{display}}. استخدم العرض الكامل للتمرير المركّز.",
-      doubleClickToEdit: "استخدم العرض الكامل للتمرير المركّز",
+      openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
+      openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
+      doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",
       sources: {
         localhost: { label: "محلي", title: "معروض من خادم التطوير المحلي" },
         fusion: { label: "Fusion بعيد", title: "معروض من Fusion" },
@@ -11672,6 +11713,10 @@ const designImportOverrides = {
           "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
+        figmaImageFallbackWarning:
+          "圖像備援：{{count}}。外觀會保留，但這些圖層無法完整編輯。",
+        figmaApproximationWarning:
+          "近似圖層：{{count}}。HTML/CSS 無法精確呈現所有 Figma 屬性。",
         figmaSuccess: "已匯入 Figma 貼上內容",
         htmlSuccess: "已匯入 HTML",
         uploadSuccess: "已匯入檔案",
@@ -11721,6 +11766,10 @@ const designImportOverrides = {
           "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
+        figmaImageFallbackWarning:
+          "图像回退：{{count}}。外观会保留，但这些图层无法完全编辑。",
+        figmaApproximationWarning:
+          "近似图层：{{count}}。HTML/CSS 无法精确表示所有 Figma 属性。",
         figmaSuccess: "已导入 Figma 粘贴内容",
         htmlSuccess: "已导入 HTML",
         uploadSuccess: "已导入文件",
@@ -11774,6 +11823,10 @@ const designImportOverrides = {
           "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
+        figmaImageFallbackWarning:
+          "Alternativas de imagen: {{count}}. Se conserva la apariencia, pero estas capas no son totalmente editables.",
+        figmaApproximationWarning:
+          "Capas aproximadas: {{count}}. HTML/CSS no puede representar todas las propiedades de Figma con exactitud.",
         figmaSuccess: "Pegado de Figma importado",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Archivo importado",
@@ -11827,6 +11880,10 @@ const designImportOverrides = {
           "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
+        figmaImageFallbackWarning:
+          "Solutions de repli par image : {{count}}. L’apparence est préservée, mais ces calques ne sont pas entièrement modifiables.",
+        figmaApproximationWarning:
+          "Calques approximés : {{count}}. HTML/CSS ne peut pas représenter exactement toutes les propriétés Figma.",
         figmaSuccess: "Collage Figma importé",
         htmlSuccess: "HTML importé",
         uploadSuccess: "Fichier importé",
@@ -11879,6 +11936,10 @@ const designImportOverrides = {
           "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
+        figmaImageFallbackWarning:
+          "Bild-Fallbacks: {{count}}. Das Erscheinungsbild bleibt erhalten, aber diese Ebenen sind nicht vollständig bearbeitbar.",
+        figmaApproximationWarning:
+          "Angenäherte Ebenen: {{count}}. HTML/CSS kann nicht jede Figma-Eigenschaft exakt darstellen.",
         figmaSuccess: "Figma-Einfügung importiert",
         htmlSuccess: "HTML importiert",
         uploadSuccess: "Datei importiert",
@@ -11932,6 +11993,10 @@ const designImportOverrides = {
           "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
+        figmaImageFallbackWarning:
+          "画像フォールバック: {{count}}。外観は保持されますが、これらのレイヤーは完全には編集できません。",
+        figmaApproximationWarning:
+          "近似レイヤー: {{count}}。HTML/CSS ではすべての Figma プロパティを正確に表現できません。",
         figmaSuccess: "Figma 貼り付けをインポートしました",
         htmlSuccess: "HTML をインポートしました",
         uploadSuccess: "ファイルをインポートしました",
@@ -11985,6 +12050,10 @@ const designImportOverrides = {
           "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
+        figmaImageFallbackWarning:
+          "이미지 대체: {{count}}. 모양은 유지되지만 이 레이어는 완전히 편집할 수 없습니다.",
+        figmaApproximationWarning:
+          "근사 처리된 레이어: {{count}}. HTML/CSS로 모든 Figma 속성을 정확히 표현할 수 없습니다.",
         figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
         htmlSuccess: "HTML을 가져왔습니다",
         uploadSuccess: "파일을 가져왔습니다",
@@ -12039,6 +12108,10 @@ const designImportOverrides = {
           "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
+        figmaImageFallbackWarning:
+          "Fallbacks de imagem: {{count}}. A aparência é preservada, mas essas camadas não são totalmente editáveis.",
+        figmaApproximationWarning:
+          "Camadas aproximadas: {{count}}. HTML/CSS não consegue representar exatamente todas as propriedades do Figma.",
         figmaSuccess: "Colagem do Figma importada",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Arquivo importado",
@@ -12092,6 +12165,10 @@ const designImportOverrides = {
           "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
+        figmaImageFallbackWarning:
+          "इमेज फ़ॉलबैक: {{count}}। दिखावट सुरक्षित रहती है, लेकिन इन लेयर को पूरी तरह संपादित नहीं किया जा सकता।",
+        figmaApproximationWarning:
+          "अनुमानित लेयर: {{count}}। HTML/CSS हर Figma प्रॉपर्टी को ठीक-ठीक प्रस्तुत नहीं कर सकता।",
         figmaSuccess: "Figma paste import हो गया",
         htmlSuccess: "HTML import हो गया",
         uploadSuccess: "File import हो गई",
@@ -12143,6 +12220,10 @@ const designImportOverrides = {
           "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
+        figmaImageFallbackWarning:
+          "بدائل الصور: {{count}}. يتم الحفاظ على المظهر، لكن هذه الطبقات ليست قابلة للتحرير بالكامل.",
+        figmaApproximationWarning:
+          "طبقات تقريبية: {{count}}. لا يمكن لـ HTML/CSS تمثيل جميع خصائص Figma بدقة.",
         figmaSuccess: "تم استيراد لصق Figma",
         htmlSuccess: "تم استيراد HTML",
         uploadSuccess: "تم استيراد الملف",

@@ -121,6 +121,8 @@ export interface WebhookHandlerOptions {
   ownerEmail: string;
   /** Explicit org for service principals that are not login users. */
   orgId?: string | null;
+  /** Durable execution identity kind, preserved across deferred processing. */
+  principalType?: "user" | "service";
   /**
    * Pre-parsed incoming message. When provided, handleWebhook skips its own
    * verification + parsing steps. Required when the caller has already read
@@ -357,7 +359,11 @@ async function enqueueAndDispatch(
     console.error("[integrations] postProcessingPlaceholder failed:", err);
   }
 
-  const payload = JSON.stringify({ incoming, placeholderRef });
+  const payload = JSON.stringify({
+    incoming,
+    placeholderRef,
+    principalType: options.principalType ?? "user",
+  });
 
   await insertPendingTask({
     id: taskId,
@@ -478,6 +484,7 @@ export async function processIntegrationTask(
   const parsed = JSON.parse(task.payload) as {
     incoming: IncomingMessage;
     placeholderRef?: string;
+    principalType?: "user" | "service";
   };
 
   await recordInboundIntegrationAudit(task, parsed.incoming);
@@ -487,6 +494,7 @@ export async function processIntegrationTask(
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
     orgId: task.orgId ?? undefined,
+    principalType: parsed.principalType ?? options.principalType ?? "user",
   });
 }
 
@@ -539,6 +547,7 @@ async function processIncomingMessage(
     attempts?: number;
     placeholderRef?: string;
     orgId?: string;
+    principalType?: "user" | "service";
   } = {},
 ): Promise<void> {
   const {
@@ -628,35 +637,42 @@ async function processIncomingMessage(
     return;
   }
 
-  if (!mapping) {
-    const threadOrgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
-    const thread = await runWithRequestContext(
-      { userEmail: ownerEmail, orgId: threadOrgId ?? undefined },
-      () =>
-        createThread(ownerEmail, {
-          title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
-        }),
-    );
-    await saveThreadMapping(
-      incoming.platform,
-      incoming.externalThreadId,
-      thread.id,
-      incoming.platformContext,
-    );
-    mapping = {
-      platform: incoming.platform,
-      externalThreadId: incoming.externalThreadId,
-      internalThreadId: thread.id,
-      platformContext: incoming.platformContext,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+  let threadId: string;
+  let thread: Awaited<ReturnType<typeof getThread>>;
+  try {
+    if (!mapping) {
+      const threadOrgId =
+        opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
+      const createdThread = await runWithRequestContext(
+        { userEmail: ownerEmail, orgId: threadOrgId ?? undefined },
+        () =>
+          createThread(ownerEmail, {
+            title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
+          }),
+      );
+      await saveThreadMapping(
+        incoming.platform,
+        incoming.externalThreadId,
+        createdThread.id,
+        incoming.platformContext,
+      );
+      mapping = {
+        platform: incoming.platform,
+        externalThreadId: incoming.externalThreadId,
+        internalThreadId: createdThread.id,
+        platformContext: incoming.platformContext,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    }
+
+    threadId = mapping.internalThreadId;
+    // Load existing thread history for context.
+    thread = await getThread(threadId);
+  } catch (error) {
+    await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
+    throw error;
   }
-
-  const threadId = mapping.internalThreadId;
-
-  // Load existing thread history for context
-  const thread = await getThread(threadId);
   const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
     try {
@@ -727,8 +743,15 @@ async function processIncomingMessage(
   // tools (especially call-agent) can resolve the caller's org for org-scoped
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
-  const orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
-  const tools = actionsToEngineTools(actions);
+  let orgId: string | null | undefined;
+  let tools: ReturnType<typeof actionsToEngineTools>;
+  try {
+    orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
+    tools = actionsToEngineTools(actions);
+  } catch (error) {
+    await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
+    throw error;
+  }
 
   const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const progress = await adapter.startRunProgress?.(incoming).catch(() => null);
@@ -757,6 +780,7 @@ async function processIncomingMessage(
                   incoming,
                   placeholderRef: opts.placeholderRef,
                   scopeId: incoming.integrationScopeId,
+                  principalType: opts.principalType ?? "user",
                   lineage: {
                     runId,
                     source: {
@@ -1178,10 +1202,7 @@ async function settleApplicableIntegrationBudgets(
         {
           budgetId: reservation.budgetId,
           reservationId: reservation.reservationId,
-          actualCostMicros: Math.min(
-            actualCostMicros,
-            reservation.estimatedCostMicros,
-          ),
+          actualCostMicros,
         },
         reservation.access,
       ).catch((err) => {

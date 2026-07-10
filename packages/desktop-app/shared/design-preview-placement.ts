@@ -131,10 +131,7 @@ export function resolveDesktopDesignPreviewPlacement(
     width: input.hostBounds.width,
     height: input.hostBounds.height,
   };
-  if (
-    !contains(hostViewport, input.clipBounds) ||
-    !contains(hostViewport, input.previewBounds)
-  ) {
+  if (!contains(hostViewport, input.clipBounds)) {
     return { kind: "dom", reason: "invalid-geometry" };
   }
 

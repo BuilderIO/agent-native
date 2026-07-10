@@ -340,6 +340,29 @@ beforeEach(() => {
   seedFile(buildDoc());
 });
 
+describe("HTML integrity write boundary", () => {
+  it("rejects malformed managed-style source and leaves live + SQL content unchanged", async () => {
+    const before = buildDoc();
+    const live = await readLiveSourceFile(currentFileRef());
+    const malformed = before.replace(
+      "</head>",
+      'data-agent-native-breakpoints">@media (max-width: 1279px) { [data-agent-native-node-id="an-node-text-1"] { color: red; } }</style></head>',
+    );
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: malformed,
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/DESIGN_HTML_INTEGRITY/);
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(before);
+  });
+});
+
 describe("locked-layer write boundaries", () => {
   const lockedDoc = buildDoc().replace(
     'data-agent-native-node-id="an-node-container-1"',

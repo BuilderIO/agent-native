@@ -212,4 +212,69 @@ describe("/api/uploads/:recordingId/abort route", () => {
       mockDeleteResumableSession.mock.invocationCallOrder[0],
     );
   });
+
+  it("preserves the resumable session when provider abort cleanup fails", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+    mockAbortSession.mockRejectedValue(new Error("S3 unavailable"));
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+    } finally {
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockAbortSession).toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("retries retained provider cleanup for an already-failed recording", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        videoUrl: null,
+        failureReason: "Cancelled",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
+  });
 });

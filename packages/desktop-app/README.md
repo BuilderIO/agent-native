@@ -219,6 +219,19 @@ Shortcuts live in the advanced settings panel under **Customize per app → Keyb
 agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ```
 
+## Authenticated Design previews
+
+Desktop can render one focused, URL-backed Design screen as a native
+`WebContentsView` in Interact mode. This lets restrictive sites render with a
+persistent, connection-scoped cookie/session store even when they reject
+iframes. The native backend fails closed to the normal DOM iframe for every
+editing mode, overview, zoom, rotation, clipping, rounded corner, overlap, or
+stale layout case. A bounded, versioned bitmap handoff keeps Draw/Comment and
+inspectable local Edit transitions flash-free without treating screenshot
+pixels as editable DOM. See
+[DESIGN_NATIVE_PREVIEWS.md](./DESIGN_NATIVE_PREVIEWS.md) for the security
+contract, framed-development relay, tests, and remaining compositor phases.
+
 ---
 
 ## Port assignments

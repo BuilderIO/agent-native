@@ -1683,7 +1683,26 @@ export async function abortRunDurably(
   reason: string = "user",
 ): Promise<boolean> {
   const abortedInMemory = abortRunInMemory(runId, reason);
-  await markRunAborted(runId, reason);
+  try {
+    await markRunAborted(runId, reason);
+  } catch (error) {
+    // The local run is already stopped. A transient durable cleanup failure
+    // must not turn the user's Stop/Retry request into a 500 after that
+    // irreversible in-memory outcome. Capture it for repair/reaping and let
+    // the request report the abort it did complete.
+    captureError(error, {
+      route: "/_agent-native/agent-chat/runs/:id/abort",
+      tags: {
+        source: "agent-run-manager",
+        phase: "abort-run",
+      },
+      extra: { runId, reason, abortedInMemory },
+    });
+    console.error(
+      "[run-manager] durable abort persistence failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
   return abortedInMemory;
 }
 

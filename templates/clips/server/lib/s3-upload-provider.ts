@@ -195,7 +195,7 @@ async function signedS3Request(
   cfg: S3Config,
   key: string,
   options: {
-    method: "DELETE" | "GET" | "POST" | "PUT";
+    method: "DELETE" | "GET" | "HEAD" | "POST" | "PUT";
     query?: Record<string, string>;
     body?: Uint8Array;
     contentType?: string;
@@ -401,6 +401,7 @@ function xmlEscape(value: string): string {
 interface S3MultipartPart {
   partNumber: number;
   etag: string;
+  sizeBytes?: number;
 }
 
 interface S3MultipartMeta {
@@ -437,7 +438,10 @@ function readMultipartMeta(meta: Record<string, unknown>): S3MultipartMeta {
           (part as S3MultipartPart).partNumber >= 1 &&
           (part as S3MultipartPart).partNumber <= S3_MULTIPART_MAX_PARTS &&
           typeof (part as S3MultipartPart).etag === "string" &&
-          (part as S3MultipartPart).etag.length > 0,
+          (part as S3MultipartPart).etag.length > 0 &&
+          ((part as S3MultipartPart).sizeBytes === undefined ||
+            (Number.isSafeInteger((part as S3MultipartPart).sizeBytes) &&
+              (part as S3MultipartPart).sizeBytes! > 0)),
       )
     : [];
   if (
@@ -505,13 +509,47 @@ async function uploadMultipartPart(
   }
   const etag = res.headers.get("etag");
   if (!etag) throw new Error("S3 UploadPart did not return an ETag");
-  return { partNumber, etag };
+  return { partNumber, etag, sizeBytes: bytes.byteLength };
 }
 
 function publicObjectUrl(cfg: S3Config, key: string): string {
   return cfg.publicBaseUrl
     ? `${cfg.publicBaseUrl}/${key}`
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
+}
+
+async function verifyCompletedMultipartObject(
+  cfg: S3Config,
+  meta: S3MultipartMeta,
+): Promise<boolean> {
+  const res = await signedS3Request(cfg, meta.objectKey, {
+    method: "HEAD",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `S3 HeadObject failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+
+  // New sessions record every uploaded part size, which lets a retry
+  // distinguish this completed object from an older object at the same
+  // deterministic recording key. Older in-flight sessions did not persist
+  // sizes, so object existence remains their only recoverable completion
+  // signal.
+  const hasAllPartSizes = meta.parts.every(
+    (part) => typeof part.sizeBytes === "number",
+  );
+  if (!hasAllPartSizes) return true;
+
+  const expectedBytes = meta.parts.reduce(
+    (total, part) => total + (part.sizeBytes ?? 0),
+    0,
+  );
+  const contentLength = Number(res.headers.get("content-length"));
+  return Number.isSafeInteger(contentLength) && contentLength === expectedBytes;
 }
 
 export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
@@ -675,6 +713,24 @@ export const s3FileUploadProvider: FileUploadProvider = {
       });
       const body = await res.text().catch(() => "");
       if (!res.ok || /<Error(?:\s|>)/.test(body)) {
+        // CompleteMultipartUpload is not idempotent at the S3 API level. If
+        // completion succeeded but the caller failed while verifying or
+        // persisting the URL, its retry receives NoSuchUpload because the
+        // upload id has already been consumed. Recover only when the object at
+        // this session's deterministic key exists (and, for new sessions, has
+        // the exact completed byte length).
+        if (
+          xmlElement(body, "Code") === "NoSuchUpload" &&
+          (await verifyCompletedMultipartObject(cfg, meta))
+        ) {
+          await deleteObject(cfg, meta.stagingKey).catch((err) => {
+            console.warn(
+              "[s3-upload] failed to delete multipart staging object:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+          return publicObjectUrl(cfg, meta.objectKey);
+        }
         throw new Error(
           `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
         );

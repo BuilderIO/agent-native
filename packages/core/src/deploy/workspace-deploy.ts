@@ -21,6 +21,8 @@ import path from "path";
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "../agent/durable-background.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
@@ -764,13 +766,29 @@ const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
 const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
 const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+const BACKGROUND_PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
 
-function isA2AProcessorBody(body) {
-  if (!body) return false;
+function processorPathFromBody(body) {
+  if (!body) return null;
   try {
-    return JSON.parse(body)?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A;
+    const parsed = JSON.parse(body);
+    if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
+      return A2A_PROCESS_TASK_PATH;
+    }
+    const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
+      typeof route === "string" &&
+      route.startsWith(basePath + "/api/_agent-native-background/") &&
+      !route.includes("?") &&
+      !route.includes("#")
+    ) {
+      return route;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -810,10 +828,7 @@ export default async function handler(request) {
   const method = request.method || "POST";
   const hasBody = method !== "GET" && method !== "HEAD";
   const body = hasBody ? await request.text() : undefined;
-  url.pathname = PROCESS_RUN_PATH;
-  if (isA2AProcessorBody(body)) {
-    url.pathname = A2A_PROCESS_TASK_PATH;
-  }
+  url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH;
   const rewritten = new Request(url.toString(), {
     method,
     headers: request.headers,

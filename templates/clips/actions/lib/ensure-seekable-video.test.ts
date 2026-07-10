@@ -14,6 +14,7 @@ const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockMakeSeekable = vi.hoisted(() => vi.fn());
 const mockNormalizeTimelineToMp4 = vi.hoisted(() => vi.fn());
 const mockQueueCompression = vi.hoisted(() => vi.fn());
+const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
 const mockUpdateWhere = vi.hoisted(() =>
   vi.fn(() => ({ returning: mockReturning })),
@@ -65,6 +66,11 @@ vi.mock("../../server/db/index.js", () => ({
 vi.mock("../../server/lib/builder-media-compression.js", () => ({
   queueBuilderMediaCompression: (...args: unknown[]) =>
     mockQueueCompression(...args),
+}));
+
+vi.mock("../../server/lib/recording-media-cleanup.js", () => ({
+  deleteRecordingMediaObjects: (...args: unknown[]) =>
+    mockDeleteRecordingMediaObjects(...args),
 }));
 
 vi.mock("../../server/lib/recordings.js", () => ({
@@ -126,6 +132,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     mockQueueCompression.mockResolvedValue({
       queued: false,
       reason: "locally-transcoded",
+    });
+    mockDeleteRecordingMediaObjects.mockResolvedValue({
+      attempted: 1,
+      deleted: 1,
+      skipped: 0,
+      errors: [],
     });
   });
 
@@ -220,5 +232,32 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       changed: false,
       videoUrl: recording.videoUrl,
     });
+  });
+
+  it("deletes the repaired upload when the guarded row update loses its race", async () => {
+    mockReturning.mockResolvedValue([]);
+
+    const result = await ensureRecordingSeekable({
+      recordingId: recording.id,
+      ownerEmail: "owner@example.com",
+      normalizeTimeline: true,
+    });
+
+    expect(mockDeleteRecordingMediaObjects).toHaveBeenCalledWith(
+      {
+        id: recording.id,
+        videoUrl: "https://cdn.example.com/repaired.mp4",
+      },
+      { protectedUrls: [recording.videoUrl] },
+    );
+    expect(mockQueueCompression).not.toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({
+        recordingId: recording.id,
+        status: "skipped-upload-failed",
+        changed: false,
+        detail: "Recording changed while repaired media was uploading.",
+      }),
+    );
   });
 });

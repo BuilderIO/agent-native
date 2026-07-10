@@ -29,6 +29,7 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import {
   makeSeekable,
@@ -294,6 +295,10 @@ export async function ensureRecordingSeekable(params: {
     updated[0]?.videoUrl !== upload.url ||
     updated[0]?.videoFormat !== outputFormat
   ) {
+    await deleteRecordingMediaObjects(
+      { id: recordingId, videoUrl: upload.url },
+      { protectedUrls: [rec.videoUrl] },
+    );
     return {
       recordingId,
       status: "skipped-upload-failed",

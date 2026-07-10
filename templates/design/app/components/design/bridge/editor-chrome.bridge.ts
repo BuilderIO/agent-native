@@ -9947,7 +9947,9 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       // (or no) element host-side.
       if (
         target.isConnected &&
-        (next !== originalText || nextHtml !== originalHtml)
+        (next !== originalText ||
+          nextHtml !== originalHtml ||
+          (programmaticTextEdit && !hasTextCharacters(target)))
       ) {
         postTextContentChange(
           target,
@@ -10036,6 +10038,25 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       // normalizeNestedIdenticalSpans (T12) cleans up any span nesting
       // execCommand leaves behind when the session commits.
       var metaOrCtrl = ev.metaKey || ev.ctrlKey;
+      // A just-created text layer is one editor transaction, not an isolated
+      // native contenteditable history island. Chromium consumes Cmd/Ctrl+Z
+      // locally even when the empty editable has nothing to undo, so the host
+      // never sees the command and cannot remove the created layer. Cancel the
+      // uncommitted DOM session and forward the chord to Design's guarded
+      // content history; typing committed by blur/Escape is coalesced into the
+      // same creation entry host-side.
+      if (
+        programmaticTextEdit &&
+        metaOrCtrl &&
+        !ev.altKey &&
+        ev.key.toLowerCase() === "z"
+      ) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        finish(false);
+        postDesignHotkey(ev);
+        return;
+      }
       if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
         ev.preventDefault();
         document.execCommand("bold");

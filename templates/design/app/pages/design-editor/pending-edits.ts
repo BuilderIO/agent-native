@@ -1,3 +1,4 @@
+import { removeBreakpointMediaDeclaration } from "@shared/breakpoint-media";
 import {
   applyVisualEdit,
   type ApplyVisualEditResult,
@@ -9,6 +10,7 @@ import {
   upsertStateStyles,
 } from "@shared/interaction-states";
 import {
+  normalizeCssPropertyName,
   planBreakpointStyleWrite,
   utilityStem,
 } from "@shared/responsive-classes";
@@ -66,6 +68,7 @@ export interface PendingVisualStyleEdit {
   breakpoint?: {
     activeWidthPx: number;
     upperBoundPx: number | null;
+    editScope?: "cascade-smaller" | "only";
   };
 }
 
@@ -601,7 +604,7 @@ export function formatPendingVisualStylePrompt(args: {
       ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."
       : "",
     hasBreakpointScopedEdits
-      ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports."
+      ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports. When breakpoint.editScope is `only`, confine the override to breakpoint.activeWidthPx through breakpoint.upperBoundPx; otherwise use the normal desktop-down cascade."
       : "",
     args.edits.some((edit) => edit.interactionState)
       ? "Edits that carry an `interactionState` field are pseudo-class overrides, not base styles. Apply each property only to that exact state (`hover`, `focus`, `focus-visible`, `active`, or `disabled`) while preserving the element's default styling and its other states."
@@ -708,11 +711,55 @@ export function applyScopedVisualStyleEdit(args: {
   property: string;
   value: string;
   upperBoundPx: number | null;
+  /** Inclusive lower bound for an exact-range edit. Omit for the normal
+   * desktop-down “this breakpoint and smaller” cascade. */
+  lowerBoundPx?: number | null;
 }): ApplyVisualEditResult {
-  const { content, target, property, value, upperBoundPx } = args;
+  const { content, target, property, value, upperBoundPx, lowerBoundPx } = args;
+  const normalizedProperty = normalizeCssPropertyName(property);
+  if (
+    lowerBoundPx != null &&
+    upperBoundPx != null &&
+    "nodeId" in target &&
+    Number.isFinite(lowerBoundPx) &&
+    lowerBoundPx > 0 &&
+    upperBoundPx >= lowerBoundPx
+  ) {
+    const maxPatch = applyVisualEdit(content, {
+      kind: "breakpoint-style",
+      target,
+      maxWidthPx: upperBoundPx,
+      property: normalizedProperty,
+      value,
+      operation: "set",
+    });
+    if (maxPatch.result.status !== "applied") return maxPatch;
+    const withoutCascade = removeBreakpointMediaDeclaration(maxPatch.content, {
+      nodeId: target.nodeId,
+      maxWidthPx: upperBoundPx,
+      property: normalizedProperty,
+    });
+    return {
+      ...maxPatch,
+      content: setExactBreakpointDeclaration(withoutCascade, {
+        nodeId: target.nodeId,
+        property: normalizedProperty,
+        value,
+        minWidthPx: Math.round(lowerBoundPx),
+        maxWidthPx: Math.round(upperBoundPx),
+      }),
+    };
+  }
+  const cleanedContent =
+    "nodeId" in target
+      ? removeExactBreakpointDeclarations(content, {
+          nodeId: target.nodeId,
+          property: normalizedProperty,
+        })
+      : content;
   const plan = planBreakpointStyleWrite({ property, value, upperBoundPx });
   if (plan.mode === "class") {
-    const rcPatch = applyVisualEdit(content, {
+    const rcPatch = applyVisualEdit(cleanedContent, {
       kind: "responsive-class",
       target,
       // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
@@ -730,7 +777,7 @@ export function applyScopedVisualStyleEdit(args: {
     upperBoundPx !== null &&
     upperBoundPx !== undefined
   ) {
-    return applyVisualEdit(content, {
+    return applyVisualEdit(cleanedContent, {
       kind: "breakpoint-style",
       target,
       maxWidthPx: upperBoundPx,
@@ -739,7 +786,84 @@ export function applyScopedVisualStyleEdit(args: {
       operation: "set",
     });
   }
-  return applyVisualEdit(content, { kind: "style", target, property, value });
+  return applyVisualEdit(cleanedContent, {
+    kind: "style",
+    target,
+    property,
+    value,
+  });
+}
+
+const EXACT_BREAKPOINT_ATTR = "data-agent-native-breakpoint-range";
+
+function exactBreakpointMarker(
+  nodeId: string,
+  property: string,
+  bounds?: { minWidthPx: number; maxWidthPx: number },
+): string {
+  const base = `${encodeURIComponent(nodeId)}::${encodeURIComponent(property)}`;
+  return bounds ? `${base}::${bounds.minWidthPx}-${bounds.maxWidthPx}` : base;
+}
+
+function escapeCssAttribute(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeExactBreakpointDeclarations(
+  content: string,
+  args: {
+    nodeId: string;
+    property: string;
+    minWidthPx?: number;
+    maxWidthPx?: number;
+  },
+): string {
+  const marker = exactBreakpointMarker(
+    args.nodeId,
+    args.property,
+    args.minWidthPx != null && args.maxWidthPx != null
+      ? { minWidthPx: args.minWidthPx, maxWidthPx: args.maxWidthPx }
+      : undefined,
+  );
+  const markerPattern =
+    args.minWidthPx != null && args.maxWidthPx != null
+      ? escapeRegExp(marker)
+      : `${escapeRegExp(marker)}::[^\"]+`;
+  const styleRe = new RegExp(
+    `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="${markerPattern}"[^>]*>.*?<\\/style>\\n?`,
+    "gis",
+  );
+  return content.replace(styleRe, "");
+}
+
+function setExactBreakpointDeclaration(
+  content: string,
+  args: {
+    nodeId: string;
+    property: string;
+    value: string;
+    minWidthPx: number;
+    maxWidthPx: number;
+  },
+): string {
+  const cleaned = removeExactBreakpointDeclarations(content, args);
+  const marker = exactBreakpointMarker(args.nodeId, args.property, args);
+  const selectorId = escapeCssAttribute(args.nodeId);
+  const block = `<style ${EXACT_BREAKPOINT_ATTR}="${marker}">
+@media (min-width: ${args.minWidthPx}px) and (max-width: ${args.maxWidthPx}px) {
+  [data-agent-native-node-id="${selectorId}"][data-agent-native-node-id="${selectorId}"] {
+    ${args.property}: ${args.value.trim()};
+  }
+}
+</style>`;
+  const headClose = cleaned.lastIndexOf("</head>");
+  return headClose >= 0
+    ? `${cleaned.slice(0, headClose)}${block}\n${cleaned.slice(headClose)}`
+    : `${block}\n${cleaned}`;
 }
 
 /**

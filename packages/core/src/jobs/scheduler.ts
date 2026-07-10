@@ -14,6 +14,7 @@ import {
 import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 import { createThread } from "../chat-threads/store.js";
 import {
+  organizationIdFromResourceOwner,
   resourceListAllOwners,
   resourcePut,
   type Resource,
@@ -332,7 +333,12 @@ async function isJobRunAsStillValid(
 ): Promise<{ ok: boolean; reason?: string }> {
   // Shared-owner sentinel isn't a real user (used by jobs run as the
   // workspace identity).
-  if (jobUserEmail === "__shared__") return { ok: true };
+  if (
+    jobUserEmail === "__shared__" ||
+    organizationIdFromResourceOwner(jobUserEmail)
+  ) {
+    return { ok: true };
+  }
   try {
     const { getDbExec } = await import("../db/client.js");
     const db = getDbExec();

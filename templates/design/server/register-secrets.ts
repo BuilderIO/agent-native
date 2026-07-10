@@ -35,10 +35,10 @@ registerRequiredSecret({
         };
       }
       return { ok: false, error: `GitHub returned ${res.status}.` };
-    } catch (err: any) {
+    } catch {
       return {
         ok: false,
-        error: `Could not reach GitHub: ${err?.message ?? err}`,
+        error: "Could not reach GitHub. Check your network and try again.",
       };
     }
   },
@@ -73,10 +73,10 @@ registerRequiredSecret({
         };
       }
       return { ok: false, error: `Figma returned ${res.status}.` };
-    } catch (err: any) {
+    } catch {
       return {
         ok: false,
-        error: `Could not reach Figma: ${err?.message ?? err}`,
+        error: "Could not reach Figma. Check your network and try again.",
       };
     }
   },

@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withSourceFileWriteLock } from "../server/source-workspace.js";
+import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
@@ -152,6 +153,7 @@ export default defineAction({
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
+        fileType: schema.designFiles.fileType,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -210,6 +212,7 @@ export default defineAction({
         const [persistedFile] = await db
           .select({
             content: schema.designFiles.content,
+            fileType: schema.designFiles.fileType,
             contentOperationSource: schema.designFiles.contentOperationSource,
             contentOperationRevision:
               schema.designFiles.contentOperationRevision,
@@ -231,6 +234,14 @@ export default defineAction({
           content !== undefined && collabExists
             ? await getText(id, "content")
             : persistedFile.content;
+        if (content !== undefined) {
+          assertDesignHtmlEditIntegrity({
+            previousContent: liveContent,
+            nextContent: content,
+            fileType:
+              fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
+          });
+        }
         if (
           content !== undefined &&
           context?.caller !== "frontend" &&

@@ -719,6 +719,48 @@ describe("run manager soft timeout", () => {
     expect(resolved).toBe(true);
   });
 
+  it("keeps an in-memory abort successful when durable cleanup fails", async () => {
+    const persistenceError = new Error("abort persistence unavailable");
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let abortReason: unknown;
+    const run = startRun(
+      "run-durable-abort-failure",
+      "thread-durable-abort-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              abortReason = signal.reason;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    try {
+      await expect(
+        abortRunDurably("run-durable-abort-failure", "user_stuck_retry"),
+      ).resolves.toBe(true);
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(abortReason).toBe("user_stuck_retry");
+    expect(run.status).toBe("aborted");
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-durable-abort-failure",
+      "user_stuck_retry",
+    );
+  });
+
   it("skips completion callbacks for no-progress recovery aborts", async () => {
     const onComplete = vi.fn();
     const run = startRun(

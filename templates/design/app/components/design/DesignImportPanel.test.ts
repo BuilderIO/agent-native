@@ -69,7 +69,10 @@ describe("DesignImportPanel", () => {
   });
 
   it("shows one result toast and leaves generic .fig caveats to the upload UI", () => {
-    expect(source).toContain("importResultNotification(result, fallback)");
+    expect(source).toContain("importResultNotification(result, fallback, {");
+    expect(source).toContain("figmaImageFallbackWarning");
+    expect(source).toContain("figmaApproximationWarning");
+    expect(source).toContain("formatNumber(imageFallbackCount)");
     expect(source).toContain('notification.variant === "warning"');
     expect(source).not.toContain(
       'toast.warning(t("designEditor.import.warningsToast")',

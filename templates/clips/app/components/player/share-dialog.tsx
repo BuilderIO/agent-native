@@ -498,7 +498,7 @@ function LinkTab({
                   {t("shareDialog.openPlayer")}
                 </>
               ) : (
-                t("shareDialog.downloadMp4")
+                t("recordRoute.downloadRecording")
               )}
             </Button>
           ) : null}

@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   queries: [] as Array<string | { sql: string; args?: unknown[] }>,
+  insertRace: null as null | {
+    id: string;
+    ownerEmail: string;
+    orgId: string | null;
+    teamName?: string;
+  },
 }));
 const writeSecretMock = vi.hoisted(() => vi.fn(async () => "secret-id"));
 const readSecretMock = vi.hoisted(() => vi.fn());
@@ -34,7 +40,7 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
     return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
   }
   if (/^INSERT INTO integration_installations/i.test(sql)) {
-    state.rows.push({
+    const row = {
       id: args[0],
       platform: args[1],
       installation_key: args[2],
@@ -61,7 +67,24 @@ async function execute(input: string | { sql: string; args?: unknown[] }) {
       created_at: args[23],
       updated_at: args[24],
       disconnected_at: args[25],
-    });
+    };
+    if (state.insertRace) {
+      state.rows.push({
+        ...row,
+        id: state.insertRace.id,
+        owner_email: state.insertRace.ownerEmail,
+        org_id: state.insertRace.orgId,
+        team_name: state.insertRace.teamName ?? row.team_name,
+      });
+      state.insertRace = null;
+      throw Object.assign(
+        new Error(
+          "UNIQUE constraint failed: integration_installations.platform, integration_installations.installation_key",
+        ),
+        { code: "SQLITE_CONSTRAINT_UNIQUE" },
+      );
+    }
+    state.rows.push(row);
     return { rows: [], rowsAffected: 1 };
   }
   if (/^UPDATE integration_installations SET\s+team_id/i.test(sql)) {
@@ -147,6 +170,14 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
   intType: () => "INTEGER",
   isPostgres: () => false,
+  isUniqueViolation: (error: unknown) => {
+    const value = error as { code?: string; message?: string } | null;
+    return (
+      value?.code === "23505" ||
+      value?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+      /unique constraint/i.test(String(value?.message ?? ""))
+    );
+  },
   retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
 }));
 
@@ -189,6 +220,7 @@ describe("managed integration installation store", () => {
   beforeEach(() => {
     state.rows = [];
     state.queries = [];
+    state.insertRace = null;
     vi.clearAllMocks();
     readSecretMock.mockResolvedValue(null);
   });
@@ -232,6 +264,49 @@ describe("managed integration installation store", () => {
     expect(second.teamName).toBe("Renamed workspace");
     expect(state.rows).toHaveLength(1);
     expect(writeSecretMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers when a concurrent callback inserts the same installation first", async () => {
+    state.insertRace = {
+      id: "concurrent-winner",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      teamName: "Stale concurrent metadata",
+    };
+
+    const installation = await store.upsertIntegrationInstallation(
+      installationInput({ teamName: "Latest callback metadata" }),
+    );
+
+    expect(installation).toMatchObject({
+      id: "concurrent-winner",
+      teamName: "Latest callback metadata",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(state.rows).toHaveLength(1);
+    expect(
+      state.queries.filter((query) =>
+        /^UPDATE integration_installations SET\s+team_id/i.test(sqlOf(query)),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does not adopt a concurrently inserted installation from another tenant", async () => {
+    state.insertRace = {
+      id: "other-tenant-winner",
+      ownerEmail: "other@example.com",
+      orgId: "org-2",
+    };
+
+    await expect(
+      store.upsertIntegrationInstallation(installationInput()),
+    ).rejects.toThrow("another owner or organization");
+    expect(
+      state.queries.some((query) =>
+        /^UPDATE integration_installations SET\s+team_id/i.test(sqlOf(query)),
+      ),
+    ).toBe(false);
   });
 
   it("refuses to move a provider installation across tenants", async () => {

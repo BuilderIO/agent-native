@@ -298,8 +298,11 @@ canonical sizes to reuse instead of guessing:
 - **Social**: Instagram Post 1080×1080, Instagram Story 1080×1920, X Post
   1200×675, Facebook Cover 820×312, LinkedIn Cover 1584×396.
 
-At small ad-unit sizes (320×50, 160×600), keep body text at or above the
-11px floor and avoid dense multi-line copy — there is no room to reflow.
+At small ad-unit sizes (320×50, 160×600), text commonly runs 9-11px — smaller
+than this skill's general 16px body-text floor — because there is no room to
+reflow. That is expected for these formats; it stays legible in @2x+ exports
+since the export scale multiplies raster resolution, not the authored CSS
+size. Avoid dense multi-line copy at these sizes regardless.
 
 ### Phase 4 — Always ship tweaks with the design
 

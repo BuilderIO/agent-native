@@ -33,6 +33,7 @@ import {
   type MetaFunction,
 } from "react-router";
 import { useLoaderData, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -416,6 +417,7 @@ export default function ShareRoute() {
     [],
   );
   const [downloading, setDownloading] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const agentAccessToken = useMemo(() => {
     if (typeof window === "undefined") return "";
     return (
@@ -589,6 +591,7 @@ export default function ShareRoute() {
   async function downloadRecording() {
     if (!recording?.videoUrl) return;
     setDownloading(true);
+    const downloadToastId = toast.loading(t("sharePage.downloading"));
     try {
       const res = await fetch(recording.videoUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -596,7 +599,11 @@ export default function ShareRoute() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      const extension =
+        blob.type.includes("webm") || recording.videoFormat === "webm"
+          ? "webm"
+          : "mp4";
+      a.download = `${sanitizeFilename(recording.title || "clip")}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -605,6 +612,7 @@ export default function ShareRoute() {
       window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
     } finally {
       setDownloading(false);
+      toast.dismiss(downloadToastId);
     }
   }
 
@@ -854,7 +862,10 @@ export default function ShareRoute() {
               </Button>
             )}
             {!viewerCanEdit && canDownloadRecording ? (
-              <DropdownMenu>
+              <DropdownMenu
+                open={downloadMenuOpen}
+                onOpenChange={setDownloadMenuOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
@@ -868,6 +879,7 @@ export default function ShareRoute() {
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem
                     onSelect={() => {
+                      setDownloadMenuOpen(false);
                       void downloadRecording();
                     }}
                     disabled={downloading}
@@ -875,7 +887,7 @@ export default function ShareRoute() {
                     <IconDownload className="h-4 w-4" />
                     {downloading
                       ? t("sharePage.downloading")
-                      : t("sharePage.downloadMp4")}
+                      : t("recordRoute.downloadRecording")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -886,7 +898,7 @@ export default function ShareRoute() {
                 canDelete
                 canDownload={canDownloadRecording}
                 downloadPending={downloading}
-                downloadLabel={t("sharePage.downloadMp4")}
+                downloadLabel={t("recordRoute.downloadRecording")}
                 downloadingLabel={t("sharePage.downloading")}
                 onDownload={() => {
                   void downloadRecording();
@@ -1005,7 +1017,7 @@ export default function ShareRoute() {
                   <IconDownload className="h-4 w-4" />
                   {downloading
                     ? t("sharePage.downloading")
-                    : t("sharePage.downloadMp4")}
+                    : t("recordRoute.downloadRecording")}
                 </Button>
               ) : null}
             </div>

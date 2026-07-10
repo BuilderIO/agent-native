@@ -352,6 +352,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       window.electronAPI.setActiveWebview({
         appId: app.id,
         webContentsId,
+        hostBounds: (() => {
+          const rect = wv.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return undefined;
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        })(),
       });
     }
 
@@ -573,6 +583,41 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       reportActiveWebview();
     }, [isActive, url]);
 
+    useEffect(() => {
+      if (!isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      let frame = 0;
+      const reportOnFrame = () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(reportActiveWebview);
+      };
+      const observer = new ResizeObserver(reportOnFrame);
+      observer.observe(wv);
+      window.addEventListener("resize", reportOnFrame);
+      window.visualViewport?.addEventListener("resize", reportOnFrame);
+      window.visualViewport?.addEventListener("scroll", reportOnFrame);
+      reportOnFrame();
+      return () => {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+        window.removeEventListener("resize", reportOnFrame);
+        window.visualViewport?.removeEventListener("resize", reportOnFrame);
+        window.visualViewport?.removeEventListener("scroll", reportOnFrame);
+        let webContentsId: number | undefined;
+        try {
+          webContentsId = wv.getWebContentsId();
+        } catch {
+          webContentsId = undefined;
+        }
+        window.electronAPI?.setActiveWebview?.({
+          appId: app.id,
+          webContentsId,
+          active: false,
+        });
+      };
+    }, [app.id, app.placeholder, isActive, url]);
+
     function handleRetry() {
       setError(false);
       setIsLoading(true);
@@ -643,7 +688,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
               if (
-                (app.id === "plan" || app.id === "content") &&
+                (app.id === "plan" ||
+                  app.id === "content" ||
+                  app.id === "design") &&
                 window.electronAPI?.webviewPreloadPath
               ) {
                 wv.setAttribute(

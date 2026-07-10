@@ -85,6 +85,9 @@ export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_B
  */
 export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
 export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
+export const AGENT_BACKGROUND_PROCESSOR_ROUTE = "route";
+export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
+  "__agentNativeProcessorRoute";
 
 /**
  * The per-app workspace background function URL path. Workspace deploy emits one
@@ -156,6 +159,18 @@ export function resolveAgentChatProcessRunDispatchPath(): string {
     );
   }
   return AGENT_CHAT_PROCESS_RUN_PATH;
+}
+
+export function resolveDurableBackgroundDispatchPath(
+  fallbackPath: string,
+): string {
+  if (isNetlifyHostedRuntimeForDispatch()) {
+    return (
+      resolveWorkspaceBackgroundFunctionUrlPath() ??
+      AGENT_BACKGROUND_FUNCTION_URL_PATH
+    );
+  }
+  return fallbackPath;
 }
 
 export function dispatchPathTargetsNetlifyBackgroundFunction(

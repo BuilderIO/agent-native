@@ -33,6 +33,48 @@ describe("locked layers", () => {
     ).toThrow(/locked layer/i);
   });
 
+  it("rejects moving, reparenting, or reordering an unchanged locked subtree", () => {
+    const locked =
+      '<div data-agent-native-node-id="bg" data-agent-native-locked="true"><span>Fixed</span></div>';
+
+    const reordered = source
+      .replace(`  ${locked}\n`, "")
+      .replace(
+        '  <main data-agent-native-node-id="content">Editable</main>',
+        `  <main data-agent-native-node-id="content">Editable</main>\n  ${locked}`,
+      );
+    expect(() => assertLockedLayersPreserved(source, reordered)).toThrow(
+      /locked layer/i,
+    );
+
+    const reparented = source
+      .replace(`  ${locked}\n`, "")
+      .replace(
+        '  <main data-agent-native-node-id="content">Editable</main>',
+        `  <main data-agent-native-node-id="content">Editable\n    ${locked}\n  </main>`,
+      );
+    expect(() => assertLockedLayersPreserved(source, reparented)).toThrow(
+      /locked layer/i,
+    );
+
+    const nested = `<!doctype html><html><body>
+  <section data-agent-native-node-id="left"><div data-agent-native-node-id="locked-parent">${locked}</div></section>
+  <section data-agent-native-node-id="right"></section>
+</body></html>`;
+    const movedAncestor = nested
+      .replace(
+        '<section data-agent-native-node-id="left"><div data-agent-native-node-id="locked-parent">',
+        '<section data-agent-native-node-id="left"></section><section data-agent-native-node-id="right"><div data-agent-native-node-id="locked-parent">',
+      )
+      .replace(
+        `</div></section>\n  <section data-agent-native-node-id="right"></section>`,
+        "</div></section>",
+      );
+    expect(() => assertLockedLayersPreserved(nested, movedAncestor)).toThrow(
+      /locked layer/i,
+    );
+  });
+
   it("counts only durable DOM locks across files", () => {
     expect(
       countLockedLayersAcrossFiles([

@@ -48,6 +48,7 @@ const {
   _resetIntegrationUsageBudgetStoreForTests,
   getIntegrationBudgetSnapshot,
   getIntegrationUsageBudget,
+  listIntegrationUsageBudgets,
   listIntegrationBudgetThresholdEvents,
   releaseIntegrationUsageBudget,
   reserveIntegrationUsageBudget,
@@ -213,7 +214,7 @@ describe("integration usage budget reservations", () => {
     });
   });
 
-  it("requires additional capacity before settling above the reservation", async () => {
+  it("charges actual cost even when it exceeds the reservation estimate", async () => {
     const budget = await saveIntegrationUsageBudget(
       {
         subject: { type: "org", orgId: "org-example" },
@@ -231,22 +232,55 @@ describe("integration usage budget reservations", () => {
       access,
     );
 
-    await expect(
-      settleIntegrationUsageBudget(
-        {
-          budgetId: budget.id,
-          reservationId: "underestimated-run",
-          actualCostMicros: 601,
-        },
-        access,
-      ),
-    ).rejects.toThrow("exceeds the reserved amount");
+    const settled = await settleIntegrationUsageBudget(
+      {
+        budgetId: budget.id,
+        reservationId: "underestimated-run",
+        actualCostMicros: 1_200,
+      },
+      access,
+    );
     const snapshot = await getIntegrationBudgetSnapshot(budget.id, access);
-    expect(snapshot).toMatchObject({ usedMicros: 0, reservedMicros: 600 });
+    expect(settled.settledCostMicros).toBe(1_200);
+    expect(snapshot).toMatchObject({
+      usedMicros: 1_200,
+      reservedMicros: 0,
+      remainingMicros: 0,
+    });
   });
 });
 
 describe("integration usage budget authorization", () => {
+  it("keeps user budgets private from other members of the same org", async () => {
+    const budget = await saveIntegrationUsageBudget(
+      {
+        subject: { type: "user", userEmail: "owner@example.com" },
+        period: "day",
+        limitMicros: 1_000,
+      },
+      access,
+    );
+    const otherMember = {
+      ownerEmail: "other-member@example.com",
+      orgId: "org-example",
+    };
+
+    await expect(
+      getIntegrationUsageBudget(budget.id, otherMember),
+    ).resolves.toBeNull();
+    await expect(listIntegrationUsageBudgets(otherMember)).resolves.toEqual([]);
+    await expect(
+      reserveIntegrationUsageBudget(
+        {
+          budgetId: budget.id,
+          reservationId: "other-member-run",
+          estimatedCostMicros: 100,
+        },
+        otherMember,
+      ),
+    ).rejects.toThrow("not available");
+  });
+
   it("denies cross-org scope budgets and reservation ids", async () => {
     const scopeKey = {
       platform: "slack",

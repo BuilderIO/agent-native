@@ -36,6 +36,7 @@ export interface DesktopDesignPreviewUpdate {
   scale: number;
   rotationDegrees: number;
   borderRadius: number;
+  devicePixelRatio: number;
   obscured: boolean;
   visible: boolean;
 }
@@ -49,9 +50,20 @@ export interface DesktopDesignPreviewDestroy {
   generation: number;
 }
 
+export interface DesktopDesignPreviewSnapshotReady {
+  action: "snapshot-ready";
+  appId: string;
+  workspaceId: string;
+  connectionId: string;
+  screenId: string;
+  generation: number;
+  version: number;
+}
+
 export type DesktopDesignPreviewRequest =
   | DesktopDesignPreviewUpdate
-  | DesktopDesignPreviewDestroy;
+  | DesktopDesignPreviewDestroy
+  | DesktopDesignPreviewSnapshotReady;
 
 export type DesktopDesignPreviewState =
   | {
@@ -65,6 +77,17 @@ export type DesktopDesignPreviewState =
       generation: number;
       reason: string;
       url?: string;
+    }
+  | {
+      state: "snapshot";
+      screenId: string;
+      generation: number;
+      version: number;
+      width: number;
+      height: number;
+      devicePixelRatio: number;
+      mimeType: "image/png";
+      bytes: Uint8Array;
     };
 
 export type DesktopDesignPreviewNavigationDecision =
@@ -100,10 +123,15 @@ function parseGeneration(value: unknown): number | null {
 
 function parseRect(value: unknown): DesktopDesignPreviewRect | null {
   if (!isRecord(value)) return null;
-  const x = Number(value.x);
-  const y = Number(value.y);
-  const width = Number(value.width);
-  const height = Number(value.height);
+  if (
+    typeof value.x !== "number" ||
+    typeof value.y !== "number" ||
+    typeof value.width !== "number" ||
+    typeof value.height !== "number"
+  ) {
+    return null;
+  }
+  const { x, y, width, height } = value;
   if (
     !Number.isFinite(x) ||
     !Number.isFinite(y) ||
@@ -184,6 +212,13 @@ export function acceptDesktopDesignPreviewGeneration(
   );
 }
 
+export function shouldTearDownDesktopDesignPreviewForOwnerNavigation(
+  isInPlace: boolean,
+  isMainFrame: boolean,
+): boolean {
+  return isMainFrame && !isInPlace;
+}
+
 export function getDesktopDesignPreviewNavigationDecision(
   currentUrl: string,
   requestedUrl: string,
@@ -232,13 +267,29 @@ export function parseDesktopDesignPreviewRequest(
   if (value.action === "destroy") {
     return { action: "destroy", ...common };
   }
+  if (value.action === "snapshot-ready") {
+    if (!Number.isSafeInteger(value.version) || Number(value.version) <= 0) {
+      return null;
+    }
+    return {
+      action: "snapshot-ready",
+      ...common,
+      version: Number(value.version),
+    };
+  }
   if (value.action !== "update") return null;
 
   const previewBounds = parseRect(value.previewBounds);
   const clipBounds = parseRect(value.clipBounds);
-  const scale = Number(value.scale);
-  const rotationDegrees = Number(value.rotationDegrees);
-  const borderRadius = Number(value.borderRadius);
+  if (
+    typeof value.scale !== "number" ||
+    typeof value.rotationDegrees !== "number" ||
+    typeof value.borderRadius !== "number"
+  ) {
+    return null;
+  }
+  if (typeof value.devicePixelRatio !== "number") return null;
+  const { scale, rotationDegrees, borderRadius, devicePixelRatio } = value;
   if (
     !previewBounds ||
     !clipBounds ||
@@ -257,6 +308,9 @@ export function parseDesktopDesignPreviewRequest(
     !Number.isFinite(borderRadius) ||
     borderRadius < 0 ||
     borderRadius > MAX_DIMENSION ||
+    !Number.isFinite(devicePixelRatio) ||
+    devicePixelRatio < 0.5 ||
+    devicePixelRatio > 4 ||
     typeof value.obscured !== "boolean" ||
     typeof value.visible !== "boolean"
   ) {
@@ -274,6 +328,7 @@ export function parseDesktopDesignPreviewRequest(
     scale,
     rotationDegrees,
     borderRadius,
+    devicePixelRatio,
     obscured: value.obscured,
     visible: value.visible,
   };

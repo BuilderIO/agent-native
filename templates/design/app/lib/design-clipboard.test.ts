@@ -10,6 +10,7 @@ import {
   type DesignClipboardEnvironment,
 } from "./design-clipboard";
 import {
+  parseDesignClipboardMarker,
   serializeDesignClipboardPayload,
   type DesignClipboardPayload,
 } from "./design-import";
@@ -73,9 +74,77 @@ describe("writeDesignClipboard", () => {
 
     expect(writeText).toHaveBeenCalledWith("Readable text");
   });
+
+  it("preserves the rich cross-tab payload when the async Clipboard API is permission-denied", async () => {
+    const write = vi.fn(async () => {
+      throw Object.assign(new Error("Clipboard permission denied"), {
+        name: "NotAllowedError",
+      });
+    });
+    const writeText = vi.fn(async () => undefined);
+    let legacyRepresentations: { plainText: string; html: string } | undefined;
+    const html = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+    );
+
+    await writeDesignClipboard({ plainText: "Readable text", html }, {
+      clipboard: { write, writeText },
+      ClipboardItem: FakeClipboardItem,
+      legacyCopy(representations: { plainText: string; html: string }) {
+        legacyRepresentations = representations;
+        return true;
+      },
+    } as unknown as DesignClipboardEnvironment);
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(writeText).not.toHaveBeenCalled();
+    expect(legacyRepresentations?.plainText).toBe("Readable text");
+    expect(parseDesignClipboardMarker(legacyRepresentations?.html)).toEqual(
+      payload,
+    );
+  });
 });
 
 describe("readDesignClipboardPayload", () => {
+  it("round-trips through the system clipboard across independent Design tabs", async () => {
+    let sharedItems: FakeClipboardItem[] = [];
+    const sharedClipboard = {
+      async write(items: ClipboardItem[]) {
+        sharedItems = items as unknown as FakeClipboardItem[];
+      },
+      async read() {
+        return sharedItems.map((item) => ({
+          types: Object.keys(item.items),
+          async getType(type: string) {
+            return item.items[type]!;
+          },
+        }));
+      },
+    };
+    const html = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+    );
+
+    await writeDesignClipboard({ plainText: "Readable text", html }, {
+      clipboard: sharedClipboard,
+      ClipboardItem: FakeClipboardItem,
+    } as unknown as DesignClipboardEnvironment);
+    // A new environment models a remounted editor or separate browser tab:
+    // there are no shared React refs, only the OS clipboard representation.
+    const result = await readDesignClipboardPayloadFromSystem({
+      clipboard: sharedClipboard,
+      ClipboardItem: FakeClipboardItem,
+    } as unknown as DesignClipboardEnvironment);
+
+    expect(result).toEqual({
+      payload,
+      markerText: html,
+      plainText: "Readable text",
+    });
+  });
+
   it("reads the internal marker from HTML without exposing it as plain text", () => {
     const html = serializeDesignClipboardPayload(
       "<p>Readable text</p>",

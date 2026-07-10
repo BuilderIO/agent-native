@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import {
-  getActiveIntegrationInstallationForTenant,
+  listIntegrationInstallations,
   resolveIntegrationTokenBundle,
 } from "@agent-native/core/integrations";
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
   slackAdapter,
   telegramAdapter,
   emailAdapter,
@@ -14,32 +16,50 @@ import { z } from "zod";
 
 import { getDestinationById } from "../server/lib/dispatch-store.js";
 
-function getAdapter(platform: "slack" | "telegram" | "email") {
+function getAdapter(
+  platform: "slack" | "telegram" | "email",
+  slackToken?: string,
+) {
   if (platform === "email") return emailAdapter();
-  return platform === "slack" ? slackAdapter() : telegramAdapter();
+  return platform === "slack"
+    ? slackAdapter({ resolveBotToken: async () => slackToken })
+    : telegramAdapter();
 }
 
 async function assertOutboundConfigured(
   platform: "slack" | "telegram" | "email",
   tenantId?: string,
-) {
+): Promise<string | undefined> {
   if (platform === "slack") {
-    const installation = tenantId
-      ? await getActiveIntegrationInstallationForTenant("slack", tenantId)
-      : null;
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) throw new Error("An authenticated user is required");
+    const installations = tenantId
+      ? await listIntegrationInstallations(
+          { userEmail, orgId: getRequestOrgId() ?? null },
+          "slack",
+        )
+      : [];
+    const installation =
+      installations.find(
+        (candidate) =>
+          candidate.teamId === tenantId || candidate.enterpriseId === tenantId,
+      ) ?? null;
     const managed = installation
       ? await resolveIntegrationTokenBundle(
           "slack",
           installation.installationKey,
         )
       : null;
-    if (!managed && !(await resolveSecret("SLACK_BOT_TOKEN"))) {
+    const token =
+      managed?.accessToken ?? (await resolveSecret("SLACK_BOT_TOKEN"));
+    if (!token) {
       throw new Error(
         tenantId
           ? "That Slack workspace is not connected"
           : "Select a Slack workspace for managed outbound messaging",
       );
     }
+    return token;
   }
   if (platform === "telegram" && !(await resolveSecret("TELEGRAM_BOT_TOKEN"))) {
     throw new Error("Telegram outbound messaging is not configured");
@@ -100,9 +120,12 @@ export default defineAction({
       throw new Error("A platform and destination are required");
     }
 
-    await assertOutboundConfigured(resolvedPlatform, tenantId);
+    const slackToken = await assertOutboundConfigured(
+      resolvedPlatform,
+      tenantId,
+    );
 
-    const adapter = getAdapter(resolvedPlatform);
+    const adapter = getAdapter(resolvedPlatform, slackToken);
     if (!adapter.sendMessageToTarget) {
       throw new Error(
         `Platform ${resolvedPlatform} does not support proactive outbound messaging`,

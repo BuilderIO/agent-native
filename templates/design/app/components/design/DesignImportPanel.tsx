@@ -1,4 +1,8 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconBrandFigma,
@@ -52,6 +56,7 @@ type ImportMode =
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
@@ -89,7 +94,26 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
         queryClient.invalidateQueries({ queryKey: ["action"] }),
       ]);
-      const notification = importResultNotification(result, fallback);
+      const fidelityWarnings: string[] = [];
+      const imageFallbackCount = result?.fidelityReport?.imageFallbacks.length;
+      if (imageFallbackCount) {
+        fidelityWarnings.push(
+          t("designEditor.import.figmaImageFallbackWarning", {
+            count: formatNumber(imageFallbackCount),
+          }),
+        );
+      }
+      const approximatedCount = result?.fidelityReport?.approximated.length;
+      if (approximatedCount) {
+        fidelityWarnings.push(
+          t("designEditor.import.figmaApproximationWarning", {
+            count: formatNumber(approximatedCount),
+          }),
+        );
+      }
+      const notification = importResultNotification(result, fallback, {
+        fidelityWarnings,
+      });
       if (notification.variant === "warning") {
         toast.warning(notification.title, {
           description: notification.description,
@@ -99,7 +123,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       }
       navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
     },
-    [context.designId, navigate, queryClient],
+    [context.designId, formatNumber, navigate, queryClient, t],
   );
 
   const importHtmlString = useCallback(

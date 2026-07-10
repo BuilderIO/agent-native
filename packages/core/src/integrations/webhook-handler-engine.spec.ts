@@ -18,6 +18,10 @@ const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
+const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
+const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -68,6 +72,23 @@ vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,
   readDeployCredentialEnv: readDeployCredentialEnvMock,
+}));
+
+vi.mock("./usage-budget-store.js", () => ({
+  integrationScopeSubjectKey: (scope: {
+    platform: string;
+    tenantId: string;
+    conversationId: string;
+  }) => JSON.stringify([scope.platform, scope.tenantId, scope.conversationId]),
+  listIntegrationUsageBudgets: listIntegrationUsageBudgetsMock,
+  reserveIntegrationUsageBudget: reserveIntegrationUsageBudgetMock,
+  releaseIntegrationUsageBudget: releaseIntegrationUsageBudgetMock,
+  settleIntegrationUsageBudget: settleIntegrationUsageBudgetMock,
+}));
+
+vi.mock("../usage/store.js", () => ({
+  calculateCost: vi.fn(() => 25),
+  recordUsage: vi.fn(),
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
@@ -171,6 +192,17 @@ describe("integration webhook handler engine resolution", () => {
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
+    listIntegrationUsageBudgetsMock.mockResolvedValue([]);
+    reserveIntegrationUsageBudgetMock.mockResolvedValue({
+      allowed: true,
+      status: "reserved",
+    });
+    releaseIntegrationUsageBudgetMock.mockResolvedValue({
+      status: "released",
+    });
+    settleIntegrationUsageBudgetMock.mockResolvedValue({
+      status: "settled",
+    });
     getStoredModelForEngineMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
@@ -186,6 +218,7 @@ describe("integration webhook handler engine resolution", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalNodeEnv === undefined) {
       delete process.env.NODE_ENV;
     } else {
@@ -198,6 +231,77 @@ describe("integration webhook handler engine resolution", () => {
   // too tight for the full processIntegrationTask pipeline. Bumping these two
   // mock-heavy run-loop tests to 15s avoids flake without masking real perf
   // regressions: the test bodies still finish in well under a second locally.
+  it("releases reserved budgets when thread setup fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    listIntegrationUsageBudgetsMock.mockResolvedValue([
+      {
+        id: "budget-org",
+        subjectType: "org",
+        subjectId: "org-qa",
+      },
+    ]);
+    createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
+
+    await expect(
+      processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      }),
+    ).rejects.toThrow("thread setup failed");
+
+    expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
+    expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+      expect.objectContaining({ budgetId: "budget-org" }),
+      expect.objectContaining({ orgId: "org-qa" }),
+    );
+    expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
+  });
+
+  it("settles the full actual cost above the reservation estimate", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
+    listIntegrationUsageBudgetsMock.mockResolvedValue([
+      {
+        id: "budget-org",
+        subjectType: "org",
+        subjectId: "org-qa",
+      },
+    ]);
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "done" });
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        budgetId: "budget-org",
+        actualCostMicros: 2_500,
+      }),
+      expect.anything(),
+    );
+  });
+
   it(
     "uses the shared engine resolver instead of forcing Anthropic",
     { timeout: 15000 },
@@ -543,6 +647,7 @@ describe("integration webhook handler engine resolution", () => {
       externalThreadId: "thread-4",
       payload: JSON.stringify({
         placeholderRef: "placeholder-qa",
+        principalType: "service",
         incoming: {
           platform: "fake",
           externalThreadId: "thread-4",
@@ -576,6 +681,7 @@ describe("integration webhook handler engine resolution", () => {
         taskId: "task-context",
         attempts: 2,
         placeholderRef: "placeholder-qa",
+        principalType: "service",
         incoming: expect.objectContaining({
           platform: "fake",
           externalThreadId: "thread-4",

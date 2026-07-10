@@ -232,13 +232,13 @@ function requirePeriod(
 
 function authorizationSql(alias = ""): string {
   const prefix = alias ? `${alias}.` : "";
-  return `((${prefix}org_id = ? AND ? IS NOT NULL) OR (${prefix}org_id IS NULL AND ${prefix}owner_email = ?))`;
+  return `((${prefix}subject_type = 'user' AND ${prefix}owner_email = ?) OR (${prefix}subject_type <> 'user' AND ((${prefix}org_id = ? AND ? IS NOT NULL) OR (${prefix}org_id IS NULL AND ${prefix}owner_email = ?))))`;
 }
 
 function authorizationArgs(
   access: Required<IntegrationScopeAccess>,
 ): unknown[] {
-  return [access.orgId, access.orgId, access.ownerEmail];
+  return [access.ownerEmail, access.orgId, access.orgId, access.ownerEmail];
 }
 
 async function resolveSubject(
@@ -728,11 +728,6 @@ export async function settleIntegrationUsageBudget(
     }
     if (reservation.status === "pending") {
       throw new Error("Cannot settle a pending reservation");
-    }
-    if (actualCostMicros > reservation.estimatedCostMicros) {
-      throw new Error(
-        "Actual cost exceeds the reserved amount; reserve the additional capacity before settlement",
-      );
     }
     if (
       reservation.status === "settled" &&

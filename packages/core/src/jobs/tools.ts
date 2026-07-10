@@ -5,6 +5,8 @@ import {
   resourceGetByPath,
   resourceList,
   resourceDelete,
+  organizationIdFromResourceOwner,
+  sharedResourceOwner,
   SHARED_OWNER,
 } from "../resources/store.js";
 import {
@@ -23,6 +25,10 @@ function getOwner(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
   return email;
+}
+
+function getSharedOwner(): string {
+  return sharedResourceOwner(getRequestOrgId());
 }
 
 /**
@@ -66,7 +72,8 @@ async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
 ): Promise<string | null> {
-  if (resourceOwner !== SHARED_OWNER) {
+  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
+  if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
     // Personal-scope job — owner is the request's user. resourceGetByPath is
     // already scoped to the caller, so we know meta.createdBy must match.
     return null;
@@ -77,7 +84,7 @@ async function authorizeJobMutation(
 
   // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
-    meta.orgId ?? getRequestOrgId() ?? undefined,
+    resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
   if (isAdmin) return null;
 
@@ -99,7 +106,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     });
   }
 
-  const owner = scope === "personal" ? getOwner() : SHARED_OWNER;
+  const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
   const next = nextOccurrence(schedule, now);
@@ -146,10 +153,11 @@ async function runCreate(args: Record<string, any>): Promise<string> {
 
 async function runList(args: Record<string, any>): Promise<string> {
   const owner = getOwner();
+  const sharedOwner = getSharedOwner();
   // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
-    resourceList(SHARED_OWNER, "jobs/"),
+    resourceList(sharedOwner, "jobs/"),
   ]);
   let resources = [...personal, ...shared];
   if (args.scope === "personal") resources = personal;
@@ -164,7 +172,7 @@ async function runList(args: Record<string, any>): Promise<string> {
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
-        scope: r.owner === SHARED_OWNER ? "shared" : "personal",
+        scope: r.owner === sharedOwner ? "shared" : "personal",
         schedule: meta.schedule,
         scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
         enabled: meta.enabled,
@@ -192,7 +200,7 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   const path = `jobs/${name}.md`;
 
   // Try to find the resource
-  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
   }
@@ -253,7 +261,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   const { name, scope } = args;
   const path = `jobs/${name}.md`;
 
-  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
   }

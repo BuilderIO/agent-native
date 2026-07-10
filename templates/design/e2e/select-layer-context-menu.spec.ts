@@ -232,7 +232,7 @@ test("Select layer on a non-active overview screen routes selection to that exac
 
     await gotoEditor(page, designId);
     await expect(
-      page.getByRole("button", { name: "Full view" }).first(),
+      page.getByRole("button", { name: "Interact" }).first(),
     ).toBeVisible();
     await expect
       .poll(() => new URL(page.url()).searchParams.get("screen"))

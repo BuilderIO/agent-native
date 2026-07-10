@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "クリップ",
     library: "ライブラリ",
+    sharedWithMe: "自分と共有",
     spaces: "スペース",
     meetings: "ミーティング",
     dictate: "ディクテーション",
@@ -82,6 +83,10 @@ const messages = {
       title: "ライブラリは空です",
       body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
       cta: "最初の Clip を録画",
+    },
+    shared: {
+      title: "共有されたクリップはまだありません",
+      body: "チームメンバーがあなたと共有したクリップがここに表示されます。",
     },
     folder: {
       title: "このフォルダは空です",

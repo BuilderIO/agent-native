@@ -6,6 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
 let initPromise: Promise<void> | undefined;
@@ -67,7 +68,9 @@ async function ensureTable(): Promise<void> {
           await getDbExec().execute(
             "ALTER TABLE integration_controls ADD COLUMN api_app_id TEXT",
           );
-        } catch {}
+        } catch (error) {
+          if (!isDuplicateColumnError(error)) throw error;
+        }
         await getDbExec().execute(
           "CREATE INDEX IF NOT EXISTS idx_integration_controls_expiry ON integration_controls(status, expires_at)",
         );
@@ -78,6 +81,10 @@ async function ensureTable(): Promise<void> {
     });
   }
   return initPromise;
+}
+
+export function _resetIntegrationControlsStoreForTests(): void {
+  initPromise = undefined;
 }
 
 function rowToControl(row: Record<string, unknown>): IntegrationControl {

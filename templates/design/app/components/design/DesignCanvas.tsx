@@ -33,6 +33,10 @@ import {
   type CanvasPin,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
+import {
+  resolveDesktopDesignSnapshotLayer,
+  useDesktopDesignNativePreview,
+} from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
@@ -313,6 +317,10 @@ interface DesignCanvasProps {
   sourceType?: "inline" | "localhost" | "fusion";
   /** Local design-connect bridge URL used to fetch editable snapshots for URL-backed localhost screens. */
   bridgeUrl?: string;
+  /** Stable local/Fusion connection scope for desktop session isolation. */
+  connectionId?: string;
+  /** Only the active focused/overview screen may own the desktop native backend. */
+  nativePreviewActive?: boolean;
   /**
    * HTML snapshot for a URL-backed localhost screen. When present, DesignCanvas
    * renders this as editable srcdoc while the persisted design file can remain
@@ -518,6 +526,12 @@ interface DesignCanvasProps {
   commentContextId?: string;
   /** Stable id of the screen containing this canvas when rendered in overview. */
   screenId?: string;
+  /**
+   * Host-side iframe identity when several responsive previews render the
+   * same screen. The bridge still reports `screenId`; only DOM targeting uses
+   * this distinct value.
+   */
+  previewFrameId?: string;
   /** Human-readable label for comment-pin prompts. */
   commentContextLabel?: string;
   /**
@@ -926,6 +940,8 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  connectionId,
+  nativePreviewActive = true,
   externalSnapshotHtml,
   onExternalContentSnapshot,
   onRuntimeLayerSnapshot,
@@ -989,6 +1005,7 @@ export function DesignCanvas({
   designTitle,
   commentContextId,
   screenId,
+  previewFrameId,
   commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
@@ -1334,6 +1351,36 @@ export function DesignCanvas({
       : interactMode
         ? content
         : renderedContent;
+
+  const desktopNativeSnapshot = useDesktopDesignNativePreview({
+    iframeRef,
+    url: rawExternalPreviewUrl,
+    workspaceId: designId,
+    connectionId,
+    screenId,
+    enabled:
+      nativePreviewActive &&
+      interactMode &&
+      !embeddedFrame &&
+      !boardSurface &&
+      Boolean(rawExternalPreviewUrl),
+    mode: interactMode
+      ? "interact"
+      : drawMode
+        ? "draw"
+        : pinMode
+          ? "comment"
+          : "edit",
+    presentation: embeddedFrame || boardSurface ? "overview" : "focused",
+    scale: zoom / 100,
+    active: nativePreviewActive,
+  });
+  const desktopNativeSnapshotLayer = resolveDesktopDesignSnapshotLayer({
+    hasSnapshot: Boolean(desktopNativeSnapshot),
+    interactMode,
+    editMode,
+    hasLiveEditorBridge: usesLiveEditEditorBridge,
+  });
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
     (hasLiveEditExternalFrame
@@ -3786,6 +3833,23 @@ export function DesignCanvas({
           : null),
       }}
     >
+      {desktopNativeSnapshot && desktopNativeSnapshotLayer !== "none" ? (
+        <img
+          data-desktop-native-preview-snapshot
+          data-desktop-native-preview-snapshot-layer={
+            desktopNativeSnapshotLayer
+          }
+          src={desktopNativeSnapshot.url}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          onLoad={() => desktopNativeSnapshot.acknowledge()}
+          className={cn(
+            "pointer-events-none absolute inset-0 block size-full select-none object-fill",
+            desktopNativeSnapshotLayer === "page" ? "z-[1]" : "z-0",
+          )}
+        />
+      ) : null}
       {liveEditTransitionFallbackHtml ? (
         <iframe
           data-live-edit-transition-fallback
@@ -3812,7 +3876,7 @@ export function DesignCanvas({
         })}
         data-design-preview-iframe
         data-screen-iframe-id={
-          boardSurface ? undefined : (screenId ?? undefined)
+          boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
         }
         data-design-source-type={
           sourceType ??

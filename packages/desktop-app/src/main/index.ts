@@ -110,7 +110,6 @@ import {
   app,
   BrowserWindow,
   clipboard,
-  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -1119,6 +1118,8 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  desktopDesignPreviewManager?.destroy();
+  desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
@@ -1137,6 +1138,8 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    desktopDesignPreviewManager?.destroy();
+    desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
   });
 
@@ -1322,6 +1325,13 @@ ipcMain.on(
   IPC.SET_ACTIVE_WEBVIEW,
   (event: IpcMainEvent, target: ActiveWebviewTarget) => {
     if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    if (target.active === false) {
+      desktopDesignPreviewManager?.clearOwner(target.webContentsId);
+      if (activeWebviewContentsId === target.webContentsId) {
+        activeWebviewContentsId = undefined;
+      }
+      return;
+    }
     activeAppId = target.appId;
     activeWebviewContentsId = target.webContentsId;
     setSentryWebContentsMetadata(target.webContentsId, {
@@ -9378,43 +9388,13 @@ function configurePermissionHandlers(
 
   if (targetAppId === "clips") {
     sess.setDisplayMediaRequestHandler(
-      (request, callback) => {
-        if (
-          !request.videoRequested ||
-          !request.userGesture ||
-          !isTrustedPermissionRequest(
-            undefined,
-            targetAppId,
-            request.securityOrigin,
-          )
-        ) {
-          callback({});
-          return;
-        }
-
-        void desktopCapturer
-          .getSources({
-            types: ["screen"],
-            thumbnailSize: { width: 0, height: 0 },
-          })
-          .then((sources) => {
-            const source = sources[0];
-            if (!source) {
-              callback({});
-              return;
-            }
-            callback({
-              video: source,
-              ...(request.audioRequested && process.platform !== "darwin"
-                ? { audio: "loopback" as const }
-                : {}),
-            });
-          })
-          .catch(() => callback({}));
+      (_request, callback) => {
+        // The handler is only reached when Electron cannot provide the trusted
+        // system picker. Never choose a display without explicit user selection.
+        callback({});
       },
       {
-        // macOS 15+ provides a privacy-preserving native source picker. The
-        // handler above remains the documented fallback when it is unavailable.
+        // Electron currently supports its native display picker on macOS 15+.
         useSystemPicker: process.platform === "darwin",
       },
     );

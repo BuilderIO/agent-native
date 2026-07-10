@@ -222,6 +222,23 @@ describe("Figma connection client", () => {
     expect((error as Error).message).not.toContain(jsonEscaped);
   });
 
+  it("redacts token reflections from transport exceptions", async () => {
+    const token = '<FIGMA "ACCESS" \\ TOKEN>';
+    const reflected = `${token} ${encodeURIComponent(token)} ${JSON.stringify(token).slice(1, -1)}`;
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error(reflected)));
+
+    const error = await saveFigmaAccessToken(token).catch(
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain(token);
+    expect((error as Error).message).not.toContain(encodeURIComponent(token));
+    expect((error as Error).message).not.toContain(
+      JSON.stringify(token).slice(1, -1),
+    );
+  });
+
   it("fails clearly when the template forgot to register Figma", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
 

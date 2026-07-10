@@ -11,26 +11,37 @@ import {
 
 let sqlite: Database.Database;
 
+async function executeSqlite(
+  input: string | { sql: string; args?: unknown[] },
+) {
+  if (typeof input === "string") {
+    sqlite.exec(input);
+    return { rows: [], rowsAffected: 0 };
+  }
+  const statement = sqlite.prepare(input.sql);
+  const args = input.args ?? [];
+  if (statement.reader) {
+    return { rows: statement.all(...args), rowsAffected: 0 };
+  }
+  const result = statement.run(...args);
+  return { rows: [], rowsAffected: result.changes };
+}
+
 const db = {
-  execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
-    if (typeof input === "string") {
-      sqlite.exec(input);
-      return { rows: [], rowsAffected: 0 };
-    }
-    const statement = sqlite.prepare(input.sql);
-    const args = input.args ?? [];
-    if (statement.reader) {
-      return { rows: statement.all(...args), rowsAffected: 0 };
-    }
-    const result = statement.run(...args);
-    return { rows: [], rowsAffected: result.changes };
-  }),
+  execute: vi.fn(executeSqlite),
 };
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => db,
   intType: () => "INTEGER",
   isPostgres: () => false,
+}));
+
+vi.mock("../db/migrations.js", () => ({
+  isDuplicateColumnError: (error: unknown) =>
+    /duplicate column name|column .* already exists/i.test(
+      String((error as { message?: unknown })?.message ?? ""),
+    ),
 }));
 
 const controls = await import("./controls-store.js");
@@ -71,7 +82,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  db.execute.mockClear();
+  controls._resetIntegrationControlsStoreForTests();
+  db.execute.mockReset();
+  db.execute.mockImplementation(executeSqlite);
   sqlite.exec("DELETE FROM integration_controls");
 });
 
@@ -80,6 +93,61 @@ afterAll(() => {
 });
 
 describe("integration action controls", () => {
+  it("adds the api_app_id column to a legacy SQLite table", async () => {
+    await controls.createIntegrationControl({
+      action: "approve",
+      ownerEmail: "owner@example.com",
+      requesterId: "U123",
+      teamId: "T123",
+      apiAppId: "A123",
+      channelId: "C123",
+      messageTs: "999.000",
+      incoming,
+    });
+
+    const columns = sqlite
+      .prepare("PRAGMA table_info(integration_controls)")
+      .all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain("api_app_id");
+  });
+
+  it("ignores only an already-existing api_app_id column", async () => {
+    await expect(
+      controls.createIntegrationControl({
+        action: "approve",
+        ownerEmail: "owner@example.com",
+        requesterId: "U123",
+        teamId: "T123",
+        channelId: "C123",
+        messageTs: "999.000",
+        incoming,
+      }),
+    ).resolves.toMatch(/^ctl_/);
+  });
+
+  it("rethrows SQLite migration failures unrelated to duplicate columns", async () => {
+    const migrationError = new Error("database is locked");
+    db.execute.mockImplementation(async (input) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      if (sql.includes("ALTER TABLE integration_controls ADD COLUMN")) {
+        throw migrationError;
+      }
+      return executeSqlite(input);
+    });
+
+    await expect(
+      controls.createIntegrationControl({
+        action: "approve",
+        ownerEmail: "owner@example.com",
+        requesterId: "U123",
+        teamId: "T123",
+        channelId: "C123",
+        messageTs: "999.000",
+        incoming,
+      }),
+    ).rejects.toThrow("database is locked");
+  });
+
   it("creates an opaque value and atomically rejects replay", async () => {
     const id = await controls.createIntegrationControl({
       action: "approve",

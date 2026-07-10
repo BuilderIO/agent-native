@@ -181,6 +181,43 @@ export interface ContentHistoryGroup {
 
 export type ContentHistoryEntry = ContentHistoryChange | ContentHistoryGroup;
 
+export interface PendingTextCreationHistory {
+  fileId: string;
+  nodeId: string;
+  before: string;
+  created: string;
+}
+
+/** Finalizes the newest text-creation entry as one atomic undo step. A typed
+ * commit replaces the creation entry's `after`; abandoning an empty edit
+ * removes the now-no-op entry. It refuses to cross any intervening history. */
+export function finalizeTextCreationHistory(
+  stack: readonly ContentHistoryEntry[],
+  pending: PendingTextCreationHistory,
+  finalContent: string,
+): {
+  stack: ContentHistoryEntry[];
+  status: "coalesced" | "rolled-back" | "stale";
+} {
+  const latest = stack[stack.length - 1];
+  if (
+    !latest ||
+    "changes" in latest ||
+    latest.fileId !== pending.fileId ||
+    latest.before !== pending.before ||
+    latest.after !== pending.created
+  ) {
+    return { stack: [...stack], status: "stale" };
+  }
+  if (finalContent === pending.before) {
+    return { stack: stack.slice(0, -1), status: "rolled-back" };
+  }
+  return {
+    stack: [...stack.slice(0, -1), { ...latest, after: finalContent }],
+    status: "coalesced",
+  };
+}
+
 export function getContentHistoryChanges(
   entry: ContentHistoryEntry,
 ): ContentHistoryChange[] {

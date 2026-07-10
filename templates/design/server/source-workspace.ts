@@ -5,9 +5,10 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
+import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
@@ -50,6 +51,31 @@ export interface SourceWorkspaceFile {
 // the expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
+/**
+ * Normalize affected-row metadata from every createGetDb backend: libSQL,
+ * PGlite, Neon, postgres.js, better-sqlite3, and D1.
+ */
+function affectedRowCount(result: unknown): number | undefined {
+  const candidate = result as
+    | {
+        rowsAffected?: unknown;
+        affectedRows?: unknown;
+        rowCount?: unknown;
+        count?: unknown;
+        changes?: unknown;
+        meta?: { changes?: unknown };
+      }
+    | undefined;
+  const value =
+    candidate?.rowsAffected ??
+    candidate?.affectedRows ??
+    candidate?.rowCount ??
+    candidate?.count ??
+    candidate?.changes ??
+    candidate?.meta?.changes;
+  return typeof value === "number" ? value : undefined;
+}
+
 // Exported so other write paths touching the same per-file critical section
 // (content read -> optimistic-concurrency hash check -> collab/SQL write) can
 // serialize under the SAME lock instead of each guarding independently. Two
@@ -58,15 +84,11 @@ const _writeLocks = new Map<string, Promise<void>>();
 // prevent the interleave, only serializing the whole read-check-write section
 // per file id does. See actions/update-file.ts's content-write path.
 //
-// IN-PROCESS ONLY: `_writeLocks` is a plain JS `Map`, so this only serializes
-// writes within a single Node.js process/worker. Multi-instance / horizontally
-// scaled hosted deployments (several server processes/pods behind a load
-// balancer) do NOT share this lock — two requests routed to DIFFERENT
-// processes can still race past each other, since each process has its own
-// independent `_writeLocks` Map. A real cross-process guard would need
-// something like a Postgres/SQL advisory lock (e.g. `pg_advisory_lock`) or a
-// distributed lock service, keyed by file id, shared across all instances.
-// This is a known, tracked follow-up — not implemented here.
+// `_writeLocks` is intentionally only a fast in-process serialization layer.
+// Cross-process correctness comes from the content + updatedAt SQL CAS in
+// writeInlineSourceFile (and the operation-lineage CAS in update-file): a
+// different instance that commits first makes the losing update affect zero
+// rows, so it is rejected instead of overwriting the winner.
 export async function withSourceFileWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
@@ -328,6 +350,11 @@ export async function writeInlineSourceFile(args: {
     ) {
       assertLockedLayersPreserved(current.content, args.content);
     }
+    assertDesignHtmlEditIntegrity({
+      previousContent: current.content,
+      nextContent: args.content,
+      fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+    });
 
     if (await hasCollabState(args.file.id)) {
       const liveBeforeApply = await getText(args.file.id, "content");
@@ -362,8 +389,25 @@ export async function writeInlineSourceFile(args: {
     // true mirror of the converged live document under the lock rather than
     // trusting args.content directly.
     const authoritativeContent = await getText(args.file.id, "content");
+    try {
+      assertDesignHtmlEditIntegrity({
+        previousContent: current.content,
+        nextContent: authoritativeContent,
+        fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+      });
+    } catch (error) {
+      // `applyText` is a full-target diff, but keep the write transaction
+      // fail-closed even if a malformed/concurrent collab state somehow
+      // converges to something other than the validated candidate. Restore
+      // the exact pre-write live content before SQL can observe corruption.
+      await applyText(args.file.id, current.content, "content", "agent");
+      throw error;
+    }
 
-    await db
+    // The JS lock is process-local. Guard the SQL mirror with the exact
+    // content + revision read above so a writer on another instance cannot
+    // commit between our read/live-doc mutation and this final persistence.
+    const updateResult = await db
       .update(schema.designFiles)
       .set({
         content: authoritativeContent,
@@ -375,7 +419,46 @@ export async function writeInlineSourceFile(args: {
         contentOperationRevision: null,
         contentOperationResultHash: null,
       })
-      .where(eq(schema.designFiles.id, args.file.id));
+      .where(
+        and(
+          eq(schema.designFiles.id, args.file.id),
+          eq(schema.designFiles.designId, args.designId),
+          eq(schema.designFiles.content, currentFile.content),
+          currentFile.updatedAt === null
+            ? isNull(schema.designFiles.updatedAt)
+            : eq(schema.designFiles.updatedAt, currentFile.updatedAt),
+        ),
+      );
+
+    const affected = affectedRowCount(updateResult);
+    let persisted = affected === 1;
+    if (affected === undefined) {
+      const [confirmed] = await db
+        .select({
+          content: schema.designFiles.content,
+          updatedAt: schema.designFiles.updatedAt,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, args.file.id))
+        .limit(1);
+      persisted =
+        confirmed?.content === authoritativeContent &&
+        confirmed.updatedAt === updatedAt;
+    }
+
+    if (!persisted) {
+      const [winner] = await db
+        .select({ content: schema.designFiles.content })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, args.file.id))
+        .limit(1);
+      if (winner && winner.content !== authoritativeContent) {
+        await applyText(args.file.id, winner.content, "content", "agent");
+      }
+      throw new SourceWorkspaceEditConflictError(
+        "Source file changed while it was being saved. Re-read the file and retry.",
+      );
+    }
 
     await db
       .update(schema.designs)
