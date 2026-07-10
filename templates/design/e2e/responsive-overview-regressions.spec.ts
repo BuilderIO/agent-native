@@ -413,9 +413,10 @@ test("add duplicate undo and redo keep the created screen selected and visible",
       screenId: string,
     ) => {
       await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
-      await expect
-        .poll(() =>
-          page.evaluate((targetId) => {
+        try {
+          await expect
+            .poll(() =>
+              page.evaluate((targetId) => {
             const world = document.querySelector(
               "[data-multi-screen-canvas-world]",
             );
@@ -444,9 +445,14 @@ test("add duplicate undo and redo keep the created screen selected and visible",
               card: card.toJSON(),
               worldTransform: getComputedStyle(world).transform,
             });
-          }, screenId),
-        )
-        .toContain('"intersects":true');
+              }, screenId),
+            )
+            .toContain('"intersects":true');
+        } catch (error) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\ncamera transforms: ${cameraTransforms.join(" | ") || "none"}`,
+          );
+        }
       await page.waitForTimeout(250);
       expect(
         new Set(cameraTransforms.filter(Boolean)).size,
