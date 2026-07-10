@@ -197,15 +197,9 @@ export function useMeetingTranscription({
           // never lands.
           if (reason !== "app-quit") await finalizePromise;
         }
-        // Skip opening the meeting in the browser on app-quit — the app is
-        // exiting, there's nothing to hand off to.
-        if (reason !== "app-quit") {
-          openExternal(
-            `${normalizedServerUrl}/meetings/${session.meetingId}`,
-          ).catch((err) => {
-            console.warn("[clips-popover] open meeting in web failed:", err);
-          });
-        }
+        // Keep completed notes in Clips instead of interrupting the user by
+        // opening a browser tab. The pill's explicit Open notes action remains
+        // available through the clips:open-meeting listener below.
         // Guard the shared Rust-side state writes and sessionRef null-out by
         // identity. App quit and other callers can still race a stop against a
         // new start that slips in between awaits, and stale teardown must not
