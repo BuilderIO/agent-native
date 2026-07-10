@@ -553,6 +553,13 @@ import type { EnvKeyConfig } from "@agent-native/core/server";
 const myAdapter: PlatformAdapter = {
   platform: "my-chat",
   label: "My Chat",
+  capabilities: {
+    replyText: true,
+    proactiveMessages: false,
+    nativeThreads: true,
+    contextualReplies: true,
+    deferredWebhookResponse: false,
+  },
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
@@ -569,8 +576,9 @@ const myAdapter: PlatformAdapter = {
 
   // Validate the webhook request signature
   async verifyWebhook(event: H3Event): Promise<boolean> {
-    // Validate signature headers; return true if authentic
-    return true;
+    // Implement the provider's documented signature/JWT verification here.
+    // Fail closed; never ship `return true` as a placeholder.
+    throw new Error("Webhook verification is not implemented");
   },
 
   // Parse the webhook payload into a normalized IncomingMessage.
@@ -581,6 +589,8 @@ const myAdapter: PlatformAdapter = {
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
       senderId: "my-chat-user-id",
+      threadRef: "provider-thread-id",
+      replyRef: "provider-message-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -617,6 +627,12 @@ const myAdapter: PlatformAdapter = {
 };
 ```
 
+If the provider requires an immediate response, implement
+`getImmediateWebhookResponse(incoming)`. Keep short-lived delivery credentials
+in `incoming.responseContext`, not `platformContext`; terminal queue rows erase
+the active payload. The response is returned only after verification and a
+durable queue insert.
+
 Register it in your integrations plugin:
 
 ```ts
@@ -627,7 +643,7 @@ export default createIntegrationsPlugin({
 });
 ```
 
-Reference implementations live in `packages/core/src/integrations/adapters/` (`slack.ts`, `telegram.ts`, `whatsapp.ts`, `email.ts`) — the email adapter is the most complete example, including signature verification, threading, rate limiting, and HTML rendering.
+Reference implementations live in `packages/core/src/integrations/adapters/`. See `microsoft-teams.ts` for official JWT validation and token caching, `discord.ts` for signed deferred interactions, and `telegram.ts` or `whatsapp.ts` for native reply references.
 
 ### Reliability via Dispatch + A2A continuations {#reliability}
 

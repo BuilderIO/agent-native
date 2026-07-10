@@ -60,6 +60,29 @@ describe("Figma connection client", () => {
     );
   });
 
+  it.each(["unset", "invalid"] as const)(
+    "reports %s credentials as disconnected",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonResponse([
+            {
+              key: FIGMA_ACCESS_TOKEN_SECRET_KEY,
+              label: "Figma access token",
+              status,
+            },
+          ]),
+        ),
+      );
+
+      await expect(getFigmaConnectionStatus()).resolves.toMatchObject({
+        connected: false,
+        status,
+      });
+    },
+  );
+
   it("saves through the registered-secret route, then returns refreshed status", async () => {
     const fetchMock = vi
       .fn()

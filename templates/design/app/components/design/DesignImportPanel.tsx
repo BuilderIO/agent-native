@@ -16,6 +16,8 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   uploadDesignFile,
@@ -28,6 +30,10 @@ import {
   VISUAL_EDIT_INSTALL_COMMAND,
   type ImportResult,
 } from "@/lib/design-import";
+import {
+  getFigmaConnectionStatus,
+  saveFigmaAccessToken,
+} from "@/lib/figma-connection";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
@@ -36,15 +42,35 @@ interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
 }
 
-type ImportMode = "figma-paste" | "fig-upload" | "html" | "local-app";
+type ImportMode =
+  | "figma-url"
+  | "figma-paste"
+  | "fig-upload"
+  | "html"
+  | "local-app";
 
 export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
+  const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [figmaUrl, setFigmaUrl] = useState("");
+  const [figmaAccessToken, setFigmaAccessToken] = useState("");
+  const [figmaConnectionChecked, setFigmaConnectionChecked] = useState(false);
+  const [figmaConnected, setFigmaConnected] = useState(false);
+  const [figmaConnectionLast4, setFigmaConnectionLast4] = useState<
+    string | null
+  >(null);
+  const [figmaConnectionDocsUrl, setFigmaConnectionDocsUrl] = useState<
+    string | null
+  >(null);
+  const [figmaConnectionError, setFigmaConnectionError] = useState<
+    string | null
+  >(null);
+  const [figmaConnectionBusy, setFigmaConnectionBusy] = useState(false);
   const [htmlText, setHtmlText] = useState("");
   const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
@@ -108,6 +134,78 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     },
     [context.designId, finishImport, importSource, t],
   );
+
+  const checkFigmaConnection = useCallback(async () => {
+    setFigmaConnectionBusy(true);
+    setFigmaConnectionError(null);
+    try {
+      const status = await getFigmaConnectionStatus();
+      setFigmaConnected(status.connected);
+      setFigmaConnectionLast4(status.last4 ?? null);
+      setFigmaConnectionDocsUrl(status.docsUrl ?? null);
+    } catch (error) {
+      setFigmaConnected(false);
+      setFigmaConnectionError(
+        error instanceof Error ? error.message : t("common.genericError"),
+      );
+    } finally {
+      setFigmaConnectionChecked(true);
+      setFigmaConnectionBusy(false);
+    }
+  }, [t]);
+
+  const openFigmaUrlImport = useCallback(() => {
+    setActiveMode((mode) => {
+      const nextMode = mode === "figma-url" ? null : "figma-url";
+      if (nextMode === "figma-url" && !figmaConnectionChecked) {
+        void checkFigmaConnection();
+      }
+      return nextMode;
+    });
+  }, [checkFigmaConnection, figmaConnectionChecked]);
+
+  const handleFigmaUrlImport = useCallback(async () => {
+    const normalizedUrl = figmaUrl.trim();
+    if (!normalizedUrl) {
+      toast.error(t("designEditor.import.errors.figmaUrlRequired"));
+      return;
+    }
+
+    setFigmaConnectionBusy(true);
+    try {
+      if (!figmaConnected) {
+        const status = await saveFigmaAccessToken(figmaAccessToken);
+        setFigmaConnected(status.connected);
+        setFigmaConnectionChecked(true);
+        setFigmaConnectionLast4(status.last4 ?? null);
+        setFigmaConnectionDocsUrl(status.docsUrl ?? null);
+        setFigmaConnectionError(null);
+        setFigmaAccessToken("");
+      }
+
+      const result = (await importFigmaFrame.mutateAsync({
+        figmaUrl: normalizedUrl,
+        designId: context.designId,
+        asNewScreen: true,
+      })) as ImportResult;
+      await finishImport(result, t("designEditor.import.figmaUrlSuccess"));
+    } catch (error) {
+      toast.error(t("designEditor.import.errors.figmaImportFailed"), {
+        description:
+          error instanceof Error ? error.message : t("common.genericError"),
+      });
+    } finally {
+      setFigmaConnectionBusy(false);
+    }
+  }, [
+    context.designId,
+    figmaAccessToken,
+    figmaConnected,
+    figmaUrl,
+    finishImport,
+    importFigmaFrame,
+    t,
+  ]);
 
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
@@ -180,7 +278,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     [t],
   );
 
-  const busy = importSource.isPending || figUploadBusy;
+  const busy =
+    importSource.isPending ||
+    importFigmaFrame.isPending ||
+    figUploadBusy ||
+    figmaConnectionBusy;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -192,6 +294,107 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
         <div className="space-y-0.5">
+          <ImportSourceRow
+            id="figma-url-import"
+            icon={<IconBrandFigma className="size-3.5" />}
+            title={t("designEditor.import.figmaUrlTitle")}
+            description={t("designEditor.import.figmaUrlDescription")}
+            isOpen={activeMode === "figma-url"}
+            onToggle={openFigmaUrlImport}
+          >
+            <form
+              className="space-y-2 p-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleFigmaUrlImport();
+              }}
+            >
+              <div className="space-y-1.5">
+                <Label htmlFor="figma-frame-url" className="text-[11px]">
+                  {t("designEditor.import.figmaUrlLabel")}
+                </Label>
+                <Input
+                  id="figma-frame-url"
+                  type="url"
+                  value={figmaUrl}
+                  onChange={(event) => setFigmaUrl(event.target.value)}
+                  placeholder={t("designEditor.import.figmaUrlPlaceholder")}
+                  autoComplete="url"
+                  className="h-8 text-xs"
+                />
+              </div>
+
+              {figmaConnectionBusy && !figmaConnectionChecked ? (
+                <p
+                  className="text-[10px] text-muted-foreground"
+                  aria-live="polite"
+                >
+                  {t("designEditor.import.figmaConnectionChecking")}
+                </p>
+              ) : figmaConnected ? (
+                <div className="flex items-center gap-1.5 rounded-md border border-border/70 bg-muted/30 px-2 py-1.5 text-[10px] text-muted-foreground">
+                  <IconCircleCheck className="size-3.5 shrink-0" />
+                  <span>
+                    {figmaConnectionLast4
+                      ? t("designEditor.import.figmaConnectedWithSuffix", {
+                          suffix: figmaConnectionLast4,
+                        })
+                      : t("designEditor.import.figmaConnected")}
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5 rounded-md border border-border/70 bg-muted/30 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="figma-access-token" className="text-[11px]">
+                      {t("designEditor.import.figmaTokenLabel")}
+                    </Label>
+                    {figmaConnectionDocsUrl ? (
+                      <a
+                        href={figmaConnectionDocsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-[10px] font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {t("designEditor.import.figmaTokenDocs")}
+                      </a>
+                    ) : null}
+                  </div>
+                  <Input
+                    id="figma-access-token"
+                    type="password"
+                    value={figmaAccessToken}
+                    onChange={(event) =>
+                      setFigmaAccessToken(event.target.value)
+                    }
+                    placeholder={t("designEditor.import.figmaTokenPlaceholder")}
+                    autoComplete="new-password"
+                    aria-invalid={figmaConnectionError ? true : undefined}
+                    className="h-8 text-xs"
+                  />
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    {figmaConnectionError ??
+                      t("designEditor.import.figmaTokenDescription")}
+                  </p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                size="sm"
+                className="h-8 w-full px-2"
+                disabled={
+                  busy ||
+                  !figmaUrl.trim() ||
+                  (!figmaConnected && !figmaAccessToken.trim())
+                }
+              >
+                {figmaConnected
+                  ? t("designEditor.import.importFigmaUrl")
+                  : t("designEditor.import.saveKeyAndImport")}
+              </Button>
+            </form>
+          </ImportSourceRow>
+
           <ImportSourceRow
             id="figma-paste-import"
             icon={<IconBrandFigma className="size-3.5" />}
