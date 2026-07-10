@@ -261,14 +261,24 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               const isActive = displaySegments[activeIndex] === seg;
               return (
                 <li key={seg.startMs}>
-                  <button
-                    onClick={() => onSeek(seg.startMs)}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      if (hasSelectionWithin(event.currentTarget)) return;
+                      onSeek(seg.startMs);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      onSeek(seg.startMs);
+                    }}
                     className={cn(
-                      "w-full text-left px-3 py-2 flex gap-3 items-start hover:bg-accent/50",
+                      "flex w-full cursor-pointer items-start gap-3 px-3 py-2 text-left hover:bg-accent/50",
                       isActive && "bg-accent",
                     )}
                   >
-                    <span className="text-[11px] text-muted-foreground font-mono tabular-nums pt-0.5 shrink-0">
+                    <span className="shrink-0 pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                       {msToClock(seg.startMs)}
                     </span>
                     <span
@@ -280,7 +290,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                         __html: highlight(seg.text, query),
                       }}
                     />
-                  </button>
+                  </div>
                 </li>
               );
             })}
@@ -288,6 +298,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         )}
       </div>
     </div>
+  );
+}
+
+function hasSelectionWithin(element: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    return false;
+  }
+  const { anchorNode, focusNode } = selection;
+  return Boolean(
+    (anchorNode && element.contains(anchorNode)) ||
+    (focusNode && element.contains(focusNode)),
   );
 }
 
