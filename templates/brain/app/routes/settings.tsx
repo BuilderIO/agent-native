@@ -7,6 +7,7 @@ import {
   useActionQuery,
   useT,
   type SettingsSearchEntry,
+  type SettingsTabItem,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
@@ -19,6 +20,7 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +79,8 @@ function sourcePolicyOptions(t: ReturnType<typeof useT>) {
 export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeSection, setActiveSection] = useState("general");
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -156,6 +160,35 @@ export default function SettingsRoute() {
     ],
     [t],
   );
+  const settingsTabs = useMemo<SettingsTabItem[]>(
+    () => [...agentSettingsTabs],
+    [agentSettingsTabs],
+  );
+  const validSectionIds = useMemo(() => {
+    const ids = new Set(["general", "whats-new"]);
+    for (const tab of settingsTabs) ids.add(tab.id);
+    return ids;
+  }, [settingsTabs]);
+
+  useEffect(() => {
+    const section = searchParams.get("section");
+    if (section && validSectionIds.has(section)) {
+      setActiveSection(section);
+    }
+  }, [searchParams, validSectionIds]);
+
+  const handleSectionChange = (section: string) => {
+    setActiveSection(section);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (section === "general") next.delete("section");
+        else next.set("section", section);
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   return (
     <div className="min-h-full bg-background">
@@ -182,8 +215,10 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         teamLabel={t("team.title")}
-        extraTabs={agentSettingsTabs}
+        extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
+        value={activeSection}
+        onValueChange={handleSectionChange}
         general={
           <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">

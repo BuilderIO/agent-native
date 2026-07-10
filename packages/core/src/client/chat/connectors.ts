@@ -123,6 +123,18 @@ function recordString(
   return undefined;
 }
 
+function recordText(
+  record: Record<string, unknown> | null,
+  ...keys: string[]
+): string | undefined {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
 function recordKey(
   record: Record<string, unknown> | null,
   ...keys: string[]
@@ -561,7 +573,7 @@ function mapClaudeContentBlocks(
     const block = asRecord(value);
     const blockType = normalizeContentBlockType(block);
     if (blockType === "TEXT") {
-      const text = recordString(block, "text");
+      const text = recordText(block, "text");
       const existing = state.messages.get(messageId);
       if (text && !messageHasContent(existing, "text")) {
         events.push(
@@ -576,7 +588,7 @@ function mapClaudeContentBlocks(
     }
 
     if (blockType === "THINKING") {
-      const text = recordString(block, "thinking", "text") ?? "";
+      const text = recordText(block, "thinking", "text") ?? "";
       const signature = recordString(block, "signature");
       if (text || signature) {
         events.push(
@@ -692,7 +704,7 @@ function mapClaudeAgentEvent(
       });
     }
     if (blockType === "THINKING") {
-      const text = recordString(block, "thinking", "text") ?? "";
+      const text = recordText(block, "thinking", "text") ?? "";
       const signature = recordString(block, "signature");
       if (text || signature) {
         return appendReasoningEvents(context, state, {
@@ -713,14 +725,14 @@ function mapClaudeAgentEvent(
     if (deltaType === "TEXT_DELTA") {
       return appendTextEvents(context, state, {
         messageId: blockRef?.messageId ?? state.activeMessageId,
-        text: recordString(delta, "text") ?? "",
+        text: recordText(delta, "text") ?? "",
         partId: blockRef?.partId,
       });
     }
     if (deltaType === "THINKING_DELTA") {
       return appendReasoningEvents(context, state, {
         messageId: blockRef?.messageId ?? state.activeMessageId,
-        text: recordString(delta, "thinking", "text") ?? "",
+        text: recordText(delta, "thinking", "text") ?? "",
         partId: blockRef?.partId,
       });
     }
@@ -1149,7 +1161,7 @@ function mapVercelAiEvent(
   if (type === "TEXT_DELTA") {
     return appendTextEvents(context, state, {
       messageId: vercelMessageId,
-      text: recordString(event, "delta", "text") ?? "",
+      text: recordText(event, "delta", "text") ?? "",
       partId: recordString(event, "id"),
     });
   }
@@ -1161,7 +1173,7 @@ function mapVercelAiEvent(
   if (type === "REASONING_DELTA") {
     return appendReasoningEvents(context, state, {
       messageId: vercelMessageId,
-      text: recordString(event, "delta", "text") ?? "",
+      text: recordText(event, "delta", "text") ?? "",
       partId: recordString(event, "id"),
     });
   }

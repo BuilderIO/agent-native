@@ -496,6 +496,84 @@ describe("standard agent chat runtime connectors", () => {
     });
   });
 
+  it("preserves whitespace-only Vercel reasoning and text deltas", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "start", messageId: "message-whitespace" },
+        { type: "reasoning-start", id: "reasoning-whitespace" },
+        {
+          type: "reasoning-delta",
+          id: "reasoning-whitespace",
+          delta: "First",
+        },
+        {
+          type: "reasoning-delta",
+          id: "reasoning-whitespace",
+          delta: "\n  ",
+        },
+        {
+          type: "reasoning-delta",
+          id: "reasoning-whitespace",
+          delta: "second",
+        },
+        { type: "reasoning-end", id: "reasoning-whitespace" },
+        { type: "text-start", id: "text-whitespace" },
+        { type: "text-delta", id: "text-whitespace", delta: "Answer" },
+        { type: "text-delta", id: "text-whitespace", delta: " \n" },
+        { type: "text-delta", id: "text-whitespace", delta: "done" },
+        { type: "text-end", id: "text-whitespace" },
+        { type: "finish" },
+      ]),
+    );
+    const runtime = createVercelAiChatRuntime({
+      endpoint: "/vercel-ai/whitespace",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-whitespace" })
+    ).startTurn({ prompt: "Preserve whitespace" });
+    const events = await drain(turn.events);
+    const deltas = events
+      .filter(
+        (
+          event,
+        ): event is Extract<AgentChatRuntimeEvent, { type: "message-delta" }> =>
+          event.type === "message-delta",
+      )
+      .map((event) => event.delta);
+
+    expect(deltas).toEqual([
+      {
+        type: "reasoning",
+        text: "First",
+        partId: "reasoning-whitespace",
+      },
+      {
+        type: "reasoning",
+        text: "\n  ",
+        partId: "reasoning-whitespace",
+      },
+      {
+        type: "reasoning",
+        text: "second",
+        partId: "reasoning-whitespace",
+      },
+      { type: "text", text: "Answer", partId: "text-whitespace" },
+      { type: "text", text: " \n", partId: "text-whitespace" },
+      { type: "text", text: "done", partId: "text-whitespace" },
+    ]);
+    expect(events.at(-2)).toMatchObject({
+      type: "message-done",
+      message: {
+        content: [
+          { type: "reasoning", text: "First\n  second" },
+          { type: "text", text: "Answer \ndone" },
+        ],
+      },
+    });
+  });
+
   it("maps Claude agent content block streams into chat runtime events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
@@ -663,6 +741,117 @@ describe("standard agent chat runtime connectors", () => {
             id: "message-1:content:1",
             text: "Checking project docs.",
           },
+        ],
+      },
+    });
+  });
+
+  it("preserves whitespace-only Claude thinking and text deltas", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "message_start", message: { id: "message-whitespace" } },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "thinking", thinking: "", signature: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "First" },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "\n  " },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "second" },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "text", text: "" },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "Answer" },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: " \n" },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "done" },
+        },
+        { type: "content_block_stop", index: 1 },
+        { type: "message_stop" },
+        { type: "result" },
+      ]),
+    );
+    const runtime = createClaudeAgentChatRuntime({
+      endpoint: "/claude/agent/whitespace",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession({ id: "thread-whitespace" })
+    ).startTurn({ prompt: "Preserve whitespace" });
+    const events = await drain(turn.events);
+    const deltas = events
+      .filter(
+        (
+          event,
+        ): event is Extract<AgentChatRuntimeEvent, { type: "message-delta" }> =>
+          event.type === "message-delta",
+      )
+      .map((event) => event.delta);
+
+    expect(deltas).toEqual([
+      {
+        type: "reasoning",
+        text: "First",
+        partId: "message-whitespace:content:0",
+      },
+      {
+        type: "reasoning",
+        text: "\n  ",
+        partId: "message-whitespace:content:0",
+      },
+      {
+        type: "reasoning",
+        text: "second",
+        partId: "message-whitespace:content:0",
+      },
+      {
+        type: "text",
+        text: "Answer",
+        partId: "message-whitespace:content:1",
+      },
+      {
+        type: "text",
+        text: " \n",
+        partId: "message-whitespace:content:1",
+      },
+      {
+        type: "text",
+        text: "done",
+        partId: "message-whitespace:content:1",
+      },
+    ]);
+    expect(events.at(-2)).toMatchObject({
+      type: "message-done",
+      message: {
+        content: [
+          { type: "reasoning", text: "First\n  second" },
+          { type: "text", text: "Answer \ndone" },
         ],
       },
     });
