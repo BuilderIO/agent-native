@@ -637,13 +637,14 @@ describe("run manager soft timeout", () => {
 
   it("persists missing credential terminal events as errored runs", async () => {
     const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async () => {});
     const run = startRun(
       "run-missing-credential-terminal",
       "thread-missing-credential-terminal",
       async (send) => {
         send({ type: "missing_api_key" });
       },
-      undefined,
+      onComplete,
       { softTimeoutMs: 0 },
     );
     run.subscribers.add((event) => events.push(event.event));
@@ -674,6 +675,48 @@ describe("run manager soft timeout", () => {
       LLM_MISSING_CREDENTIALS_MESSAGE,
     );
     expect(events).toContainEqual({ type: "missing_api_key" });
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({ event: { type: "missing_api_key" } }),
+        ],
+      }),
+    );
+  });
+
+  it("passes an emitted terminal error to completion callbacks as errored", async () => {
+    const onComplete = vi.fn(async () => {});
+
+    startRun(
+      "run-error-terminal-callback",
+      "thread-error-terminal-callback",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Provider failed",
+          errorCode: "provider_failed",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "provider_failed",
+            }),
+          }),
+        ],
+      }),
+    );
   });
 
   it("maps exhausted provider 429s to a terminal rate-limit error code", async () => {

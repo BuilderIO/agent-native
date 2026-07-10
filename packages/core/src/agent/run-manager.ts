@@ -907,14 +907,27 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
+      const terminalEvent = pendingTerminalEvent?.event ?? null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
       ) {
         try {
-          const completionRun: ActiveRun = pendingTerminalEvent
-            ? { ...run, events: [...run.events, pendingTerminalEvent] }
-            : run;
+          const completionStatus =
+            run.status !== "aborted" &&
+            terminalEventForcesErroredStatus(terminalEvent)
+              ? "errored"
+              : run.status;
+          const completionRun: ActiveRun =
+            pendingTerminalEvent || completionStatus !== run.status
+              ? {
+                  ...run,
+                  status: completionStatus,
+                  events: pendingTerminalEvent
+                    ? [...run.events, pendingTerminalEvent]
+                    : run.events,
+                }
+              : run;
           await onComplete(completionRun);
         } catch (err) {
           completionError = err;
@@ -929,7 +942,6 @@ export function startRun(
       // 2. Compute final status. If the completion callback threw, we'd
       //    rather mark the run errored than claim success with incomplete
       //    thread_data.
-      const terminalEvent = pendingTerminalEvent?.event ?? null;
       const finalStatus =
         run.status === "aborted"
           ? "aborted"
