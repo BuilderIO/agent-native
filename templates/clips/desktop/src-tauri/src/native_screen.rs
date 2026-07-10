@@ -1942,13 +1942,13 @@ fn start_segment_backend(
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     #[cfg(target_os = "macos")]
     {
-        // app / safe_id aren't needed on macOS — the segment path is
-        // pre-computed by the caller and the segment backends don't take
-        // them. Consume to silence unused-variable warnings.
-        let _ = (app, safe_id);
+        // safe_id isn't needed on macOS — the segment path is pre-computed by
+        // the caller. Consume to silence the unused-variable warning.
+        let _ = safe_id;
         let custom_pipeline = USE_CUSTOM_SCREENCAPTUREKIT_PIPELINE;
         let sck_result = if custom_pipeline {
             start_custom_screencapturekit_backend_at(
+                app,
                 segment_path,
                 include_audio,
                 capture_system_audio,
@@ -3056,6 +3056,7 @@ fn start_screencapturekit_recording(
     }
     let (backend, width, height) = if USE_CUSTOM_SCREENCAPTUREKIT_PIPELINE {
         start_custom_screencapturekit_backend_at(
+            app,
             &path,
             include_audio,
             capture_system_audio,

@@ -19,6 +19,10 @@ const MOVIE_FRAGMENT_INTERVAL_SECONDS: i64 = 1;
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 /// `kAudioFormatMPEG4AAC` FourCC ('aac ') for the writer's audio output.
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
+/// Capture-time H.264 budget in bits per pixel per frame. 0.15 bpp matches
+/// Cap's "instant" quality tier (~3.3 Mbps at 1280x720@24) and keeps most
+/// recordings small enough to upload without a post-capture transcode.
+const CAPTURE_VIDEO_BPP: f64 = 0.15;
 
 // Self-healing capture watchdog. ScreenCaptureKit can silently stop feeding a
 // display stream when the captured display changes Spaces (virtual desktops),
@@ -48,6 +52,10 @@ pub(crate) struct CaptureWatch {
     /// Set by the stream delegate when ScreenCaptureKit reports the stream
     /// stopped. Consumed by the watchdog to force an immediate rebuild.
     stream_stopped: Mutex<Option<String>>,
+    /// The user stopped capture through macOS itself (menu-bar "Stop
+    /// Sharing", SCStreamError code -3817). The watchdog must treat this as
+    /// a clean stop request, never as a failure to rebuild from.
+    user_stopped: AtomicBool,
 }
 
 impl CaptureWatch {
@@ -55,6 +63,7 @@ impl CaptureWatch {
         Self {
             last_activity: Mutex::new(Instant::now()),
             stream_stopped: Mutex::new(None),
+            user_stopped: AtomicBool::new(false),
         }
     }
 
@@ -81,6 +90,14 @@ impl CaptureWatch {
 
     fn take_stream_stopped(&self) -> Option<String> {
         self.stream_stopped.lock().ok().and_then(|mut g| g.take())
+    }
+
+    fn note_user_stopped(&self) {
+        self.user_stopped.store(true, Ordering::SeqCst);
+    }
+
+    fn user_stopped(&self) -> bool {
+        self.user_stopped.load(Ordering::SeqCst)
     }
 }
 
@@ -1431,6 +1448,9 @@ unsafe fn av_video_output_settings(
         static AVVideoWidthKey: *const AnyObject;
         static AVVideoCompressionPropertiesKey: *const AnyObject;
         static AVVideoAllowFrameReorderingKey: *const AnyObject;
+        static AVVideoAverageBitRateKey: *const AnyObject;
+        static AVVideoExpectedSourceFrameRateKey: *const AnyObject;
+        static AVVideoMaxKeyFrameIntervalKey: *const AnyObject;
     }
 
     let settings = av_dict()?;
@@ -1452,6 +1472,33 @@ unsafe fn av_video_output_settings(
     let no_reordering =
         av_number_bool(false).ok_or_else(|| "NSNumber reordering flag failed".to_string())?;
     av_dict_set(&compression, AVVideoAllowFrameReorderingKey, &no_reordering);
+
+    // Capture-time rate control (mirrors Cap's AVAssetWriter setup). Without
+    // an explicit budget the encoder default runs several times larger and
+    // every upload needs an ffmpeg transcode pass to shrink it.
+    let average_bit_rate =
+        (CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(NATIVE_CAPTURE_FPS))
+            as i64;
+    let bit_rate =
+        av_number_i64(average_bit_rate).ok_or_else(|| "NSNumber bit rate failed".to_string())?;
+    av_dict_set(&compression, AVVideoAverageBitRateKey, &bit_rate);
+    let expected_fps = av_number_i64(i64::from(NATIVE_CAPTURE_FPS))
+        .ok_or_else(|| "NSNumber expected fps failed".to_string())?;
+    av_dict_set(
+        &compression,
+        AVVideoExpectedSourceFrameRateKey,
+        &expected_fps,
+    );
+    // ~0.75s keyframe cadence: guarantees at least one sync sample per movie
+    // fragment (1s interval) so every fragment stays independently seekable.
+    let keyframe_interval = av_number_i64((i64::from(NATIVE_CAPTURE_FPS) * 3 / 4).max(1))
+        .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
+    av_dict_set(
+        &compression,
+        AVVideoMaxKeyFrameIntervalKey,
+        &keyframe_interval,
+    );
+
     av_dict_set(&settings, AVVideoCompressionPropertiesKey, &compression);
     Ok(settings)
 }
@@ -1617,6 +1664,17 @@ struct CustomCaptureStreamDelegate {
 
 impl SCStreamDelegateTrait for CustomCaptureStreamDelegate {
     fn did_stop_with_error(&self, error: SCError) {
+        // The user stopping capture via macOS (menu-bar "Stop Sharing") is a
+        // request, not a failure — rebuilding the stream would fight the
+        // user. Everything else (SystemStoppedStream on lid close / display
+        // sleep, connection failures, ...) goes to the rebuild path.
+        if error.stream_error_code()
+            == Some(screencapturekit::error::SCStreamErrorCode::UserStopped)
+        {
+            eprintln!("[mixer] capture stopped by the user via macOS; requesting recording stop");
+            self.watch.note_user_stopped();
+            return;
+        }
         let reason = format!("ScreenCaptureKit stream stopped with error: {error}");
         eprintln!("[mixer] {reason}");
         self.watch.note_stream_stopped(reason);
@@ -1677,15 +1735,18 @@ fn build_custom_scstream(
         .with_excludes_current_process_audio(true)
         .with_sample_rate(48000)
         .with_channel_count(2);
-    // Pin SDR BGRA delivery. Without this, ScreenCaptureKit switches the
-    // delivered pixel format to HDR/EDR variants (half-float / 10-bit) when
-    // the frontmost app renders EDR content; the SDR H.264 writer input then
-    // rejects every appended frame (-11800 / OSStatus -16122) and the writer
-    // dies — including on rebuilt streams while that app stays frontmost.
+    // Pin SDR NV12 (video-range 4:2:0) delivery, matching Cap. Two reasons:
+    //  - Without a pin, ScreenCaptureKit switches the delivered pixel format
+    //    to HDR/EDR variants (half-float / 10-bit) when the frontmost app
+    //    renders EDR content; the SDR H.264 writer input then rejects every
+    //    appended frame (-11800 / OSStatus -16122) and the writer dies —
+    //    including on rebuilt streams while that app stays frontmost.
+    //  - NV12 is VideoToolbox's native encoder input and half the memory
+    //    bandwidth of BGRA.
     // NOTE: do not add `set_color_space_name` — the crate's ObjC shim for it
     // raises an uncatchable Objective-C exception and aborts the process;
     // the pixel-format pin alone keeps the encoder input format stable.
-    config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::BGRA);
+    config.set_pixel_format(screencapturekit::stream::configuration::PixelFormat::YCbCr_420v);
     if let Some((rect, _, _)) = region_rect {
         config.set_source_rect(rect);
     }
@@ -1712,6 +1773,7 @@ fn build_custom_scstream(
 /// goes silent (the Spaces/full-screen interruption). Runs on its own thread;
 /// exits when recording is torn down (`shutdown`) or the writer is closed.
 fn spawn_capture_watchdog(
+    app: AppHandle,
     stream: Arc<Mutex<SCStream>>,
     writer: CustomScreenCaptureWriter,
     handler: CustomScreenCaptureOutputHandler,
@@ -1737,6 +1799,15 @@ fn spawn_capture_watchdog(
             // when we start evaluating.
             if !recording_enabled.load(Ordering::SeqCst) || !writer.started.load(Ordering::SeqCst) {
                 continue;
+            }
+
+            // User stopped capture from the macOS UI: trigger the normal stop
+            // flow (same event the toolbar Stop button emits, so the clip is
+            // finalized and uploaded) and stop supervising. Never rebuild.
+            if watch.user_stopped() {
+                eprintln!("[mixer] user stopped capture via macOS; emitting recorder stop");
+                let _ = app.emit("clips:recorder-stop", ());
+                return;
             }
 
             if let Some(until) = cooldown_until {
@@ -1828,6 +1899,7 @@ fn spawn_capture_watchdog(
 /// capture watchdog that supervises it. Returns the backend handle plus
 /// the output dimensions.
 pub(super) fn start_custom_screencapturekit_backend_at(
+    app: &AppHandle,
     output_path: &Path,
     include_audio: bool,
     capture_system_audio: bool,
@@ -1902,6 +1974,7 @@ pub(super) fn start_custom_screencapturekit_backend_at(
     let stream = Arc::new(Mutex::new(stream));
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
     spawn_capture_watchdog(
+        app.clone(),
         Arc::clone(&stream),
         writer.clone(),
         handler,
