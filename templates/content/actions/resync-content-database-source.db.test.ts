@@ -877,7 +877,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       id: "prop-status-upper",
       ownerEmail: OWNER,
       databaseId: "db-mapped-fields",
-      name: "Status upper",
+      name: "Status",
       type: "text",
       createdAt: now,
       updatedAt: now,
@@ -886,7 +886,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       id: "prop-status-lower",
       ownerEmail: OWNER,
       databaseId: "db-mapped-fields",
-      name: "Status lower",
+      name: "Status",
       type: "text",
       createdAt: now,
       updatedAt: now,
@@ -1018,6 +1018,36 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     "prop-status-upper": "Editorial",
     "prop-status-lower": "published",
   });
+  const statusFieldMappings = await db
+    .select({
+      id: schema.contentDatabaseSourceFields.id,
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .where(
+      eq(schema.contentDatabaseSourceFields.sourceId, "source-mapped-fields"),
+    );
+  expect(
+    statusFieldMappings
+      .filter((field: { propertyId: string | null }) =>
+        ["prop-status-upper", "prop-status-lower"].includes(
+          field.propertyId ?? "",
+        ),
+      )
+      .sort((a, b) => String(a.propertyId).localeCompare(String(b.propertyId))),
+  ).toEqual([
+    {
+      id: "field-status-lower",
+      propertyId: "prop-status-lower",
+      sourceFieldKey: "data.status",
+    },
+    {
+      id: "field-status-upper",
+      propertyId: "prop-status-upper",
+      sourceFieldKey: "data.Status",
+    },
+  ]);
   const readCall = builderReadMock.calls.find(
     (call) => call.model === "collection-mapped-fields",
   );

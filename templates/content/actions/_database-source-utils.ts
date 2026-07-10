@@ -3182,6 +3182,11 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  const existingBuilderFieldByPropertyId = new Map(
+    (args.existingFields ?? [])
+      .filter((field) => isBuilder && field.propertyId)
+      .map((field) => [field.propertyId!, field]),
+  );
   const rows = [
     {
       id: crypto.randomUUID(),
@@ -3284,10 +3289,12 @@ export async function seedMockSourceFields(args: {
         propertyId: property.definition.id,
         localFieldKey: property.definition.id,
         sourceFieldKey: isBuilder
-          ? builderCmsSourceFieldKey(
+          ? (existingBuilderFieldByPropertyId.get(property.definition.id)
+              ?.sourceFieldKey ??
+            builderCmsSourceFieldKey(
               property.definition.id,
               property.definition.name,
-            )
+            ))
           : `fields.${slugifySourceField(property.definition.name)}`,
         sourceFieldLabel: property.definition.name,
         sourceFieldType: property.definition.type,
