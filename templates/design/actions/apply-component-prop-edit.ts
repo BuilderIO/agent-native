@@ -39,6 +39,8 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
+  prepareInlineSourceEdit,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -57,7 +59,6 @@ import {
   componentNodeIdMatches,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -291,12 +292,24 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    if (
-      source?.currentContent &&
-      source.revision &&
-      file.updatedAt &&
-      source.revision !== file.updatedAt
-    ) {
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: file.updatedAt,
+    };
+    let prepared: Awaited<ReturnType<typeof prepareInlineSourceEdit>>;
+    try {
+      prepared = await prepareInlineSourceEdit({
+        file: workspaceFile,
+        currentContent: source?.currentContent,
+        revision: source?.revision,
+      });
+    } catch (error) {
+      if (!(error instanceof SourceWorkspaceEditConflictError)) throw error;
       return {
         designId,
         nodeId,
@@ -309,18 +322,12 @@ export default defineAction({
       };
     }
 
-    // Prefer explicit editor content after the caller's revision check, and use
-    // the saved SQL content as the fallback. Collab/Yjs reads can be stale
-    // across local dev worker processes and make prop controls lag behind.
-    const html =
-      typeof source?.currentContent === "string"
-        ? source.currentContent
-        : (file.content ?? "");
-    // Capture the hash of this EXACT base — the same string the transform
-    // below reads from — so persistEdit can pass it through as
-    // expectedVersionHash. A re-read at persist time would hash whatever is
-    // live "then" instead of proving this base is still current.
-    const baseVersionHash = sourceContentHash(html);
+    // The transform runs against the caller's working copy (when supplied),
+    // while the persist CAS uses the live hash that working copy is allowed to
+    // replace. Keeping those identities separate preserves rapid unsaved prop
+    // edits without weakening concurrent-writer rejection.
+    const html = prepared.content;
+    const baseVersionHash = prepared.expectedVersionHash;
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {

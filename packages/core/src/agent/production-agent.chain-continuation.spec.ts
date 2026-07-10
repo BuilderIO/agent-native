@@ -6,7 +6,9 @@ import {
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
+  isLoopProtectionDispatchError,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_NESTED_SELF_DISPATCH_DEPTH,
   resolveContinuationDispatchBudget,
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
@@ -131,11 +133,13 @@ async function runChain(
     chainViaDurableBackground?: boolean;
     workerProvenInBackgroundFunction?: boolean;
     requestBody?: Record<string, unknown>;
+    backgroundContinuationCount?: number;
+    run?: ActiveRun;
   },
 ): Promise<void> {
   await chainServerDrivenContinuation({
     event: {},
-    run: timeoutBoundaryRun(),
+    run: opts?.run ?? timeoutBoundaryRun(),
     effectiveThreadId: "thread-1",
     effectiveTurnId: "turn-1",
     requestBody: opts?.requestBody ?? {
@@ -144,7 +148,7 @@ async function runChain(
       threadId: "thread-1",
       [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: "run-chunk0" },
     },
-    backgroundContinuationCount: 0,
+    backgroundContinuationCount: opts?.backgroundContinuationCount ?? 0,
     chainViaDurableBackground: opts?.chainViaDurableBackground ?? false,
     workerProvenInBackgroundFunction: opts?.workerProvenInBackgroundFunction,
     deps: harness.deps,
@@ -492,6 +496,201 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
+    );
+  });
+});
+
+describe("isLoopProtectionDispatchError — classifies Netlify's undocumented loop-protection response", () => {
+  it("matches the exact message self-dispatch.ts's dispatchResponseError constructs for a 508", () => {
+    expect(
+      isLoopProtectionDispatchError(
+        new Error(
+          "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 508 Loop Detected",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match a generic transient dispatch failure", () => {
+    expect(isLoopProtectionDispatchError(new Error("fetch failed"))).toBe(
+      false,
+    );
+    expect(
+      isLoopProtectionDispatchError(
+        new Error(
+          "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 503 Service Unavailable",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not match a non-Error value", () => {
+    expect(isLoopProtectionDispatchError("HTTP 508")).toBe(false);
+    expect(isLoopProtectionDispatchError(undefined)).toBe(false);
+  });
+});
+
+describe("chainServerDrivenContinuation — Netlify loop-protection 508 is classified and DEFERRED, not fatally errored", () => {
+  it("stops retrying immediately on a 508 instead of burning the full dispatch budget — distinct from a generic 'fetch failed'", async () => {
+    const dispatchMock = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 508 Loop Detected",
+        ),
+      );
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h);
+
+    // The foreground budget allows 2 attempts, but a 508 is a property of
+    // this same nested call chain — retrying it will not help, so the loop
+    // stops after the FIRST attempt instead of exhausting the budget.
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+
+    // Still deferred — never the fatal `background_continuation_dispatch_failed`.
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_failed",
+    );
+    // The successor row itself is left alone for the sweep — never errored.
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-next",
+      "errored",
+    );
+    // Distinctly classified in the diagnostics — greppable apart from a
+    // generic "dispatch_budget_exhausted" deferral.
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining(
+        "chain_dispatch_deferred[netlify_loop_protection]",
+      ),
+    );
+  });
+
+  it("still burns the full retry budget for a generic transient error (unchanged behavior)", async () => {
+    const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h);
+
+    expect(dispatchMock).toHaveBeenCalledTimes(2);
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining(
+        "chain_dispatch_deferred[dispatch_budget_exhausted]",
+      ),
+    );
+  });
+});
+
+describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap", () => {
+  it("defers WITHOUT ever attempting a dispatch once backgroundContinuationCount reaches MAX_NESTED_SELF_DISPATCH_DEPTH", async () => {
+    const dispatchMock = vi.fn().mockResolvedValue(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h, {
+      backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
+    });
+
+    // No nested self-dispatch was even attempted — avoided the doomed call
+    // entirely instead of reacting to it after the fact.
+    expect(dispatchMock).not.toHaveBeenCalled();
+    // The successor row was still pre-inserted (so the sweep has something to
+    // find) and this chunk is deferred, exactly like an exhausted retry budget.
+    expect(h.deps.insertRun).toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining("chain_dispatch_deferred[proactive_depth_cap]"),
+    );
+  });
+
+  it("dispatches normally below the depth cap", async () => {
+    const dispatchMock = vi.fn().mockResolvedValue(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h, {
+      backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH - 1,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+  });
+
+  it("applies the SAME depth cap regardless of continuation reason (run_timeout, loop_limit alike) — the cap is about nested self-dispatch mechanics, not turn behavior", async () => {
+    const loopLimitRun = makeRun([{ type: "loop_limit" }]);
+    const dispatchMock = vi.fn().mockResolvedValue(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h, {
+      backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
+      run: loopLimitRun,
+    });
+
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+  });
+
+  it("applies uniformly on the durable-background dispatch target too (Background Functions do not escape Netlify's loop protection)", async () => {
+    process.env.NETLIFY = "true";
+    const dispatchMock = vi.fn().mockResolvedValue(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    await runChain(h, {
+      chainViaDurableBackground: true,
+      backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
+    });
+
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+  });
+});
+
+describe("chainServerDrivenContinuation — the intentional per-turn budget still caps a chain of deferred/redispatched segments", () => {
+  it("refuses to chain past the SQL per-turn ledger even when backgroundContinuationCount has been reset by sweep-mediated chain breaks", async () => {
+    // Simulates a turn that has already been through several sweep-mediated
+    // chain breaks (each resets backgroundContinuationCount to 0 — see the
+    // "Unclaimed background-run sweep" in agent-chat-plugin.ts) but has
+    // genuinely consumed far more runs than the intentional budget allows.
+    // The durable SQL ledger (countRunsForTurn), NOT the in-marker count, is
+    // what must catch this.
+    const h = makeHarness({
+      countRunsForTurn: vi.fn(
+        async () => MAX_BACKGROUND_RUN_CONTINUATIONS + 6,
+      ) as any,
+    });
+    const dispatchMock = h.deps.fireInternalDispatch as any;
+    await runChain(h, { backgroundContinuationCount: 0 });
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "turn_continuation_budget_exhausted",
     );
   });
 });

@@ -69,4 +69,60 @@ describe("AutoLayoutMatrix Flow interactions", () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it("treats Grid as a distinct atomic flow and exposes explicit track controls", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onFlowChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AutoLayoutMatrix
+          value={{
+            ...value,
+            display: "grid",
+            grid: {
+              columns: 3,
+              rows: 2,
+              columnSizing: "fill",
+              rowSizing: "hug",
+              columnGap: 12,
+              rowGap: 8,
+            },
+          }}
+          onFlowChange={onFlowChange}
+          onDirectionChange={vi.fn()}
+          onWrapChange={vi.fn()}
+          onAlignmentChange={vi.fn()}
+          onGapChange={vi.fn()}
+          onGridChange={vi.fn()}
+          onPaddingChange={vi.fn()}
+          onPaddingLinkedChange={vi.fn()}
+          onChildSizingChange={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[data-flow-value="grid"]')).not.toBeNull();
+    expect(
+      container.querySelector('input[aria-label="Columns"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('input[aria-label="Rows"]')).not.toBeNull();
+    expect(
+      container.querySelector('input[aria-label="Column gap"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('input[aria-label="Row gap"]'),
+    ).not.toBeNull();
+
+    const grid = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid"]',
+    );
+    await act(async () => grid?.click());
+    expect(onFlowChange).toHaveBeenCalledWith("grid");
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

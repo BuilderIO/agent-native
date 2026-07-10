@@ -268,7 +268,16 @@ export function replaceMatchesInText(
     count += 1;
     if (options.regex) {
       // Support $1, $2, ... backreferences the way String.replace does.
-      const groups = matchArgs.slice(1, -2);
+      // The callback args are (match, ...captureGroups, offset, string[,
+      // namedGroups]) — `namedGroups` is only appended when the pattern has
+      // named capture groups, so it must be dropped before slicing off the
+      // trailing offset/string pair, or a `$N` beyond the real group count
+      // would silently resolve to the match offset instead of "".
+      let rest = matchArgs.slice(1);
+      if (typeof rest[rest.length - 1] === "object") {
+        rest = rest.slice(0, -1);
+      }
+      const groups = rest.slice(0, -2);
       return replacement.replace(/\$(\d+)/g, (_all, index) => {
         const groupIndex = Number(index) - 1;
         return typeof groups[groupIndex] === "string" ? groups[groupIndex] : "";

@@ -377,15 +377,68 @@ export function cssStyleAliases(
   return result;
 }
 
+// BUG-UNDO-RESIZE-GEOMETRY: width/height are the two computedStyles keys the
+// Layout panel's W/H fields actually read (edit-panel/element-classification.ts's
+// cssElementSize parses element.computedStyles.width/height first, falling
+// back to boundingRect only when that's missing/unparseable). Every other
+// computedStyles property is fine to carry over additively when the fresh
+// (reverted/replayed) source doesn't mention it — most style properties come
+// from a CSS class the string-parse can't see, so keeping the previously
+// known value is the right default. Width/height are different: an undo or
+// redo of a resize commit is EXACTLY a change to (or removal of) an inline
+// width/height, so a stale carried-over value here isn't just incomplete —
+// it's actively wrong (it's the pre-undo/pre-redo box size).
+const GEOMETRY_STYLE_PROPERTIES = ["width", "height"] as const;
+
 export function refreshedComputedStyles(
   info: ElementInfo,
   sourceStyles: Record<string, string>,
   sourceClasses: readonly string[],
 ): Record<string, string> {
   const sourceWithAliases = cssStyleAliases(sourceStyles);
-  return sourceClasses.length > 0
-    ? { ...info.computedStyles, ...sourceWithAliases }
-    : sourceWithAliases;
+  const merged: Record<string, string> =
+    sourceClasses.length > 0
+      ? { ...info.computedStyles, ...sourceWithAliases }
+      : { ...sourceWithAliases };
+  GEOMETRY_STYLE_PROPERTIES.forEach((property) => {
+    if (!(property in sourceWithAliases)) delete merged[property];
+  });
+  return merged;
+}
+
+/**
+ * Companion to `refreshedComputedStyles` for the same undo/redo/remote-sync
+ * resync path — `ElementInfo.boundingRect` is otherwise left completely
+ * untouched by `refreshElementInfoFromContent` (both its node-match branch,
+ * via `canonicalElementInfoForCodeLayerNode`'s `{...info}` spread, and its
+ * DOM-parse fallback, via its own `{...info}` spread), so it keeps showing
+ * whatever rect was live-measured before the content change. `cssElementSize`
+ * falls back to `boundingRect.width`/`height` whenever computedStyles has no
+ * parseable value for that axis, so a permanently-stale boundingRect can
+ * still surface the pre-undo/redo size even after `refreshedComputedStyles`
+ * is fixed. Reuses the SAME freshly-resolved computedStyles (already merged
+ * above) so both fields agree, instead of re-deriving from a different
+ * source.
+ *
+ * Exported for unit testing.
+ */
+export function refreshedBoundingRectSize(
+  info: ElementInfo,
+  computedStyles: Record<string, string>,
+): ElementInfo["boundingRect"] {
+  const parsedWidth = parseFloat(computedStyles.width ?? "");
+  const parsedHeight = parseFloat(computedStyles.height ?? "");
+  return {
+    ...info.boundingRect,
+    width:
+      Number.isFinite(parsedWidth) && parsedWidth >= 0
+        ? parsedWidth
+        : info.boundingRect.width,
+    height:
+      Number.isFinite(parsedHeight) && parsedHeight >= 0
+        ? parsedHeight
+        : info.boundingRect.height,
+  };
 }
 
 function codeLayerNodeMatchesSourceId(
@@ -662,13 +715,15 @@ export function refreshElementInfoFromContent(
     );
   if (node) {
     const sourceInfo = elementInfoFromCodeLayerNode(node);
+    const computedStyles = refreshedComputedStyles(
+      info,
+      sourceInfo.computedStyles,
+      sourceInfo.classes,
+    );
     return {
       ...canonicalElementInfoForCodeLayerNode(info, node),
-      computedStyles: refreshedComputedStyles(
-        info,
-        sourceInfo.computedStyles,
-        sourceInfo.classes,
-      ),
+      computedStyles,
+      boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: sourceInfo.textContent,
       childElementCount: sourceInfo.childElementCount,
       isFlexChild: sourceInfo.isFlexChild,
@@ -682,14 +737,16 @@ export function refreshElementInfoFromContent(
     const element = queryUniqueSelector(doc, info.selector);
     if (!element) return null;
     const classes = Array.from(element.classList);
+    const computedStyles = refreshedComputedStyles(
+      info,
+      parseInlineStyleAttribute(element.getAttribute("style")),
+      classes,
+    );
     return {
       ...info,
       classes,
-      computedStyles: refreshedComputedStyles(
-        info,
-        parseInlineStyleAttribute(element.getAttribute("style")),
-        classes,
-      ),
+      computedStyles,
+      boundingRect: refreshedBoundingRectSize(info, computedStyles),
       textContent: element.textContent?.slice(0, 200) ?? info.textContent,
       childElementCount: element.children.length,
     };

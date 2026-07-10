@@ -26,6 +26,7 @@ import {
   resolveBreakpointOverride,
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
+  type StyleChangeMeta,
   type StyleChangeHandler,
   type StylesChangeHandler,
 } from "./style-change-types";
@@ -322,12 +323,13 @@ export function commitStylePatch(
   styles: Record<string, string>,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
+  meta?: StyleChangeMeta,
 ) {
   if (onStylesChange) {
-    onStylesChange(styles);
+    onStylesChange(styles, meta);
     return;
   }
   Object.entries(styles).forEach(([property, value]) => {
-    onStyleChange(property, value);
+    onStyleChange(property, value, meta);
   });
 }

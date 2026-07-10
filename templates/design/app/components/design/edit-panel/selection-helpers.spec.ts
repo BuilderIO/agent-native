@@ -173,6 +173,100 @@ describe("mixedElementFromSelection", () => {
     );
   });
 
+  // ── parentDisplay / parentAutoLayout / parentLayout collapse ────────────
+  // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
+  // read these three parent-layout snapshots to decide whether the
+  // FlexChild/GridChild controls render at all, and with which direction —
+  // they must collapse to undefined (hiding those controls) as soon as the
+  // selection spans two different parents, instead of leaking whichever
+  // element happens to be `base` (the last one).
+
+  it("preserves parentDisplay/parentAutoLayout/parentLayout when every element shares the same parent", () => {
+    const parentBoundingRect = { x: 0, y: 0, width: 300, height: 100 };
+    const parentAutoLayout = {
+      display: "flex",
+      selector: "#parent",
+      sourceId: "parent-1",
+      boundingRect: parentBoundingRect,
+    };
+    const parentLayout = {
+      display: "flex",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-start",
+      gap: "8px",
+    };
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout,
+      parentBoundingRect,
+      parentLayout,
+    });
+    const b = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout,
+      parentBoundingRect: { ...parentBoundingRect },
+      parentLayout,
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBe("flex");
+    expect(merged?.parentAutoLayout).toEqual(parentAutoLayout);
+    expect(merged?.parentBoundingRect).toEqual(parentBoundingRect);
+    expect(merged?.parentLayout).toEqual(parentLayout);
+  });
+
+  it("collapses parentDisplay/parentAutoLayout/parentLayout to undefined when elements come from different parents", () => {
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentBoundingRect: { x: 0, y: 0, width: 100, height: 40 },
+      parentAutoLayout: {
+        display: "flex",
+        sourceId: "parent-a",
+        boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+      },
+      parentLayout: { display: "flex", flexDirection: "row" },
+    });
+    const b = makeElement({
+      parentDisplay: "block",
+      parentBoundingRect: { x: 0, y: 0, width: 200, height: 80 },
+      parentAutoLayout: {
+        display: "block",
+        sourceId: "parent-b",
+        boundingRect: { x: 0, y: 0, width: 200, height: 80 },
+      },
+      parentLayout: { display: "block" },
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBeUndefined();
+    expect(merged?.parentAutoLayout).toBeUndefined();
+    expect(merged?.parentBoundingRect).toBeUndefined();
+    expect(merged?.parentLayout).toBeUndefined();
+    // Order must not matter: putting the differing element last previously
+    // leaked it through as `base` for plain `...base` spread fields.
+    const mergedReversed = mixedElementFromSelection([b, a]);
+    expect(mergedReversed?.parentDisplay).toBeUndefined();
+    expect(mergedReversed?.parentAutoLayout).toBeUndefined();
+    expect(mergedReversed?.parentBoundingRect).toBeUndefined();
+    expect(mergedReversed?.parentLayout).toBeUndefined();
+  });
+
+  it("leaves parentDisplay/parentAutoLayout/parentLayout unchanged for a single-element selection", () => {
+    const parentLayout = { display: "grid", gridTemplateColumns: "1fr 1fr" };
+    const only = makeElement({
+      parentDisplay: "grid",
+      parentAutoLayout: {
+        display: "grid",
+        sourceId: "parent-1",
+        boundingRect: { x: 0, y: 0, width: 300, height: 100 },
+      },
+      parentLayout,
+    });
+    const merged = mixedElementFromSelection([only]);
+    expect(merged?.parentDisplay).toBe("grid");
+    expect(merged?.parentAutoLayout).toEqual(only.parentAutoLayout);
+    expect(merged?.parentLayout).toEqual(parentLayout);
+  });
+
   // ── pendingNodeId (bug fix) ─────────────────────────────────────────────
   // A merged selection has no single stable node id, same rationale as
   // clearing `id`/`sourceId`.

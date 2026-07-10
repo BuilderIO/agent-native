@@ -6,7 +6,10 @@ import {
 } from "./pending-edits";
 import {
   buildReactSemanticHandoff,
+  buildRuntimeReactLayerStateHandoff,
+  buildRuntimeReactStructureMoveHandoff,
   redactReactSourceAnchor,
+  resolveRuntimeStructureMoveExecutionMode,
   type ReactSourceAnchor,
 } from "./react-semantic-handoff";
 
@@ -17,6 +20,17 @@ const SUBJECT: ReactSourceAnchor = {
   line: 18,
   column: 7,
   component: "Card",
+  runtimeMultiplicity: 1,
+  scope: "single-instance",
+};
+
+const TARGET: ReactSourceAnchor = {
+  id: "target-source",
+  relPath: "app/components/Hero.tsx",
+  sourceFile: "app/components/Hero.tsx",
+  line: 42,
+  column: 5,
+  component: "Hero",
   runtimeMultiplicity: 1,
   scope: "single-instance",
 };
@@ -227,6 +241,252 @@ describe("buildReactSemanticHandoff", () => {
     expect(result.handoff.deterministicWritebackRejection.reason).toHaveLength(
       800,
     );
+  });
+});
+
+describe("buildRuntimeReactLayerStateHandoff", () => {
+  it.each([
+    ["locked", true, 'data-agent-native-locked="true"', "Set"],
+    ["hidden", true, 'data-agent-native-hidden="true"', "Set"],
+    ["locked", false, "data-agent-native-locked", "Clear"],
+    ["hidden", false, "data-agent-native-hidden", "Clear"],
+  ] as const)(
+    "builds an exact, guarded %s=%s source-metadata handoff",
+    (state, enabled, expectedAttribute, expectedVerb) => {
+      const result = buildRuntimeReactLayerStateHandoff({
+        subjectAnchor: SUBJECT,
+        screenId: "screen-home",
+        state,
+        enabled,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.handoff).toMatchObject({
+        version: 1,
+        executionMode: "coding-agent",
+        operation: "set-layer-state",
+        sourceAnchors: [
+          {
+            id: "subject",
+            relPath: "app/components/Card.tsx",
+            sourceFile: "app/components/Card.tsx",
+            line: 18,
+            column: 7,
+          },
+        ],
+        runtimeRelationship: {
+          kind: "metadata",
+          subjectAnchorIds: ["subject"],
+          screenId: "screen-home",
+          sourceScreenId: "screen-home",
+          targetScreenId: "screen-home",
+        },
+        versionHashes: [],
+        executionContract: {
+          requiresHumanWriteConsent: true,
+          requiresReadBeforeWrite: true,
+          requiresExpectedVersionHash: true,
+          allowsBlindOverwrite: false,
+          allowsGenericAstStructureTransform: false,
+          preservePreviewUntilHmrConfirmation: true,
+          onVersionConflict: "re-read-and-replan",
+        },
+      });
+      expect(result.handoff.desiredChange).toContain(expectedAttribute);
+      expect(result.handoff.desiredChange).not.toContain("/Users/example");
+      expect(result.handoff.runtimeRelationship.description).toContain(
+        `${expectedVerb} runtime React layer state "${state}"`,
+      );
+      expect(result.handoff.instructions.join(" ")).toContain(
+        "requireExpectedVersionHash: true",
+      );
+    },
+  );
+
+  it("rejects missing screen ownership instead of emitting an ambiguous state edit", () => {
+    expect(
+      buildRuntimeReactLayerStateHandoff({
+        subjectAnchor: SUBJECT,
+        screenId: " ",
+        state: "hidden",
+        enabled: true,
+      }),
+    ).toEqual({
+      ok: false,
+      rejection: {
+        code: "invalid-runtime-relationship",
+        reason:
+          "Runtime layer state changes require an exact owning screen id.",
+      },
+    });
+  });
+
+  it("preserves repeated-render scope so the agent cannot guess at one JSX instance", () => {
+    const result = buildRuntimeReactLayerStateHandoff({
+      subjectAnchor: {
+        ...SUBJECT,
+        runtimeMultiplicity: 8,
+        scope: "repeated-render",
+      },
+      screenId: "screen-home",
+      state: "locked",
+      enabled: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.handoff.deterministicWritebackRejection.code).toBe(
+      "repeated-runtime-render",
+    );
+  });
+});
+
+describe("buildRuntimeReactStructureMoveHandoff", () => {
+  it("builds a cross-screen reparent with exact subject/target anchors and both screen ids", () => {
+    const result = buildRuntimeReactStructureMoveHandoff({
+      subjectAnchor: SUBJECT,
+      targetAnchor: TARGET,
+      placement: "inside",
+      sourceScreenId: "screen-source",
+      targetScreenId: "screen-target",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.handoff).toMatchObject({
+      operation: "reparent",
+      sourceAnchors: [
+        { id: "subject", relPath: "app/components/Card.tsx" },
+        { id: "target", relPath: "app/components/Hero.tsx" },
+      ],
+      runtimeRelationship: {
+        kind: "inside",
+        subjectAnchorIds: ["subject"],
+        targetAnchorId: "target",
+        screenId: "screen-target",
+        sourceScreenId: "screen-source",
+        targetScreenId: "screen-target",
+      },
+      executionContract: {
+        requiresHumanWriteConsent: true,
+        requiresReadBeforeWrite: true,
+        requiresExpectedVersionHash: true,
+        allowsBlindOverwrite: false,
+        allowsGenericAstStructureTransform: false,
+        preservePreviewUntilHmrConfirmation: true,
+        onVersionConflict: "re-read-and-replan",
+      },
+    });
+    expect(result.handoff.runtimeRelationship.description).toContain(
+      'screen "screen-source" to screen "screen-target"',
+    );
+    expect(result.handoff.instructions.join(" ")).toContain(
+      "requireExpectedVersionHash: true",
+    );
+  });
+
+  it("maps before/after placements to semantic moves", () => {
+    for (const placement of ["before", "after"] as const) {
+      const result = buildRuntimeReactStructureMoveHandoff({
+        subjectAnchor: SUBJECT,
+        targetAnchor: TARGET,
+        placement,
+        sourceScreenId: "screen-a",
+        targetScreenId: "screen-b",
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.handoff.operation).toBe("move");
+      expect(result.handoff.runtimeRelationship.kind).toBe(placement);
+    }
+  });
+
+  it("allows mixed runtime/source ownership only when both endpoints have exact provenance", () => {
+    const valid = buildRuntimeReactStructureMoveHandoff({
+      subjectAnchor: { ...SUBJECT, scope: "repeated-render" },
+      targetAnchor: TARGET,
+      placement: "inside",
+      sourceScreenId: "runtime-screen",
+      targetScreenId: "source-backed-screen",
+    });
+    expect(valid.ok).toBe(true);
+    if (valid.ok) {
+      expect(valid.handoff.deterministicWritebackRejection.code).toBe(
+        "repeated-runtime-render",
+      );
+    }
+
+    const missingTarget = buildRuntimeReactStructureMoveHandoff({
+      subjectAnchor: SUBJECT,
+      targetAnchor: { id: "target", line: 1, column: 1 },
+      placement: "inside",
+      sourceScreenId: "runtime-screen",
+      targetScreenId: "source-backed-screen",
+    });
+    expect(missingTarget).toMatchObject({
+      ok: false,
+      rejection: { code: "missing-source-provenance" },
+    });
+  });
+
+  it("rejects missing screen ownership instead of emitting an ambiguous handoff", () => {
+    expect(
+      buildRuntimeReactStructureMoveHandoff({
+        subjectAnchor: SUBJECT,
+        targetAnchor: TARGET,
+        placement: "inside",
+        sourceScreenId: " ",
+        targetScreenId: "screen-b",
+      }),
+    ).toEqual({
+      ok: false,
+      rejection: {
+        code: "invalid-runtime-relationship",
+        reason:
+          "Cross-screen runtime structure moves require exact source and target screen ids.",
+      },
+    });
+  });
+});
+
+describe("resolveRuntimeStructureMoveExecutionMode", () => {
+  it("keeps same-screen runtime moves on the fast screen bridge", () => {
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: true,
+        targetRuntimeOnly: true,
+        sourceScreenId: "screen-a",
+        targetScreenId: "screen-a",
+      }),
+    ).toBe("screen-bridge");
+  });
+
+  it("routes cross-screen runtime moves through the semantic handoff", () => {
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: true,
+        targetRuntimeOnly: true,
+        sourceScreenId: "screen-a",
+        targetScreenId: "screen-b",
+      }),
+    ).toBe("semantic-handoff");
+  });
+
+  it("routes either mixed runtime/source direction through the semantic handoff", () => {
+    for (const [subjectRuntimeOnly, targetRuntimeOnly] of [
+      [true, false],
+      [false, true],
+    ] as const) {
+      expect(
+        resolveRuntimeStructureMoveExecutionMode({
+          subjectRuntimeOnly,
+          targetRuntimeOnly,
+          sourceScreenId: "screen-a",
+          targetScreenId: "screen-b",
+        }),
+      ).toBe("semantic-handoff");
+    }
   });
 });
 

@@ -46,6 +46,33 @@ export function getOverviewScreenRuntimeReplacementKey({
   return [screenId, updatedAt ?? "", getContentSignature(content)].join(":");
 }
 
+/** Keep inline overview iframe identity stable across active-screen switches
+ * and content/history updates. Inline overview screens have the bridge-backed
+ * full-document replacement channel, so content changes belong in
+ * `runtimeReplacementKey`, never in the iframe's srcdoc identity key. Other
+ * source types retain the legacy remount fallback because they may not expose
+ * an in-place document replacement bridge. */
+export function getOverviewScreenContentKey({
+  screenId,
+  screenIsActive,
+  contentRenderRevision,
+  updatedAt,
+  content,
+  useRuntimeReplacement,
+}: {
+  screenId: string;
+  screenIsActive: boolean;
+  contentRenderRevision: number;
+  updatedAt?: string | null;
+  content: string;
+  useRuntimeReplacement: boolean;
+}): string {
+  if (useRuntimeReplacement) return `${screenId}:inline-overview`;
+  return screenIsActive
+    ? [screenId, contentRenderRevision].join(":")
+    : [screenId, updatedAt ?? "", getContentSignature(content), 0].join(":");
+}
+
 export function shouldUseOverviewRuntimeReplacement({
   sourceType,
   externalSnapshotHtml,
@@ -84,6 +111,38 @@ export function sameStringIds(a: string[], b: string[]) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+/**
+ * Undo/redo inspector-panel resync — decides whether a pending live edit
+ * being reverted/replayed (by handleUndo's pendingStyleUndo/
+ * pendingNonStyleUndo branches, or handleRedo's pendingTextRedo/
+ * pendingLiveRedo branches) targets the SAME element as the current
+ * `selectedElement`. Undo/redo aren't guaranteed to be undoing the
+ * currently-selected element (the user may have re-selected something else
+ * since the edit was made), so the panel should only be patched with the
+ * revert/redo payload when this returns true — otherwise a background
+ * undo would incorrectly clobber whatever the user has selected right now.
+ * Matches by sourceId when BOTH sides carry one (the stable, authoritative
+ * identity across re-renders) — a sourceId mismatch there means a different
+ * element even if their selectors coincidentally collide (e.g. repeated
+ * list items sharing one CSS selector). Falls back to the CSS selector only
+ * when a sourceId comparison isn't possible on at least one side.
+ *
+ * Exported for unit testing.
+ */
+export function pendingEditTargetsSelectedElement(args: {
+  editSourceId?: string | null;
+  editSelector: string;
+  selectedSourceId?: string | null;
+  selectedSelector?: string | null;
+}): boolean {
+  if (args.editSourceId && args.selectedSourceId) {
+    return args.selectedSourceId === args.editSourceId;
+  }
+  return Boolean(
+    args.selectedSelector && args.selectedSelector === args.editSelector,
+  );
+}
+
 export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   const tagName = info?.tagName?.toUpperCase();
   return tagName === "BODY" || tagName === "HTML";
@@ -104,13 +163,29 @@ export function shouldIgnoreOverviewLayerCreationEcho(args: {
   pendingScreenId: string | null | undefined;
   screenId: string;
   info?: ElementInfo | null;
+  resolvedLayerId?: string | null;
   event: "select" | "clear";
 }) {
   if (!args.pendingLayerId) return false;
   if (args.pendingScreenId && args.pendingScreenId !== args.screenId) {
     return false;
   }
-  return args.event === "clear" || isScreenRootElementInfo(args.info);
+  if (args.event === "clear" || isScreenRootElementInfo(args.info)) {
+    return true;
+  }
+  // Layers-panel selection is applied optimistically in the host, then the
+  // selected selector is mirrored into the overview iframe. The bridge echoes
+  // that exact layer back as an ordinary element-select a frame later. Without
+  // recognizing the matching id here, a Cmd/Ctrl toggle or Shift range briefly
+  // renders the correct multi-selection and is then collapsed to the echoed
+  // primary layer. Only ignore the exact pending layer; a real canvas click on
+  // any other element must still replace the panel selection immediately.
+  const echoedLayerId =
+    args.info?.sourceId ?? args.info?.id ?? args.info?.pendingNodeId;
+  return (
+    args.resolvedLayerId === args.pendingLayerId ||
+    echoedLayerId === args.pendingLayerId
+  );
 }
 
 export function getSelectedScreenIdsForEditorState(args: {
@@ -289,6 +364,99 @@ export function shouldEscapeToOverview(args: {
     mode === "edit" &&
     activeTool === "move"
   );
+}
+
+/**
+ * A node's `parentId` in the FLAT code-layer ownership map
+ * (`codeLayerOwnerByNodeId` / `codeLayerOwnerByNodeIdRef` in DesignEditor.tsx)
+ * still points at `<html>`/`<body>` even though the VISUAL layers tree
+ * collapses those document-shell nodes away (see shared/code-layer.ts's
+ * `isCollapsibleDocumentShellNode` / `compactCodeLayerTreeNodes`) — the flat
+ * map is built straight from `projection.nodes`, which is never filtered.
+ * Mirrors `isCollapsibleDocumentShellNode`'s own check (tag is html/body AND
+ * the layer name came from the tag itself, i.e. nothing more specific named
+ * it) against the flat `CodeLayerNode`'s own fields directly, since the flat
+ * node already carries `tag`/`layerNameSource` without needing a separate
+ * lookup map.
+ *
+ * Both the Escape pop-one-level walk (`resolveEscapePopSelectionAction`) and
+ * the shared Shift+Enter / "\\" select-parent walk (`handleSelectParentLayer`
+ * in DesignEditor.tsx) must treat a parent that resolves to a document-shell
+ * node as NO parent at all — otherwise popping from a top-level layer selects
+ * the raw `<body>`/`<html>` DOM nodes instead of stopping at the screen/frame
+ * level (or fully deselecting), which produces a permanently broken 0x0
+ * inspector with no way back to a deselected state.
+ *
+ * Exported for unit testing.
+ */
+export function isDocumentShellCodeLayerNode(node: {
+  tag: string;
+  layerNameSource: string;
+}): boolean {
+  return (
+    (node.tag === "html" || node.tag === "body") &&
+    node.layerNameSource === "tag"
+  );
+}
+
+/**
+ * True only when `parentNode` exists AND is not a document-shell node — see
+ * `isDocumentShellCodeLayerNode`. Callers walking the flat code-layer
+ * ownership map (Escape pop-one-level, Shift+Enter select-parent) must use
+ * this instead of a bare `Boolean(parentNode)` truthiness check, or a
+ * top-level layer's collapsed `<body>`/`<html>` ancestor gets treated as a
+ * selectable parent layer.
+ *
+ * Exported for unit testing.
+ */
+export function hasSelectableCodeLayerParent(args: {
+  parentNode: { tag: string; layerNameSource: string } | null | undefined;
+}): boolean {
+  return (
+    args.parentNode != null && !isDocumentShellCodeLayerNode(args.parentNode)
+  );
+}
+
+export type EscapePopSelectionAction =
+  | { kind: "pop-to-parent-layer" }
+  | { kind: "pop-to-screen-frame" }
+  | { kind: "deselect" };
+
+/**
+ * Figma parity — Escape on a plain canvas selection pops one level at a
+ * time (child layer -> parent layer -> containing screen/frame -> fully
+ * deselected) instead of deselecting everything on the first press.
+ *
+ * - A selected layer that has a code-layer parent (`hasLayerParent`) pops to
+ *   that parent, reusing the same ancestor-walk `handleSelectParentLayer`
+ *   (Shift+Enter / "\\") already uses via `codeLayerOwnerByNodeIdRef`.
+ * - A selected TOP-level layer (no code-layer parent) in overview mode pops
+ *   to selecting its containing screen/frame — the same selection kind
+ *   (`overviewSelectedScreenIds`) clicking a frame directly in overview
+ *   already produces.
+ * - Anything else — nothing selected, or a top-level layer in single-screen
+ *   mode where there's no separate "frame" to pop to (the screen already
+ *   fills the view, so top-level already reads as "the frame boundary") —
+ *   falls straight through to a full deselect, matching the previous
+ *   unconditional Escape behavior.
+ *
+ * Callers must have already handled every higher-priority Escape consumer
+ * (an in-progress marquee/drag, an active breakpoint edit target,
+ * `shouldEscapeToOverview`'s zoom-out-to-overview case) before calling this
+ * — it only decides the remaining plain-canvas-selection case.
+ *
+ * Exported for unit testing.
+ */
+export function resolveEscapePopSelectionAction(args: {
+  hasSelectedLayer: boolean;
+  hasLayerParent: boolean;
+  viewMode: "single" | "overview";
+}): EscapePopSelectionAction {
+  if (args.hasSelectedLayer) {
+    if (args.hasLayerParent) return { kind: "pop-to-parent-layer" };
+    if (args.viewMode === "overview") return { kind: "pop-to-screen-frame" };
+  }
+  return { kind: "deselect" };
 }
 
 /**

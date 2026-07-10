@@ -57,23 +57,59 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Same-process mutex guarding the generation-session read-modify-write below.
+// generate-screens' own tool description explicitly recommends fanning out
+// parallel generate-design calls per returned frame ("fan out calls to
+// generate-design for each returned frame"). Without this lock, two
+// concurrent calls for the same designId both read the same pre-update
+// session, each only marks its own frame done, and whichever writeAppState
+// lands second silently discards the first call's frame-done update —
+// application state has no CAS/versioning primitive (unlike designs.data's
+// mutateDesignData), so a plain read-then-write here is a classic lost-update
+// race. This mirrors the same-process serialization
+// server/lib/design-data-mutation.ts uses (withDesignDataLock) for the
+// designs.data column. Cross-process races remain (no CAS primitive exists
+// for application state), but same-process fan-out from one agent turn is
+// the realistic, explicitly-encouraged case this closes.
+const generationSessionLocks = new Map<string, Promise<unknown>>();
+
+function withGenerationSessionLock<T>(
+  designId: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const previous = generationSessionLocks.get(designId) ?? Promise.resolve();
+  const next = previous.then(callback, callback);
+  generationSessionLocks.set(designId, next);
+  const cleanup = () => {
+    if (generationSessionLocks.get(designId) === next) {
+      generationSessionLocks.delete(designId);
+    }
+  };
+  next.then(cleanup, cleanup);
+  return next;
+}
+
 async function updateGenerationSessionForSavedFiles(
   designId: string,
   savedFilenames: string[],
 ) {
-  const key = designGenerationSessionKey(designId);
-  const rawSession = await readAppState(key).catch(() => null);
-  if (!rawSession || typeof rawSession !== "object") return;
-  const session = rawSession as unknown as DesignGenerationSession;
-  if (session.designId !== designId || !Array.isArray(session.frames)) return;
+  await withGenerationSessionLock(designId, async () => {
+    const key = designGenerationSessionKey(designId);
+    const rawSession = await readAppState(key).catch(() => null);
+    if (!rawSession || typeof rawSession !== "object") return;
+    const session = rawSession as unknown as DesignGenerationSession;
+    if (session.designId !== designId || !Array.isArray(session.frames)) {
+      return;
+    }
 
-  const nextSession = updateGenerationSessionWithSavedFiles(
-    session,
-    savedFilenames,
-  );
-  if (nextSession === session) return;
+    const nextSession = updateGenerationSessionWithSavedFiles(
+      session,
+      savedFilenames,
+    );
+    if (nextSession === session) return;
 
-  await writeAppState(key, nextSession as unknown as Record<string, unknown>);
+    await writeAppState(key, nextSession as unknown as Record<string, unknown>);
+  });
 }
 
 const generateDesignAgentParameters = {
@@ -228,6 +264,37 @@ const generateDesignAction = defineAction({
                 message: "canvasFrames entries require fileId or filename",
               }),
           )
+          // Reject two placements for the same target in one call. Without
+          // this, mergeCanvasFramePlacements folds both entries into a single
+          // canvasFrames[fileId] value (last one wins), but the mutateDesignData
+          // isApplied check below verifies EVERY placedFrames entry against
+          // that single folded value — so the earlier, now-overwritten entry
+          // always fails the equality check. Since the mutate callback is
+          // deterministic, every retry recomputes the identical mismatch, so
+          // the whole action always fails with a "concurrent write conflicts"
+          // error after burning through all retries, even though nothing else
+          // was actually writing to the design.
+          .superRefine((frames, ctx) => {
+            const seen = new Map<string, number>();
+            frames.forEach((frame, index) => {
+              const key = frame.fileId
+                ? `id:${frame.fileId}`
+                : `name:${frame.filename}`;
+              const firstIndex = seen.get(key);
+              if (firstIndex !== undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index],
+                  message:
+                    `canvasFrames entry ${index} duplicates the target already placed ` +
+                    `at index ${firstIndex} (${frame.fileId ? `fileId ${frame.fileId}` : `filename ${frame.filename}`}). ` +
+                    "Pass exactly one placement per screen.",
+                });
+                return;
+              }
+              seen.set(key, index);
+            });
+          })
           .optional(),
       )
       .optional()

@@ -58,6 +58,31 @@ describe("setImageFillLayerPatch (IP: layer-index-aware image fill)", () => {
 });
 
 describe("imageFillChangePatch (IP: base-fill Image switch preserves the layer stack)", () => {
+  it("replaces CSS-wide shorthand defaults instead of emitting an invalid comma layer", () => {
+    const patch = imageFillChangePatch(
+      {
+        backgroundImage: splitCssLayers("initial"),
+        backgroundSize: splitCssLayers("initial"),
+        backgroundRepeat: splitCssLayers("initial"),
+        backgroundPosition: splitCssLayers("initial"),
+      },
+      null,
+      {
+        backgroundImage: 'url("tile.png")',
+        backgroundSize: "auto",
+        backgroundRepeat: "repeat",
+        backgroundPosition: "top left",
+      },
+    );
+
+    expect(patch).toEqual({
+      backgroundImage: 'url("tile.png")',
+      backgroundSize: "auto",
+      backgroundRepeat: "repeat",
+      backgroundPosition: "top left",
+    });
+  });
+
   it("prepends the image as a new layer instead of replacing the whole stack when no layer is selected", () => {
     // Regression: switching the base solid/text fill row's paint type to
     // Image used to call a single-layer `imageFillToBackgroundStyles` patch

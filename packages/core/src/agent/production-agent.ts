@@ -5039,6 +5039,70 @@ export function resolveContinuationDispatchBudget(opts: {
 }
 
 /**
+ * True when a `fireInternalDispatch` failure is Netlify's Functions platform
+ * loop-protection response (`HTTP 508 Loop Detected`), matched against the
+ * exact message `self-dispatch.ts`'s `dispatchResponseError` constructs
+ * (`Self-dispatch to ${path} returned HTTP ${res.status} ${res.statusText}...`).
+ * Matches on the status code alone (not the reason phrase text) so it is
+ * robust to any wording Netlify's edge puts in `statusText`.
+ *
+ * VERIFIED: production `agent_runs` diagnostics show exactly this failure mode
+ * — 8 successful `chain_dispatch_sent` self-dispatches followed by a 9th/10th
+ * that dies with `HTTP 508 Loop Detected`, terminal reason
+ * `background_continuation_dispatch_failed`. UNVERIFIED (Netlify does not
+ * document the mechanism — checked the Functions overview, Functions API
+ * reference, Background Functions overview, Status Codes reference, and
+ * Request Chain troubleshooting docs, none mention it): the ONLY public
+ * confirmation is a Netlify staff forum reply — "we prevent multiple
+ * executions after one-another as that's a 'loop' ... I believe we enforce
+ * this after 9 or 10 self-invocations"
+ * (https://answers.netlify.com/t/self-invoke-background-function-via-post-requests/146012)
+ * — which also confirms Background Functions do NOT escape the limit (the
+ * reporter's case was already a `-background` function self-invoking). See
+ * `MAX_NESTED_SELF_DISPATCH_DEPTH` for how this classification is used.
+ */
+export function isLoopProtectionDispatchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /\bHTTP\s*508\b/i.test(err.message);
+}
+
+/**
+ * Conservative safety margin on NESTED self-dispatch chaining — a
+ * continuation dispatched directly from within the live invocation that is
+ * about to finish, as opposed to being picked up later by the
+ * unclaimed-background-run sweep (`agent-chat-plugin.ts`), which fires its
+ * redispatch from an unrelated, timer-driven invocation rather than from
+ * inside the chain's own execution.
+ *
+ * Netlify's loop-protection ceiling is undocumented and platform-reported
+ * only approximately ("I believe... 9 or 10" — see
+ * `isLoopProtectionDispatchError`), so hard-coding that exact number here
+ * would be pinning behavior to a number Netlify itself won't commit to, and
+ * production evidence shows it can trigger by the 9th self-dispatch. Rather
+ * than only reacting after triggering that undocumented limit,
+ * `chainServerDrivenContinuation` proactively hands a chunk to the sweep once
+ * `backgroundContinuationCount` (nested hops since the last chain break)
+ * reaches this value — comfortably below the observed ~9-10 failure point —
+ * instead of attempting another nested dispatch. This is the SAME deferred-
+ * recovery path already used when a dispatch fails outright: the row is left
+ * `status='running', dispatch_mode='background'` for the sweep to redispatch,
+ * never silently dropped.
+ *
+ * The sweep's redispatch marker intentionally omits `continuationCount` (see
+ * the "Unclaimed background-run sweep" in `agent-chat-plugin.ts`), so a
+ * sweep-recovered chunk's own `backgroundContinuationCount` resets to 0 —
+ * this constant therefore bounds each NESTED segment between chain breaks,
+ * not the whole turn. The TRUE ceiling on total turn length is unaffected by
+ * that reset: it is the durable per-turn SQL ledger (`countRunsForTurn`,
+ * checked above in this function) plus `MAX_BACKGROUND_RUN_CONTINUATIONS` —
+ * both counted independently of this in-marker value — so a legitimately
+ * long turn keeps making progress in bounded nested segments, each recovered
+ * by the sweep, until it genuinely exhausts the intentional overall budget
+ * and fails loud with `turn_continuation_budget_exhausted`.
+ */
+export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
+
+/**
  * Server-driven continuation handoff for a chunk that hit its soft-timeout
  * boundary still unfinished: mint the next chunk's runId, PRE-INSERT its run
  * row (so `/runs/active` never shows an idle gap and a lost dispatch is
@@ -5258,9 +5322,23 @@ export async function chainServerDrivenContinuation(opts: {
         };
     let dispatched = false;
     let lastDispatchErr: unknown;
+    // Proactive nested-chain safety margin — see `MAX_NESTED_SELF_DISPATCH_DEPTH`.
+    // Skip the nested dispatch attempt entirely once this segment's hop count
+    // reaches the cap; a nested attempt at this depth is expected to trip
+    // Netlify's loop protection, so there is nothing to gain by trying it and
+    // burning this worker's remaining wall clock on a doomed call. Falls
+    // straight into the same deferred-recovery path below as an exhausted
+    // retry budget.
+    const nestedDepthExceeded =
+      opts.backgroundContinuationCount >= MAX_NESTED_SELF_DISPATCH_DEPTH;
+    if (nestedDepthExceeded) {
+      lastDispatchErr = new Error(
+        `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${opts.backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${MAX_NESTED_SELF_DISPATCH_DEPTH}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
+      );
+    }
     for (
       let attempt = 0;
-      attempt < maxDispatchAttempts && !dispatched;
+      !nestedDepthExceeded && attempt < maxDispatchAttempts && !dispatched;
       attempt++
     ) {
       try {
@@ -5327,10 +5405,32 @@ export async function chainServerDrivenContinuation(opts: {
           `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
           dispatchErr instanceof Error ? dispatchErr.message : dispatchErr,
         );
+        // Netlify loop protection (see `isLoopProtectionDispatchError`) is a
+        // property of this same live, nested call chain — retrying the exact
+        // same nested self-dispatch within the next few seconds will not
+        // change that, so further attempts are a guaranteed-doomed use of
+        // this worker's remaining wall clock. Stop immediately (instead of
+        // burning the full `maxDispatchAttempts` budget) and fall into the
+        // same deferred-recovery path below, which hands the successor to the
+        // sweep — a genuinely different, non-nested invocation.
+        if (isLoopProtectionDispatchError(dispatchErr)) {
+          break;
+        }
       }
     }
     if (!dispatched) {
       if (nextRowInserted) {
+        // Classify WHY this handoff is being deferred — distinct, greppable
+        // tags so production diagnostics (which is all that is readable from
+        // a background worker) can tell "we proactively avoided Netlify loop
+        // protection", "we hit loop protection and stopped retrying", and "a
+        // generic transient dispatch failure exhausted its retry budget"
+        // apart, instead of lumping every deferred handoff into one bucket.
+        const deferralClassification = nestedDepthExceeded
+          ? "proactive_depth_cap"
+          : isLoopProtectionDispatchError(lastDispatchErr)
+            ? "netlify_loop_protection"
+            : "dispatch_budget_exhausted";
         // RECOVERABLE: the successor row already exists in SQL with its
         // rehydration payload (`dispatch_payload`) intact and is still
         // `status='running', dispatch_mode='background'` — exactly the state
@@ -5358,7 +5458,7 @@ export async function chainServerDrivenContinuation(opts: {
           .recordRunDiagnostic(
             nextRunId,
             RUN_DIAG_STAGE.workerThrew,
-            `chain_dispatch_deferred: dispatch budget exhausted (${maxDispatchAttempts} attempts) awaiting unclaimed-run sweep redispatch; ${
+            `chain_dispatch_deferred[${deferralClassification}]: dispatch budget exhausted (${maxDispatchAttempts} attempts) awaiting unclaimed-run sweep redispatch; ${
               lastDispatchErr instanceof Error
                 ? lastDispatchErr.message
                 : String(lastDispatchErr)
@@ -5369,7 +5469,7 @@ export async function chainServerDrivenContinuation(opts: {
           .recordRunDiagnostic(
             runId,
             RUN_DIAG_STAGE.workerThrew,
-            `chain_dispatch_deferred nextRunId=${nextRunId} ${
+            `chain_dispatch_deferred[${deferralClassification}] nextRunId=${nextRunId} ${
               lastDispatchErr instanceof Error
                 ? lastDispatchErr.message
                 : String(lastDispatchErr)
@@ -5377,7 +5477,7 @@ export async function chainServerDrivenContinuation(opts: {
           )
           .catch(() => {});
         console.error(
-          "[agent-chat] background continuation dispatch exhausted its retry budget; leaving the pre-inserted successor for the unclaimed-run sweep to redispatch:",
+          `[agent-chat] background continuation dispatch deferred (${deferralClassification}); leaving the pre-inserted successor for the unclaimed-run sweep to redispatch:`,
           lastDispatchErr instanceof Error
             ? lastDispatchErr.message
             : lastDispatchErr,

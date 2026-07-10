@@ -36,7 +36,7 @@ interface RenderedOverlay {
   canvas: HTMLCanvasElement;
   root: Root;
   container: HTMLDivElement;
-  rerender: (visible: boolean) => Promise<void>;
+  rerender: (visible: boolean, sending?: boolean) => Promise<void>;
   cleanup: () => Promise<void>;
 }
 
@@ -70,12 +70,13 @@ async function renderOverlay(
   document.body.append(container);
   const root = createRoot(container);
 
-  const render = async (visible: boolean) => {
+  const render = async (visible: boolean, sending = false) => {
     await act(async () => {
       root.render(
         <DrawOverlay
           queuedAnnotationCount={queuedAnnotationCount}
           visible={visible}
+          sending={sending}
           onClose={vi.fn()}
           onSend={onSend}
         />,
@@ -410,5 +411,30 @@ describe("DrawOverlay pointer gesture robustness", () => {
       width: 200,
       height: 100,
     });
+  });
+
+  it("disables Send and swaps its label while a capture is in flight", async () => {
+    const onSend = vi.fn();
+    const rendered = await renderOverlay(onSend);
+    cleanup = rendered.cleanup;
+
+    await act(async () => {
+      rendered.canvas.dispatchEvent(pointerEvent("pointerdown", 20, 20));
+      rendered.canvas.dispatchEvent(pointerEvent("pointermove", 40, 30));
+      rendered.canvas.dispatchEvent(pointerEvent("pointerup", 60, 40));
+    });
+    const send = () =>
+      document.querySelector<HTMLButtonElement>('[data-testid="draw-send"]');
+    expect(send()?.disabled).toBe(false);
+    expect(send()?.textContent).toContain("visualEditor.send");
+
+    await rendered.rerender(true, true);
+
+    expect(send()?.disabled).toBe(true);
+    expect(send()?.textContent).toContain("visualEditor.sendingDrawing");
+
+    await rendered.rerender(true, false);
+    expect(send()?.disabled).toBe(false);
+    expect(send()?.textContent).toContain("visualEditor.send");
   });
 });

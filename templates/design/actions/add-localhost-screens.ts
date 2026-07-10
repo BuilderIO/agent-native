@@ -25,6 +25,7 @@ import {
   type CanvasFrameGeometry,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import {
   makeLocalhostRouteId,
   titleFromRoutePath,
@@ -281,32 +282,6 @@ function metadataForFile(
   if (isRecord(primary)) return primary;
   const legacy = localhostScreens[fileId];
   return isRecord(legacy) ? legacy : undefined;
-}
-
-/**
- * True when `err` is a UNIQUE / PRIMARY KEY constraint violation from either
- * supported driver (Postgres 23505, SQLite SQLITE_CONSTRAINT_UNIQUE /
- * _PRIMARYKEY). Mirrors `@agent-native/core`'s internal `isUniqueViolation`
- * (kept local here rather than requiring a core export change for one insert
- * race — see `ensureDesignFilesUniqueIndex` in server/plugins/db.ts for the
- * index this is meant to catch a conflict against).
- */
-function isUniqueConstraintViolation(err: unknown): boolean {
-  const e = err as { code?: unknown; message?: unknown } | null;
-  if (e?.code === "23505") return true;
-  const code = String(e?.code ?? "");
-  if (
-    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-    code === "SQLITE_CONSTRAINT_UNIQUE"
-  ) {
-    return true;
-  }
-  const msg = String(e?.message ?? "").toLowerCase();
-  return (
-    msg.includes("unique constraint") ||
-    msg.includes("primary key constraint") ||
-    msg.includes("duplicate key")
-  );
 }
 
 function metadataMatchesRoute(

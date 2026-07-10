@@ -51,6 +51,18 @@ export function pickMimeType(): string {
  *  - `"buffered"`  — full blob assembled after stop() and uploaded in slices */
 export type UploadMode = "streaming" | "buffered";
 
+/**
+ * Resumable providers advance a single byte offset, so their chunks must be
+ * sent in strict index order. Buffered uploads can retain bounded parallelism.
+ */
+export function chunkUploadParallelism(
+  uploadMode: UploadMode | undefined,
+  bufferedParallelism: number,
+): number {
+  if (uploadMode === "streaming") return 1;
+  return Math.max(1, Math.floor(bufferedParallelism));
+}
+
 /** Query params understood by the chunk-upload route
  * (`/api/uploads/:id/chunk`). This is the on-the-wire contract — the route in
  * `server/routes/api/uploads/[recordingId]/chunk.post.ts` reads exactly these. */

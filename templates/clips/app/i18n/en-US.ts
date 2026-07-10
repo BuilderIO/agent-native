@@ -373,6 +373,7 @@ const messages = {
     searchPlaceholder: "Search transcript",
     copyTranscript: "Copy transcript",
     downloadSrt: "Download .srt",
+    regenerate: "Regenerate transcript",
     cleanupRunning: "Cleaning up transcript in the background.",
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",

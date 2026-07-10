@@ -1007,7 +1007,11 @@ function getAttribute(
 
 function attributeValue(element: ParsedElement, name: string): string | null {
   const value = getAttribute(element, name)?.value;
-  if (typeof value === "string") return value;
+  // Parsed attributes contain source text, so quoted values may still carry
+  // entities emitted by an earlier deterministic patch. Decode before using
+  // them semantically or reserializing; otherwise sequential style edits turn
+  // `&quot;` into `&amp;quot;` on every pass and corrupt quoted CSS url() values.
+  if (typeof value === "string") return decodeBasicHtmlEntities(value);
   if (value === true) return "";
   return null;
 }
@@ -4384,6 +4388,13 @@ export function moveNodeBetweenDocuments(
     if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
       insertAt = destHtml.length;
     }
+    // Appending inside <body> makes the moved node a flow child of the body,
+    // exactly like the anchored `placement: "inside"` branch above. When the
+    // destination body is a flex/grid container, carrying the fragment's
+    // former absolute offsets along would leave it visually detached from
+    // the body's ordering/gap/alignment, so run the same normalization
+    // (prepareMovedFragmentForParent no-ops for non-flow bodies).
+    fragment = prepareMovedFragmentForParent(fragment, bodyEl);
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
 

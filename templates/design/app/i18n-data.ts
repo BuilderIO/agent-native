@@ -1,6 +1,11 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
+import {
+  attachLocalizedKeyboardShortcuts,
+  keyboardKeyLabels,
+  keyboardShortcutLabels,
+} from "./i18n-keyboard-shortcuts";
 import { motionDockOverrides } from "./i18n-motion";
 import zhTW from "./i18n/zh-TW";
 
@@ -264,6 +269,22 @@ const enUS = {
       right: "Right",
       justify: "Justify",
     },
+    textDecorations: {
+      underline: "Underline",
+      strikethrough: "Strikethrough",
+    },
+    textCases: {
+      none: "None",
+      uppercase: "Uppercase",
+      lowercase: "Lowercase",
+      capitalize: "Capitalize",
+    },
+    typographyDetails: {
+      basicsTab: "Basics",
+      detailsTab: "Details",
+      decorationLabel: "Decoration",
+      caseLabel: "Case",
+    },
     flexDirections: {
       row: "Row",
       column: "Column",
@@ -330,6 +351,41 @@ const enUS = {
   },
   designEditor: {
     askAgent: "Ask agent",
+    componentInstances: {
+      selectLayer: "Select layer",
+      goToMain: "Go to main component",
+      swap: "Swap instance",
+      detach: "Detach instance",
+      searchComponents: "Search components…",
+      loading: "Loading…",
+      noOtherComponents: "No other components found",
+      goToMainUnavailable: "Go to main component isn't available yet.",
+      onlyKnownInstance: "This is the only known instance of this component.",
+      resolveMainFailed: "Couldn't resolve the main component.",
+      detachFailed: "Couldn't detach this instance.",
+      detached: "Instance detached.",
+      swapFailed: "Couldn't swap this instance.",
+      swappedFor: 'Swapped for "{{name}}".',
+      openPanelNudge: "Use the Swap instance picker in the Component panel.",
+      openPanelFailed: "Could not open the component panel.",
+    },
+    makeItRealCard: {
+      open: "Open",
+      choose: "Choose",
+      connect: "Connect",
+      generating: "Generating",
+      generate: "Generate",
+      migrationFailed: "Migration failed. Please try again.",
+    },
+    componentProps: {
+      alpineTooComplexToEdit:
+        "Can’t safely edit this prop inline — this component’s Alpine state is too complex. Edit the source instead.",
+      label: "Props",
+    },
+    componentSource: {
+      editSource: "Edit component source",
+      needsConnectedApp: "Source jump needs a connected app",
+    },
     leftRail: {
       file: "File",
       agent: "Agent",
@@ -437,6 +493,12 @@ const enUS = {
       figmaPasteDescription:
         "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
       figmaPasteTarget: "Paste into the canvas",
+      figmaPasteApiKeyHint:
+        "Connect your Figma access token for exact node imports.",
+      figmaPasteMatchGuidance:
+        "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
+      figmaPasteRestLabel: "Imported via Figma API",
+      figmaPasteHtmlLabel: "Imported from clipboard preview",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
@@ -510,6 +572,122 @@ const enUS = {
       pen: "Pen",
       hand: "Hand",
       scale: "Scale",
+    },
+    keyboardShortcuts: {
+      title: "Keyboard shortcuts",
+      close: "Close keyboard shortcuts",
+      codeContext: "Code",
+      screenContext: "Screen",
+      keys: {
+        or: "or",
+        command: "Command",
+        control: "Control",
+        option: "Option",
+        alt: "Alt",
+        shift: "Shift",
+        arrowDown: "Down Arrow",
+        arrowLeft: "Left Arrow",
+        arrowRight: "Right Arrow",
+        arrowUp: "Up Arrow",
+        backspace: "Backspace",
+        delete: "Delete",
+        enter: "Enter",
+        tab: "Tab",
+        questionMark: "Question Mark",
+        backslash: "Backslash",
+        equals: "Equals",
+        minus: "Minus",
+        leftBracket: "Left Bracket",
+        rightBracket: "Right Bracket",
+      },
+      descriptions: {
+        toggleUi:
+          "Press it now to quickly hide the panes and focus on your work",
+        undo: "Step back through your most recent design change",
+        redo: "Restore the design change you just undid",
+      },
+      categories: {
+        essential: "Essential",
+        tools: "Tools",
+        view: "View",
+        zoom: "Zoom",
+        text: "Text",
+        shape: "Shape",
+        selection: "Selection",
+        cursor: "Cursor",
+        edit: "Edit",
+        transform: "Transform",
+        arrange: "Arrange",
+        components: "Components",
+        layout: "Layout",
+      },
+      commands: {
+        showShortcuts: "Show keyboard shortcuts",
+        undo: "Undo",
+        redo: "Redo",
+        moveTool: "Move tool",
+        frameTool: "Frame tool",
+        textTool: "Text tool",
+        penTool: "Pen tool",
+        handTool: "Hand tool",
+        scaleTool: "Scale tool",
+        commentTool: "Comment tool",
+        drawTool: "Draw tool",
+        showLayers: "Show layers",
+        showAssets: "Show assets",
+        toggleUi: "Show/Hide UI",
+        toggleComments: "Show or hide comments",
+        zoomIn: "Zoom in",
+        zoomOut: "Zoom out",
+        zoomReset: "Zoom to 100%",
+        zoomFit: "Zoom to fit",
+        zoomSelection: "Zoom to selection",
+        underline: "Underline",
+        strikethrough: "Strikethrough",
+        rectangle: "Rectangle",
+        ellipse: "Ellipse",
+        line: "Line",
+        arrow: "Arrow",
+        selectAll: "Select all",
+        selectParent: "Select parent",
+        enterSelection: "Enter selection",
+        nextSibling: "Next sibling",
+        previousSibling: "Previous sibling",
+        nextScreen: "Next screen",
+        previousScreen: "Previous screen",
+        nudge: "Nudge",
+        nudgeLarge: "Nudge by 10",
+        copy: "Copy",
+        copyPng: "Copy as PNG",
+        cut: "Cut",
+        paste: "Paste",
+        pasteOver: "Paste over selection",
+        copyProperties: "Copy properties",
+        pasteProperties: "Paste properties",
+        pasteReplace: "Paste to replace",
+        duplicate: "Duplicate",
+        delete: "Delete",
+        rename: "Rename",
+        find: "Find layers",
+        flipHorizontal: "Flip horizontal",
+        flipVertical: "Flip vertical",
+        swapFillStroke: "Swap fill and stroke",
+        bringForward: "Bring forward",
+        sendBackward: "Send backward",
+        bringFront: "Bring to front",
+        sendBack: "Send to back",
+        alignLeft: "Align left",
+        alignRight: "Align right",
+        alignTop: "Align top",
+        alignBottom: "Align bottom",
+        tidy: "Tidy up",
+        createComponent: "Create component",
+        detachInstance: "Detach instance",
+        group: "Group selection",
+        ungroup: "Ungroup selection",
+        frameSelection: "Frame selection",
+        autoLayout: "Add auto layout",
+      },
     },
     undo: "Undo",
     undoShortcut: "Undo (⌘Z)",
@@ -667,6 +845,13 @@ const enUS = {
       openScreenSvg: "Open a screen before exporting SVG",
       svgDownloaded: "SVG downloaded",
       svgExportError: "Could not export SVG",
+      figmaSvgCopied: "Copied as Figma SVG",
+      figmaSvgUnsupported:
+        "This browser can't copy SVG images to the clipboard",
+      figmaSvgBlocked: "Allow clipboard access to copy this SVG",
+      figmaSvgWriteError: "Could not copy SVG to the clipboard",
+      figmaSvgRenderError: "Could not create the Figma SVG",
+      figmaSvgExportError: "Could not export Figma SVG",
       screenDuplicated: "Screen duplicated",
       screenDuplicateError: "Could not duplicate screen",
       copied: "Copied",
@@ -849,6 +1034,7 @@ const enUS = {
     clearedAllAnnotations: "Cleared all annotations",
     undo: "Undo",
     send: "Send",
+    sendingDrawing: "Sending…",
     commentSent: "Comment sent",
     comment: "Comment",
     annotationQueue: "Annotation queue",
@@ -1196,6 +1382,17 @@ function mergeMessages(overrides: PartialMessages): Messages {
   return deepMerge(enUS, overrides);
 }
 
+function mergeLocalizedMessages(
+  locale: Exclude<LocaleCode, "en-US">,
+  overrides: PartialMessages,
+): Messages {
+  return attachLocalizedKeyboardShortcuts(
+    mergeMessages(overrides),
+    keyboardShortcutLabels[locale],
+    keyboardKeyLabels[locale],
+  );
+}
+
 function mergePartialMessages(
   ...overrides: PartialMessages[]
 ): PartialMessages {
@@ -1281,6 +1478,22 @@ const designLocaleOverrides = {
         center: "中心",
         right: "正确的",
         justify: "证明合法",
+      },
+      textDecorations: {
+        underline: "下划线",
+        strikethrough: "删除线",
+      },
+      textCases: {
+        none: "无",
+        uppercase: "大写",
+        lowercase: "小写",
+        capitalize: "首字母大写",
+      },
+      typographyDetails: {
+        basicsTab: "基础",
+        detailsTab: "详细信息",
+        decorationLabel: "装饰",
+        caseLabel: "大小写",
       },
       flexDirections: {
         row: "排",
@@ -1642,6 +1855,22 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Bien",
         justify: "Justificar",
+      },
+      textDecorations: {
+        underline: "Subrayado",
+        strikethrough: "Tachado",
+      },
+      textCases: {
+        none: "Ninguno",
+        uppercase: "Mayúsculas",
+        lowercase: "Minúsculas",
+        capitalize: "Capitalizar",
+      },
+      typographyDetails: {
+        basicsTab: "Básicos",
+        detailsTab: "Detalles",
+        decorationLabel: "Decoración",
+        caseLabel: "Mayúsculas y minúsculas",
       },
       flexDirections: {
         row: "Fila",
@@ -2025,6 +2254,22 @@ const designLocaleOverrides = {
         center: "Centre",
         right: "Droite",
         justify: "Justifier",
+      },
+      textDecorations: {
+        underline: "Souligné",
+        strikethrough: "Barré",
+      },
+      textCases: {
+        none: "Aucun",
+        uppercase: "Majuscules",
+        lowercase: "Minuscules",
+        capitalize: "Première lettre en majuscule",
+      },
+      typographyDetails: {
+        basicsTab: "Bases",
+        detailsTab: "Détails",
+        decorationLabel: "Décoration",
+        caseLabel: "Casse",
       },
       flexDirections: {
         row: "Rangée",
@@ -2412,6 +2657,22 @@ const designLocaleOverrides = {
         center: "Center",
         right: "Rechts",
         justify: "Rechtfertigen",
+      },
+      textDecorations: {
+        underline: "Unterstrichen",
+        strikethrough: "Durchgestrichen",
+      },
+      textCases: {
+        none: "Keine",
+        uppercase: "Großbuchstaben",
+        lowercase: "Kleinbuchstaben",
+        capitalize: "Großschreibung",
+      },
+      typographyDetails: {
+        basicsTab: "Grundlagen",
+        detailsTab: "Details",
+        decorationLabel: "Dekoration",
+        caseLabel: "Groß-/Kleinschreibung",
       },
       flexDirections: {
         row: "Reihe",
@@ -2801,6 +3062,22 @@ const designLocaleOverrides = {
         right: "右",
         justify: "正当化する",
       },
+      textDecorations: {
+        underline: "下線",
+        strikethrough: "取り消し線",
+      },
+      textCases: {
+        none: "なし",
+        uppercase: "大文字",
+        lowercase: "小文字",
+        capitalize: "先頭を大文字にする",
+      },
+      typographyDetails: {
+        basicsTab: "基本",
+        detailsTab: "詳細",
+        decorationLabel: "装飾",
+        caseLabel: "大文字/小文字",
+      },
       flexDirections: {
         row: "行",
         column: "カラム",
@@ -3184,6 +3461,22 @@ const designLocaleOverrides = {
         right: "오른쪽",
         justify: "신이 옳다고 하다",
       },
+      textDecorations: {
+        underline: "밑줄",
+        strikethrough: "취소선",
+      },
+      textCases: {
+        none: "없음",
+        uppercase: "대문자",
+        lowercase: "소문자",
+        capitalize: "첫 글자만 대문자",
+      },
+      typographyDetails: {
+        basicsTab: "기본",
+        detailsTab: "세부 정보",
+        decorationLabel: "장식",
+        caseLabel: "대소문자",
+      },
       flexDirections: {
         row: "열",
         column: "열",
@@ -3559,6 +3852,22 @@ const designLocaleOverrides = {
         center: "Centro",
         right: "Certo",
         justify: "Justificar",
+      },
+      textDecorations: {
+        underline: "Sublinhado",
+        strikethrough: "Tachado",
+      },
+      textCases: {
+        none: "Nenhum",
+        uppercase: "Maiúsculas",
+        lowercase: "Minúsculas",
+        capitalize: "Capitalizar",
+      },
+      typographyDetails: {
+        basicsTab: "Básico",
+        detailsTab: "Detalhes",
+        decorationLabel: "Decoração",
+        caseLabel: "Maiúsculas e minúsculas",
       },
       flexDirections: {
         row: "Linha",
@@ -3943,6 +4252,22 @@ const designLocaleOverrides = {
         right: "सही",
         justify: "औचित्य",
       },
+      textDecorations: {
+        underline: "रेखांकित",
+        strikethrough: "स्ट्राइकथ्रू",
+      },
+      textCases: {
+        none: "कोई नहीं",
+        uppercase: "बड़े अक्षर",
+        lowercase: "छोटे अक्षर",
+        capitalize: "पहला अक्षर बड़ा",
+      },
+      typographyDetails: {
+        basicsTab: "बुनियादी बातें",
+        detailsTab: "विवरण",
+        decorationLabel: "सजावट",
+        caseLabel: "बड़े/छोटे अक्षर",
+      },
       flexDirections: {
         row: "पंक्ति",
         column: "स्तंभ",
@@ -4316,6 +4641,22 @@ const designLocaleOverrides = {
         center: "مركز",
         right: "يمين",
         justify: "يبرر",
+      },
+      textDecorations: {
+        underline: "تسطير",
+        strikethrough: "يتوسطه خط",
+      },
+      textCases: {
+        none: "بلا",
+        uppercase: "أحرف كبيرة",
+        lowercase: "أحرف صغيرة",
+        capitalize: "بدء الكلمات بحرف كبير",
+      },
+      typographyDetails: {
+        basicsTab: "أساسيات",
+        detailsTab: "التفاصيل",
+        decorationLabel: "زخرفة",
+        caseLabel: "حالة الأحرف",
       },
       flexDirections: {
         row: "صف",
@@ -4700,6 +5041,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "已清除所有批注",
       undo: "撤消",
       send: "发送",
+      sendingDrawing: "正在发送…",
       commentSent: "评论已发送",
       comment: "评论",
     },
@@ -4854,6 +5196,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "Se borraron todas las anotaciones",
       undo: "Deshacer",
       send: "Enviar",
+      sendingDrawing: "Enviando…",
       commentSent: "Comentario enviado",
       comment: "Comentario",
     },
@@ -5009,6 +5352,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "Toutes les annotations ont été effacées",
       undo: "Annuler",
       send: "Envoyer",
+      sendingDrawing: "Envoi…",
       commentSent: "Commentaire envoyé",
       comment: "Commentaire",
     },
@@ -5165,6 +5509,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "Alle Anmerkungen gelöscht",
       undo: "Rückgängig",
       send: "Senden",
+      sendingDrawing: "Wird gesendet …",
       commentSent: "Kommentar gesendet",
       comment: "Kommentar",
     },
@@ -5317,6 +5662,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "すべての注釈を消去しました",
       undo: "元に戻す",
       send: "送信",
+      sendingDrawing: "送信中…",
       commentSent: "コメントを送信しました",
       comment: "コメント",
     },
@@ -5467,6 +5813,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "모든 주석이 지워졌습니다",
       undo: "실행 취소",
       send: "보내기",
+      sendingDrawing: "전송 중…",
       commentSent: "댓글을 보냈습니다",
       comment: "댓글",
     },
@@ -5621,6 +5968,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "Todas as anotações foram limpas",
       undo: "Desfazer",
       send: "Enviar",
+      sendingDrawing: "Enviando…",
       commentSent: "Comentário enviado",
       comment: "Comentário",
     },
@@ -5772,6 +6120,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
       undo: "पूर्ववत करें",
       send: "भेजें",
+      sendingDrawing: "भेजा जा रहा है…",
       commentSent: "टिप्पणी भेजी गई",
       comment: "टिप्पणी",
     },
@@ -5922,6 +6271,7 @@ const designRawLiteralOverrides = {
       clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
       undo: "تراجع",
       send: "إرسال",
+      sendingDrawing: "جارٍ الإرسال…",
       commentSent: "تم إرسال التعليق",
       comment: "تعليق",
     },
@@ -6064,6 +6414,12 @@ const designExactEnglishOverrides = {
         pngSaveError: "无法保存 PNG",
         svgDownloaded: "SVG 已下载",
         svgExportError: "无法导出 SVG",
+        figmaSvgCopied: "已复制为 Figma SVG",
+        figmaSvgUnsupported: "此浏览器无法将 SVG 图像复制到剪贴板",
+        figmaSvgBlocked: "请允许访问剪贴板以复制此 SVG",
+        figmaSvgWriteError: "无法将 SVG 复制到剪贴板",
+        figmaSvgRenderError: "无法创建 Figma SVG",
+        figmaSvgExportError: "无法导出 Figma SVG",
         zipCreateError: "无法创建 ZIP 下载",
         zipDownloaded: "ZIP 已下载",
         zipExportError: "无法导出 ZIP",
@@ -6150,6 +6506,14 @@ const designExactEnglishOverrides = {
         pngSaveError: "No se pudo guardar PNG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
+        figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgUnsupported:
+          "Este navegador no puede copiar imágenes SVG al portapapeles",
+        figmaSvgBlocked:
+          "Permite el acceso al portapapeles para copiar este SVG",
+        figmaSvgWriteError: "No se pudo copiar el SVG al portapapeles",
+        figmaSvgRenderError: "No se pudo crear el SVG de Figma",
+        figmaSvgExportError: "No se pudo exportar el SVG de Figma",
         zipCreateError: "No se pudo crear la descarga ZIP",
         zipDownloaded: "ZIP descargado",
         zipExportError: "No se pudo exportar ZIP",
@@ -6238,6 +6602,15 @@ const designExactEnglishOverrides = {
         pngSaveError: "Impossible d’enregistrer PNG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d’exporter SVG",
+        figmaSvgCopied: "Copié en tant que SVG Figma",
+        figmaSvgUnsupported:
+          "Ce navigateur ne peut pas copier d’images SVG dans le presse-papiers",
+        figmaSvgBlocked:
+          "Autorisez l’accès au presse-papiers pour copier ce SVG",
+        figmaSvgWriteError:
+          "Impossible de copier le SVG dans le presse-papiers",
+        figmaSvgRenderError: "Impossible de créer le SVG Figma",
+        figmaSvgExportError: "Impossible d’exporter le SVG Figma",
         zipCreateError: "Impossible de créer le téléchargement ZIP",
         zipDownloaded: "ZIP téléchargé",
         zipExportError: "Impossible d’exporter ZIP",
@@ -6326,6 +6699,15 @@ const designExactEnglishOverrides = {
         pngSaveError: "PNG konnte nicht gespeichert werden",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
+        figmaSvgCopied: "Als Figma-SVG kopiert",
+        figmaSvgUnsupported:
+          "Dieser Browser kann SVG-Bilder nicht in die Zwischenablage kopieren",
+        figmaSvgBlocked:
+          "Erlauben Sie den Zugriff auf die Zwischenablage, um dieses SVG zu kopieren",
+        figmaSvgWriteError:
+          "SVG konnte nicht in die Zwischenablage kopiert werden",
+        figmaSvgRenderError: "Figma-SVG konnte nicht erstellt werden",
+        figmaSvgExportError: "Figma-SVG konnte nicht exportiert werden",
         zipCreateError: "ZIP-Download konnte nicht erstellt werden",
         zipDownloaded: "ZIP heruntergeladen",
         zipExportError: "ZIP konnte nicht exportiert werden",
@@ -6413,6 +6795,14 @@ const designExactEnglishOverrides = {
         pngSaveError: "PNG を保存できませんでした",
         svgDownloaded: "SVG をダウンロードしました",
         svgExportError: "SVG をエクスポートできませんでした",
+        figmaSvgCopied: "Figma SVG としてコピーしました",
+        figmaSvgUnsupported:
+          "このブラウザでは SVG 画像をクリップボードにコピーできません",
+        figmaSvgBlocked:
+          "この SVG をコピーするにはクリップボードへのアクセスを許可してください",
+        figmaSvgWriteError: "SVG をクリップボードにコピーできませんでした",
+        figmaSvgRenderError: "Figma SVG を作成できませんでした",
+        figmaSvgExportError: "Figma SVG をエクスポートできませんでした",
         zipCreateError: "ZIP ダウンロードを作成できませんでした",
         zipDownloaded: "ZIP をダウンロードしました",
         zipExportError: "ZIP をエクスポートできませんでした",
@@ -6498,6 +6888,13 @@ const designExactEnglishOverrides = {
         pngSaveError: "PNG를 저장할 수 없음",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없음",
+        figmaSvgCopied: "Figma SVG로 복사됨",
+        figmaSvgUnsupported:
+          "이 브라우저에서는 SVG 이미지를 클립보드에 복사할 수 없음",
+        figmaSvgBlocked: "이 SVG를 복사하려면 클립보드 접근을 허용하세요",
+        figmaSvgWriteError: "SVG를 클립보드에 복사할 수 없음",
+        figmaSvgRenderError: "Figma SVG를 만들 수 없음",
+        figmaSvgExportError: "Figma SVG를 내보낼 수 없음",
         zipCreateError: "ZIP 다운로드를 만들 수 없음",
         zipDownloaded: "ZIP 다운로드됨",
         zipExportError: "ZIP을 내보낼 수 없음",
@@ -6585,6 +6982,15 @@ const designExactEnglishOverrides = {
         pngSaveError: "Não foi possível salvar PNG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
+        figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgUnsupported:
+          "Este navegador não pode copiar imagens SVG para a área de transferência",
+        figmaSvgBlocked:
+          "Permita o acesso à área de transferência para copiar este SVG",
+        figmaSvgWriteError:
+          "Não foi possível copiar o SVG para a área de transferência",
+        figmaSvgRenderError: "Não foi possível criar o Figma SVG",
+        figmaSvgExportError: "Não foi possível exportar o Figma SVG",
         zipCreateError: "Não foi possível criar o download ZIP",
         zipDownloaded: "ZIP baixado",
         zipExportError: "Não foi possível exportar ZIP",
@@ -6669,6 +7075,13 @@ const designExactEnglishOverrides = {
         pngSaveError: "PNG सहेजा नहीं जा सका",
         svgDownloaded: "SVG डाउनलोड हुआ",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
+        figmaSvgCopied: "Figma SVG के रूप में कॉपी हुआ",
+        figmaSvgUnsupported:
+          "यह ब्राउज़र SVG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
+        figmaSvgBlocked: "इस SVG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
+        figmaSvgWriteError: "SVG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
+        figmaSvgRenderError: "Figma SVG नहीं बनाया जा सका",
+        figmaSvgExportError: "Figma SVG निर्यात नहीं किया जा सका",
         zipCreateError: "ZIP डाउनलोड नहीं बनाया जा सका",
         zipDownloaded: "ZIP डाउनलोड हुआ",
         zipExportError: "ZIP निर्यात नहीं किया जा सका",
@@ -6752,6 +7165,12 @@ const designExactEnglishOverrides = {
         pngSaveError: "تعذر حفظ PNG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
+        figmaSvgCopied: "تم النسخ كملف Figma SVG",
+        figmaSvgUnsupported: "لا يمكن لهذا المتصفح نسخ صور SVG إلى الحافظة",
+        figmaSvgBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف SVG هذا",
+        figmaSvgWriteError: "تعذر نسخ SVG إلى الحافظة",
+        figmaSvgRenderError: "تعذر إنشاء Figma SVG",
+        figmaSvgExportError: "تعذر تصدير Figma SVG",
         zipCreateError: "تعذر إنشاء تنزيل ZIP",
         zipDownloaded: "تم تنزيل ZIP",
         zipExportError: "تعذر تصدير ZIP",
@@ -10609,6 +11028,11 @@ const designImportOverrides = {
         figmaPasteDescription:
           "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
         figmaPasteTarget: "貼到畫布",
+        figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
+        figmaPasteMatchGuidance:
+          "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+        figmaPasteRestLabel: "透過 Figma API 匯入",
+        figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -10649,6 +11073,11 @@ const designImportOverrides = {
         figmaPasteDescription:
           "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
         figmaPasteTarget: "粘贴到画布",
+        figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
+        figmaPasteMatchGuidance:
+          "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
+        figmaPasteRestLabel: "通过 Figma API 导入",
+        figmaPasteHtmlLabel: "从剪贴板预览导入",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
@@ -10690,6 +11119,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Design importa el HTML visible del portapapeles.",
         figmaPasteTarget: "Pega en el lienzo",
+        figmaPasteApiKeyHint:
+          "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
+        figmaPasteMatchGuidance:
+          "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
+        figmaPasteRestLabel: "Importado mediante la API de Figma",
+        figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
           "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
@@ -10733,6 +11168,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Design importe le HTML visible du presse-papiers.",
         figmaPasteTarget: "Collez dans le canevas",
+        figmaPasteApiKeyHint:
+          "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
+        figmaPasteMatchGuidance:
+          "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
+        figmaPasteRestLabel: "Importé via l'API Figma",
+        figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
           "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
@@ -10776,6 +11217,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Design importiert das sichtbare Zwischenablage-HTML.",
         figmaPasteTarget: "In die Leinwand einfügen",
+        figmaPasteApiKeyHint:
+          "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
+        figmaPasteMatchGuidance:
+          "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
+        figmaPasteRestLabel: "Über die Figma-API importiert",
+        figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
@@ -10818,6 +11265,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。Design は表示されているクリップボード HTML をインポートします。",
         figmaPasteTarget: "キャンバスに貼り付け",
+        figmaPasteApiKeyHint:
+          "正確なノードインポートのために Figma アクセストークンを接続してください。",
+        figmaPasteMatchGuidance:
+          "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
+        figmaPasteRestLabel: "Figma API 経由でインポート",
+        figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
@@ -10861,6 +11314,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. Design은 보이는 클립보드 HTML을 가져옵니다.",
         figmaPasteTarget: "캔버스에 붙여넣기",
+        figmaPasteApiKeyHint:
+          "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
+        figmaPasteMatchGuidance:
+          "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
+        figmaPasteRestLabel: "Figma API로 가져옴",
+        figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
@@ -10904,6 +11363,13 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Copie um frame ou camada no Figma e cole na tela do Design. O Design importa o HTML visível da área de transferência.",
         figmaPasteTarget: "Cole na tela",
+        figmaPasteApiKeyHint:
+          "Conecte seu token de acesso do Figma para importações exatas de nós.",
+        figmaPasteMatchGuidance:
+          "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
+        figmaPasteRestLabel: "Importado via API do Figma",
+        figmaPasteHtmlLabel:
+          "Importado da pré-visualização da área de transferência",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
           "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
@@ -10947,6 +11413,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। Design visible clipboard HTML import करता है।",
         figmaPasteTarget: "canvas में paste करें",
+        figmaPasteApiKeyHint:
+          "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
+        figmaPasteMatchGuidance:
+          "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
+        figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
+        figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
@@ -10989,6 +11461,12 @@ const designImportOverrides = {
         figmaPasteDescription:
           "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يستورد Design HTML المرئي من الحافظة.",
         figmaPasteTarget: "الصق في اللوحة",
+        figmaPasteApiKeyHint:
+          "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
+        figmaPasteMatchGuidance:
+          "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
+        figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
+        figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
@@ -12478,9 +12956,424 @@ const designRuntimeIdentityAndBridgeOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+// zh-TW strings for designEditor.componentInstances live in app/i18n/zh-TW.ts
+// (the full zh-TW locale file), not here.
+const designComponentInstanceOverrides = {
+  "zh-CN": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "选择图层",
+        goToMain: "转到主组件",
+        swap: "交换实例",
+        detach: "分离实例",
+        searchComponents: "搜索组件…",
+        loading: "正在加载…",
+        noOtherComponents: "未找到其他组件",
+        goToMainUnavailable: "目前无法转到主组件。",
+        onlyKnownInstance: "这是此组件唯一已知的实例。",
+        resolveMainFailed: "无法解析主组件。",
+        detachFailed: "无法分离此实例。",
+        detached: "实例已分离。",
+        swapFailed: "无法交换此实例。",
+        swappedFor: "已交换为“{{name}}”。",
+        openPanelNudge: "请使用“组件”面板中的“交换实例”选择器。",
+        openPanelFailed: "无法打开组件面板。",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "Seleccionar capa",
+        goToMain: "Ir al componente principal",
+        swap: "Intercambiar instancia",
+        detach: "Desvincular instancia",
+        searchComponents: "Buscar componentes…",
+        loading: "Cargando…",
+        noOtherComponents: "No se encontraron otros componentes",
+        goToMainUnavailable:
+          "Ir al componente principal todavía no está disponible.",
+        onlyKnownInstance:
+          "Esta es la única instancia conocida de este componente.",
+        resolveMainFailed: "No se pudo resolver el componente principal.",
+        detachFailed: "No se pudo desvincular esta instancia.",
+        detached: "Instancia desvinculada.",
+        swapFailed: "No se pudo intercambiar esta instancia.",
+        swappedFor: 'Se intercambió por "{{name}}".',
+        openPanelNudge:
+          "Usa el selector Intercambiar instancia del panel Componente.",
+        openPanelFailed: "No se pudo abrir el panel Componente.",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "Sélectionner un calque",
+        goToMain: "Accéder au composant principal",
+        swap: "Permuter l’instance",
+        detach: "Détacher l’instance",
+        searchComponents: "Rechercher des composants…",
+        loading: "Chargement…",
+        noOtherComponents: "Aucun autre composant trouvé",
+        goToMainUnavailable:
+          "L’accès au composant principal n’est pas encore disponible.",
+        onlyKnownInstance:
+          "Il s’agit de la seule instance connue de ce composant.",
+        resolveMainFailed: "Impossible de résoudre le composant principal.",
+        detachFailed: "Impossible de détacher cette instance.",
+        detached: "Instance détachée.",
+        swapFailed: "Impossible de permuter cette instance.",
+        swappedFor: "Instance remplacée par « {{name}} ».",
+        openPanelNudge:
+          "Utilisez le sélecteur Permuter l’instance dans le panneau Composant.",
+        openPanelFailed: "Impossible d’ouvrir le panneau Composant.",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "Ebene auswählen",
+        goToMain: "Zur Hauptkomponente",
+        swap: "Instanz austauschen",
+        detach: "Instanz lösen",
+        searchComponents: "Komponenten suchen…",
+        loading: "Wird geladen…",
+        noOtherComponents: "Keine weiteren Komponenten gefunden",
+        goToMainUnavailable: "Die Hauptkomponente ist noch nicht verfügbar.",
+        onlyKnownInstance:
+          "Dies ist die einzige bekannte Instanz dieser Komponente.",
+        resolveMainFailed: "Die Hauptkomponente konnte nicht ermittelt werden.",
+        detachFailed: "Diese Instanz konnte nicht gelöst werden.",
+        detached: "Instanz gelöst.",
+        swapFailed: "Diese Instanz konnte nicht ausgetauscht werden.",
+        swappedFor: "Durch „{{name}}“ ersetzt.",
+        openPanelNudge:
+          "Verwende die Auswahl „Instanz austauschen“ im Komponentenbereich.",
+        openPanelFailed: "Der Komponentenbereich konnte nicht geöffnet werden.",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "レイヤーを選択",
+        goToMain: "メインコンポーネントに移動",
+        swap: "インスタンスを入れ替え",
+        detach: "インスタンスを切り離す",
+        searchComponents: "コンポーネントを検索…",
+        loading: "読み込み中…",
+        noOtherComponents: "他のコンポーネントが見つかりません",
+        goToMainUnavailable:
+          "メインコンポーネントへの移動はまだ利用できません。",
+        onlyKnownInstance:
+          "これはこのコンポーネントで確認できる唯一のインスタンスです。",
+        resolveMainFailed: "メインコンポーネントを特定できませんでした。",
+        detachFailed: "このインスタンスを切り離せませんでした。",
+        detached: "インスタンスを切り離しました。",
+        swapFailed: "このインスタンスを入れ替えられませんでした。",
+        swappedFor: "「{{name}}」に入れ替えました。",
+        openPanelNudge:
+          "コンポーネントパネルの「インスタンスを入れ替え」を使用してください。",
+        openPanelFailed: "コンポーネントパネルを開けませんでした。",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "레이어 선택",
+        goToMain: "메인 컴포넌트로 이동",
+        swap: "인스턴스 교체",
+        detach: "인스턴스 분리",
+        searchComponents: "컴포넌트 검색…",
+        loading: "불러오는 중…",
+        noOtherComponents: "다른 컴포넌트를 찾을 수 없습니다",
+        goToMainUnavailable: "메인 컴포넌트로 이동은 아직 사용할 수 없습니다.",
+        onlyKnownInstance: "이 컴포넌트에서 확인된 유일한 인스턴스입니다.",
+        resolveMainFailed: "메인 컴포넌트를 확인할 수 없습니다.",
+        detachFailed: "이 인스턴스를 분리할 수 없습니다.",
+        detached: "인스턴스를 분리했습니다.",
+        swapFailed: "이 인스턴스를 교체할 수 없습니다.",
+        swappedFor: '"{{name}}"(으)로 교체했습니다.',
+        openPanelNudge: "컴포넌트 패널의 인스턴스 교체 선택기를 사용하세요.",
+        openPanelFailed: "컴포넌트 패널을 열 수 없습니다.",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "Selecionar camada",
+        goToMain: "Ir para o componente principal",
+        swap: "Trocar instância",
+        detach: "Desvincular instância",
+        searchComponents: "Buscar componentes…",
+        loading: "Carregando…",
+        noOtherComponents: "Nenhum outro componente encontrado",
+        goToMainUnavailable:
+          "Ir para o componente principal ainda não está disponível.",
+        onlyKnownInstance:
+          "Esta é a única instância conhecida deste componente.",
+        resolveMainFailed: "Não foi possível encontrar o componente principal.",
+        detachFailed: "Não foi possível desvincular esta instância.",
+        detached: "Instância desvinculada.",
+        swapFailed: "Não foi possível trocar esta instância.",
+        swappedFor: 'Trocada por "{{name}}".',
+        openPanelNudge: "Use o seletor Trocar instância no painel Componente.",
+        openPanelFailed: "Não foi possível abrir o painel Componente.",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "लेयर चुनें",
+        goToMain: "मुख्य कॉम्पोनेंट पर जाएं",
+        swap: "इंस्टेंस बदलें",
+        detach: "इंस्टेंस अलग करें",
+        searchComponents: "कॉम्पोनेंट खोजें…",
+        loading: "लोड हो रहा है…",
+        noOtherComponents: "कोई अन्य कॉम्पोनेंट नहीं मिला",
+        goToMainUnavailable: "मुख्य कॉम्पोनेंट पर जाना अभी उपलब्ध नहीं है।",
+        onlyKnownInstance: "यह इस कॉम्पोनेंट का एकमात्र ज्ञात इंस्टेंस है।",
+        resolveMainFailed: "मुख्य कॉम्पोनेंट का पता नहीं लगाया जा सका।",
+        detachFailed: "इस इंस्टेंस को अलग नहीं किया जा सका।",
+        detached: "इंस्टेंस अलग कर दिया गया।",
+        swapFailed: "इस इंस्टेंस को बदला नहीं जा सका।",
+        swappedFor: '"{{name}}" से बदल दिया गया।',
+        openPanelNudge: "कॉम्पोनेंट पैनल में इंस्टेंस बदलें चयनकर्ता का उपयोग करें।",
+        openPanelFailed: "कॉम्पोनेंट पैनल नहीं खोला जा सका।",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      componentInstances: {
+        selectLayer: "تحديد طبقة",
+        goToMain: "الانتقال إلى المكوّن الرئيسي",
+        swap: "تبديل النسخة",
+        detach: "فصل النسخة",
+        searchComponents: "البحث عن مكوّنات…",
+        loading: "جارٍ التحميل…",
+        noOtherComponents: "لم يتم العثور على مكوّنات أخرى",
+        goToMainUnavailable: "الانتقال إلى المكوّن الرئيسي غير متاح بعد.",
+        onlyKnownInstance: "هذه هي النسخة الوحيدة المعروفة من هذا المكوّن.",
+        resolveMainFailed: "تعذر تحديد المكوّن الرئيسي.",
+        detachFailed: "تعذر فصل هذه النسخة.",
+        detached: "تم فصل النسخة.",
+        swapFailed: "تعذر تبديل هذه النسخة.",
+        swappedFor: 'تم التبديل إلى "{{name}}".',
+        openPanelNudge: "استخدم منتقي تبديل النسخة في لوحة المكوّن.",
+        openPanelFailed: "تعذر فتح لوحة المكوّن.",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
+// zh-TW strings for designEditor.makeItRealCard / componentProps /
+// componentSource live in app/i18n/zh-TW.ts (the full zh-TW locale file),
+// not here.
+const designComponentSourceOverrides = {
+  "zh-CN": {
+    designEditor: {
+      makeItRealCard: {
+        open: "打开",
+        choose: "选择",
+        connect: "连接",
+        generating: "生成中",
+        generate: "生成",
+        migrationFailed: "迁移失败，请重试。",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "无法就地安全编辑此属性——此组件的 Alpine 状态过于复杂。请改为编辑源代码。",
+        label: "属性",
+      },
+      componentSource: {
+        editSource: "编辑组件源代码",
+        needsConnectedApp: "源代码跳转需要连接应用",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      makeItRealCard: {
+        open: "Abrir",
+        choose: "Elegir",
+        connect: "Conectar",
+        generating: "Generando",
+        generate: "Generar",
+        migrationFailed: "Error en la migración. Inténtalo de nuevo.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "No se puede editar esta propiedad de forma segura en línea: el estado de Alpine de este componente es demasiado complejo. Edita el código fuente en su lugar.",
+        label: "Propiedades",
+      },
+      componentSource: {
+        editSource: "Editar código fuente del componente",
+        needsConnectedApp: "Saltar al código fuente requiere una app conectada",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      makeItRealCard: {
+        open: "Ouvrir",
+        choose: "Choisir",
+        connect: "Connecter",
+        generating: "Génération en cours",
+        generate: "Générer",
+        migrationFailed: "Échec de la migration. Veuillez réessayer.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "Impossible de modifier cette propriété en toute sécurité en ligne — l’état Alpine de ce composant est trop complexe. Modifiez plutôt le code source.",
+        label: "Propriétés",
+      },
+      componentSource: {
+        editSource: "Modifier le code source du composant",
+        needsConnectedApp:
+          "L’accès au code source nécessite une application connectée",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      makeItRealCard: {
+        open: "Öffnen",
+        choose: "Auswählen",
+        connect: "Verbinden",
+        generating: "Wird generiert",
+        generate: "Generieren",
+        migrationFailed: "Migration fehlgeschlagen. Bitte versuche es erneut.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "Diese Eigenschaft kann nicht sicher inline bearbeitet werden – der Alpine-Zustand dieser Komponente ist zu komplex. Bearbeite stattdessen den Quellcode.",
+        label: "Eigenschaften",
+      },
+      componentSource: {
+        editSource: "Komponentenquelle bearbeiten",
+        needsConnectedApp:
+          "Für den Sprung zur Quelle ist eine verbundene App erforderlich",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      makeItRealCard: {
+        open: "開く",
+        choose: "選択",
+        connect: "接続",
+        generating: "生成中",
+        generate: "生成",
+        migrationFailed: "移行に失敗しました。もう一度お試しください。",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "このプロパティはインラインで安全に編集できません — このコンポーネントの Alpine の状態が複雑すぎます。代わりにソースを編集してください。",
+        label: "プロパティ",
+      },
+      componentSource: {
+        editSource: "コンポーネントのソースを編集",
+        needsConnectedApp: "ソースへのジャンプには接続済みアプリが必要です",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      makeItRealCard: {
+        open: "열기",
+        choose: "선택",
+        connect: "연결",
+        generating: "생성 중",
+        generate: "생성",
+        migrationFailed: "마이그레이션에 실패했습니다. 다시 시도해 주세요.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "이 속성은 인라인으로 안전하게 편집할 수 없습니다 — 이 컴포넌트의 Alpine 상태가 너무 복잡합니다. 대신 소스를 편집하세요.",
+        label: "속성",
+      },
+      componentSource: {
+        editSource: "컴포넌트 소스 편집",
+        needsConnectedApp: "소스로 이동하려면 연결된 앱이 필요합니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      makeItRealCard: {
+        open: "Abrir",
+        choose: "Escolher",
+        connect: "Conectar",
+        generating: "Gerando",
+        generate: "Gerar",
+        migrationFailed: "Falha na migração. Tente novamente.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "Não é possível editar esta propriedade com segurança embutida — o estado Alpine deste componente é complexo demais. Edite o código-fonte em vez disso.",
+        label: "Propriedades",
+      },
+      componentSource: {
+        editSource: "Editar código-fonte do componente",
+        needsConnectedApp:
+          "Ir para o código-fonte exige um aplicativo conectado",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      makeItRealCard: {
+        open: "खोलें",
+        choose: "चुनें",
+        connect: "कनेक्ट करें",
+        generating: "जनरेट हो रहा है",
+        generate: "जनरेट करें",
+        migrationFailed: "माइग्रेशन विफल रहा। कृपया फिर से कोशिश करें।",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "इस प्रॉप को इनलाइन सुरक्षित रूप से संपादित नहीं किया जा सकता — इस कॉम्पोनेंट की Alpine स्थिति बहुत जटिल है। इसके बजाय सोर्स संपादित करें।",
+        label: "प्रॉप्स",
+      },
+      componentSource: {
+        editSource: "कॉम्पोनेंट सोर्स संपादित करें",
+        needsConnectedApp: "सोर्स पर जाने के लिए कनेक्टेड ऐप आवश्यक है",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      makeItRealCard: {
+        open: "فتح",
+        choose: "اختيار",
+        connect: "ربط",
+        generating: "جارٍ الإنشاء",
+        generate: "إنشاء",
+        migrationFailed: "فشل الترحيل. يُرجى المحاولة مرة أخرى.",
+      },
+      componentProps: {
+        alpineTooComplexToEdit:
+          "تعذّر تعديل هذه الخاصية مضمّنًا بأمان — حالة Alpine لهذا المكوّن معقّدة جدًا. عدّل الشيفرة المصدرية بدلاً من ذلك.",
+        label: "الخصائص",
+      },
+      componentSource: {
+        editSource: "تعديل الشيفرة المصدرية للمكوّن",
+        needsConnectedApp: "الانتقال إلى المصدر يتطلب تطبيقًا متصلًا",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessages(
+  "zh-TW": mergeLocalizedMessages(
+    "zh-TW",
     mergePartialMessages(
       zhTW,
       designLeftRailOverrides["zh-TW"],
@@ -12497,7 +13390,8 @@ export const messagesByLocale = {
       motionDockOverrides["zh-TW"],
     ),
   ),
-  "zh-CN": mergeMessages(
+  "zh-CN": mergeLocalizedMessages(
+    "zh-CN",
     mergePartialMessages(
       designLocaleOverrides["zh-CN"],
       designRawLiteralOverrides["zh-CN"],
@@ -12520,6 +13414,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
+      designComponentInstanceOverrides["zh-CN"],
+      designComponentSourceOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12567,7 +13463,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "es-ES": mergeMessages(
+  "es-ES": mergeLocalizedMessages(
+    "es-ES",
     mergePartialMessages(
       designLocaleOverrides["es-ES"],
       designRawLiteralOverrides["es-ES"],
@@ -12590,6 +13487,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["es-ES"],
       motionDockOverrides["es-ES"],
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
+      designComponentInstanceOverrides["es-ES"],
+      designComponentSourceOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12639,7 +13538,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "fr-FR": mergeMessages(
+  "fr-FR": mergeLocalizedMessages(
+    "fr-FR",
     mergePartialMessages(
       designLocaleOverrides["fr-FR"],
       designRawLiteralOverrides["fr-FR"],
@@ -12662,6 +13562,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
+      designComponentInstanceOverrides["fr-FR"],
+      designComponentSourceOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12711,7 +13613,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "de-DE": mergeMessages(
+  "de-DE": mergeLocalizedMessages(
+    "de-DE",
     mergePartialMessages(
       designLocaleOverrides["de-DE"],
       designRawLiteralOverrides["de-DE"],
@@ -12734,6 +13637,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["de-DE"],
       motionDockOverrides["de-DE"],
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
+      designComponentInstanceOverrides["de-DE"],
+      designComponentSourceOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12783,7 +13688,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "ja-JP": mergeMessages(
+  "ja-JP": mergeLocalizedMessages(
+    "ja-JP",
     mergePartialMessages(
       designLocaleOverrides["ja-JP"],
       designRawLiteralOverrides["ja-JP"],
@@ -12806,6 +13712,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
+      designComponentInstanceOverrides["ja-JP"],
+      designComponentSourceOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12856,7 +13764,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "ko-KR": mergeMessages(
+  "ko-KR": mergeLocalizedMessages(
+    "ko-KR",
     mergePartialMessages(
       designLocaleOverrides["ko-KR"],
       designRawLiteralOverrides["ko-KR"],
@@ -12879,6 +13788,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
+      designComponentInstanceOverrides["ko-KR"],
+      designComponentSourceOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12927,7 +13838,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "pt-BR": mergeMessages(
+  "pt-BR": mergeLocalizedMessages(
+    "pt-BR",
     mergePartialMessages(
       designLocaleOverrides["pt-BR"],
       designRawLiteralOverrides["pt-BR"],
@@ -12950,6 +13862,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
+      designComponentInstanceOverrides["pt-BR"],
+      designComponentSourceOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12999,7 +13913,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "hi-IN": mergeMessages(
+  "hi-IN": mergeLocalizedMessages(
+    "hi-IN",
     mergePartialMessages(
       designLocaleOverrides["hi-IN"],
       designRawLiteralOverrides["hi-IN"],
@@ -13022,6 +13937,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
+      designComponentInstanceOverrides["hi-IN"],
+      designComponentSourceOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -13071,7 +13988,8 @@ export const messagesByLocale = {
       },
     ),
   ),
-  "ar-SA": mergeMessages(
+  "ar-SA": mergeLocalizedMessages(
+    "ar-SA",
     mergePartialMessages(
       designLocaleOverrides["ar-SA"],
       designRawLiteralOverrides["ar-SA"],
@@ -13094,6 +14012,8 @@ export const messagesByLocale = {
       breakpointBarOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
+      designComponentInstanceOverrides["ar-SA"],
+      designComponentSourceOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

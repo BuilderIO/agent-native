@@ -28,7 +28,10 @@ import {
   updateScrubDrag,
   type ScrubDragState,
 } from "./scrub-input-utils";
-import type { ScrubInputChangeMeta } from "./ScrubInput";
+import {
+  resolvePendingScrubCommit,
+  type ScrubInputChangeMeta,
+} from "./ScrubInput";
 
 /**
  * Minimal re-implementation of ScrubInput's pointer handlers, built from the
@@ -314,6 +317,35 @@ describe("ScrubInput — pending-commit resolution predicate (B5-14 Enter reset)
 
   it("no pending commit means normal prop-driven resync", () => {
     expect(shouldResyncFromProp(null, 16)).toBe(true);
+  });
+
+  it("keeps holding only while the incoming prop is the exact pre-commit baseline", () => {
+    expect(
+      resolvePendingScrubCommit({ value: 24, baseline: 16 }, 16, {
+        unit: "px",
+        precision: 1,
+      }),
+    ).toBe("hold");
+  });
+
+  it("accepts a different authoritative host value instead of staying stuck forever", () => {
+    // The host may clamp, normalize, reject, or replace a source write. The
+    // old equality-only guard kept showing 24 forever when 20 was the value
+    // that actually landed on canvas.
+    expect(
+      resolvePendingScrubCommit({ value: 24, baseline: 16 }, 20, {
+        unit: "px",
+        precision: 1,
+      }),
+    ).toBe("superseded");
+  });
+
+  it("recognizes a normalized echo as confirmation", () => {
+    expect(
+      resolvePendingScrubCommit({ value: 24, baseline: 16 }, 24.04, {
+        precision: 1,
+      }),
+    ).toBe("confirmed");
   });
 });
 

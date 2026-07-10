@@ -145,6 +145,11 @@ export interface UseDesignHotkeysProps {
   /** Figma's Cmd+Alt+K — create component from the current selection. */
   onCreateComponent?: DesignHotkeyHandler;
   /**
+   * Figma's Cmd+Alt+B — Detach instance: convert the selected component
+   * instance into a plain, unlinked element.
+   */
+  onDetachInstance?: DesignHotkeyHandler;
+  /**
    * Figma's plain digit 1-9 / 0 — set selection opacity (10-90%, 0 = 100%).
    * Only fires when a layer is selected (caller decides via presence of the
    * handler / its own guard) and the event isn't a modifier combo or an
@@ -156,6 +161,12 @@ export interface UseDesignHotkeysProps {
   onToggleHidden?: DesignHotkeyHandler;
   /** Figma's Cmd+Shift+L — toggle lock/unlock for the current selection. */
   onToggleLocked?: DesignHotkeyHandler;
+  /** Figma's Cmd+U — toggle underline on the current text selection. */
+  onToggleUnderline?: DesignHotkeyHandler;
+  /** Figma's Cmd+Shift+X — toggle strikethrough on the current text
+   *  selection. Checked before plain Cmd+X (cut) so the shift-held combo
+   *  doesn't fall through to cut. */
+  onToggleStrikethrough?: DesignHotkeyHandler;
   /** Figma's Shift+H — flip the current selection horizontally. */
   onFlipHorizontal?: DesignHotkeyHandler;
   /** Figma's Shift+V — flip the current selection vertically. */
@@ -197,6 +208,8 @@ export interface UseDesignHotkeysProps {
   onToggleUi?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
+  /** Figma's Ctrl+Shift+? — open the keyboard-shortcuts reference panel. */
+  onShowKeyboardShortcuts?: DesignHotkeyHandler;
 }
 
 const TOOL_SHORTCUTS: Record<
@@ -269,6 +282,15 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
+  return (
+    (event.ctrlKey || event.metaKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    normalizedKey(event) === "?"
+  );
+}
+
 function isFocusableChromeTarget(target: EventTarget | null) {
   if (!target || typeof Element === "undefined") return false;
   if (!(target instanceof Element)) return false;
@@ -317,7 +339,8 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         return;
       if (
         current.ignoreEditableTargets !== false &&
-        isDesignHotkeyEditableTarget(event.target)
+        isDesignHotkeyEditableTarget(event.target) &&
+        !isShowKeyboardShortcutsHotkey(event)
       ) {
         return;
       }
@@ -336,7 +359,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
   }, [props.capture, props.enabled, props.target]);
 }
 
-function handleDesignHotkey(
+export function handleDesignHotkey(
   event: KeyboardEvent,
   props: UseDesignHotkeysProps,
 ) {
@@ -397,6 +420,12 @@ function handleDesignHotkey(
     props.onDistributeSelection({ ...details, axis });
     return true;
   };
+
+  // Keep shortcut help global, including while an inspector field or code
+  // editor owns focus. No other editing shortcut bypasses the editable guard.
+  if (isShowKeyboardShortcutsHotkey(event)) {
+    return run(props.onShowKeyboardShortcuts);
+  }
 
   if (!primary && !event.altKey && event.shiftKey) {
     // H1: shift+key variant (e.g. Shift+L → arrow tool) takes priority over
@@ -461,9 +490,9 @@ function handleDesignHotkey(
     return run(props.onDelete);
   }
 
-  // Current Figma: Cmd+Backspace ungroups. This intentionally differs from
-  // the historical Shift+Cmd+G binding and must be checked after plain
-  // Backspace deletion has been ruled out.
+  // Current Figma: Cmd+Backspace ungroups. Checked after plain Backspace
+  // deletion has been ruled out. Shift+Cmd+G (below, in the Cmd+G family) is
+  // a second, equally-supported binding for the same onUngroup handler.
   if (primary && !event.altKey && !event.shiftKey && key === "Backspace") {
     return run(props.onUngroup);
   }
@@ -487,7 +516,16 @@ function handleDesignHotkey(
   if (primary && !event.altKey && !event.shiftKey && key === "a") {
     return run(props.onSelectAll);
   }
+  // Figma's Cmd+Shift+X — toggle strikethrough. Must be checked before plain
+  // Cmd+X (cut) below, since that check doesn't itself gate on shiftKey.
+  if (primary && event.shiftKey && key === "x") {
+    return run(props.onToggleStrikethrough);
+  }
   if (primary && key === "x") return run(props.onCut);
+  // Figma's Cmd+U — toggle underline. No existing binding claims plain "u".
+  if (primary && !event.altKey && !event.shiftKey && key === "u") {
+    return run(props.onToggleUnderline);
+  }
 
   // Current Figma: Ctrl+Alt+H / Ctrl+Alt+V — distribute evenly. These use
   // literal Control even on macOS, so resolve them before the primary+V
@@ -538,11 +576,14 @@ function handleDesignHotkey(
     return run(props.onToggleLocked);
   }
   if (primary && key === "g") {
-    // Figma: ⌥⌘G is "Frame selection". Current Figma ungroups with
-    // Cmd+Backspace, so the historical Shift+Cmd+G binding is deliberately
-    // left unhandled.
+    // Figma: ⌥⌘G is "Frame selection". Current Figma's primary ungroup chord
+    // is Cmd+Backspace (see below), but Shift+Cmd+G is the long-standing
+    // historical ungroup binding and the app's own context-menu "Ungroup"
+    // item performs the identical action (handleUngroupSelection) — leaving
+    // this chord dead while the menu item works is a regression users hit,
+    // not an intentional gap. Support both bindings for ungroup.
     if (event.altKey) return run(props.onFrameSelection);
-    if (event.shiftKey) return false;
+    if (event.shiftKey) return run(props.onUngroup);
     return run(props.onGroup);
   }
 
@@ -572,6 +613,11 @@ function handleDesignHotkey(
   // H2: Cmd+Alt+K — create component from the current selection.
   if (primary && event.altKey && key === "k") {
     return run(props.onCreateComponent);
+  }
+
+  // Figma's Cmd+Alt+B — Detach instance.
+  if (primary && event.altKey && key === "b") {
+    return run(props.onDetachInstance);
   }
 
   const digit = digitFromEvent(event);

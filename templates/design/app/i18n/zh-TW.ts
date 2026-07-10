@@ -1,3 +1,9 @@
+import {
+  attachLocalizedKeyboardShortcuts,
+  keyboardKeyLabels,
+  keyboardShortcutLabels,
+} from "../i18n-keyboard-shortcuts";
+
 const messages = {
   root: {
     commandActions: "操作",
@@ -256,6 +262,22 @@ const messages = {
       right: "正確的",
       justify: "證明合法",
     },
+    textDecorations: {
+      underline: "底線",
+      strikethrough: "刪除線",
+    },
+    textCases: {
+      none: "無",
+      uppercase: "大寫",
+      lowercase: "小寫",
+      capitalize: "單字首字母大寫",
+    },
+    typographyDetails: {
+      basicsTab: "基本",
+      detailsTab: "詳細資料",
+      decorationLabel: "文字裝飾",
+      caseLabel: "大小寫",
+    },
     flexDirections: {
       row: "排",
       column: "柱子",
@@ -322,6 +344,41 @@ const messages = {
   },
   designEditor: {
     askAgent: "詢問代理",
+    componentInstances: {
+      selectLayer: "選取圖層",
+      goToMain: "前往主要元件",
+      swap: "交換實例",
+      detach: "卸離實例",
+      searchComponents: "搜尋元件…",
+      loading: "載入中…",
+      noOtherComponents: "找不到其他元件",
+      goToMainUnavailable: "目前無法前往主要元件。",
+      onlyKnownInstance: "這是此元件唯一已知的實例。",
+      resolveMainFailed: "無法解析主要元件。",
+      detachFailed: "無法卸離此實例。",
+      detached: "實例已卸離。",
+      swapFailed: "無法交換此實例。",
+      swappedFor: "已交換為「{{name}}」。",
+      openPanelNudge: "請使用「元件」面板中的「交換實例」選擇器。",
+      openPanelFailed: "無法開啟元件面板。",
+    },
+    makeItRealCard: {
+      open: "開啟",
+      choose: "選擇",
+      connect: "連接",
+      generating: "生成中",
+      generate: "生成",
+      migrationFailed: "遷移失敗，請再試一次。",
+    },
+    componentProps: {
+      alpineTooComplexToEdit:
+        "無法安全地就地編輯此屬性——此元件的 Alpine 狀態過於複雜。請改為編輯原始碼。",
+      label: "屬性",
+    },
+    componentSource: {
+      editSource: "編輯元件原始碼",
+      needsConnectedApp: "跳轉原始碼需要連接應用程式",
+    },
     breakpointBar: {
       base: "基礎",
       editBaseWidth: "編輯基礎寬度",
@@ -427,6 +484,11 @@ const messages = {
       figmaPasteDescription:
         "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
       figmaPasteTarget: "貼到畫布",
+      figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
+      figmaPasteMatchGuidance:
+        "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
+      figmaPasteRestLabel: "透過 Figma API 匯入",
+      figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
         "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
@@ -648,6 +710,12 @@ const messages = {
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
       svgExportError: "無法匯出 SVG",
+      figmaSvgCopied: "已複製為 Figma SVG",
+      figmaSvgUnsupported: "此瀏覽器無法將 SVG 圖像複製到剪貼簿",
+      figmaSvgBlocked: "請允許存取剪貼簿以複製此 SVG",
+      figmaSvgWriteError: "無法將 SVG 複製到剪貼簿",
+      figmaSvgRenderError: "無法建立 Figma SVG",
+      figmaSvgExportError: "無法匯出 Figma SVG",
       screenDuplicated: "畫面已複製",
       screenDuplicateError: "無法複製畫面",
       copied: "已複製",
@@ -798,6 +866,7 @@ const messages = {
     clearedAllAnnotations: "已清除所有批注",
     undo: "復原",
     send: "傳送",
+    sendingDrawing: "正在傳送…",
     commentSent: "評論已傳送",
     comment: "評論",
     annotationQueue: "註記佇列",
@@ -1100,4 +1169,8 @@ const messages = {
   },
 };
 
-export default messages;
+export default attachLocalizedKeyboardShortcuts(
+  messages,
+  keyboardShortcutLabels["zh-TW"],
+  keyboardKeyLabels["zh-TW"],
+);

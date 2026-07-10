@@ -21,6 +21,7 @@ import {
   RECENT_EDIT_TTL_MS,
   type AttributedRecentEdit,
   type RecentEdit,
+  type RecentEditDescriptor,
 } from "@agent-native/toolkit/collab-ui";
 import { useEffect, useRef, useState } from "react";
 
@@ -35,15 +36,77 @@ export {
 } from "@agent-native/toolkit/collab-ui";
 
 /**
+ * Hard cap on any single string carried in a recentEdits entry (quote,
+ * selector, path segment, label). Callers are expected to pass short
+ * excerpts already (existing call sites trim to 80–120 chars for a "what
+ * changed" snippet), but this is the ring's own size ceiling — a caller that
+ * forgets to trim (e.g. passing a whole paragraph/document as `quote`) must
+ * not blow up the awareness payload every connected client receives on the
+ * fast-push path, nor the `_collab_awareness` SQL row it gets mirrored into.
+ */
+const RECENT_EDIT_STRING_MAX = 500;
+
+function truncateString(value: string): string {
+  return value.length > RECENT_EDIT_STRING_MAX
+    ? value.slice(0, RECENT_EDIT_STRING_MAX)
+    : value;
+}
+
+function truncateDescriptor(
+  descriptor: RecentEditDescriptor,
+): RecentEditDescriptor {
+  // The union's last member (`{ kind: string; [key: string]: unknown }`) is an
+  // open-ended catch-all whose `kind` is a plain `string`, so a `switch` on
+  // `descriptor.kind` can't discriminate it away from the literal-kind
+  // members for the compiler — every property still type-checks as
+  // `unknown`. Read/write through an untyped view instead and lean on
+  // runtime checks; the return value is cast back to the real type below.
+  const d = descriptor as Record<string, unknown> & { kind: string };
+  if (d.kind === "text" && typeof d.quote === "string") {
+    return { ...d, quote: truncateString(d.quote) } as RecentEditDescriptor;
+  }
+  if (d.kind === "selector" && typeof d.selector === "string") {
+    return {
+      ...d,
+      selector: truncateString(d.selector),
+    } as RecentEditDescriptor;
+  }
+  if (d.kind === "paths" && Array.isArray(d.paths)) {
+    return {
+      ...d,
+      paths: d.paths.map((p) =>
+        typeof p === "string" ? truncateString(p) : p,
+      ),
+    } as RecentEditDescriptor;
+  }
+  if (d.kind === "doc") {
+    return descriptor;
+  }
+  // Open-ended shape — trim any string-valued fields defensively without
+  // knowing their names.
+  const trimmed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(d)) {
+    trimmed[key] = typeof value === "string" ? truncateString(value) : value;
+  }
+  return trimmed as RecentEditDescriptor;
+}
+
+/**
  * Append an edit to a recentEdits ring, keeping the newest
- * {@link RECENT_EDITS_MAX} entries. Pure — returns a new array.
+ * {@link RECENT_EDITS_MAX} entries. Pure — returns a new array. Descriptor
+ * strings and the label are truncated to {@link RECENT_EDIT_STRING_MAX}
+ * characters as a defensive cap on the awareness payload size.
  */
 export function appendRecentEdit(
   existing: RecentEdit[] | undefined,
   edit: RecentEdit,
 ): RecentEdit[] {
   const ring = Array.isArray(existing) ? existing.slice() : [];
-  ring.push(edit);
+  ring.push({
+    ...edit,
+    descriptor: truncateDescriptor(edit.descriptor),
+    label: edit.label ? truncateString(edit.label) : edit.label,
+  });
   if (ring.length > RECENT_EDITS_MAX) {
     ring.splice(0, ring.length - RECENT_EDITS_MAX);
   }

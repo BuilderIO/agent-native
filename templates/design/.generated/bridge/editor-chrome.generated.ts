@@ -873,11 +873,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           lineHeight: cs.lineHeight,
           letterSpacing: cs.letterSpacing,
           textAlign: cs.textAlign,
+          // Clean longhand for decoration-toggle state (Cmd+U underline /
+          // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
+          // \`textDecoration\` shorthand — see typography-helpers.ts's
+          // PERSISTENCE GOTCHA comment: reads use this clean value, writes
+          // still commit through the shorthand property name.
+          textDecorationLine: cs.textDecorationLine,
           display: cs.display,
           overflow: cs.overflow,
           flexDirection: cs.flexDirection,
           justifyContent: cs.justifyContent,
           alignItems: cs.alignItems,
+          justifyItems: cs.justifyItems,
           alignSelf: cs.alignSelf,
           flexGrow: cs.flexGrow,
           flexShrink: cs.flexShrink,
@@ -885,12 +892,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           order: cs.order,
           gridColumn: cs.gridColumn,
           gridRow: cs.gridRow,
+          gridTemplateColumns: cs.gridTemplateColumns,
+          gridTemplateRows: cs.gridTemplateRows,
+          gridAutoFlow: cs.gridAutoFlow,
           position: cs.position,
           top: cs.top,
           right: cs.right,
           bottom: cs.bottom,
           left: cs.left,
           gap: cs.gap,
+          rowGap: cs.rowGap,
+          columnGap: cs.columnGap,
           width: cs.width,
           height: cs.height,
           opacity: cs.opacity,
@@ -944,6 +956,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           width: rect.width,
           height: rect.height
         },
+        parentBoundingRect: el.parentElement ? rectInfoForElement(el.parentElement) : void 0,
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
         childElementCount: el.children ? el.children.length : 0,
@@ -1315,6 +1328,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     var selectedEl = null;
     var hoveredEl = null;
     var lastHoverInfoPostedEl = null;
+    function clearHoverGate() {
+      hoveredEl = null;
+      lastHoverInfoPostedEl = null;
+    }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
     var activeMarqueeSelection = null;
@@ -1372,6 +1389,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var spacingHatchNodesByKey = {};
     var spacingOverlayRenderKey = "";
     var activeDragCancel = null;
+    var bridgeSpaceKeyPressed = false;
+    var bridgeSpaceKeyConsumedByDrag = false;
     var activeCrossScreenStyleSnapshot = void 0;
     var spacingDrag = null;
     var lockedSelectors = [];
@@ -1379,7 +1398,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var lastEditorPointWasBlocked = false;
     function clearRuntimeSelection() {
       selectedEl = null;
-      hoveredEl = null;
+      clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
       selectedSpacingHovered = false;
@@ -1629,7 +1648,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             } catch (_err) {
             }
           }
-          hoveredEl = null;
+          clearHoverGate();
           if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
@@ -1658,7 +1677,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       applyHiddenSelectors();
       selectedEl = null;
-      hoveredEl = null;
+      clearHoverGate();
       for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
         try {
           var match = document.querySelector(activeCandidates[i]);
@@ -2829,7 +2848,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return !primary && !e.altKey && !e.shiftKey;
       }
       if (key === "Tab") return !!selectedEl;
-      if (key === "Delete" || key === "Backspace") return !primary;
+      if (key === "Delete" || key === "Backspace") {
+        if (primary) return key === "Backspace" && !e.altKey && !e.shiftKey;
+        return true;
+      }
       if (/^Arrow/.test(key || "")) return !e.altKey;
       if (primary) {
         return [
@@ -2846,8 +2868,34 @@ export const editorChromeBridgeScript: string = `"use strict";
           "-",
           "0",
           "]",
-          "["
-        ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2";
+          "[",
+          // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
+          "u",
+          // Cmd/Ctrl+F — find (onFind). Bridge's "primary" doesn't distinguish
+          // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
+          // forwarding is harmless when the host has no match for the combo.
+          "f",
+          // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
+          // onPasteToReplace) — both live under bare primary+r.
+          "r",
+          // Cmd/Ctrl+\\ — toggle UI (onToggleUi).
+          "\\\\"
+        ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2" || // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
+        // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
+        // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
+        // shortcuts the host has no bare-primary binding for — are left
+        // alone (see useDesignHotkeys.ts: both require event.shiftKey).
+        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        // (onDetachInstance / onCreateComponent). Gated on altKey so bare
+        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
+        // binding for either.
+        e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
+        // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
+        // on LITERAL Control on every platform (never remapped to Cmd), so
+        // this mirrors that exact gate instead of the generic "primary" flag
+        // — a blanket "t" entry above would otherwise swallow the common
+        // Cmd+T "new tab" browser shortcut for a combo the host never binds.
+        e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && (normalized === "h" || normalized === "t");
       }
       if (e.shiftKey && (e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2"))
         return true;
@@ -3175,8 +3223,38 @@ export const editorChromeBridgeScript: string = `"use strict";
     function openContextMenuAtEvent(e) {
       stopNativeInteraction(e);
       blurActiveTextEditor();
-      var target = elementFromEditorPoint(e.clientX, e.clientY);
-      if (!target && lastEditorPointWasBlocked) return;
+      var shieldPointerEvents = shieldOverlay.style.pointerEvents;
+      var selectionPointerEvents = selectionOverlay.style.pointerEvents;
+      var highlightPointerEvents = highlightOverlay.style.pointerEvents;
+      shieldOverlay.style.pointerEvents = "none";
+      selectionOverlay.style.pointerEvents = "none";
+      highlightOverlay.style.pointerEvents = "none";
+      var pointTargets = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [document.elementFromPoint(e.clientX, e.clientY)];
+      shieldOverlay.style.pointerEvents = shieldPointerEvents;
+      selectionOverlay.style.pointerEvents = selectionPointerEvents;
+      highlightOverlay.style.pointerEvents = highlightPointerEvents;
+      var candidateElements = [];
+      var layerCandidates = [];
+      pointTargets.forEach(function(pointTarget) {
+        if (!pointTarget || pointTarget.nodeType !== 1) return;
+        if (isOverlayElement(pointTarget)) return;
+        var candidate = selectionTargetForHit(pointTarget);
+        if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate) || candidateElements.indexOf(candidate) !== -1) {
+          return;
+        }
+        candidateElements.push(candidate);
+        var candidateInfo = getElementInfo(candidate);
+        var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
+        var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
+        var label = explicitLabel || candidateInfo.componentName || candidate.id || (textLabel && textLabel.length <= 48 ? textLabel : "") || candidate.tagName.toLowerCase();
+        var identity = candidateInfo.sourceId || candidateInfo.selector || String(layerCandidates.length);
+        layerCandidates.push({
+          key: String(identity) + ":" + String(layerCandidates.length),
+          label: String(label).slice(0, 80),
+          info: candidateInfo
+        });
+      });
+      var target = candidateElements[0] || null;
       var info = null;
       if (target) {
         selectedSpacingHovered = false;
@@ -3185,7 +3263,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           info = getElementInfo(selectedEl);
           positionOverlay(selectionOverlay, selectedEl);
-          postElementSelect(selectedEl, e);
         } else {
           selectedEl = null;
           hideSelectionOverlay();
@@ -3194,9 +3271,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.parent.postMessage(
         {
           type: "element-contextmenu",
+          screenId: designCanvasScreenId,
           clientX: e.clientX,
           clientY: e.clientY,
-          payload: info
+          payload: info,
+          layerCandidates
         },
         "*"
       );
@@ -3272,7 +3351,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = null;
         hideSelectionOverlay();
       }
-      hoveredEl = null;
+      clearHoverGate();
       highlightOverlay.style.display = "none";
       hideMeasurements();
       refreshOverlays();
@@ -4449,6 +4528,62 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    function flowMoveTargetForPoint(el, clientX, clientY, excludeEls, keepCurrentParent, ignoreTargetAutoLayout) {
+      if (!el || !el.parentElement) return null;
+      var currentParent = el.parentElement;
+      var dragged = [el].concat(excludeEls || []);
+      var parentRect = currentParent.getBoundingClientRect();
+      var pointerOutsideCurrentParent = clientX < parentRect.left || clientX > parentRect.right || clientY < parentRect.top || clientY > parentRect.bottom;
+      if (keepCurrentParent && pointerOutsideCurrentParent) {
+        var retainedSlot = nearestChildInsertionTarget(
+          currentParent,
+          clientX,
+          clientY,
+          dragged
+        );
+        return retainedSlot || {
+          anchor: currentParent,
+          placement: "inside",
+          axis: parentFlowAxis(currentParent),
+          dropMode: "flow-insert"
+        };
+      }
+      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var container = dropContainerForTarget(target);
+      if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
+        return {
+          anchor: container,
+          placement: "inside",
+          axis: parentFlowAxis(container),
+          dropMode: "absolute-container"
+        };
+      }
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
+        return {
+          anchor: document.body,
+          placement: "inside",
+          axis: "y",
+          dropMode: "absolute-container"
+        };
+      }
+      if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container)) {
+        target.needsAutoLayoutConversion = true;
+        target.conversionTarget = container;
+      }
+      return target;
+    }
+    function ignoreAutoLayoutForDropTarget(target) {
+      var container = dropContainerForTarget(target);
+      if (!target || !container || container === document.body || !isAutoLayoutElement(container)) {
+        return target;
+      }
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: parentFlowAxis(container),
+        dropMode: "absolute-container"
+      };
+    }
     function elementFromEditorPointIgnoring(clientX, clientY, ignore) {
       var ignoreList = [];
       var previousPointerEvents = [];
@@ -4651,9 +4786,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
         htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
       }
+      var afterRemoval = window.getComputedStyle(htmlEl).position;
+      if (afterRemoval === "absolute" || afterRemoval === "fixed") {
+        htmlEl.style.setProperty("position", "static", "important");
+        target.forceFlowPositionOverride = true;
+      }
     }
     function rebaseAbsoluteMemberForContainerDrop(el, target) {
       if (!el || !target || target.dropMode !== "absolute-container") return;
+      if (target.absoluteCoordinatesPrepared) return;
       var container = dropContainerForTarget(target);
       if (!container || container === document.body || container === el) return;
       if (el.contains && el.contains(container)) return;
@@ -4688,6 +4829,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       var currentTop = readPx(htmlEl.style.top || cs.top);
       htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
       htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+    }
+    function prepareFlowMembersForAbsoluteDrop(members, target, startRects, gestureStartRect, pointerOffset, clientX, clientY) {
+      if (!target || target.dropMode !== "absolute-container") return;
+      var container = dropContainerForTarget(target);
+      if (!container) return;
+      var containerRect = container.getBoundingClientRect();
+      var containerCS = window.getComputedStyle(container);
+      var containerIsBodyContainingBlock = true;
+      if (container === document.body) {
+        containerIsBodyContainingBlock = containerCS.position !== "static" || containerCS.transform !== "none" || (containerCS.getPropertyValue("translate") || "none") !== "none";
+      }
+      var originX = containerIsBodyContainingBlock ? containerRect.left + readPx(containerCS.borderLeftWidth) - container.scrollLeft : -(window.scrollX || 0);
+      var originY = containerIsBodyContainingBlock ? containerRect.top + readPx(containerCS.borderTopWidth) - container.scrollTop : -(window.scrollY || 0);
+      var desiredGestureLeft = clientX - pointerOffset.x;
+      var desiredGestureTop = clientY - pointerOffset.y;
+      var deltaX = desiredGestureLeft - gestureStartRect.left;
+      var deltaY = desiredGestureTop - gestureStartRect.top;
+      members.forEach(function(member, index) {
+        var startRect = startRects[index] || member.getBoundingClientRect();
+        var htmlEl = member;
+        htmlEl.style.position = "absolute";
+        htmlEl.style.left = Math.round(startRect.left + deltaX - originX) + "px";
+        htmlEl.style.top = Math.round(startRect.top + deltaY - originY) + "px";
+        htmlEl.style.removeProperty("right");
+        htmlEl.style.removeProperty("bottom");
+      });
+      target.absoluteCoordinatesPrepared = true;
     }
     function applyRuntimeReorder(el, target) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
@@ -4724,6 +4892,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           anchorSourceId: getSourceId(target.anchor),
           placement: target.placement,
           dropMode: target.dropMode || "flow-insert",
+          forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -4894,7 +5063,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideV.style.display = "none";
       snapGuideH.style.display = "none";
     }
-    function startMove(e, gestureElParam) {
+    function startMove(e, gestureElParam, pointerStartParam) {
       var gestureEl = gestureElParam || selectedEl;
       if (!gestureEl) return;
       if (isLayerInteractionBlocked(gestureEl)) return;
@@ -4998,7 +5167,14 @@ export const editorChromeBridgeScript: string = `"use strict";
             hideInsertionGuide();
             showTransformBadge("Move layer", cx, cy);
           } else {
-            currentTarget = reorderTargetForPoint(reorderEl, cx, cy, groupOthers);
+            currentTarget = flowMoveTargetForPoint(
+              reorderEl,
+              cx,
+              cy,
+              groupOthers,
+              keepCurrentFlowParent,
+              Boolean(ev.ctrlKey)
+            );
             showInsertionGuideFor(currentTarget);
             showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
           }
@@ -5006,6 +5182,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("keydown", onReorderKeyDown2, true);
+          document.removeEventListener("keyup", onReorderKeyUp2, true);
           clearActiveDragCancel(onReorderEscape2);
         }, onReorderEscape2 = function() {
           cleanupReorderDrag2();
@@ -5025,10 +5202,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           suppressNextShieldClickBriefly();
           return true;
         }, onReorderKeyDown2 = function(ev) {
+          if (ev.code === "Space" || ev.key === " ") {
+            keepCurrentFlowParent = true;
+            ev.preventDefault();
+            return;
+          }
           if (ev.key === "Escape") {
             stopNativeInteraction(ev);
             onReorderEscape2();
           }
+        }, onReorderKeyUp2 = function(ev) {
+          if (ev.code !== "Space" && ev.key !== " ") return;
+          keepCurrentFlowParent = false;
+          ev.preventDefault();
         }, onReorderUp2 = function(ev) {
           cleanupReorderDrag2();
           hideTransformBadge();
@@ -5056,6 +5242,14 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
           }
           if (outsideOnDrop) return;
+          currentTarget = flowMoveTargetForPoint(
+            reorderEl,
+            cx,
+            cy,
+            groupOthers,
+            keepCurrentFlowParent,
+            Boolean(ev?.ctrlKey)
+          );
           if (!currentTarget) {
             if (duplicatedForDrag && reorderEl && reorderEl !== originalSelectedEl) {
               if (reorderEl.parentElement)
@@ -5066,6 +5260,21 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             return;
           }
+          if (currentTarget.needsAutoLayoutConversion && currentTarget.conversionTarget) {
+            applyAutoLayoutConversionForDrop(
+              currentTarget.conversionTarget,
+              groupEls
+            );
+          }
+          prepareFlowMembersForAbsoluteDrop(
+            groupEls,
+            currentTarget,
+            reorderGroupStartRects,
+            reorderGestureStartRect,
+            reorderPointerOffset,
+            cx,
+            cy
+          );
           if (duplicatedForDrag) {
             applyRuntimeReorder(reorderEl, currentTarget);
             postVisualDuplicateChange(
@@ -5091,13 +5300,20 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderUp = onReorderUp2;
+        var onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
-        var currentTarget = reorderTargetForPoint(
+        var reorderGroupStartRects = groupEls.map(function(member) {
+          return member.getBoundingClientRect();
+        });
+        var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+        var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+        var currentTarget = flowMoveTargetForPoint(
           reorderEl,
           e.clientX,
           e.clientY,
-          groupOthers
+          groupOthers,
+          keepCurrentFlowParent,
+          Boolean(e.ctrlKey)
         );
         showInsertionGuideFor(currentTarget);
         var pointerOutsideIframe = false;
@@ -5105,13 +5321,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         var reorderSourceId = getSourceId(reorderEl);
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
+        var reorderPointerStart = pointerStartParam || e;
         var reorderPointerOffset = {
-          x: e.clientX - reorderRect.left,
-          y: e.clientY - reorderRect.top
+          x: reorderPointerStart.clientX - reorderRect.left,
+          y: reorderPointerStart.clientY - reorderRect.top
         };
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("keydown", onReorderKeyDown2, true);
+        document.addEventListener("keyup", onReorderKeyUp2, true);
         setActiveDragCancel(onReorderEscape2);
         return;
       }
@@ -5213,12 +5431,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideInsertionGuide();
           setMembersOpacity(null);
         } else {
-          currentAutoLayoutTarget = !duplicatedForDrag ? autoLayoutInsertionTargetForPoint(
+          currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
             ev.clientY,
             groupOthers
           ) : null;
+          if (currentAutoLayoutTarget && ev.ctrlKey) {
+            currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
+              currentAutoLayoutTarget
+            );
+          }
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
             setMembersOpacity("0.4");
@@ -5297,16 +5520,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           restoreSourceDragPosition();
           return;
         }
-        if (ev && !duplicatedForDrag && !outsideOnDrop) {
+        if (ev && !duplicatedForDrag && !outsideOnDrop && !bridgeSpaceKeyPressed) {
           var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
             ev.clientY,
             groupOthers
           );
+          if (finalAutoLayoutTarget && ev.ctrlKey) {
+            finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
+              finalAutoLayoutTarget
+            );
+          }
           if (finalAutoLayoutTarget) {
             currentAutoLayoutTarget = finalAutoLayoutTarget;
           }
+        } else if (bridgeSpaceKeyPressed) {
+          currentAutoLayoutTarget = null;
         }
         if (duplicatedForDrag && !moved) {
           if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
@@ -5395,8 +5625,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var originalInlineFontSize = resizeEl.style.fontSize;
       ensurePositionable(resizeEl);
       var cs = window.getComputedStyle(resizeEl);
-      var originW = readPx(resizeEl.style.width || cs.width);
-      var originH = readPx(resizeEl.style.height || cs.height);
+      var originW = readPx(cs.width);
+      var originH = readPx(cs.height);
       var originBorderWidth = readPx(
         resizeEl.style.borderWidth || cs.borderWidth
       );
@@ -5411,6 +5641,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var resizeTheta = currentRotation(resizeEl) * Math.PI / 180;
+      var widthTouched = false;
+      var heightTouched = false;
       function nextRect(ev) {
         var screenDx = ev.clientX - startX;
         var screenDy = ev.clientY - startY;
@@ -5473,15 +5705,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (handle.indexOf("n") !== -1 || handle.indexOf("s") !== -1)
             top = origin.top - (height - origin.height) / 2;
         }
-        return { left, top, width, height };
+        var handlesWidth = handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1;
+        var handlesHeight = handle.indexOf("n") !== -1 || handle.indexOf("s") !== -1;
+        var aspectLocked = !!(ev.shiftKey || scaleToolEnabled);
+        var touchesWidth = handlesWidth || aspectLocked && handlesHeight;
+        var touchesHeight = handlesHeight || aspectLocked && handlesWidth;
+        return {
+          left,
+          top,
+          width,
+          height,
+          touchesWidth,
+          touchesHeight
+        };
       }
       function onMove(ev) {
         if (!resizeEl) return;
         var rect = nextRect(ev);
+        if (rect.touchesWidth) widthTouched = true;
+        if (rect.touchesHeight) heightTouched = true;
         resizeEl.style.left = Math.round(rect.left) + "px";
         resizeEl.style.top = Math.round(rect.top) + "px";
-        resizeEl.style.width = Math.round(rect.width) + "px";
-        resizeEl.style.height = Math.round(rect.height) + "px";
+        if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
+        if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
         if (scaleToolEnabled) {
           var kScaleFactor = rect.width / Math.max(1, origin.width);
           if (originBorderWidth > 0) {
@@ -5537,10 +5783,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var styles = {
           position: resizeEl.style.position,
           left: resizeEl.style.left,
-          top: resizeEl.style.top,
-          width: resizeEl.style.width,
-          height: resizeEl.style.height
+          top: resizeEl.style.top
         };
+        if (widthTouched) styles.width = resizeEl.style.width;
+        if (heightTouched) styles.height = resizeEl.style.height;
         if (scaleToolEnabled && originBorderWidth > 0) {
           styles.borderWidth = resizeEl.style.borderWidth;
         }
@@ -5698,12 +5944,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         var groupGestureMember = !e.altKey ? groupMemberForGestureTarget(dragTarget) : null;
         if (groupGestureMember && collectMoveGroupMembers(groupGestureMember).length > 1) {
           suppressNextShieldClickBriefly();
-          startMove(ev, groupGestureMember);
+          startMove(ev, groupGestureMember, {
+            clientX: startX,
+            clientY: startY
+          });
           return;
         }
         selectTarget(dragTarget, ev);
         suppressNextShieldClickBriefly();
-        startMove(ev);
+        startMove(ev, void 0, { clientX: startX, clientY: startY });
       }
       function onUp(ev) {
         clearPendingShieldDrag();
@@ -5816,6 +6065,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keydown",
       function(e) {
+        if (e.key === " " && e.code === "Space" && !activeTextEditEl && !isEditorTypingTarget(e.target)) {
+          bridgeSpaceKeyPressed = true;
+          if (activeDragCancel) {
+            bridgeSpaceKeyConsumedByDrag = true;
+            stopNativeInteraction(e);
+            return;
+          }
+        }
         if (!activeTextEditEl && pendingBeginTextEdit) {
           if (!(e.isComposing || e.keyCode === 229) && !e.metaKey && !e.ctrlKey) {
             var pendingKey = e.key || "";
@@ -5916,6 +6173,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keyup",
       function(e) {
         if (e.key !== " " || e.code !== "Space") return;
+        bridgeSpaceKeyPressed = false;
+        if (bridgeSpaceKeyConsumedByDrag) {
+          bridgeSpaceKeyConsumedByDrag = false;
+          stopNativeInteraction(e);
+          return;
+        }
         if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
         stopNativeInteraction(e);
         window.parent.postMessage(
@@ -6442,7 +6705,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           updateSpacingOverlay(selectedEl);
           return;
         }
-        hoveredEl = null;
+        clearHoverGate();
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
         }
@@ -6700,13 +6963,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         if (!target) return;
-        if (target !== selectedEl) {
+        var selectionChangedByHost = target !== selectedEl;
+        if (selectionChangedByHost) {
           selectedSpacingHovered = false;
           hoveredSpacingHandleKey = "";
         }
         selectedEl = target;
         positionOverlay(selectionOverlay, target);
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
+        if (selectionChangedByHost) postElementSelect(target);
         return;
       }
       if (e.data.type === "hover-element") {
@@ -6722,7 +6987,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           hoverCandidates.push(String(e.data.selector));
         }
         if (hoverCandidates.length === 0) {
-          hoveredEl = null;
+          clearHoverGate();
           highlightOverlay.style.display = "none";
           hideMeasurements();
           return;
@@ -6752,7 +7017,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSelectionOverlay();
         }
         if (hoveredEl && isLayerInteractionBlocked(hoveredEl)) {
-          hoveredEl = null;
+          clearHoverGate();
           highlightOverlay.style.display = "none";
         }
         applyHiddenSelectors();

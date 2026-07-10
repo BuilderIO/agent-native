@@ -563,16 +563,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
-    const activateVideoSurface = useCallback(() => {
-      const v = videoRef.current;
-      if (!v) return;
-      if (!v.paused || isPlaying) {
-        pauseVideo();
-      } else {
-        requestPlay();
-      }
-      bumpControls();
-    }, [bumpControls, isPlaying, pauseVideo, requestPlay]);
+    const activateVideoSurface = useCallback(
+      (input: "mouse" | "touch") => {
+        // Match native mobile players: touching the video reveals the controls
+        // without unexpectedly pausing or resuming it. Embeds that explicitly
+        // hide their chrome keep surface-tap playback so they remain usable.
+        if (input === "touch" && !hideChrome) {
+          bumpControls();
+          return;
+        }
+
+        togglePlayback();
+        bumpControls();
+      },
+      [bumpControls, hideChrome, togglePlayback],
+    );
 
     const handlePlayerPointerDown = useCallback(
       (e: React.PointerEvent<HTMLDivElement>) => {
@@ -610,7 +615,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         e.preventDefault();
         suppressNextClickRef.current = true;
-        activateVideoSurface();
+        activateVideoSurface("touch");
       },
       [activateVideoSurface, isLoomEmbed],
     );
@@ -1115,7 +1120,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // keep their own behavior.
           if (isPlayerUiTarget(e.target)) return;
           if (isLoomEmbed) return;
-          activateVideoSurface();
+          activateVideoSurface("mouse");
         }}
       >
         {isLoomEmbed && loomIframeSrc ? (

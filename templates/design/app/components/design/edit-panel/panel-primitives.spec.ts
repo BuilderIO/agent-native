@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { resolveSpacingSideValue } from "./field-primitives";
+import { commitStylePatch, resolveSpacingSideValue } from "./field-primitives";
 import {
   normalizeLengthValue,
   propInputKeyRequiresBlurGuard,
@@ -95,5 +95,27 @@ describe("resolveSpacingSideValue", () => {
 
   it("never emits a signed-zero pixel value", () => {
     expect(resolveSpacingSideValue(-0.04)).toBe("0px");
+  });
+});
+
+describe("commitStylePatch", () => {
+  it("uses one batch callback and forwards gesture metadata", () => {
+    const single = vi.fn();
+    const batch = vi.fn();
+    const meta = { phase: "commit" as const };
+
+    commitStylePatch(
+      { position: "absolute", left: "24px" },
+      single,
+      batch,
+      meta,
+    );
+
+    expect(batch).toHaveBeenCalledOnce();
+    expect(batch).toHaveBeenCalledWith(
+      { position: "absolute", left: "24px" },
+      meta,
+    );
+    expect(single).not.toHaveBeenCalled();
   });
 });

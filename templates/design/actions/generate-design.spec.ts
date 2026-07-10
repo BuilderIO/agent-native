@@ -303,6 +303,66 @@ describe("generate-design action tool schema", () => {
   });
 });
 
+describe("generate-design: canvasFrames duplicate-target rejection", () => {
+  // mergeCanvasFramePlacements folds two placements for the same target into
+  // one canvasFrames[fileId] value (last one wins), but the mutateDesignData
+  // isApplied check verifies EVERY placedFrames entry against that single
+  // folded value, so the earlier (now-overwritten) entry always mismatches.
+  // Since the mutate callback is deterministic, every retry recomputes the
+  // same mismatch, so the action would always fail with a "concurrent write
+  // conflicts" error after burning through every retry. Reject the malformed
+  // input up front instead.
+  it("rejects two canvasFrames entries targeting the same fileId", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { fileId: "file-1", x: 0, y: 0, width: 100, height: 100 },
+        { fileId: "file-1", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects two canvasFrames entries targeting the same filename", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "index.html", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("still accepts distinct canvasFrames targets", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add screens",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html></html>",
+        },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "details.html", x: 200, y: 0, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
 describe("generate-design: existing-file update path (hash-guarded write)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -420,6 +480,112 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       (call) => (call[0] as Record<string, unknown>).fileType === "jsx",
     );
     expect(fileTypeCall).toBeDefined();
+  });
+});
+
+describe("generate-design: generation-session lock guards concurrent fan-out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue(undefined);
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  // generate-screens' own tool description recommends fanning out parallel
+  // generate-design calls per returned frame. Both calls read-modify-write
+  // the same design-generation-session:<designId> application-state key with
+  // no CAS/versioning primitive available, so without in-process
+  // serialization, whichever write lands second silently discards the first
+  // call's frame-done update (classic lost-update race). Artificial delays on
+  // the mocked readAppState/writeAppState make the race deterministic: without
+  // the lock, both reads land on the same pre-update session before either
+  // write commits.
+  it("marks both fanned-out frames done instead of losing one to a last-write-wins race", async () => {
+    const sessionStore = new Map<string, Record<string, unknown>>();
+    const key = "design-generation-session:design-1";
+    sessionStore.set(key, {
+      designId: "design-1",
+      status: "generating",
+      prompt: "Build two screens",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+        {
+          frameId: "frame-2",
+          filename: "details.html",
+          agentId: "agent-2",
+          agentName: "Nova",
+          agentColor: "blue",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+      ],
+      startedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    mocks.readAppState.mockImplementation(async (k: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return sessionStore.get(k) ?? null;
+    });
+    mocks.writeAppState.mockImplementation(
+      async (k: string, value: Record<string, unknown>) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        sessionStore.set(k, value);
+      },
+    );
+
+    await Promise.all([
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>index</body></html>",
+          },
+        ],
+      }),
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "details.html",
+            fileType: "html",
+            content: "<html><body>details</body></html>",
+          },
+        ],
+      }),
+    ]);
+
+    const finalSession = sessionStore.get(key) as {
+      status: string;
+      frames: Array<{ filename?: string; status: string }>;
+    };
+    expect(
+      finalSession.frames.find((f) => f.filename === "index.html")?.status,
+    ).toBe("done");
+    expect(
+      finalSession.frames.find((f) => f.filename === "details.html")?.status,
+    ).toBe("done");
+    expect(finalSession.status).toBe("done");
   });
 });
 

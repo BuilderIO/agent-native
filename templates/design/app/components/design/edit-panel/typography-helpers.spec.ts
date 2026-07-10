@@ -6,10 +6,14 @@ import {
   FONT_FAMILY_OPTIONS,
   FONT_WEIGHT_OPTIONS,
   isKnownFontWeight,
+  isTextDecorationLineActive,
+  nextTextDecorationLineValue,
+  parseTextDecorationLineTokens,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
   resolveFontFamilySelectValue,
   splitFontFamilyList,
+  TEXT_CASE_OPTIONS,
 } from "./typography-helpers";
 
 // ---------------------------------------------------------------------------
@@ -209,5 +213,104 @@ describe("resolveFixedResizeDimension", () => {
     expect(resolveFixedResizeDimension(undefined, true, Number.NaN)).toBe(
       "1px",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseTextDecorationLineTokens / isTextDecorationLineActive /
+// nextTextDecorationLineValue — underline/strikethrough toggle state must be
+// read off the clean `textDecorationLine` computed longhand OR the composite
+// `textDecoration` shorthand (both can appear depending on caller), and a
+// mixed selection must never be misread as "this line is active".
+// ---------------------------------------------------------------------------
+
+describe("parseTextDecorationLineTokens", () => {
+  it("returns an empty set for none/undefined/empty", () => {
+    expect(parseTextDecorationLineTokens(undefined).size).toBe(0);
+    expect(parseTextDecorationLineTokens("").size).toBe(0);
+    expect(parseTextDecorationLineTokens("none").size).toBe(0);
+  });
+
+  it("parses a single line keyword", () => {
+    expect(parseTextDecorationLineTokens("underline")).toEqual(
+      new Set(["underline"]),
+    );
+    expect(parseTextDecorationLineTokens("line-through")).toEqual(
+      new Set(["line-through"]),
+    );
+  });
+
+  it("parses multiple space-separated line keywords", () => {
+    expect(parseTextDecorationLineTokens("underline line-through")).toEqual(
+      new Set(["underline", "line-through"]),
+    );
+  });
+
+  it("picks the line keyword out of a full shorthand computed string", () => {
+    expect(
+      parseTextDecorationLineTokens("underline solid rgb(0, 0, 0)"),
+    ).toEqual(new Set(["underline"]));
+  });
+});
+
+describe("isTextDecorationLineActive", () => {
+  it("reports true only when the line is present", () => {
+    expect(isTextDecorationLineActive("underline", "underline")).toBe(true);
+    expect(isTextDecorationLineActive("underline", "line-through")).toBe(false);
+    expect(isTextDecorationLineActive("none", "underline")).toBe(false);
+    expect(isTextDecorationLineActive(undefined, "underline")).toBe(false);
+  });
+
+  it("treats a mixed-selection sentinel as inactive, never active", () => {
+    expect(isTextDecorationLineActive(MIXED_VALUE, "underline")).toBe(false);
+    expect(isTextDecorationLineActive(MIXED_VALUE, "line-through")).toBe(false);
+  });
+});
+
+describe("nextTextDecorationLineValue", () => {
+  it("turns a line on from none", () => {
+    expect(nextTextDecorationLineValue("none", "underline")).toBe("underline");
+    expect(nextTextDecorationLineValue(undefined, "underline")).toBe(
+      "underline",
+    );
+  });
+
+  it("turns a line off, falling back to none when nothing is left active", () => {
+    expect(nextTextDecorationLineValue("underline", "underline")).toBe("none");
+  });
+
+  it("adds a second line without clobbering the first", () => {
+    expect(nextTextDecorationLineValue("underline", "line-through")).toBe(
+      "underline line-through",
+    );
+  });
+
+  it("removes one of two active lines, keeping the other", () => {
+    expect(
+      nextTextDecorationLineValue("underline line-through", "underline"),
+    ).toBe("line-through");
+  });
+
+  it("treats a mixed selection as no lines active, so the click sets it uniformly", () => {
+    expect(nextTextDecorationLineValue(MIXED_VALUE, "underline")).toBe(
+      "underline",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TEXT_CASE_OPTIONS — the four text-transform notches the Case control
+// exposes must match the CSS keywords exactly (they are committed verbatim
+// through onStyleChange("textTransform", value)).
+// ---------------------------------------------------------------------------
+
+describe("TEXT_CASE_OPTIONS", () => {
+  it("exposes exactly the four supported text-transform keywords", () => {
+    expect(TEXT_CASE_OPTIONS.map((option) => option.value)).toEqual([
+      "none",
+      "uppercase",
+      "lowercase",
+      "capitalize",
+    ]);
   });
 });

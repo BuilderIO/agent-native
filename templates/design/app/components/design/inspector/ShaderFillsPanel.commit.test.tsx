@@ -197,7 +197,52 @@ describe("ShaderFillsPanel preview/commit split", () => {
     expect(mutateCalls).toHaveLength(1);
   });
 
-  it("still commits via the apply-shader mutation when onCommit is omitted (back-compat floor)", () => {
+  it("a bare pointerup with no preceding preview tick never commits (no-change click/blur regression)", () => {
+    // Simulates opening/closing a Select, clicking a checkbox, or tabbing
+    // between fields inside the tuning container: the pointerup/blur bubbles
+    // out to the wrapping div, but no descriptor actually changed. Before the
+    // dirty-flag fix, `lastAppliedRef` was seeded on mount and never cleared,
+    // so this alone re-fired the real apply-shader mutation on an unchanged
+    // descriptor.
+    const onApply = vi.fn();
+    const onCommit = vi.fn();
+
+    act(() => {
+      root.render(
+        <ShaderFillsPanel
+          descriptor={baseDescriptor}
+          onApply={onApply}
+          onCommit={onCommit}
+          onBack={() => undefined}
+        />,
+      );
+    });
+
+    const tuningContainer = container.querySelector(
+      '[data-testid="tick"]',
+    )?.parentElement;
+    expect(tuningContainer).not.toBeNull();
+
+    act(() => {
+      tuningContainer?.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true }),
+      );
+    });
+    act(() => {
+      // React implements onBlur via the native (bubbling) "focusout" event
+      // rather than "blur" (which doesn't bubble) — see React's
+      // SimpleEventPlugin.
+      tuningContainer?.dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true }),
+      );
+    });
+
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(mutateCalls).toHaveLength(0);
+  });
+
+  it("still commits via the apply-shader mutation when onCommit is omitted, but only after a preview tick", () => {
     const onApply = vi.fn();
 
     act(() => {
@@ -213,6 +258,17 @@ describe("ShaderFillsPanel preview/commit split", () => {
     const tick = container.querySelector<HTMLButtonElement>(
       '[data-testid="tick"]',
     );
+
+    // Bare pointerup first, with no preview tick yet — must not commit.
+    act(() => {
+      tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    });
+    expect(mutateCalls).toHaveLength(0);
+
+    // A real tuning tick, then pointerup ends the gesture — commits once.
+    act(() => {
+      tick?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
     act(() => {
       tick?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     });

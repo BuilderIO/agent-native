@@ -777,6 +777,46 @@ describe("DesignEditor overview layer selection", () => {
         event: "select",
       }),
     ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "selected-beta",
+        },
+        event: "select",
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "real-canvas-click",
+        },
+        event: "select",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "projected-beta-id",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "authored-beta-id",
+        },
+        resolvedLayerId: "projected-beta-id",
+        event: "select",
+      }),
+    ).toBe(true);
   });
 
   it("allows normal element selection after the creation echo has cleared", () => {

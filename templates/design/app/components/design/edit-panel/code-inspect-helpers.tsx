@@ -19,6 +19,14 @@ const VOID_HTML_TAGS = new Set([
   "wbr",
 ]);
 
+const INSPECT_CODE_MAX_INLINE_TAG_LENGTH = 48;
+
+interface ParsedOpeningTag {
+  tagName: string;
+  attributes: string[];
+  closing: ">" | "/>";
+}
+
 export function normalizedElementTagName(
   tagName: string | null | undefined,
 ): string {
@@ -72,6 +80,58 @@ export function truncateOpeningTag(openTag: string, max = 32): string {
   );
 }
 
+function parseInspectCodeOpeningTag(openTag: string): ParsedOpeningTag | null {
+  const tagMatch = /^<([a-zA-Z][\w:-]*)([\s\S]*?)(\/?>)$/.exec(openTag.trim());
+  if (!tagMatch?.[1] || (tagMatch[3] !== ">" && tagMatch[3] !== "/>")) {
+    return null;
+  }
+
+  const attributes: string[] = [];
+  const attributePattern =
+    /\s+([^\s=/>]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
+  for (const match of (tagMatch[2] ?? "").matchAll(attributePattern)) {
+    const name = match[1];
+    if (!name) continue;
+    const normalizedName = name.toLowerCase();
+    if (
+      normalizedName === "style" ||
+      normalizedName.startsWith("data-agent-native-")
+    ) {
+      continue;
+    }
+    attributes.push(`${name}${match[2] ? `=${match[2]}` : ""}`);
+  }
+
+  return {
+    tagName: tagMatch[1],
+    attributes,
+    closing: tagMatch[3],
+  };
+}
+
+/**
+ * Remove Design's runtime-only attributes, then format retained attributes to
+ * fit the Inspect Code popover without routine horizontal scrolling.
+ */
+export function formatInspectCodeOpeningTag(
+  openTag: string,
+  maxInlineLength = INSPECT_CODE_MAX_INLINE_TAG_LENGTH,
+): string {
+  const parsed = parseInspectCodeOpeningTag(openTag);
+  if (!parsed) return openTag;
+
+  const inline = `<${parsed.tagName}${
+    parsed.attributes.length ? ` ${parsed.attributes.join(" ")}` : ""
+  }${parsed.closing}`;
+  if (!parsed.attributes.length || inline.length <= maxInlineLength) {
+    return inline;
+  }
+
+  return `<${parsed.tagName}\n  ${parsed.attributes.join("\n  ")}${
+    parsed.closing
+  }`;
+}
+
 function tagNameFromOpeningTag(openTag: string): string | null {
   const match = /^<\/?\s*([a-zA-Z][\w:-]*)/.exec(openTag.trim());
   return match?.[1]?.toLowerCase() ?? null;
@@ -113,7 +173,9 @@ export function elementHtmlPreview(
     data.classes?.some((item) => item.trim()),
   );
   if (!openingTag && !hasFallbackMetadata) return null;
-  const previewOpeningTag = openingTag ?? fallbackOpeningTag(data);
+  const previewOpeningTag = formatInspectCodeOpeningTag(
+    openingTag ?? fallbackOpeningTag(data),
+  );
   const tagName =
     tagNameFromOpeningTag(previewOpeningTag) ??
     normalizedElementTagName(data.tagName);

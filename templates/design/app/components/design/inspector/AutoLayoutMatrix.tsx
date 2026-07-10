@@ -46,6 +46,25 @@ export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
 export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
+export type AutoLayoutGridTrackSizing = "fill" | "hug" | "fixed" | "custom";
+
+export interface AutoLayoutGridValue {
+  columns: number;
+  rows: number;
+  columnSizing: AutoLayoutGridTrackSizing;
+  rowSizing: AutoLayoutGridTrackSizing;
+  columnSize?: number;
+  rowSize?: number;
+  /** Exact authored values, retained for non-uniform/custom templates. */
+  columnTemplate?: string;
+  rowTemplate?: string;
+  columnGap: number;
+  rowGap: number;
+  columnsMixed?: boolean;
+  rowsMixed?: boolean;
+  columnGapMixed?: boolean;
+  rowGapMixed?: boolean;
+}
 
 /** Round to one decimal place — matches the `precision={1}` ScrubInput fields
  * advertise (e.g. X/Y position, stroke weight) so W/H commit sub-pixel values
@@ -59,6 +78,7 @@ function roundToOneDecimal(value: number): number {
  * non-flex containers; the other four map to flex direction + wrap state.
  */
 export type AutoLayoutFlow = "normal" | "vertical" | "horizontal" | "grid";
+type ResolvedAutoLayoutFlow = AutoLayoutFlow | "mixed";
 
 export interface AutoLayoutPadding {
   top: number;
@@ -71,10 +91,12 @@ export interface AutoLayoutMatrixValue {
   direction: AutoLayoutDirection;
   wrap: AutoLayoutWrap;
   alignment: AlignmentMatrixValue;
+  alignmentMixed?: boolean;
   gap: number;
   padding: AutoLayoutPadding;
   paddingLinked: boolean;
   clipContent?: boolean;
+  clipContentMixed?: boolean;
   resolvedSize?: {
     horizontal?: number;
     vertical?: number;
@@ -93,6 +115,9 @@ export interface AutoLayoutMatrixValue {
    * Optional so existing single-selection callers are unaffected.
    */
   gapMixed?: boolean;
+  gapModeMixed?: boolean;
+  /** Explicit CSS-grid tracks. Grid is a separate flow, never flex-wrap. */
+  grid?: AutoLayoutGridValue;
   /**
    * Per-side mixed flags for `padding`, same rationale as `gapMixed`. Each
    * side is independent because a multi-selection can have matching top/bottom
@@ -125,7 +150,11 @@ export interface AutoLayoutMatrixValue {
    * treated as disabled. Defaults to flex when omitted so existing callers are
    * unaffected.
    */
-  display?: "flex" | "block";
+  display?: "flex" | "grid" | "block";
+  /** True when a multi-selection disagrees on display/direction/wrap. No flow
+   * segment is shown as active and the row explicitly says Mixed until the
+   * user chooses one common flow. */
+  flowMixed?: boolean;
   /**
    * When true, the gap mode is "Auto" (CSS `justify-content: space-between`).
    * When false or omitted, gap mode is "Fixed" (a numeric gap value).
@@ -185,6 +214,10 @@ export interface AutoLayoutMatrixProps {
    * nothing until reselect).
    */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
+  onGridChange?: (
+    grid: AutoLayoutGridValue,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   onPaddingChange: (
     padding: AutoLayoutPadding,
     meta?: ScrubInputChangeMeta,
@@ -240,7 +273,7 @@ export interface AutoLayoutMatrixProps {
    * flow icon can turn auto layout off, and selecting a flex flow can turn it
    * on. Optional — when omitted the control still works in pure-flex mode.
    */
-  onDisplayChange?: (display: "flex" | "block") => void;
+  onDisplayChange?: (display: "flex" | "grid" | "block") => void;
   availableChildSizing?: Partial<
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
   >;
@@ -291,9 +324,10 @@ export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
 const SIZING_OPTIONS: AutoLayoutSizing[] = ["hug", "fill", "fixed"];
 
 /** Derive the active flow option from display + direction + wrap state. */
-function getFlowOption(value: AutoLayoutMatrixValue): AutoLayoutFlow {
+function getFlowOption(value: AutoLayoutMatrixValue): ResolvedAutoLayoutFlow {
+  if (value.flowMixed) return "mixed";
   if (value.display === "block") return "normal";
-  if (value.wrap === "wrap") return "grid";
+  if (value.display === "grid") return "grid";
   if (value.direction === "vertical") return "vertical";
   return "horizontal";
 }
@@ -304,6 +338,7 @@ export function AutoLayoutMatrix({
   onWrapChange,
   onAlignmentChange,
   onGapChange,
+  onGridChange,
   onPaddingChange,
   onPaddingLinkedChange,
   onClipContentChange,
@@ -355,8 +390,8 @@ export function AutoLayoutMatrix({
       onDisplayChange?.("block");
       return;
     }
-    // Any flex flow turns auto layout on.
-    onDisplayChange?.("flex");
+    // Grid is a distinct layout model; horizontal/vertical use flexbox.
+    onDisplayChange?.(flow === "grid" ? "grid" : "flex");
     if (flow === "vertical") {
       onDirectionChange("vertical");
       onWrapChange("nowrap");
@@ -364,9 +399,7 @@ export function AutoLayoutMatrix({
       onDirectionChange("horizontal");
       onWrapChange("nowrap");
     } else {
-      // grid → horizontal direction with wrap
-      onDirectionChange("horizontal");
-      onWrapChange("wrap");
+      // Grid tracks are controlled independently below.
     }
   };
 
@@ -376,12 +409,22 @@ export function AutoLayoutMatrix({
         {/* ── Flow ── */}
         {showChildLayoutControls ? (
           <div className="space-y-1.5">
-            <ControlLabel>
-              {"Flow" /* i18n-ignore design inspector label */}
-            </ControlLabel>
+            <div className="flex items-center justify-between gap-2">
+              <ControlLabel>
+                {"Flow" /* i18n-ignore design inspector label */}
+              </ControlLabel>
+              {value.flowMixed ? (
+                <span className="!text-[11px] text-muted-foreground">
+                  {"Mixed" /* i18n-ignore design mixed value */}
+                </span>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1.5">
               {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
-              <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+              <div
+                data-flow-value={activeFlow}
+                className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5"
+              >
                 <FlowButton
                   label={"Normal flow" /* i18n-ignore design inspector label */}
                   active={activeFlow === "normal"}
@@ -532,11 +575,19 @@ export function AutoLayoutMatrix({
         {showChildLayoutControls && !isBlock ? (
           <div className="grid grid-cols-[78px_1fr] items-start gap-3">
             <div className="space-y-1.5">
-              <ControlLabel>
-                {"Alignment" /* i18n-ignore design inspector label */}
-              </ControlLabel>
+              <div className="flex items-center justify-between gap-2">
+                <ControlLabel>
+                  {"Alignment" /* i18n-ignore design inspector label */}
+                </ControlLabel>
+                {value.alignmentMixed ? (
+                  <span className="!text-[11px] text-muted-foreground">
+                    {"Mixed" /* i18n-ignore design mixed value */}
+                  </span>
+                ) : null}
+              </div>
               <CompactAlignmentMatrix
                 value={value.alignment}
+                mixed={value.alignmentMixed}
                 onChange={onAlignmentChange}
                 direction={value.direction}
                 disabled={disabled}
@@ -544,20 +595,42 @@ export function AutoLayoutMatrix({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <ControlLabel>{copy.gap}</ControlLabel>
-              <GapField
-                value={value.gap}
-                mixed={value.gapMixed}
-                onGapChange={onGapChange}
-                onDistribute={onDistribute}
-                onGapModeChange={onGapModeChange}
-                label={copy.gap}
+            {activeFlow === "grid" && value.grid ? (
+              <GridControls
+                value={value.grid}
+                onChange={onGridChange}
                 disabled={disabled}
-                direction={value.direction}
-                gapMode={value.spaceBetween ? "auto" : "fixed"}
               />
-            </div>
+            ) : (
+              <div className="space-y-1.5">
+                <ControlLabel>{copy.gap}</ControlLabel>
+                <GapField
+                  value={value.gap}
+                  mixed={value.gapMixed}
+                  onGapChange={onGapChange}
+                  onDistribute={onDistribute}
+                  onGapModeChange={onGapModeChange}
+                  label={copy.gap}
+                  disabled={disabled}
+                  direction={value.direction}
+                  gapMode={value.spaceBetween ? "auto" : "fixed"}
+                  gapModeMixed={value.gapModeMixed}
+                />
+                {activeFlow === "horizontal" ? (
+                  <label className="flex items-center gap-2 !text-[11px] text-foreground">
+                    <Checkbox
+                      checked={value.wrap === "wrap"}
+                      disabled={disabled}
+                      onCheckedChange={(checked) =>
+                        onWrapChange(checked === true ? "wrap" : "nowrap")
+                      }
+                      className="size-3.5 rounded-[3px]"
+                    />
+                    <span>{copy.wrap}</span>
+                  </label>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -673,7 +746,11 @@ export function AutoLayoutMatrix({
         {showChildLayoutControls ? (
           <label className="flex h-6 cursor-pointer items-center gap-2 !text-[11px] text-foreground">
             <Checkbox
-              checked={Boolean(value.clipContent)}
+              checked={
+                value.clipContentMixed
+                  ? "indeterminate"
+                  : Boolean(value.clipContent)
+              }
               disabled={disabled}
               onCheckedChange={(checked) =>
                 onClipContentChange?.(checked === true)
@@ -720,6 +797,179 @@ const ALIGNMENT_CELLS: Array<{
 // Sub-components
 // ─────────────────────────────────────────────────
 
+function GridControls({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: AutoLayoutGridValue;
+  onChange?: (value: AutoLayoutGridValue, meta?: ScrubInputChangeMeta) => void;
+  disabled: boolean;
+}) {
+  const update = (
+    patch: Partial<AutoLayoutGridValue>,
+    meta?: ScrubInputChangeMeta,
+  ) => onChange?.({ ...value, ...patch }, meta);
+
+  return (
+    <div className="space-y-1.5">
+      <ControlLabel>
+        {"Grid" /* i18n-ignore design inspector label */}
+      </ControlLabel>
+      <div className="grid grid-cols-2 gap-1.5">
+        <GridNumberField
+          label={"Columns" /* i18n-ignore design inspector label */}
+          value={value.columns}
+          mixed={value.columnsMixed}
+          min={1}
+          max={24}
+          onChange={(columns, meta) => update({ columns }, meta)}
+          disabled={disabled || !onChange}
+        />
+        <GridNumberField
+          label={"Rows" /* i18n-ignore design inspector label */}
+          value={value.rows}
+          mixed={value.rowsMixed}
+          min={1}
+          max={24}
+          onChange={(rows, meta) => update({ rows }, meta)}
+          disabled={disabled || !onChange}
+        />
+        <GridTrackPicker
+          label={"Column sizing" /* i18n-ignore design inspector label */}
+          value={value.columnSizing}
+          fixedSize={value.columnSize}
+          disabled={disabled || !onChange}
+          onChange={(columnSizing) => update({ columnSizing })}
+          onFixedSizeChange={(columnSize, meta) => update({ columnSize }, meta)}
+        />
+        <GridTrackPicker
+          label={"Row sizing" /* i18n-ignore design inspector label */}
+          value={value.rowSizing}
+          fixedSize={value.rowSize}
+          disabled={disabled || !onChange}
+          onChange={(rowSizing) => update({ rowSizing })}
+          onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
+        />
+        <GridNumberField
+          label={"Column gap" /* i18n-ignore design inspector label */}
+          value={value.columnGap}
+          mixed={value.columnGapMixed}
+          min={0}
+          unit="px"
+          onChange={(columnGap, meta) => update({ columnGap }, meta)}
+          disabled={disabled || !onChange}
+        />
+        <GridNumberField
+          label={"Row gap" /* i18n-ignore design inspector label */}
+          value={value.rowGap}
+          mixed={value.rowGapMixed}
+          min={0}
+          unit="px"
+          onChange={(rowGap, meta) => update({ rowGap }, meta)}
+          disabled={disabled || !onChange}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GridNumberField({
+  label,
+  value,
+  mixed,
+  min,
+  max,
+  unit,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  mixed?: boolean;
+  min: number;
+  max?: number;
+  unit?: string;
+  onChange: (value: number, meta: ScrubInputChangeMeta) => void;
+  disabled: boolean;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={label}
+      tooltipLabel={label}
+      value={value}
+      mixed={mixed}
+      onChange={onChange}
+      unit={unit}
+      min={min}
+      max={max}
+      step={1}
+      precision={0}
+      disabled={disabled}
+      className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
+      labelClassName="h-7 w-6 justify-center overflow-hidden px-1 !text-[9px] text-muted-foreground [&>svg]:hidden"
+      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+    />
+  );
+}
+
+function GridTrackPicker({
+  label,
+  value,
+  fixedSize = 100,
+  disabled,
+  onChange,
+  onFixedSizeChange,
+}: {
+  label: string;
+  value: AutoLayoutGridTrackSizing;
+  fixedSize?: number;
+  disabled: boolean;
+  onChange: (value: AutoLayoutGridTrackSizing) => void;
+  onFixedSizeChange: (value: number, meta: ScrubInputChangeMeta) => void;
+}) {
+  return (
+    <div className="flex min-w-0 rounded-md bg-[var(--design-editor-control-bg)]">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={disabled}
+            aria-label={label}
+            className="h-7 min-w-0 flex-1 justify-start rounded-md px-2 !text-[11px] font-normal capitalize"
+          >
+            {value}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {(["fill", "hug", "fixed", "custom"] as const).map((option) => (
+            <DropdownMenuItem key={option} onSelect={() => onChange(option)}>
+              <span className="capitalize">{option}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {value === "fixed" ? (
+        <ScrubInput
+          label={label}
+          ariaLabel={`${label} size`}
+          value={fixedSize}
+          onChange={onFixedSizeChange}
+          unit="px"
+          min={0}
+          precision={0}
+          disabled={disabled}
+          className="w-14 min-w-0 gap-0"
+          labelClassName="hidden"
+          inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
@@ -729,12 +979,14 @@ const ALIGNMENT_CELLS: Array<{
  */
 function CompactAlignmentMatrix({
   value,
+  mixed = false,
   onChange,
   direction,
   disabled,
   onDistribute,
 }: {
   value: AlignmentMatrixValue;
+  mixed?: boolean;
   onChange: (value: AlignmentMatrixValue) => void;
   direction: AutoLayoutDirection;
   disabled: boolean;
@@ -747,6 +999,7 @@ function CompactAlignmentMatrix({
       <div className={cn("grid w-fit grid-cols-3 rounded-md")}>
         {ALIGNMENT_CELLS.map((cell) => {
           const active =
+            !mixed &&
             cell.horizontal === value.horizontal &&
             cell.vertical === value.vertical;
           return (
@@ -977,6 +1230,7 @@ function GapField({
   disabled,
   direction,
   gapMode = "fixed",
+  gapModeMixed = false,
 }: {
   value: number;
   /** Set for a multi-selection with differing gap values — see AutoLayoutMatrixValue.gapMixed. */
@@ -989,6 +1243,7 @@ function GapField({
   disabled: boolean;
   direction: AutoLayoutDirection;
   gapMode?: "fixed" | "auto";
+  gapModeMixed?: boolean;
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -1023,7 +1278,11 @@ function GapField({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    aria-label={"Gap mode" /* i18n-ignore inspector tooltip */}
+                    aria-label={
+                      gapModeMixed
+                        ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
+                        : "Gap mode" /* i18n-ignore inspector tooltip */
+                    }
                     disabled={disabled}
                     className={cn(
                       "flex h-7 w-6 shrink-0 items-center justify-center rounded-r-md",
@@ -1046,14 +1305,14 @@ function GapField({
               sideOffset={4}
             >
               <DropdownMenuCheckboxItem
-                checked={gapMode !== "auto"}
+                checked={!gapModeMixed && gapMode !== "auto"}
                 className="text-[12px]"
                 onSelect={() => onGapModeChange?.("fixed", direction)}
               >
                 {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
-                checked={gapMode === "auto"}
+                checked={!gapModeMixed && gapMode === "auto"}
                 className="text-[12px]"
                 onSelect={() => {
                   if (onGapModeChange) {

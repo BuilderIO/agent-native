@@ -258,6 +258,28 @@ describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
     expect(finalLive.content).toContain("bg-red-500");
   });
 
+  it("preserves an unsaved caller working copy when its revision still matches the unchanged live base", async () => {
+    const workingCopy = baseDoc().replace(
+      "Sibling text",
+      "Sibling text (unsaved locally)",
+    );
+
+    const result = (await action.run({
+      designId: DESIGN_ID,
+      nodeId: "btn-1",
+      edit: { kind: "classReplace", from: "bg-blue-500", to: "bg-red-500" },
+      source: {
+        currentContent: workingCopy,
+        revision: "2026-07-06T00:00:00.000Z",
+      },
+    } as never)) as { persisted: boolean };
+
+    expect(result.persisted).toBe(true);
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toContain("Sibling text (unsaved locally)");
+    expect(finalLive.content).toContain("bg-red-500");
+  });
+
   it("rejects a persist whose expectedVersionHash is stale relative to what's live, instead of silently overwriting the concurrent writer's change", async () => {
     // Prove the CAS is a real check (not a check-against-self no-op): build
     // the exact false-CAS shape the bug had directly against

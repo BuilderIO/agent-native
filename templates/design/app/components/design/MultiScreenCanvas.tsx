@@ -152,6 +152,7 @@ const EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN: Record<
   string,
   string[][]
 > = {};
+const EMPTY_SCREEN_IDS: readonly string[] = [];
 // Shared with canvas-math.ts (DEFAULT_CANVAS_MIN_ZOOM/DEFAULT_CANVAS_MAX_ZOOM)
 // so this surface's zoom clamp lives in one place instead of being
 // redeclared locally and drifting from the shared constant.
@@ -386,6 +387,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  hiddenScreenIds = EMPTY_SCREEN_IDS,
+  lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
@@ -504,8 +507,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // error, not just a stale-closure risk). Kept in sync by the effect right
   // below the other prop/state-mirroring refs (see onGeometryChangeRef etc.).
   const effectiveToolRef = useRef<MultiScreenCanvasTool>("move");
-  const [selectedIds, setSelectedIds] = useState<string[]>(
-    selectedScreenIds ?? [],
+  const hiddenScreenIdSet = useMemo(
+    () => new Set(hiddenScreenIds),
+    [hiddenScreenIds],
+  );
+  const lockedScreenIdSet = useMemo(
+    () => new Set(lockedScreenIds),
+    [lockedScreenIds],
+  );
+  const renderedScreens = useMemo(
+    () => screens.filter((screen) => !hiddenScreenIdSet.has(screen.id)),
+    [hiddenScreenIdSet, screens],
+  );
+  const selectableScreens = useMemo(
+    () => renderedScreens.filter((screen) => !lockedScreenIdSet.has(screen.id)),
+    [lockedScreenIdSet, renderedScreens],
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    (selectedScreenIds ?? []).filter((id) =>
+      selectableScreens.some((screen) => screen.id === id),
+    ),
+  );
+  const screenIndexById = useMemo(
+    () => new Map(screens.map((screen, index) => [screen.id, index] as const)),
+    [screens],
   );
   const [boardSurfaceFocusPoint, setBoardSurfaceFocusPoint] =
     useState<Point | null>(null);
@@ -1192,7 +1217,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // to the first selected/first-on-board screen in that case. Mirror the
     // same fallback chain so the anchor matches whichever frame actually
     // drove the zoom-scale recompute.
-    const referenceId = activeId ?? selectedIds[0] ?? screens[0]?.id;
+    const referenceId =
+      (activeId && renderedScreens.some((screen) => screen.id === activeId)
+        ? activeId
+        : undefined) ??
+      selectedIds[0] ??
+      renderedScreens[0]?.id;
     const rect = surfaceRef.current?.getBoundingClientRect();
     // Prefer the `geometryById` prop over `frameGeometryRef` here: a screen
     // just created by the frame tool has its geometry committed straight
@@ -1245,10 +1275,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
-  }, [zoom, activeId]);
+  }, [zoom, activeId, renderedScreens, selectedIds]);
 
   useEffect(() => {
-    const currentIds = new Set(screens.map((screen) => screen.id));
+    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
     // B5-9: see resolveFrameGeometrySync's doc comment — this used to notify
     // the parent (onGeometryChange -> queueFrameGeometrySave) with a brand
     // new screen's disposable getInitialFrameGeometry() fallback before its
@@ -1273,13 +1303,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     updateSelectedIds((current) => {
-      const next = current.filter((id) => currentIds.has(id));
+      const next = current.filter((id) => selectableIds.has(id));
       return next.length === current.length ? current : next;
     });
   }, [
     geometryById,
     getResolvedMetadata,
     screens,
+    selectableScreens,
     updateFrameGeometry,
     updateFrameGeometryRefOnly,
     updateSelectedIds,
@@ -1314,11 +1345,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   useEffect(() => {
     if (!selectedScreenIds) return;
+    const selectableIds = new Set(selectableScreens.map((screen) => screen.id));
+    const nextSelection = selectedScreenIds.filter((id) =>
+      selectableIds.has(id),
+    );
     // Remember the selection we're pushing in from the parent so the report
     // effects above can recognise (and not echo back) the resulting change.
-    propSyncedSelectionRef.current = selectedScreenIds;
-    updateSelectedIds(() => selectedScreenIds);
-  }, [screens, selectedScreenIds, updateSelectedIds]);
+    propSyncedSelectionRef.current = nextSelection;
+    updateSelectedIds(() => nextSelection);
+  }, [selectableScreens, selectedScreenIds, updateSelectedIds]);
 
   useEffect(() => {
     if (
@@ -1329,8 +1364,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     handledSelectAllRequestRef.current = selectAllRequest;
     updateSelectedDraftIds(() => []);
-    updateSelectedIds(() => screens.map((screen) => screen.id));
-  }, [screens, selectAllRequest, updateSelectedDraftIds, updateSelectedIds]);
+    updateSelectedIds(() => selectableScreens.map((screen) => screen.id));
+  }, [
+    selectAllRequest,
+    selectableScreens,
+    updateSelectedDraftIds,
+    updateSelectedIds,
+  ]);
 
   useEffect(() => {
     if (
@@ -1385,14 +1425,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       return;
     }
-    if (!surfaceRef.current || screens.length === 0) return;
+    if (!surfaceRef.current || renderedScreens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
     const scale = zoomRef.current / 100;
-    const frames = screens.map((screen, index) => {
+    const frames = renderedScreens.map((screen) => {
       const metadata = getResolvedMetadata(screen);
       const currentGeometry =
         frameGeometryRef.current[screen.id] ??
-        getInitialFrameGeometry(index, metadata);
+        getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
       return getPreviewDeviceFrameGeometry({
         currentGeometry,
         metadata,
@@ -1401,7 +1441,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     });
     const bounds = getFrameGroupBounds(
       frames.map((geometry, index) => ({
-        id: screens[index]?.id ?? String(index),
+        id: renderedScreens[index]?.id ?? String(index),
         geometry,
       })),
     );
@@ -1421,7 +1461,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Leave a Figma-like board gutter beside the last frame for quick drops/draws,
     // and fit tall single frames so lower canvas interactions remain reachable.
     const widthFitScale =
-      screens.length > 1 && totalWidth > 0
+      renderedScreens.length > 1 && totalWidth > 0
         ? Math.max(0.1, (rect.width - 180) / totalWidth)
         : scale;
     const heightFitScale =
@@ -1500,16 +1540,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const getCurrentFrameEntries = useCallback(
     () =>
-      screens.map((screen, index) => {
+      renderedScreens.map((screen) => {
         const metadata = getResolvedMetadata(screen);
         return {
           id: screen.id,
           geometry:
             frameGeometryRef.current[screen.id] ??
-            getInitialFrameGeometry(index, metadata),
+            getInitialFrameGeometry(
+              screenIndexById.get(screen.id) ?? 0,
+              metadata,
+            ),
         };
       }),
-    [getResolvedMetadata, screens],
+    [getResolvedMetadata, renderedScreens, screenIndexById],
+  );
+
+  const getSelectableFrameEntries = useCallback(
+    () =>
+      getCurrentFrameEntries().filter(
+        (entry) => !lockedScreenIdSet.has(entry.id),
+      ),
+    [getCurrentFrameEntries, lockedScreenIdSet],
   );
 
   const getCurrentDraftEntries = useCallback(
@@ -1528,7 +1579,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const getFrameEntryAtPoint = useCallback(
     (point: Point) =>
-      findTopFrameEntryAtPoint(getCurrentFrameEntries(), point, {
+      findTopFrameEntryAtPoint(getSelectableFrameEntries(), point, {
         // Screen wrappers give this same id a large z-index boost. Geometry
         // hit testing must mirror it or drops/draws on overlapping frames can
         // persist into a visually obscured sibling.
@@ -1540,7 +1591,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ? activeId
             : screensRef.current[0]?.id),
       }),
-    [activeId, getCurrentFrameEntries],
+    [activeId, getSelectableFrameEntries],
   );
 
   // Mirrors getFrameEntryAtPoint above, but hit-tests draft primitives
@@ -2626,7 +2677,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  to collect every screen. */
   const collectLayerMarqueeCandidates = useCallback(
     async (screenIds?: Set<string>) => {
-      const frameEntries = getCurrentFrameEntries().filter(
+      const frameEntries = getSelectableFrameEntries().filter(
         (entry) => !screenIds || screenIds.has(entry.id),
       );
       const frameCandidates = await Promise.all(
@@ -2690,7 +2741,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [
       boardFileId,
       boardSurfaceRenderGeometry,
-      getCurrentFrameEntries,
+      getSelectableFrameEntries,
       getResolvedMetadata,
       requestSelectableElementInfos,
     ],
@@ -3273,7 +3324,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         setMarquee(rect);
 
         const chromeScale = chromeScaleFromZoom(zoomRef.current);
-        const hitIds = getCurrentFrameEntries()
+        const hitIds = getSelectableFrameEntries()
           .filter((entry) =>
             rotatedRectIntersects(
               rect,
@@ -3335,7 +3386,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       finishDrag,
       getCanvasPoint,
       getCurrentDraftEntries,
-      getCurrentFrameEntries,
+      getSelectableFrameEntries,
       installDragListeners,
       onLayerMarqueeSelectionChange,
       updateSelectedDraftIds,
@@ -3555,6 +3606,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         undefined,
         { nextTool: "pen" },
       );
+      // Keep the Pen tool armed after Enter/Escape/closing a path, matching
+      // Figma. The parent selection callback also receives nextTool="pen",
+      // but board primitives intentionally bypass that generic callback and
+      // asynchronous selection reconciliation can otherwise paint Move for a
+      // frame. Drive the controlled tool explicitly at the commit boundary.
+      onActiveToolChange?.("pen");
       clearActivePenPath();
     },
     [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
@@ -4768,7 +4825,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const beginFrameDrag = useCallback(
     (id: string, e: React.MouseEvent) => {
-      if (e.button !== 0 || e.shiftKey) return;
+      if (e.button !== 0 || e.shiftKey || lockedScreenIdSet.has(id)) return;
       e.preventDefault();
       e.stopPropagation();
       // Frame mousedowns stop propagation, so they never reach handleMouseDown.
@@ -5098,6 +5155,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       getCanvasPoint,
       getCurrentFrameEntries,
       installDragListeners,
+      lockedScreenIdSet,
       onPick,
       resolvePrimitiveScreenId,
       showTransformFeedback,
@@ -5111,7 +5169,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const beginResize = useCallback(
     (id: string, handle: ResizeHandle, e: React.MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || lockedScreenIdSet.has(id)) return;
       e.preventDefault();
       e.stopPropagation();
       suppressNextPick.current = true;
@@ -5480,6 +5538,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       getCurrentFrameEntries,
       getResolvedMetadata,
       installDragListeners,
+      lockedScreenIdSet,
       onPick,
       showTransformFeedback,
       updateFrameGeometry,
@@ -5499,7 +5558,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const beginRotate = useCallback(
     (id: string, e: React.MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || lockedScreenIdSet.has(id)) return;
       e.preventDefault();
       e.stopPropagation();
       suppressNextPick.current = true;
@@ -5627,6 +5686,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       getCanvasPoint,
       getCurrentFrameEntries,
       installDragListeners,
+      lockedScreenIdSet,
       onPick,
       showTransformFeedback,
       updateFrameGeometry,
@@ -5820,6 +5880,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handleFrameClick = useCallback(
     (id: string, e: React.MouseEvent<HTMLElement>) => {
       e.stopPropagation();
+      if (lockedScreenIdSet.has(id)) return;
       if (suppressNextPick.current) {
         suppressNextPick.current = false;
         return;
@@ -5848,24 +5909,42 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateSelectedIds(() => [id]);
       onPick(id);
     },
-    [activeId, onPick, updateSelectedDraftIds, updateSelectedIds],
+    [
+      activeId,
+      lockedScreenIdSet,
+      onPick,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
   );
 
   const handleFrameDoubleClick = useCallback(
     (id: string, e: React.MouseEvent<HTMLElement>) => {
       e.preventDefault();
       e.stopPropagation();
+      if (lockedScreenIdSet.has(id)) {
+        onEdit?.(id);
+        return;
+      }
       updateSelectedDraftIds(() => []);
       updateSelectedIds(() => [id]);
       onPick(id);
       onEdit?.(id);
     },
-    [onEdit, onPick, updateSelectedDraftIds, updateSelectedIds],
+    [
+      lockedScreenIdSet,
+      onEdit,
+      onPick,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
   );
 
   const beginDuplicateGesture = useCallback(
     (screen: ScreenFile, display: string, e: React.MouseEvent<HTMLElement>) => {
-      if (e.button !== 0 || !e.altKey) return;
+      if (e.button !== 0 || !e.altKey || lockedScreenIdSet.has(screen.id)) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       duplicateCleanup.current?.();
@@ -6039,6 +6118,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       finishDrag,
       getCurrentFrameEntries,
       installDragListeners,
+      lockedScreenIdSet,
       onDuplicate,
       onPick,
     ],
@@ -6993,11 +7073,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const canvasFrames = useMemo(() => {
     const cache = canvasFrameEntryCacheRef.current;
     const nextIds = new Set<string>();
-    const next = screens.map((screen, index) => {
+    const next = renderedScreens.map((screen) => {
       nextIds.add(screen.id);
       const metadata = getResolvedMetadata(screen);
       const geometry =
-        frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata);
+        frameGeometry[screen.id] ??
+        getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
       const prior = cache.get(screen.id);
       if (
         prior &&
@@ -7021,7 +7102,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     pruneResolvedMetadataCache(resolvedMetadataCacheRef.current, nextIds);
     return next;
-  }, [frameGeometry, getResolvedMetadata, screens]);
+  }, [frameGeometry, getResolvedMetadata, renderedScreens, screenIndexById]);
   // Interaction-protected screens are never eligible for LRU eviction. Active
   // screen/frame selection are the primary signals; layer selection, native
   // file-drop targeting, gradient editing, and in-flight frame transforms are
@@ -7270,6 +7351,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       <div
         ref={worldRef}
+        data-multi-screen-canvas-world
         className="pointer-events-none absolute"
         style={{
           left: 0,
@@ -7438,6 +7520,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               screen={screen}
               metadata={metadata}
               geometry={geometry}
+              locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
               cullTier={screenCullTierById.get(screen.id) ?? "visible"}
               isActive={screen.id === activeId}
@@ -8703,6 +8786,7 @@ interface ScreenProps {
   screen: ScreenFile;
   metadata: ResolvedScreenMetadata;
   geometry: FrameGeometry;
+  locked: boolean;
   isActive: boolean;
   isSelected: boolean;
   isTopScreen: boolean;
@@ -8768,6 +8852,7 @@ const Screen = memo(function Screen({
   screen,
   metadata,
   geometry,
+  locked,
   isActive,
   isSelected,
   isTopScreen,
@@ -8817,6 +8902,7 @@ const Screen = memo(function Screen({
   const [directlyHovered, setDirectlyHovered] = useState(false);
   const frameDirectlyHovered =
     (directlyHovered || isDirectlyHovered) &&
+    !locked &&
     !creationToolActive &&
     !canvasGestureActive;
   const childHoverActive =
@@ -8847,6 +8933,7 @@ const Screen = memo(function Screen({
     !suppressFrameChromeForChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
+    !locked &&
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;

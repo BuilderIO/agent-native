@@ -116,8 +116,13 @@ export function appPath(path: string): string {
   return `${route.pathname}${route.search}${route.hash}`;
 }
 
-export function designFrame(page: Page): FrameLocator {
-  return page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last().contentFrame();
+export function designFrame(page: Page, screenId?: string): FrameLocator {
+  const iframe = screenId
+    ? page.locator(
+        `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id="${screenId}"]`,
+      )
+    : page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).last();
+  return iframe.contentFrame();
 }
 
 async function selectableNodeByText(
@@ -203,6 +208,7 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
             .locator("[data-screen-shell]")
             .first()
             .locator("[data-screen-card]")
+            .first()
             .boundingBox();
           return box && box.width > 0 && box.height > 0;
         },
@@ -213,7 +219,10 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
   }
 }
 
-export async function enterDirectMode(page: Page): Promise<void> {
+export async function enterDirectMode(
+  page: Page,
+  options?: { screenId?: string },
+): Promise<void> {
   const fullView = page.getByRole("button", { name: "Full view", exact: true });
   const fullViewVisible = await fullView
     .first()
@@ -221,7 +230,15 @@ export async function enterDirectMode(page: Page): Promise<void> {
     .then(() => true)
     .catch(() => false);
   if (fullViewVisible) {
-    await fullView.last().click();
+    const targetFullView = options?.screenId
+      ? page
+          .locator(
+            `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
+          )
+          .getByRole("button", { name: "Full view", exact: true })
+      : fullView.last();
+    await expect(targetFullView).toHaveCount(1);
+    await targetFullView.click();
     await expect(fullView).toHaveCount(0);
   }
   await expect
@@ -285,8 +302,12 @@ export async function waitForBridge(
  * resulting `element-select` payload. Uses force:true to punch through the
  * shield overlay (which is what actually drives selection).
  */
-export async function selectByText(page: Page, text: string): Promise<any> {
-  await enterDirectMode(page);
+export async function selectByText(
+  page: Page,
+  text: string,
+  options?: { screenId?: string },
+): Promise<any> {
+  await enterDirectMode(page, options);
   await installBridge(page);
   await page.evaluate(() => ((window as any).__bridge = []));
   const target = await selectableNodeByText(page, text);

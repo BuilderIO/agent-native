@@ -549,6 +549,143 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     expect(world!.style.transform).toBe(originTransform);
   });
+
+  it("keeps locked screens visible but blocks canvas selection and dragging", async () => {
+    const onPick = vi.fn();
+    const onGeometryChange = vi.fn();
+    const onGeometryCommit = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "locked-screen",
+              filename: "locked.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          selectedScreenIds={["locked-screen"]}
+          lockedScreenIds={["locked-screen"]}
+          geometryById={{
+            "locked-screen": { x: 40, y: 50, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => <div data-test-live-screen-content />}
+          onPick={onPick}
+          onGeometryChange={onGeometryChange}
+          onGeometryCommit={onGeometryCommit}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="locked-screen"]',
+    );
+    const label = frame?.querySelector<HTMLElement>("[data-frame-label]");
+    expect(frame).not.toBeNull();
+    expect(label).not.toBeNull();
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+    expect(
+      frame?.querySelector<HTMLElement>("[data-screen-content]")?.style
+        .pointerEvents,
+    ).toBe("none");
+    onGeometryChange.mockClear();
+    onGeometryCommit.mockClear();
+
+    await act(async () => {
+      label!.click();
+      dispatchMouse(label!, "mousedown", 300, 120);
+      dispatchMouse(window, "mousemove", 380, 180);
+      await nextAnimationFrame();
+      dispatchMouse(window, "mouseup", 380, 180);
+    });
+
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onGeometryChange).not.toHaveBeenCalled();
+    expect(onGeometryCommit).not.toHaveBeenCalled();
+  });
+
+  it("does not render hidden screens and restores their persisted geometry when shown", async () => {
+    const screens = [
+      {
+        id: "visible-screen",
+        filename: "visible.html",
+        content: "<!doctype html><html><body></body></html>",
+      },
+      {
+        id: "hidden-screen",
+        filename: "hidden.html",
+        content: "<!doctype html><html><body></body></html>",
+      },
+    ];
+    const geometryById = {
+      "visible-screen": { x: 0, y: 0, width: 320, height: 640 },
+      "hidden-screen": { x: 480, y: 90, width: 360, height: 720 },
+    };
+
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={100}
+          hiddenScreenIds={["hidden-screen"]}
+          geometryById={geometryById}
+          onPick={() => {}}
+        />,
+      );
+    });
+    expect(
+      container.querySelector('[data-frame-id="visible-screen"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-frame-id="hidden-screen"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={100}
+          hiddenScreenIds={[]}
+          geometryById={geometryById}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const restored = container.querySelector<HTMLElement>(
+      '[data-frame-id="hidden-screen"]',
+    );
+    expect(restored).not.toBeNull();
+    expect(restored!.style.left).toContain("720px");
+    expect(restored!.style.top).toContain("302px");
+    expect(restored!.style.width).toBe("360px");
+  });
+
+  it("select-all excludes hidden and locked screens", async () => {
+    const onScreenSelectionChange = vi.fn();
+    const screens = ["visible", "locked", "hidden"].map((id) => ({
+      id,
+      filename: `${id}.html`,
+      content: "<!doctype html><html><body></body></html>",
+    }));
+    const render = (selectAllRequest: number) => (
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={100}
+        selectAllRequest={selectAllRequest}
+        hiddenScreenIds={["hidden"]}
+        lockedScreenIds={["locked"]}
+        onPick={() => {}}
+        onScreenSelectionChange={onScreenSelectionChange}
+      />
+    );
+
+    await act(async () => root.render(render(0)));
+    onScreenSelectionChange.mockClear();
+    await act(async () => root.render(render(1)));
+
+    expect(onScreenSelectionChange).toHaveBeenLastCalledWith(["visible"]);
+  });
 });
 
 describe("canvas iframe identity", () => {

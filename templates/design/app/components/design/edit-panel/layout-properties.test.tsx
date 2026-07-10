@@ -5,8 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutStylesForFlow,
+  gridTemplateForTracks,
+  gridValueForElement,
   justifyContentForGapMode,
   LayoutContextProperties,
+  parseGridTemplate,
 } from "./layout-properties";
 
 vi.mock("@agent-native/core/client", () => ({
@@ -53,9 +56,57 @@ describe("LayoutContextProperties", () => {
       flexWrap: "nowrap",
     });
     expect(autoLayoutStylesForFlow("grid")).toEqual({
-      display: "flex",
-      flexDirection: "row",
-      flexWrap: "wrap",
+      display: "grid",
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows: "repeat(1, max-content)",
+      gridAutoFlow: "row",
+    });
+  });
+
+  it("detects real grid tracks without rewriting authored custom templates", () => {
+    expect(parseGridTemplate("repeat(3, minmax(0, 1fr))")).toEqual({
+      count: 3,
+      sizing: "fill",
+    });
+    expect(parseGridTemplate("96px 1fr minmax(80px, 2fr)")).toEqual({
+      count: 3,
+      sizing: "custom",
+    });
+    expect(
+      gridTemplateForTracks(
+        3,
+        "custom",
+        undefined,
+        "96px 1fr minmax(80px, 2fr)",
+      ),
+    ).toBe("96px 1fr minmax(80px, 2fr)");
+
+    const grid = gridValueForElement(
+      element({
+        isGridContainer: true,
+        inlineStyles: {
+          gridTemplateColumns: "96px 1fr minmax(80px, 2fr)",
+          gridTemplateRows: "repeat(2, max-content)",
+        },
+        computedStyles: {
+          display: "grid",
+          gridTemplateColumns: "96px 180px 180px",
+          gridTemplateRows: "24px 24px",
+          columnGap: "12px",
+          rowGap: "8px",
+          width: "480px",
+          height: "80px",
+        },
+      }),
+    );
+    expect(grid).toMatchObject({
+      columns: 3,
+      columnSizing: "custom",
+      columnTemplate: "96px 1fr minmax(80px, 2fr)",
+      rows: 2,
+      rowSizing: "hug",
+      columnGap: 12,
+      rowGap: 8,
     });
   });
 
@@ -109,5 +160,36 @@ describe("LayoutContextProperties", () => {
     expect(markup).toContain("editPanel.sections.layout");
     expect(markup).not.toContain("editPanel.sections.autoLayout");
     expect(markup).not.toContain("Normal flow");
+  });
+
+  it("passes a mixed container flow through as Mixed instead of normal flow", () => {
+    const markup = renderToStaticMarkup(
+      createElement(LayoutContextProperties, {
+        element: element({
+          tagName: "div",
+          computedStyles: {
+            display: "Mixed",
+            flexDirection: "Mixed",
+            flexWrap: "Mixed",
+            justifyContent: "Mixed",
+            alignItems: "Mixed",
+            overflow: "Mixed",
+            width: "120px",
+            height: "80px",
+          },
+        }),
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-flow-value="mixed"');
+    expect(markup).toContain("Mixed");
+    expect(markup).toContain('aria-label="Normal flow" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Vertical" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Horizontal" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Grid" aria-pressed="false"');
+    expect(markup).toContain("Gap mode: Mixed");
+    expect(markup).toContain('aria-checked="mixed"');
+    expect(markup).toContain('aria-label="top left" aria-pressed="false"');
   });
 });

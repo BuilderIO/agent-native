@@ -219,6 +219,14 @@ export function ShaderFillsPanel({
   // ends a tuning gesture can re-commit that exact value once, without
   // needing ShaderControls to surface its own gesture-end signal.
   const lastAppliedRef = useRef<ShaderDescriptor | null>(descriptor ?? null);
+  // Whether `preview()` has applied a new descriptor since the last
+  // `commitNow()`. Any pointerup/blur that bubbles out of the tuning
+  // container — opening a Select, clicking a checkbox, tabbing between
+  // fields — would otherwise re-fire the real apply-shader mutation on an
+  // unchanged descriptor just because `lastAppliedRef` is seeded on mount.
+  // Gate `commitLastPreview` on this flag instead: only a real preview tick
+  // sets it, and every `commitNow` clears it.
+  const dirtyRef = useRef(false);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -238,11 +246,13 @@ export function ShaderFillsPanel({
   const preview = (next: ShaderDescriptor) => {
     setActive(next);
     lastAppliedRef.current = next;
+    dirtyRef.current = true;
     onApply(next, shaderDescriptorToCss(next));
   };
 
   /** Validate + surface the descriptor for the agent exactly once. */
   const commitNow = (next: ShaderDescriptor) => {
+    dirtyRef.current = false;
     const css = shaderDescriptorToCss(next);
     onCommit?.(next, css);
     // Fire-and-forget validation/codegen so the agent can write real shader
@@ -291,9 +301,17 @@ export function ShaderFillsPanel({
     commitNow(next);
   };
 
-  /** Ends a ShaderControls tuning gesture: pointerup/blur bubbling out of the tuning area (see the wrapping div below). */
+  /**
+   * Ends a ShaderControls tuning gesture: pointerup/blur bubbling out of the
+   * tuning area (see the wrapping div below). Gated on `dirtyRef` so any
+   * pointerup/blur that bubbles out without an intervening `preview()` tick —
+   * opening a Select, clicking a checkbox, tabbing between fields — is a
+   * no-op instead of re-committing the unchanged descriptor.
+   */
   const commitLastPreview = () => {
-    if (lastAppliedRef.current) commitNow(lastAppliedRef.current);
+    if (dirtyRef.current && lastAppliedRef.current) {
+      commitNow(lastAppliedRef.current);
+    }
   };
 
   // ── Detail view: a preset is selected → tune it with ShaderControls ───────

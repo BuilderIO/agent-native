@@ -805,8 +805,15 @@ export function GradientEditor({
                   }
                 }}
                 onBlur={() => {
+                  // `angleInput` is only non-null once the user has actually
+                  // typed into this field (see onChange below) — mirrors the
+                  // sibling stop-position field's commitPositionDraft, which
+                  // only commits on an actual edit rather than unconditionally
+                  // on every blur (tabbing through/refocusing without typing
+                  // must not re-fire the commit).
+                  const changed = angleInput !== null;
                   setAngleInput(null);
-                  onCommit?.();
+                  if (changed) onCommit?.();
                 }}
                 className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
               />

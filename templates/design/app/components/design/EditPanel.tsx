@@ -197,7 +197,6 @@ import {
 } from "./edit-panel/field-primitives";
 import {
   averageGradientOpacity,
-  buildFillRows,
   buildGradientLayer,
   DEFAULT_EXPORT_SETTINGS,
   defaultGradientLayer,
@@ -323,9 +322,7 @@ import {
   InteractionStatePanel,
   type ActiveInteractionState,
   type DesignFillRow,
-  type DesignFillRowPatch,
   type DesignGradientStop,
-  type DesignGradientStopPatch,
   type DesignGradientType,
   type ImageFillValue,
   type MotionKeyframeCssProperty,
@@ -457,6 +454,8 @@ interface EditPanelProps {
    * and an Edit component action.
    */
   componentNodeId?: string;
+  /** Increment to open the selected component's Swap instance picker. */
+  componentSwapPickerRequest?: number;
   /**
    * Source capabilities for the current design.  Used to gate the Edit
    * component / jump-to-source affordances.  When absent all writes default
@@ -1354,6 +1353,7 @@ export const EditPanel = memo(function EditPanel({
   onComponentPropApplied,
   reviewPanelProps,
   componentNodeId,
+  componentSwapPickerRequest,
   sourceCapabilities = [],
   onCreateComponent,
   selectedElementAlreadyComponent = false,
@@ -1764,6 +1764,7 @@ export const EditPanel = memo(function EditPanel({
                 activeContent={activeContent}
                 activeFileUpdatedAt={activeFileUpdatedAt}
                 nodeId={componentNodeId}
+                swapPickerRequest={componentSwapPickerRequest}
                 onComponentPropApplied={onComponentPropApplied}
                 sourceCapabilities={sourceCapabilities}
               />
@@ -1808,6 +1809,7 @@ export const EditPanel = memo(function EditPanel({
                 <PositionLayoutProperties
                   element={inspectorElement}
                   onStyleChange={onStyleChange}
+                  onStylesChange={onStylesChange}
                   onAlignSelection={onAlignSelection}
                   motionKeyframeContext={motionKeyframeFieldContext}
                   breakpointOverrideContext={breakpointOverrideFieldContext}

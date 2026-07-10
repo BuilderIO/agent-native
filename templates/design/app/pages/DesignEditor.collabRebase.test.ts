@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveScreenCollabSyncTarget,
+  shouldApplyRemotePreviewContent,
   shouldRebaseCollabDocFromStoredContent,
 } from "./design-editor/collab-sync";
 import { shouldAdoptExternalReconcileContent } from "./design-editor/editor-session";
@@ -140,6 +141,38 @@ describe("resolveScreenCollabSyncTarget (§gesture-persistence per-screen collab
         overviewDocConnected: false,
       }),
     ).toEqual({ writeLiveDoc: false, syncCollab: true });
+  });
+});
+
+describe("shouldApplyRemotePreviewContent (flash-free reconcile routing)", () => {
+  it("does not touch the preview for a local transaction", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: true,
+        previousContent: OLD_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not touch the preview for a same-content remote acknowledgement echo", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: NEW_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(false);
+  });
+
+  it("applies a genuinely different remote snapshot through the live replacement path", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: OLD_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(true);
   });
 });
 

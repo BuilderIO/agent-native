@@ -160,6 +160,10 @@ export function mixedElementFromSelection(
       elements.map((element) => element.parentAutoLayout),
       base.parentAutoLayout,
     ),
+    parentBoundingRect: sameValueOrUndefined(
+      elements.map((element) => element.parentBoundingRect),
+      base.parentBoundingRect,
+    ),
     parentLayout: sameValueOrUndefined(
       elements.map((element) => element.parentLayout),
       base.parentLayout,

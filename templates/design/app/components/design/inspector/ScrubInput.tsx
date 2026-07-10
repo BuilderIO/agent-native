@@ -78,6 +78,26 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   tooltipLabel?: string;
 }
 
+export interface PendingScrubCommit {
+  value: number;
+  /** Incoming prop value at commit time. While this exact value remains, the
+   * host has not acknowledged the write yet and the optimistic draft should
+   * stay visible. A different incoming value is authoritative host
+   * normalization/rejection and must supersede the optimistic draft. */
+  baseline: number;
+}
+
+export function resolvePendingScrubCommit(
+  pending: PendingScrubCommit | null,
+  incomingValue: number,
+  options: ScrubExpressionOptions,
+): "none" | "hold" | "confirmed" | "superseded" {
+  if (pending === null) return "none";
+  const incoming = normalizeScrubNumber(incomingValue, options);
+  if (incoming === pending.value) return "confirmed";
+  return incoming === pending.baseline ? "hold" : "superseded";
+}
+
 export function ScrubInput({
   label,
   value,
@@ -128,18 +148,27 @@ export function ScrubInput({
   // value back to the old one the instant focus leaves the input, which
   // reads as "Enter resets to the old value". Cleared as soon as a fresh
   // `value` prop confirms (or supersedes) the pending commit.
-  const pendingCommitRef = useRef<number | null>(null);
+  const pendingCommitRef = useRef<PendingScrubCommit | null>(null);
   const options = { unit, min, max, precision };
 
   useEffect(() => {
-    if (pendingCommitRef.current !== null) {
-      if (normalizeScrubNumber(value, options) === pendingCommitRef.current) {
-        // The host echoed back exactly what we committed — resolved, safe to
-        // resume syncing from the prop again.
+    if (mixed) pendingCommitRef.current = null;
+    const resolution = resolvePendingScrubCommit(
+      pendingCommitRef.current,
+      value,
+      options,
+    );
+    if (resolution !== "none") {
+      if (resolution === "confirmed" || resolution === "superseded") {
+        // The host either echoed exactly what we committed or returned a new,
+        // authoritative normalized/rejected value. In both cases resume prop
+        // synchronization. The old equality-only logic held forever on the
+        // second path, leaving the field permanently stuck on a value the
+        // canvas never accepted.
         pendingCommitRef.current = null;
       } else {
-        // Still waiting for the round-trip (or the host is reporting a
-        // different in-flight value) — don't stomp the optimistic draft.
+        // Still seeing the exact pre-commit prop — don't stomp the optimistic
+        // draft while the source-write round trip is pending.
         return;
       }
     }
@@ -151,7 +180,7 @@ export function ScrubInput({
       setDraft(formatted);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `options` is a fresh object every render; the individual fields it's built from (unit/min/max/precision) are already listed below.
-  }, [focused, mixed, precision, unit, value]);
+  }, [focused, max, min, mixed, precision, unit, value]);
 
   const resolvedTooltipLabel = tooltipLabel ?? ariaLabel ?? label;
 
@@ -162,7 +191,12 @@ export function ScrubInput({
     // prop before the host's round-trip lands (see pendingCommitRef above).
     // Preview ticks don't need this: they're expected to be superseded by
     // the next tick or the gesture's own final commit almost immediately.
-    if (meta.phase === "commit") pendingCommitRef.current = normalized;
+    if (meta.phase === "commit") {
+      pendingCommitRef.current = {
+        value: normalized,
+        baseline: normalizeScrubNumber(value, options),
+      };
+    }
     onChange(normalized, meta);
     const formatted = formatScrubValue(normalized, options);
     draftRef.current = formatted;
@@ -192,7 +226,10 @@ export function ScrubInput({
     if (parsed.value !== value || mixed) {
       // See setNextValue's pendingCommitRef comment — this text-commit path
       // (Enter/blur) bypasses setNextValue, so mark it pending here too.
-      pendingCommitRef.current = parsed.value;
+      pendingCommitRef.current = {
+        value: parsed.value,
+        baseline: normalizeScrubNumber(value, options),
+      };
       onChange(parsed.value, {
         source: "commit",
         expression: currentDraft,
@@ -348,7 +385,10 @@ export function ScrubInput({
       // authoritative value as pending confirmation so releasing the drag
       // can't be clobbered back to the pre-drag value by a slow host
       // round-trip (same class of bug as the Enter/blur text-commit case).
-      pendingCommitRef.current = lastScrubValueRef.current;
+      pendingCommitRef.current = {
+        value: lastScrubValueRef.current,
+        baseline: normalizeScrubNumber(value, options),
+      };
       onChange(lastScrubValueRef.current, {
         source: "scrub",
         phase: "commit",

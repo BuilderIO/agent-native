@@ -60,6 +60,50 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 
+/**
+ * The four `backgroundImage`/`backgroundSize`/`backgroundRepeat`/
+ * `backgroundPosition` prop values fed to the base fill row's `<ColorInput>`.
+ * Text fills ("color") can't hold a layered paint at all, so every value
+ * collapses to "" for them.
+ *
+ * Factored out (rather than inlined ternaries in the JSX below) as a
+ * regression guard: `ColorInput.onImageFillLayerChange` builds its commit
+ * patch from whatever it computes internally from these four props (see
+ * `imageFillChangePatch` in fill-gradient-helpers.ts). Previously only
+ * `backgroundImage` was passed here, so ColorInput treated every sibling
+ * layer as having no size/repeat/position of its own — switching this base
+ * swatch to Image then rebuilt backgroundSize/backgroundRepeat/
+ * backgroundPosition as a single-entry list against the real N+1-layer
+ * backgroundImage stack, corrupting every existing layer's size/repeat/
+ * position via CSS background-layer-list cycling (e.g. an existing "cover"
+ * silently became "auto"). All four must always be sourced together, exactly
+ * like PageProperties' background row in EditPanel.tsx.
+ */
+export function baseFillLayerSourceProps(
+  styles: Record<string, string>,
+  isTextFillElement: boolean,
+): {
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundRepeat: string;
+  backgroundPosition: string;
+} {
+  if (isTextFillElement) {
+    return {
+      backgroundImage: "",
+      backgroundSize: "",
+      backgroundRepeat: "",
+      backgroundPosition: "",
+    };
+  }
+  return {
+    backgroundImage: styles.backgroundImage || "",
+    backgroundSize: styles.backgroundSize || "",
+    backgroundRepeat: styles.backgroundRepeat || "",
+    backgroundPosition: styles.backgroundPosition || "",
+  };
+}
+
 export function FillProperties({
   element,
   onStyleChange,
@@ -115,6 +159,10 @@ export function FillProperties({
   const backgroundPositionLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundPosition || "");
+  const baseFillLayerProps = baseFillLayerSourceProps(
+    styles,
+    isTextFillElement,
+  );
   const fillIsMixed =
     isMixedValue(fillValue) ||
     isMixedValue(styles.backgroundImage) ||
@@ -291,10 +339,11 @@ export function FillProperties({
                   // layer on top of any existing backgroundImage layers
                   // (rendered as their own rows below) instead of clobbering
                   // them — ColorInput derives its add/replace-layer logic
-                  // from this prop.
-                  backgroundImage={
-                    isTextFillElement ? "" : styles.backgroundImage
-                  }
+                  // from this prop. The size/repeat/position siblings must
+                  // come along too (same as PageProperties' background row in
+                  // EditPanel.tsx) — see `baseFillLayerSourceProps` above for
+                  // why all four are sourced together.
+                  {...baseFillLayerProps}
                   blendMode={
                     isTextFillElement
                       ? undefined

@@ -118,6 +118,12 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Hidden screen/file rows retain geometry but do not render or participate
+   * in overview hit testing, fit, or selection until shown again. */
+  hiddenScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Locked screen/file rows remain visible but cannot be selected or
+   * transformed directly from the overview canvas. */
+  lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;

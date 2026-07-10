@@ -20,6 +20,8 @@ import {
   ScrubInput,
   SizingField,
   type AutoLayoutFlow,
+  type AutoLayoutGridTrackSizing,
+  type AutoLayoutGridValue,
   type AutoLayoutMatrixValue,
   type ScrubInputChangeMeta,
 } from "../inspector";
@@ -87,15 +89,123 @@ export function justifyContentForGapMode(
 
 export function autoLayoutStylesForFlow(
   flow: AutoLayoutFlow,
+  currentStyles: Record<string, string> = {},
 ): Record<string, string> {
   if (flow === "normal") return { display: "block" };
   if (flow === "vertical") {
     return { display: "flex", flexDirection: "column", flexWrap: "nowrap" };
   }
   if (flow === "grid") {
-    return { display: "flex", flexDirection: "row", flexWrap: "wrap" };
+    const authoredColumns = currentStyles.gridTemplateColumns;
+    const authoredRows = currentStyles.gridTemplateRows;
+    return {
+      display: "grid",
+      gridTemplateColumns:
+        authoredColumns && authoredColumns !== "none"
+          ? authoredColumns
+          : "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows:
+        authoredRows && authoredRows !== "none"
+          ? authoredRows
+          : "repeat(1, max-content)",
+      gridAutoFlow: currentStyles.gridAutoFlow || "row",
+    };
   }
   return { display: "flex", flexDirection: "row", flexWrap: "nowrap" };
+}
+
+function splitGridTracks(template: string): string[] {
+  const tracks: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < template.length; index += 1) {
+    const character = template[index];
+    if (character === "(") depth += 1;
+    if (character === ")") depth = Math.max(0, depth - 1);
+    if (/\s/.test(character) && depth === 0) {
+      const track = template.slice(start, index).trim();
+      if (track) tracks.push(track);
+      start = index + 1;
+    }
+  }
+  const last = template.slice(start).trim();
+  if (last) tracks.push(last);
+  return tracks;
+}
+
+/** Parse the common uniform grid forms while preserving arbitrary authored CSS. */
+export function parseGridTemplate(template: string): {
+  count: number;
+  sizing: AutoLayoutGridTrackSizing;
+  fixedSize?: number;
+} {
+  const normalized = template.trim();
+  const repeat = normalized.match(/^repeat\(\s*(\d+)\s*,\s*(.+)\)$/i);
+  const count = repeat
+    ? Math.max(1, Number.parseInt(repeat[1], 10))
+    : Math.max(1, splitGridTracks(normalized).length);
+  const tracks = repeat ? [repeat[2].trim()] : splitGridTracks(normalized);
+  const first = tracks[0] || "";
+  const uniform = tracks.every((track) => track === first);
+  if (!uniform) return { count, sizing: "custom" };
+  if (/^(?:minmax\(\s*0(?:px)?\s*,\s*)?1fr\)?$/i.test(first)) {
+    return { count, sizing: "fill" };
+  }
+  if (/^(?:max-content|min-content|auto)$/i.test(first)) {
+    return { count, sizing: "hug" };
+  }
+  const fixed = first.match(/^(-?\d+(?:\.\d+)?)px$/i);
+  if (fixed) {
+    return { count, sizing: "fixed", fixedSize: Number(fixed[1]) };
+  }
+  return { count, sizing: "custom" };
+}
+
+export function gridTemplateForTracks(
+  count: number,
+  sizing: AutoLayoutGridTrackSizing,
+  fixedSize: number | undefined,
+  authoredTemplate: string | undefined,
+): string {
+  const safeCount = Math.max(1, Math.round(count));
+  if (sizing === "custom" && authoredTemplate) return authoredTemplate;
+  if (sizing === "hug") return `repeat(${safeCount}, max-content)`;
+  if (sizing === "fixed") {
+    return `repeat(${safeCount}, ${Math.max(0, fixedSize ?? 100)}px)`;
+  }
+  return `repeat(${safeCount}, minmax(0, 1fr))`;
+}
+
+function authoredGridTemplate(
+  element: ElementInfo,
+  property: "gridTemplateColumns" | "gridTemplateRows",
+): string {
+  return (
+    element.inlineStyles?.[property] || element.computedStyles[property] || ""
+  );
+}
+
+export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
+  const columnsTemplate = authoredGridTemplate(element, "gridTemplateColumns");
+  const rowsTemplate = authoredGridTemplate(element, "gridTemplateRows");
+  const columns = parseGridTemplate(columnsTemplate);
+  const rows = parseGridTemplate(rowsTemplate);
+  return {
+    columns: columns.count,
+    rows: rows.count,
+    columnSizing: columns.sizing,
+    rowSizing: rows.sizing,
+    columnSize: columns.fixedSize,
+    rowSize: rows.fixedSize,
+    columnTemplate: columnsTemplate,
+    rowTemplate: rowsTemplate,
+    columnGap: parseNumericValue(element.computedStyles.columnGap || "0"),
+    rowGap: parseNumericValue(element.computedStyles.rowGap || "0"),
+    columnsMixed: isMixedValue(columnsTemplate),
+    rowsMixed: isMixedValue(rowsTemplate),
+    columnGapMixed: isMixedValue(element.computedStyles.columnGap),
+    rowGapMixed: isMixedValue(element.computedStyles.rowGap),
+  };
 }
 
 /** Flex container properties */
@@ -116,10 +226,20 @@ function FlexContainerControls({
   // control can show the right state (normal vs horizontal/vertical/wrap)
   // instead of an empty "add" affordance.
   const display = (styles.display || "").toLowerCase();
+  const isGrid = element.isGridContainer || display.includes("grid");
   const isFlex = element.isFlexContainer || display.includes("flex");
-  const displayMode: AutoLayoutMatrixValue["display"] = isFlex
-    ? "flex"
-    : "block";
+  const displayMode: AutoLayoutMatrixValue["display"] = isGrid
+    ? "grid"
+    : isFlex
+      ? "flex"
+      : "block";
+  const flowMixed = [
+    styles.display,
+    styles.flexDirection,
+    styles.flexWrap,
+    styles.gridTemplateColumns,
+    styles.gridTemplateRows,
+  ].some(isMixedValue);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
   // `justifyContent` is always the main-axis property in flexbox regardless
@@ -157,7 +277,11 @@ function FlexContainerControls({
    * For 'block': sets display:block and leaves children unchanged — mirrors
    * the { kind:"autoLayout", enabled:false } substrate intent exactly.
    */
-  const handleDisplayChange = (nextDisplay: "flex" | "block") => {
+  const handleDisplayChange = (nextDisplay: "flex" | "grid" | "block") => {
+    if (nextDisplay === "grid") {
+      onStyleChange("display", "grid");
+      return;
+    }
     if (nextDisplay === "flex") {
       ensureFlex();
       return;
@@ -194,13 +318,23 @@ function FlexContainerControls({
   const autoLayoutValue: AutoLayoutMatrixValue = {
     direction: flexDirection,
     wrap: styles.flexWrap === "wrap" ? "wrap" : "nowrap",
-    alignment: autoLayoutAlignmentFromStyles(styles, flexDirection),
+    alignment: autoLayoutAlignmentFromStyles(
+      isGrid ? { ...styles, justifyContent: styles.justifyItems } : styles,
+      isGrid ? "horizontal" : flexDirection,
+    ),
+    alignmentMixed: [
+      styles.justifyContent,
+      styles.alignItems,
+      styles.alignContent,
+      ...(isGrid ? [styles.justifyItems] : []),
+    ].some(isMixedValue),
     gap: parseNumericValue(styles.gap || "0"),
     // Multi-selections with differing gap/padding surface the MIXED_VALUE
     // sentinel here; parseNumericValue would silently coerce it to 0 (a
     // real-looking value that would clobber every element on edit), so flag
     // each field so AutoLayoutMatrix renders a "Mixed" placeholder instead.
     gapMixed: isMixedValue(styles.gap),
+    gapModeMixed: isMixedValue(styles.justifyContent),
     padding,
     paddingMixed: {
       top: isMixedValue(styles.paddingTop),
@@ -218,6 +352,7 @@ function FlexContainerControls({
       vertical: readElementMinMax(element, "vertical"),
     },
     clipContent: styles.overflow === "hidden",
+    clipContentMixed: isMixedValue(styles.overflow),
     resolvedSize: {
       horizontal: cssElementSize(element, "horizontal"),
       vertical: cssElementSize(element, "vertical"),
@@ -227,7 +362,9 @@ function FlexContainerControls({
       vertical: isMixedValue(styles.height),
     },
     display: displayMode,
+    flowMixed,
     spaceBetween: styles.justifyContent === "space-between",
+    grid: isGrid ? gridValueForElement(element) : undefined,
   };
 
   return (
@@ -235,7 +372,10 @@ function FlexContainerControls({
       <AutoLayoutMatrix
         value={autoLayoutValue}
         onFlowChange={(flow) => {
-          const patch = autoLayoutStylesForFlow(flow);
+          const patch = autoLayoutStylesForFlow(flow, {
+            ...styles,
+            ...element.inlineStyles,
+          });
           if (onStylesChange) {
             onStylesChange(patch);
             return;
@@ -256,7 +396,51 @@ function FlexContainerControls({
           ensureFlex();
           onStyleChange("flexWrap", wrap);
         }}
+        onGridChange={(nextGrid, meta) => {
+          const previousGrid = autoLayoutValue.grid;
+          const columnTemplate = gridTemplateForTracks(
+            nextGrid.columns,
+            nextGrid.columnSizing,
+            nextGrid.columnSize,
+            nextGrid.columnSizing === "custom" &&
+              previousGrid?.columns === nextGrid.columns
+              ? nextGrid.columnTemplate
+              : undefined,
+          );
+          const rowTemplate = gridTemplateForTracks(
+            nextGrid.rows,
+            nextGrid.rowSizing,
+            nextGrid.rowSize,
+            nextGrid.rowSizing === "custom" &&
+              previousGrid?.rows === nextGrid.rows
+              ? nextGrid.rowTemplate
+              : undefined,
+          );
+          const patch = {
+            display: "grid",
+            gridTemplateColumns: columnTemplate,
+            gridTemplateRows: rowTemplate,
+            gridAutoFlow: "row",
+            columnGap: `${nextGrid.columnGap}px`,
+            rowGap: `${nextGrid.rowGap}px`,
+          };
+          if (onStylesChange) {
+            onStylesChange(patch, meta);
+            return;
+          }
+          Object.entries(patch).forEach(([property, value]) =>
+            onStyleChange(property, value, meta),
+          );
+        }}
         onAlignmentChange={(alignment) => {
+          if (displayMode === "grid") {
+            onStyleChange(
+              "justifyItems",
+              horizontalToJustify(alignment.horizontal),
+            );
+            onStyleChange("alignItems", verticalToAlign(alignment.vertical));
+            return;
+          }
           if (autoLayoutValue.direction === "vertical") {
             onStyleChange(
               "alignItems",
@@ -298,25 +482,29 @@ function FlexContainerControls({
         }}
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
-          if (!linked) return;
-          const avg = Math.round(
-            (padding.top + padding.right + padding.bottom + padding.left) / 4,
-          );
-          onStyleChange("paddingTop", `${avg}px`);
-          onStyleChange("paddingRight", `${avg}px`);
-          onStyleChange("paddingBottom", `${avg}px`);
-          onStyleChange("paddingLeft", `${avg}px`);
+          // Linking is a display-mode choice, not a style edit. Figma keeps
+          // asymmetric padding intact when the sides are linked and only
+          // equalizes an axis after the user edits that linked field. The old
+          // eager average destroyed all four authored values immediately and
+          // produced four source commits/undo entries just from clicking the
+          // link icon. AutoLayoutMatrix intentionally displays left/top as
+          // each linked axis's representative value and applies both sides on
+          // the next real field edit, so no style write belongs here.
         }}
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
-        onDistribute={(axis) => {
-          if (axis === mainGapAxis) {
-            onStyleChange("justifyContent", "space-between");
-          } else if (autoLayoutValue.wrap === "wrap") {
-            onStyleChange("alignContent", "space-between");
-          }
-        }}
+        onDistribute={
+          displayMode === "grid"
+            ? undefined
+            : (axis) => {
+                if (axis === mainGapAxis) {
+                  onStyleChange("justifyContent", "space-between");
+                } else if (autoLayoutValue.wrap === "wrap") {
+                  onStyleChange("alignContent", "space-between");
+                }
+              }
+        }
         onGapModeChange={(gapMode, axis) => {
           if (axis !== mainGapAxis) return;
           ensureFlex();

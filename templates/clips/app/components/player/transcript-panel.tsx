@@ -19,6 +19,7 @@ import {
   IconBolt,
   IconChevronDown,
   IconChevronUp,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -56,6 +57,9 @@ export interface TranscriptPanelProps {
   recordingTitle?: string;
   /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
+  /** Called when the user asks for a fresh transcript from the recording media. */
+  onRegenerate?: () => void;
+  isRegenerating?: boolean;
 }
 
 export function TranscriptPanel(props: TranscriptPanelProps) {
@@ -71,6 +75,8 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     cleanup,
     recordingTitle,
     onRetry,
+    onRegenerate,
+    isRegenerating = false,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -170,8 +176,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </p>
         </div>
         {onRetry ? (
-          <Button size="sm" variant="outline" onClick={onRetry}>
-            {t("transcriptPanel.retry")}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onRetry}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <IconLoader2 className="size-4 animate-spin" />
+            ) : null}
+            {isRegenerating
+              ? t("transcriptPanel.transcribing")
+              : t("transcriptPanel.regenerate")}
           </Button>
         ) : null}
       </div>
@@ -188,8 +204,18 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         </div>
         <div className="flex items-center gap-2">
           {onRetry ? (
-            <Button size="sm" variant="outline" onClick={onRetry}>
-              {t("transcriptPanel.retry")}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRetry}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : null}
+              {isRegenerating
+                ? t("transcriptPanel.transcribing")
+                : t("transcriptPanel.regenerate")}
             </Button>
           ) : null}
         </div>
@@ -229,6 +255,24 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           </TooltipTrigger>
           <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
         </Tooltip>
+        {onRegenerate ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+                aria-label={t("transcriptPanel.regenerate")}
+              >
+                <IconRefresh
+                  className={cn("h-4 w-4", isRegenerating && "animate-spin")}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("transcriptPanel.regenerate")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
 
       {cleanup?.status === "running" ? (

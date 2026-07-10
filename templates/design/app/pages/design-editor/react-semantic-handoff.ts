@@ -48,6 +48,7 @@ export type ReactSemanticOperation =
   | "insert"
   | "remove"
   | "auto-layout"
+  | "set-layer-state"
   | "component-change";
 
 export type ReactRuntimeRelationshipKind =
@@ -57,13 +58,16 @@ export type ReactRuntimeRelationshipKind =
   | "wrap"
   | "unwrap"
   | "remove"
-  | "style";
+  | "style"
+  | "metadata";
 
 export interface ReactRuntimeRelationship {
   kind: ReactRuntimeRelationshipKind;
   subjectAnchorIds: readonly string[];
   targetAnchorId?: string;
   screenId?: string;
+  sourceScreenId?: string;
+  targetScreenId?: string;
   description?: string;
 }
 
@@ -114,6 +118,8 @@ export interface ReactSemanticHandoff {
     subjectAnchorIds: string[];
     targetAnchorId?: string;
     screenId?: string;
+    sourceScreenId?: string;
+    targetScreenId?: string;
     description?: string;
   };
   versionHashes: ReactSourceVersionHash[];
@@ -148,6 +154,46 @@ const MAX_DESCRIPTION_LENGTH = 800;
 const MAX_COMPONENT_LENGTH = 160;
 const MAX_ID_LENGTH = 120;
 const MAX_SCREEN_ID_LENGTH = 160;
+
+export interface BuildRuntimeReactStructureMoveHandoffInput {
+  subjectAnchor: ReactSourceAnchor;
+  targetAnchor: ReactSourceAnchor;
+  placement: "before" | "after" | "inside";
+  sourceScreenId: string;
+  targetScreenId: string;
+}
+
+export type RuntimeReactLayerState = "locked" | "hidden";
+
+export interface BuildRuntimeReactLayerStateHandoffInput {
+  subjectAnchor: ReactSourceAnchor;
+  screenId: string;
+  state: RuntimeReactLayerState;
+  enabled: boolean;
+}
+
+export type RuntimeStructureMoveExecutionMode =
+  | "source-edit"
+  | "screen-bridge"
+  | "semantic-handoff";
+
+export function resolveRuntimeStructureMoveExecutionMode(input: {
+  subjectRuntimeOnly: boolean;
+  targetRuntimeOnly: boolean;
+  sourceScreenId: string;
+  targetScreenId: string;
+}): RuntimeStructureMoveExecutionMode {
+  if (!input.subjectRuntimeOnly && !input.targetRuntimeOnly)
+    return "source-edit";
+  if (
+    input.subjectRuntimeOnly &&
+    input.targetRuntimeOnly &&
+    input.sourceScreenId === input.targetScreenId
+  ) {
+    return "screen-bridge";
+  }
+  return "semantic-handoff";
+}
 
 function bounded(
   value: string | undefined,
@@ -406,6 +452,28 @@ export function buildReactSemanticHandoff(
             }
           : {}),
         ...(bounded(
+          input.runtimeRelationship.sourceScreenId,
+          MAX_SCREEN_ID_LENGTH,
+        )
+          ? {
+              sourceScreenId: bounded(
+                input.runtimeRelationship.sourceScreenId,
+                MAX_SCREEN_ID_LENGTH,
+              ),
+            }
+          : {}),
+        ...(bounded(
+          input.runtimeRelationship.targetScreenId,
+          MAX_SCREEN_ID_LENGTH,
+        )
+          ? {
+              targetScreenId: bounded(
+                input.runtimeRelationship.targetScreenId,
+                MAX_SCREEN_ID_LENGTH,
+              ),
+            }
+          : {}),
+        ...(bounded(
           input.runtimeRelationship.description,
           MAX_DESCRIPTION_LENGTH,
         )
@@ -437,4 +505,82 @@ export function buildReactSemanticHandoff(
       ],
     },
   };
+}
+
+/** Build the safe coding-agent packet for a runtime Layers-panel move that a
+ * screen-scoped StructureMove bridge cannot execute. Both runtime endpoints
+ * must already have exact compiler provenance; the generic builder rejects
+ * either missing/unsafe anchor rather than guessing from a selector. */
+export function buildRuntimeReactStructureMoveHandoff(
+  input: BuildRuntimeReactStructureMoveHandoffInput,
+): ReactSemanticHandoffBuildResult {
+  const sourceScreenId = bounded(input.sourceScreenId, MAX_SCREEN_ID_LENGTH);
+  const targetScreenId = bounded(input.targetScreenId, MAX_SCREEN_ID_LENGTH);
+  if (!sourceScreenId || !targetScreenId) {
+    return anchorFailure(
+      "invalid-runtime-relationship",
+      "Cross-screen runtime structure moves require exact source and target screen ids.",
+    );
+  }
+  const subjectAnchor = { ...input.subjectAnchor, id: "subject" };
+  const targetAnchor = { ...input.targetAnchor, id: "target" };
+  const operation = input.placement === "inside" ? "reparent" : "move";
+  return buildReactSemanticHandoff({
+    operation,
+    desiredChange:
+      input.placement === "inside"
+        ? `Move the runtime React subject from screen "${sourceScreenId}" inside the exact target anchor in screen "${targetScreenId}" while preserving the intended visual order and behavior.`
+        : `Move the runtime React subject from screen "${sourceScreenId}" ${input.placement} the exact target anchor in screen "${targetScreenId}" while preserving the intended visual order and behavior.`,
+    sourceAnchors: [subjectAnchor, targetAnchor],
+    runtimeRelationship: {
+      kind: input.placement,
+      subjectAnchorIds: ["subject"],
+      targetAnchorId: "target",
+      // Keep the legacy singular field pointed at the destination while also
+      // carrying both endpoints explicitly for cross-screen execution.
+      screenId: targetScreenId,
+      sourceScreenId,
+      targetScreenId,
+      description: `Runtime React ${operation} from screen "${sourceScreenId}" to screen "${targetScreenId}" with placement "${input.placement}". Verify both exact source anchors and their surrounding control flow before editing either file.`,
+    },
+    versionHashes: [],
+  });
+}
+
+/** Build the safe coding-agent packet for a runtime-only layer state toggle.
+ * The exact JSX host element receives durable source metadata which survives
+ * HMR and is preserved by the runtime Layers snapshot. This is deliberately a
+ * semantic handoff: compiler provenance identifies the opening element, but no
+ * generic AST transform is authorized to mutate the source. */
+export function buildRuntimeReactLayerStateHandoff(
+  input: BuildRuntimeReactLayerStateHandoffInput,
+): ReactSemanticHandoffBuildResult {
+  const screenId = bounded(input.screenId, MAX_SCREEN_ID_LENGTH);
+  if (!screenId) {
+    return anchorFailure(
+      "invalid-runtime-relationship",
+      "Runtime layer state changes require an exact owning screen id.",
+    );
+  }
+
+  const attributeName = `data-agent-native-${input.state}`;
+  const subjectAnchor = { ...input.subjectAnchor, id: "subject" };
+  const desiredChange = input.enabled
+    ? `Set ${attributeName}="true" on the exact JSX host element for this runtime layer. Keep it as durable source metadata; do not replace it with a transient DOM mutation, CSS-only workaround, or wrapper.`
+    : `Remove the ${attributeName} attribute from the exact JSX host element for this runtime layer. Do not replace it with a transient DOM mutation, CSS-only workaround, or wrapper.`;
+
+  return buildReactSemanticHandoff({
+    operation: "set-layer-state",
+    desiredChange,
+    sourceAnchors: [subjectAnchor],
+    runtimeRelationship: {
+      kind: "metadata",
+      subjectAnchorIds: ["subject"],
+      screenId,
+      sourceScreenId: screenId,
+      targetScreenId: screenId,
+      description: `${input.enabled ? "Set" : "Clear"} runtime React layer state "${input.state}" using the durable ${attributeName} JSX attribute in screen "${screenId}".`,
+    },
+    versionHashes: [],
+  });
 }

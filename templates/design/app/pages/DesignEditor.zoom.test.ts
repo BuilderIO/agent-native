@@ -5,6 +5,7 @@ import {
   clampZoom,
   computeFitCameraForFrames,
   computeIframeLocalCanvasPoint,
+  readOverviewZoomPercentFromTransform,
   DEFAULT_OVERVIEW_ZOOM,
   getAllScreenFrameEntries,
   getNextZoomStepDown,
@@ -632,5 +633,25 @@ describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
         zoomPercent: 0,
       }),
     ).toBeNull();
+  });
+});
+
+describe("readOverviewZoomPercentFromTransform", () => {
+  it("reads the live scale written during an unsettled overview gesture", () => {
+    expect(
+      readOverviewZoomPercentFromTransform(
+        "translate(42px, -18px) scale(0.375)",
+        100,
+      ),
+    ).toBe(37.5);
+  });
+
+  it("falls back for missing, malformed, zero, or negative scales", () => {
+    expect(readOverviewZoomPercentFromTransform("", 64)).toBe(64);
+    expect(
+      readOverviewZoomPercentFromTransform("translate(1px, 2px)", 64),
+    ).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(0)", 64)).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(-2)", 64)).toBe(64);
   });
 });

@@ -111,3 +111,120 @@ describe("CanvasContextMenu Copy as PNG", () => {
     await view.cleanup();
   });
 });
+
+describe("CanvasContextMenu Select layer", () => {
+  it("renders the ordered hit stack and selects the exact candidate", async () => {
+    const onSelectLayer = vi.fn();
+    const candidates = [
+      {
+        key: "front",
+        label: "Front card",
+        info: {
+          tagName: "div",
+          sourceId: "front",
+          selector: '[data-agent-native-node-id="front"]',
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 100, height: 100 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+      },
+      {
+        key: "parent",
+        label: "Parent frame",
+        info: {
+          tagName: "section",
+          sourceId: "parent",
+          selector: '[data-agent-native-node-id="parent"]',
+          classes: [],
+          computedStyles: {},
+          boundingRect: { x: 0, y: 0, width: 200, height: 200 },
+          isFlexChild: false,
+          isFlexContainer: false,
+        },
+      },
+    ];
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: candidates,
+      onSelectLayer,
+    });
+
+    expect(view.container.textContent).toContain("Select layer");
+    const buttons = Array.from(view.container.querySelectorAll("button"));
+    const front = buttons.find((button) =>
+      button.textContent?.includes("Front card"),
+    );
+    const parent = buttons.find((button) =>
+      button.textContent?.includes("Parent frame"),
+    );
+    expect(front).toBeDefined();
+    expect(parent).toBeDefined();
+    expect(buttons.indexOf(front!)).toBeLessThan(buttons.indexOf(parent!));
+
+    await act(async () => parent?.click());
+    expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu instance cluster (Go to main / Swap / Detach)", () => {
+  it("renders nothing for a non-instance selection (backward compatible default)", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canCreateComponent: true,
+    });
+
+    expect(view.findButton("Go to main component")).toBeUndefined();
+    expect(view.findButton("Swap instance")).toBeUndefined();
+    expect(view.findButton("Detach instance")).toBeUndefined();
+    await view.cleanup();
+  });
+
+  it("renders and wires all three items when isComponentInstance is true", async () => {
+    const onGoToMainComponent = vi.fn();
+    const onSwapInstance = vi.fn();
+    const onDetachInstance = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      isComponentInstance: true,
+      onGoToMainComponent,
+      onSwapInstance,
+      onDetachInstance,
+    });
+
+    const detachButton = view.findButton("Detach instance");
+    expect(detachButton).toBeDefined();
+    expect(detachButton?.disabled).toBe(false);
+    await act(async () => detachButton?.click());
+    expect(onDetachInstance).toHaveBeenCalledTimes(1);
+    expect(onDetachInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "detach-instance", selectedCount: 1 }),
+    );
+
+    const swapButton = view.findButton("Swap instance");
+    await act(async () => swapButton?.click());
+    expect(onSwapInstance).toHaveBeenCalledTimes(1);
+
+    const mainButton = view.findButton("Go to main component");
+    await act(async () => mainButton?.click());
+    expect(onGoToMainComponent).toHaveBeenCalledTimes(1);
+
+    await view.cleanup();
+  });
+
+  it("disables items whose capability flag is explicitly false", async () => {
+    const onDetachInstance = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      isComponentInstance: true,
+      canDetachInstance: false,
+      onDetachInstance,
+    });
+
+    const detachButton = view.findButton("Detach instance");
+    expect(detachButton?.disabled).toBe(true);
+    await view.cleanup();
+  });
+});

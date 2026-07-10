@@ -3,6 +3,7 @@ import {
   IconEraser,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconLoader2,
   IconSend,
   IconCursorText,
   IconX,
@@ -69,6 +70,15 @@ interface DrawOverlayProps {
   ) => void;
   /** Called when the user cancels / closes the draw mode */
   onClose: () => void;
+  /**
+   * True while the caller is capturing/compositing/uploading the annotated
+   * screenshot for a just-submitted drawing (see the design app's
+   * design-canvas/annotation-snapshot.ts). Disables Send and swaps its icon
+   * for a spinner so a slow capture can't be triggered twice from the same
+   * drawing. Purely cosmetic — DrawOverlay's own state is unaffected, and the
+   * overlay still unmounts normally once the caller calls `onClose`.
+   */
+  sending?: boolean;
 }
 
 const PRESET_COLORS = [
@@ -212,6 +222,7 @@ export function DrawOverlay({
   zoom = 100,
   onSend,
   onClose,
+  sending = false,
 }: DrawOverlayProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -892,10 +903,14 @@ export function DrawOverlay({
         data-testid="draw-send"
         className="h-7 gap-1 px-3 !text-[11px] cursor-pointer"
         onClick={send}
-        disabled={!hasContent}
+        disabled={!hasContent || sending}
       >
-        <IconSend className="h-3 w-3" />
-        {t("visualEditor.send")}
+        {sending ? (
+          <IconLoader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <IconSend className="h-3 w-3" />
+        )}
+        {sending ? t("visualEditor.sendingDrawing") : t("visualEditor.send")}
       </Button>
 
       {/* Close */}

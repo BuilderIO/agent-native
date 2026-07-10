@@ -8625,6 +8625,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     // matters for correctness, not this timing.
                     await updateRunHeartbeat(row.id).catch(() => {});
                     try {
+                      // DELIBERATE: this marker omits `continuationCount`.
+                      // `chainServerDrivenContinuation` (production-agent.ts)
+                      // reads `backgroundRunMarker.continuationCount` to
+                      // compute `backgroundContinuationCount`, defaulting to 0
+                      // when absent — so a chunk recovered here always starts
+                      // a fresh nested-dispatch segment at depth 0, regardless
+                      // of how deep the chain was before this sweep picked it
+                      // up. This is what makes the sweep a genuine CHAIN
+                      // BREAK, not just a retry: this redispatch fires from an
+                      // unrelated, timer-driven invocation rather than from
+                      // inside the prior chain's own live execution, so
+                      // starting its nested-depth count over at 0 here is
+                      // correct — see `MAX_NESTED_SELF_DISPATCH_DEPTH` in
+                      // production-agent.ts for why nested depth is bounded
+                      // and how this reset keeps a long turn progressing past
+                      // Netlify's undocumented self-invocation loop-protection
+                      // limit instead of dying at it. Do not "fix" this by
+                      // adding `continuationCount` back without re-reading
+                      // that constant's doc comment.
                       await fireInternalDispatch({
                         path: resolveAgentChatProcessRunDispatchPath(),
                         taskId: row.id,

@@ -50,6 +50,7 @@ import {
   colorHasVisibleAlpha,
   compactCssValue,
   cssColorOrFallback,
+  roundToOneDecimal,
   swatchStyle,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
@@ -60,7 +61,7 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 
-interface ShadowLayer {
+export interface ShadowLayer {
   id: string;
   x: number;
   y: number;
@@ -82,7 +83,7 @@ function defaultDropShadowLayer(index: number): ShadowLayer {
   };
 }
 
-function parseShadowLayers(value: string | undefined): ShadowLayer[] {
+export function parseShadowLayers(value: string | undefined): ShadowLayer[] {
   return splitCssLayers(value || "")
     .filter((layer) => layer && layer !== "none")
     .map((layer, index) => parseShadowLayer(layer, index));
@@ -134,18 +135,18 @@ function splitCssTokens(value: string): string[] {
   return tokens;
 }
 
-function serializeShadowLayers(layers: ShadowLayer[]) {
+export function serializeShadowLayers(layers: ShadowLayer[]) {
   if (!layers.length) return "none";
   return layers
     .map((layer) =>
       [
         layer.inset ? "inset" : "",
-        `${Math.round(layer.x)}px`,
-        `${Math.round(layer.y)}px`,
-        `${Math.max(0, Math.round(layer.blur))}px`,
+        `${roundToOneDecimal(layer.x)}px`,
+        `${roundToOneDecimal(layer.y)}px`,
+        `${Math.max(0, roundToOneDecimal(layer.blur))}px`,
         // Spread radius may legitimately be negative for either inset or
         // drop shadows — only blur-radius is clamped to >= 0 in CSS.
-        `${Math.round(layer.spread)}px`,
+        `${roundToOneDecimal(layer.spread)}px`,
         layer.color,
       ]
         .filter(Boolean)
@@ -154,8 +155,8 @@ function serializeShadowLayers(layers: ShadowLayer[]) {
     .join(", ");
 }
 
-function readBlurFilter(value: string | undefined): number {
-  const match = value?.match(/blur\((-?\d+(?:\.\d+)?)px\)/);
+export function readBlurFilter(value: string | undefined): number {
+  const match = value?.match(/blur\((-?(?:\d+(?:\.\d+)?|\.\d+))px\)/);
   return match ? Math.max(0, Number(match[1])) : 0;
 }
 
@@ -163,12 +164,62 @@ function hasBlurFilter(value: string | undefined): boolean {
   return /blur\(/.test(value || "");
 }
 
-function setBlurFilterValue(value: string | undefined, blur: number): string {
-  const blurFn = `blur(${Math.max(0, Math.round(blur))}px)`;
+export function setBlurFilterValue(
+  value: string | undefined,
+  blur: number,
+): string {
+  const blurFn = `blur(${Math.max(0, roundToOneDecimal(blur))}px)`;
   const existing = compactCssValue(value, "");
   return existing.includes("blur(")
     ? existing.replace(/blur\([^)]*\)/, blurFn)
-    : blurFn;
+    : existing && existing !== "none"
+      ? `${existing} ${blurFn}`
+      : blurFn;
+}
+
+/** Remove only the layer/background blur function, preserving every sibling
+ * CSS filter (brightness, contrast, drop-shadow, etc.). Figma models layer
+ * blur as one effect row; deleting that row must not delete the other effects
+ * that happen to share CSS's `filter`/`backdrop-filter` declaration. */
+export function removeBlurFilterValue(value: string | undefined): string {
+  const existing = compactCssValue(value, "");
+  if (!existing || existing === "none") return "none";
+  const remaining = existing
+    .replace(/blur\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return remaining || "none";
+}
+
+/** Keep the transient original-opacity stash attached to the same shadow when
+ * positional CSS layers are reordered or removed. Parsed shadow ids are
+ * necessarily index-based (`shadow-0`, `shadow-1`, …); after a reorder the
+ * next computed-style read regenerates those ids in the new order. Without
+ * remapping, a hidden shadow's saved alpha stays at its old index and the eye
+ * button restores the wrong layer (or falls back to 25%). */
+export function remapIndexedShadowStash(
+  stash: Record<string, string>,
+  elementKey: string,
+  nextLayers: readonly Pick<ShadowLayer, "id">[],
+): Record<string, string> {
+  const prefix = `${elementKey}:shadow:`;
+  const moved = nextLayers.flatMap((layer, index) => {
+    const value = stash[`${prefix}${layer.id}`];
+    return value === undefined ? [] : [[`${prefix}shadow-${index}`, value]];
+  });
+  if (!Object.keys(stash).some((key) => key.startsWith(prefix))) return stash;
+  const next = Object.fromEntries(
+    Object.entries(stash).filter(([key]) => !key.startsWith(prefix)),
+  );
+  for (const [key, value] of moved) next[key] = value;
+  const stashEntries = Object.entries(stash);
+  if (
+    stashEntries.length === Object.keys(next).length &&
+    stashEntries.every(([key, value]) => next[key] === value)
+  ) {
+    return stash;
+  }
+  return next;
 }
 
 function shadowColorWithOpacity(color: string, opacity: number): string {
@@ -432,6 +483,9 @@ export function EffectsProperties({
     ? []
     : parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
+    setHiddenEffectStash((stash) =>
+      remapIndexedShadowStash(stash, effectStashKey, layers),
+    );
     const boxShadow = serializeShadowLayers(layers);
     if (onStylesChange) onStylesChange({ boxShadow }, meta);
     else onStyleChange("boxShadow", boxShadow, meta);
@@ -441,8 +495,10 @@ export function EffectsProperties({
       ...shadowLayers,
       defaultDropShadowLayer(shadowLayers.length),
     ]);
-  const addLayerBlur = () => onStyleChange("filter", "blur(4px)");
-  const addBackgroundBlur = () => onStyleChange("backdropFilter", "blur(8px)");
+  const addLayerBlur = () =>
+    onStyleChange("filter", setBlurFilterValue(styles.filter, 4));
+  const addBackgroundBlur = () =>
+    onStyleChange("backdropFilter", setBlurFilterValue(backdropFilterValue, 8));
   const reorderShadowLayers = (from: number, to: number) => {
     const next = [...shadowLayers];
     const [moved] = next.splice(from, 1);
@@ -645,7 +701,7 @@ export function EffectsProperties({
                           {t("editPanel.labels.layerBlur")}
                         </span>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {Math.round(blurValue)}px
+                          {roundToOneDecimal(blurValue)}px
                         </span>
                       </button>
                     </PopoverTrigger>
@@ -694,7 +750,12 @@ export function EffectsProperties({
                     </SectionIconButton>
                     <SectionIconButton
                       label={t("editPanel.labels.removeLayer")}
-                      onClick={() => onStyleChange("filter", "none")}
+                      onClick={() =>
+                        onStyleChange(
+                          "filter",
+                          removeBlurFilterValue(styles.filter),
+                        )
+                      }
                       disabled={!filterHasBlur}
                     >
                       <IconMinus className="size-3.5" />
@@ -740,7 +801,7 @@ export function EffectsProperties({
                           }
                         </span>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
-                          {Math.round(backdropBlurValue)}px
+                          {roundToOneDecimal(backdropBlurValue)}px
                         </span>
                       </button>
                     </PopoverTrigger>
@@ -789,7 +850,12 @@ export function EffectsProperties({
                     </SectionIconButton>
                     <SectionIconButton
                       label={t("editPanel.labels.removeLayer")}
-                      onClick={() => onStyleChange("backdropFilter", "none")}
+                      onClick={() =>
+                        onStyleChange(
+                          "backdropFilter",
+                          removeBlurFilterValue(backdropFilterValue),
+                        )
+                      }
                       disabled={!backdropFilterHasBlur}
                     >
                       <IconMinus className="size-3.5" />

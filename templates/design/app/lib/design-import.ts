@@ -1,10 +1,34 @@
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
+export interface FigmaFidelityReport {
+  exactCount: number;
+  approximated: Array<{
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+    notes: string[];
+  }>;
+  imageFallbacks: Array<{
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+    notes: string[];
+  }>;
+}
+
 export interface ImportResult {
   designId?: string;
   files?: Array<{ id: string; filename: string }>;
   warnings?: string[];
   error?: string;
+  /** Set by import-figma-clipboard: which path actually produced the screen(s). */
+  strategy?: "restNodes" | "htmlFallback";
+  /** Set by import-figma-clipboard when it fell back because no Figma token is configured. */
+  figmaApiKeyMissing?: boolean;
+  /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
+  matchStatus?: "matched" | "ambiguous" | "none" | "error";
+  fidelityReport?: FigmaFidelityReport;
+  guidance?: string;
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =

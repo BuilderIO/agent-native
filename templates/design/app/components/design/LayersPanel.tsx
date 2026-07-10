@@ -733,6 +733,92 @@ export function dropDescendantsOfSelectedAncestors(
   });
 }
 
+// BUG-LAYERS-MULTISELECT — Figma-parity multi-select: Cmd/Ctrl+Click toggles
+// one row's membership in the selection; Shift+Click selects the visible
+// range between the anchor row (the last row selected via a PLAIN click —
+// Shift+Click never moves the anchor, so consecutive range clicks keep
+// pivoting from the same row, matching Figma) and the clicked row; a plain
+// click replaces the selection with just the clicked row. Extracted out of
+// the row click handler (`selectNode` below) as a pure function so the
+// range/toggle computation itself — anchor fallback when the anchor row
+// scrolled out of view/was deleted, additive range-merge, and dropping a
+// selected descendant whose ancestor is also selected — is unit-testable
+// without mounting the panel.
+export function computeLayerMultiSelectIds(args: {
+  id: string;
+  additive: boolean;
+  range: boolean;
+  currentSelectedIds: readonly string[];
+  anchor: string | null;
+  selectableVisibleIds: readonly string[];
+  visibleRows: readonly FlatLayerRow[];
+  // Source for the stale-anchor fallback search below. Defaults to
+  // `currentSelectedIds`. The real panel passes its own `selectedIds` prop
+  // here instead — pointer clicks pass a `currentSelectedIds` freshly
+  // re-read from the DOM (readSelectedIdsFromTree), which can transiently
+  // differ from the panel's own selection state, and the fallback has always
+  // pivoted off the latter.
+  anchorFallbackSelectedIds?: readonly string[];
+}): { nextIds: string[]; nextAnchor: string | null } {
+  const {
+    id,
+    additive,
+    range,
+    currentSelectedIds,
+    anchor,
+    selectableVisibleIds,
+    visibleRows,
+    anchorFallbackSelectedIds = currentSelectedIds,
+  } = args;
+  const currentSelectedIdSet = new Set(currentSelectedIds);
+  let nextIds: string[];
+  // Only advance the anchor on plain clicks; Shift+clicks extend from the
+  // existing anchor so the pivot stays fixed across consecutive range
+  // clicks (returning `anchor` unchanged, including when it was never set).
+  // The one exception is the stale-anchor fallback just below, which DOES
+  // move the anchor even on a range click — it's re-pivoting onto a
+  // still-valid row, not starting a fresh selection.
+  let nextAnchor = range ? anchor : id;
+  if (range && anchor) {
+    let effectiveAnchor = anchor;
+    if (selectableVisibleIds.indexOf(effectiveAnchor) < 0) {
+      // Stale anchor (deleted / filtered / collapsed out of view): pivot from
+      // the last selected layer that is still visible & selectable, matching
+      // Figma's behavior instead of dropping the range to a single select.
+      const fallback = [...anchorFallbackSelectedIds]
+        .reverse()
+        .find((sid) => selectableVisibleIds.includes(sid));
+      if (fallback) {
+        effectiveAnchor = fallback;
+        nextAnchor = fallback;
+      }
+    }
+    const from = selectableVisibleIds.indexOf(effectiveAnchor);
+    const to = selectableVisibleIds.indexOf(id);
+    if (from >= 0 && to >= 0) {
+      const [start, end] = from < to ? [from, to] : [to, from];
+      const rangeIds = selectableVisibleIds.slice(start, end + 1);
+      const merged = additive
+        ? Array.from(new Set([...currentSelectedIds, ...rangeIds]))
+        : rangeIds;
+      // A range that spans an expanded parent and some of its children would
+      // otherwise co-select both. Normalize so a selected descendant whose
+      // ancestor is also selected gets dropped — the ancestor selection
+      // already implies it.
+      nextIds = dropDescendantsOfSelectedAncestors(merged, visibleRows);
+    } else {
+      nextIds = [id];
+    }
+  } else if (additive) {
+    nextIds = currentSelectedIdSet.has(id)
+      ? currentSelectedIds.filter((selectedId) => selectedId !== id)
+      : [...currentSelectedIds, id];
+  } else {
+    nextIds = [id];
+  }
+  return { nextIds, nextAnchor };
+}
+
 export function getDraggedLayerIdsForRows(args: {
   selectedIds: readonly string[];
   nodeId: string;
@@ -745,17 +831,41 @@ export function getDraggedLayerIdsForRows(args: {
   // extract them from the parent being dragged. Optional only for
   // call-site/back-compat convenience; always pass it in the real panel.
   ancestorIdMap?: ReadonlyMap<string, string[]>;
+  // Full-tree node lookup used to keep locked layers out of a multi-layer
+  // drag payload. Figma lets a locked row remain selected alongside unlocked
+  // rows, but dragging one of the unlocked rows must not silently move the
+  // locked selection too. Optional for pure-helper/back-compat callers; the
+  // real panel always passes it from the same full roots used above.
+  nodeById?: ReadonlyMap<string, LayersPanelNode>;
 }): string[] {
   const rawDraggedIds = args.selectedIds.includes(args.nodeId)
     ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
     : [args.nodeId];
-  const draggedIdSet = new Set(rawDraggedIds);
-  return rawDraggedIds.filter((id) => {
+  const movableDraggedIds = rawDraggedIds.filter(
+    (id) => args.nodeById?.get(id)?.locked !== true,
+  );
+  const draggedIdSet = new Set(movableDraggedIds);
+  return movableDraggedIds.filter((id) => {
     const ancestorIds =
       args.ancestorIdMap?.get(id) ??
       args.visibleRows.find((row) => row.node.id === id)?.ancestorIds;
     return !ancestorIds?.some((ancestorId) => draggedIdSet.has(ancestorId));
   });
+}
+
+/** Builds an id-to-node lookup over the full tree. Kept separate from the
+ * ancestor map because drag-start needs both node state (locked) and ancestry,
+ * while other callers only need one or the other. */
+export function buildLayerNodeMap(
+  nodes: readonly LayersPanelNode[],
+): Map<string, LayersPanelNode> {
+  const map = new Map<string, LayersPanelNode>();
+  const visit = (node: LayersPanelNode) => {
+    map.set(node.id, node);
+    node.children?.forEach(visit);
+  };
+  nodes.forEach(visit);
+  return map;
 }
 
 // Row context-menu actions (copy/duplicate/delete/group/reorder) operate on
@@ -1010,57 +1120,25 @@ function LayersPanelImpl(
     ) => {
       const currentSelectedIds =
         options.currentSelectedIds ?? selectedIdsRef.current;
-      const currentSelectedIdSet = new Set(currentSelectedIds);
-      let nextIds: string[];
-      if (options.range && lastSelectionAnchorRef.current) {
-        let anchor = lastSelectionAnchorRef.current;
-        if (selectableVisibleIds.indexOf(anchor) < 0) {
-          // Stale anchor (deleted / filtered / collapsed out of view): pivot from
-          // the last selected layer that is still visible & selectable, matching
-          // Figma's behavior instead of dropping the range to a single select.
-          const fallback = [...selectedIds]
-            .reverse()
-            .find((sid) => selectableVisibleIds.includes(sid));
-          if (fallback) {
-            anchor = fallback;
-            lastSelectionAnchorRef.current = fallback;
-          }
-        }
-        const from = selectableVisibleIds.indexOf(anchor);
-        const to = selectableVisibleIds.indexOf(id);
-        if (from >= 0 && to >= 0) {
-          const [start, end] = from < to ? [from, to] : [to, from];
-          const rangeIds = selectableVisibleIds.slice(start, end + 1);
-          const merged = options.additive
-            ? Array.from(new Set([...currentSelectedIds, ...rangeIds]))
-            : rangeIds;
-          // A range that spans an expanded parent and some of its children
-          // would otherwise co-select both. Normalize so a selected
-          // descendant whose ancestor is also selected gets dropped — the
-          // ancestor selection already implies it.
-          nextIds = dropDescendantsOfSelectedAncestors(
-            merged,
-            visibleRowsRef.current,
-          );
-        } else {
-          nextIds = [id];
-        }
-      } else if (options.additive) {
-        nextIds = currentSelectedIdSet.has(id)
-          ? currentSelectedIds.filter((selectedId) => selectedId !== id)
-          : [...currentSelectedIds, id];
-      } else {
-        nextIds = [id];
-      }
-      // Only advance the anchor on plain clicks; Shift+clicks extend from the
-      // existing anchor so the pivot stays fixed across consecutive range clicks.
-      if (!options.range) {
-        lastSelectionAnchorRef.current = id;
-      }
+      // NOTE: the stale-anchor fallback intentionally searches the PANEL'S
+      // OWN `selectedIds` prop, not `currentSelectedIds` (which pointer
+      // clicks pass in freshly re-read from the DOM via readSelectedIdsFromTree
+      // and can transiently differ) — matches the pre-extraction behavior.
+      const { nextIds, nextAnchor } = computeLayerMultiSelectIds({
+        id,
+        additive: options.additive,
+        range: options.range,
+        currentSelectedIds,
+        anchor: lastSelectionAnchorRef.current,
+        selectableVisibleIds,
+        visibleRows: visibleRowsRef.current,
+        anchorFallbackSelectedIds: selectedIds,
+      });
+      lastSelectionAnchorRef.current = nextAnchor;
       lastPanelSelectionSignatureRef.current = nextIds.join("\0");
       onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
     },
-    [onSelectionChange, selectableVisibleIds],
+    [onSelectionChange, selectableVisibleIds, selectedIds],
   );
 
   const commitRename = useCallback(
@@ -1735,12 +1813,20 @@ const LayerRow = memo(function LayerRow({
     // descendant nested inside a currently-collapsed dragged ancestor is
     // still correctly recognized as a descendant and excluded from the drag
     // payload (see L13 / buildAncestorIdMap).
-    const ancestorIdMap = buildAncestorIdMap(rootsRef.current);
+    const roots = rootsRef.current;
+    const ancestorIdMap = buildAncestorIdMap(roots);
+    const nodeById = buildLayerNodeMap(roots);
+    // Search/collapse only changes which rows are painted; it must not change
+    // the structural order of an existing multi-selection's drag payload.
+    // Flatten the complete tree for ordering, while the visible rows remain
+    // the interaction surface that actually started the gesture.
+    const allRows = flattenRows(roots, new Set(), true);
     const draggedIds = getDraggedLayerIdsForRows({
       selectedIds: selectedIdsRef.current,
       nodeId: node.id,
-      visibleRows: visibleRowsRef.current,
+      visibleRows: allRows,
       ancestorIdMap,
+      nodeById,
     });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-design-layer-id", node.id);

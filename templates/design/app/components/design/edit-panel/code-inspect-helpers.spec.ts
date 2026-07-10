@@ -4,6 +4,7 @@ import {
   alpineDataValueLiteral,
   canRebuildAlpineDataLosslessly,
   elementHtmlPreview,
+  formatInspectCodeOpeningTag,
   isBooleanPropValue,
   openingTagOf,
   parseAlpineDataObject,
@@ -179,6 +180,30 @@ describe("openingTagOf / truncateOpeningTag / elementHtmlPreview", () => {
     const truncated = truncateOpeningTag(openTag, 10);
     expect(truncated.startsWith('<div class="')).toBe(true);
     expect(truncated.endsWith('…">')).toBe(true);
+  });
+
+  it("strips runtime and style attributes before measuring the inline tag", () => {
+    expect(
+      formatInspectCodeOpeningTag(
+        '<button data-agent-native-node-id="cta" data-agent-native-layer-name="Primary CTA" style="padding: 12px" type="button">',
+      ),
+    ).toBe('<button type="button">');
+  });
+
+  it("wraps retained attributes onto indented lines when the clean tag is long", () => {
+    expect(
+      formatInspectCodeOpeningTag(
+        '<button id="checkout-call-to-action" class="button button-primary" aria-label="Continue to checkout">',
+      ),
+    ).toBe(
+      '<button\n  id="checkout-call-to-action"\n  class="button button-primary"\n  aria-label="Continue to checkout">',
+    );
+  });
+
+  it("keeps short retained attributes inline", () => {
+    expect(formatInspectCodeOpeningTag('<input disabled name="email">')).toBe(
+      '<input disabled name="email">',
+    );
   });
 
   it("builds a fallback opening tag from metadata when there is no HTML", () => {

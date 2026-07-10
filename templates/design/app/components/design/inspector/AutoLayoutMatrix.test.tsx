@@ -107,4 +107,63 @@ describe("AutoLayoutMatrix", () => {
 
     expect(markup).toContain("Mixed");
   });
+
+  it("shows an explicit Mixed flow with no plausible segment selected", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: { ...value, flowMixed: true },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+      }),
+    );
+
+    expect(markup).toContain('data-flow-value="mixed"');
+    expect(markup).toContain("Mixed");
+    expect(markup).toContain('aria-label="Normal flow" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Vertical" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Horizontal" aria-pressed="false"');
+    expect(markup).toContain('aria-label="Grid" aria-pressed="false"');
+  });
+
+  it("shows mixed alignment, gap mode, and clipping without plausible defaults", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AutoLayoutMatrix, {
+        value: {
+          ...value,
+          alignmentMixed: true,
+          gapModeMixed: true,
+          clipContentMixed: true,
+        },
+        onDirectionChange: noop,
+        onWrapChange: noop,
+        onAlignmentChange: noop,
+        onGapChange: noop,
+        onPaddingChange: noop,
+        onPaddingLinkedChange: noop,
+        onChildSizingChange: noop,
+        onDistribute: noop,
+      }),
+    );
+
+    expect(markup).toContain("Gap mode: Mixed");
+    expect(markup).toContain('aria-checked="mixed"');
+    for (const label of [
+      "top left",
+      "top center",
+      "top right",
+      "middle left",
+      "middle center",
+      "middle right",
+      "bottom left",
+      "bottom center",
+      "bottom right",
+    ]) {
+      expect(markup).toContain(`aria-label="${label}" aria-pressed="false"`);
+    }
+  });
 });

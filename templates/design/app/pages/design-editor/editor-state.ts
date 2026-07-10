@@ -244,6 +244,44 @@ export function shouldReplacePreviewAfterVisualStyleCommit(args: {
   return !args.runtimeApplied && !args.runtimeStyleApplied;
 }
 
+export interface OptimisticTextDecorationLineEntry {
+  key: string;
+  value: string;
+}
+
+/**
+ * BUG-DOUBLE-TOGGLE-RACE — Cmd+U (toggle underline) / Cmd+Shift+X (toggle
+ * strikethrough) commit through the SHORTHAND "textDecoration" property, but
+ * commitVisualStyles' synchronous optimistic patch to
+ * selectedElement.computedStyles only merges the exact key(s) it committed —
+ * it never decomposes "textDecoration" into the LONGHAND
+ * "textDecorationLine" the toggle reads to decide its next value.
+ * `computedStyles.textDecorationLine` only catches up once the bridge's
+ * async getComputedStyle round trip lands. A second toggle press within that
+ * window would otherwise recompute nextTextDecorationLineValue from the
+ * STALE pre-toggle value, land on the exact value the first press already
+ * committed, and get deduped as a no-op — consecutive toggles silently stop
+ * alternating.
+ *
+ * Resolves which value a toggle handler should treat as "current": a
+ * still-fresh optimistic value this same toggle family already recorded for
+ * the SAME selected element (`tracked.key === elementKey`) wins over the
+ * (possibly stale) computedStyles reading, since the async measurement that
+ * would refresh computedStyles may not have landed yet. A different/new
+ * element key (or no tracked entry) falls back to computedStyles, so newly
+ * selecting a different element always starts from ITS OWN real state.
+ */
+export function resolveOptimisticTextDecorationLine(
+  tracked: OptimisticTextDecorationLineEntry | null | undefined,
+  elementKey: string | undefined,
+  computedTextDecorationLine: string | undefined,
+): string | undefined {
+  if (tracked && elementKey !== undefined && tracked.key === elementKey) {
+    return tracked.value;
+  }
+  return computedTextDecorationLine;
+}
+
 /**
  * PF12: decide whether a style change from EditPanel (ScrubInput scrub tick /
  * DesignColorPicker drag tick) should skip the expensive source commit

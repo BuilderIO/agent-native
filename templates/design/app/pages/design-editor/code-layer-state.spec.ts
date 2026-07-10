@@ -1,11 +1,27 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import type { ElementInfo } from "@/components/design/types";
+
 import {
   codeLayerNodeMatchesBridgeTarget,
   elementInfoFromCodeLayerNode,
+  refreshedBoundingRectSize,
+  refreshedComputedStyles,
   resolveCodeLayerNodeFromBridge,
 } from "./code-layer-state";
+
+function makeElementInfo(overrides: Partial<ElementInfo> = {}): ElementInfo {
+  return {
+    tagName: "div",
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    isFlexChild: false,
+    isFlexContainer: false,
+    ...overrides,
+  };
+}
 
 function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
   const selector = overrides.selector ?? "div";
@@ -270,5 +286,88 @@ describe("codeLayerNodeMatchesBridgeTarget", () => {
     expect(
       codeLayerNodeMatchesBridgeTarget(node, "section > p", "unrelated-id"),
     ).toBe(false);
+  });
+});
+
+// BUG-UNDO-RESIZE-GEOMETRY regression coverage — live QA: undo after a canvas
+// drag-RESIZE reverted the DOM correctly but the right panel's Layout W/H
+// stayed stale (167x86 instead of the actually-reverted 116.8x36) until
+// deselect/reselect. Root cause: refreshElementInfoFromContent's resync
+// merged width/height additively (so a value absent from the reverted node
+// never overwrote the pre-undo one) AND never refreshed boundingRect at all,
+// which is what edit-panel/element-classification.ts's cssElementSize falls
+// back to when computedStyles has no parseable width/height.
+describe("refreshedComputedStyles geometry handling", () => {
+  it("clears a stale width/height when the fresh source no longer authors one (fail-before case)", () => {
+    // Before the fix: the additive merge below (`{...info.computedStyles,
+    // ...sourceWithAliases}`) kept `width`/`height` from `info` whenever the
+    // fresh (reverted) node didn't carry them — exactly what happened for an
+    // undo that removed the drag-resize's inline width/height, reverting to
+    // a class-driven size the string parse can't see.
+    const staleInfo = makeElementInfo({
+      computedStyles: { width: "167px", height: "86px", color: "red" },
+    });
+    const result = refreshedComputedStyles(
+      staleInfo,
+      { color: "red" }, // reverted node's inline style: no width/height
+      ["some-class"], // sourceClasses.length > 0 selects the additive-merge branch
+    );
+    expect(result.width).toBeUndefined();
+    expect(result.height).toBeUndefined();
+    // Non-geometry properties still carry over/merge normally.
+    expect(result.color).toBe("red");
+  });
+
+  it("takes the fresh width/height when the reverted source authors an explicit value", () => {
+    const staleInfo = makeElementInfo({
+      computedStyles: { width: "167px", height: "86px" },
+    });
+    const result = refreshedComputedStyles(
+      staleInfo,
+      { width: "116.8px", height: "36px" },
+      ["some-class"],
+    );
+    expect(result.width).toBe("116.8px");
+    expect(result.height).toBe("36px");
+  });
+
+  it("does not affect the no-classes (pure source) branch", () => {
+    const staleInfo = makeElementInfo({
+      computedStyles: { width: "167px", height: "86px" },
+    });
+    const result = refreshedComputedStyles(
+      staleInfo,
+      { width: "116.8px" },
+      [], // sourceClasses.length === 0 selects the pure-source branch
+    );
+    expect(result.width).toBe("116.8px");
+    expect(result.height).toBeUndefined();
+  });
+});
+
+describe("refreshedBoundingRectSize", () => {
+  it("recomputes width/height from the freshly-resolved computedStyles instead of staying pinned to the pre-undo rect (fail-before case)", () => {
+    // Before the fix: refreshElementInfoFromContent's `{...info}` spread (via
+    // canonicalElementInfoForCodeLayerNode, and again in its DOM-parse
+    // fallback) left `boundingRect` completely untouched, so cssElementSize's
+    // fallback-to-boundingRect path kept reporting the pre-undo drag-resize
+    // rect forever — this is what the Layout panel's W/H fields showed when
+    // computedStyles itself had no parseable width/height.
+    const staleInfo = makeElementInfo({
+      boundingRect: { x: 4, y: 8, width: 167, height: 86 },
+    });
+    const result = refreshedBoundingRectSize(staleInfo, {
+      width: "116.8px",
+      height: "36px",
+    });
+    expect(result).toEqual({ x: 4, y: 8, width: 116.8, height: 36 });
+  });
+
+  it("keeps the prior rect size when the fresh computedStyles has no parseable width/height", () => {
+    const staleInfo = makeElementInfo({
+      boundingRect: { x: 4, y: 8, width: 167, height: 86 },
+    });
+    const result = refreshedBoundingRectSize(staleInfo, {});
+    expect(result).toEqual({ x: 4, y: 8, width: 167, height: 86 });
   });
 });

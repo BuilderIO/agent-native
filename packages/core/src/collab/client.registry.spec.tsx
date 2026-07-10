@@ -26,16 +26,23 @@ import {
   type UseCollaborativeDocResult,
 } from "./client.js";
 
-/** Minimal EventSource stand-in so the shared transport never opens SSE. */
+/**
+ * Minimal EventSource stand-in so the shared transport never opens a real
+ * SSE connection. Tracks every constructed instance so tests can push
+ * synthetic push events without going through a real EventSource.
+ */
 class FakeEventSource {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 2;
+  static instances: FakeEventSource[] = [];
   readyState = FakeEventSource.CONNECTING;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
-  constructor(readonly url: string) {}
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
   close(): void {
     this.readyState = FakeEventSource.CLOSED;
   }
@@ -64,11 +71,13 @@ function makeFetchMock() {
 function Probe({
   docId,
   onResult,
+  user,
 }: {
   docId: string | null;
   onResult: (result: UseCollaborativeDocResult) => void;
+  user?: { name: string; email: string; color: string };
 }) {
-  const result = useCollaborativeDoc({ docId });
+  const result = useCollaborativeDoc({ docId, user });
   onResult(result);
   return null;
 }
@@ -92,6 +101,7 @@ describe("useCollaborativeDoc connection registry", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("EventSource", FakeEventSource);
+    FakeEventSource.instances = [];
     vi.useFakeTimers();
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
@@ -251,5 +261,74 @@ describe("useCollaborativeDoc connection registry", () => {
     });
     expect(_collabDocRegistrySizeForTests()).toBe(1);
     expect(result?.ydoc?.isDestroyed).toBe(false);
+  });
+
+  it("does not re-broadcast local awareness state when a REMOTE awareness event arrives (no storm)", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    mount(
+      <Probe
+        docId="doc-1"
+        onResult={() => {}}
+        user={{ name: "Local", email: "local@example.com", color: "#111" }}
+      />,
+    );
+    // Flush the initial state fetch + first poll cycle, then let the local
+    // `setUser` awareness push (origin "local") land.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const source = FakeEventSource.instances.at(-1);
+    expect(source).toBeTruthy();
+    source!.onopen?.();
+
+    const awarenessPostsBefore = mock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/awareness") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    ).length;
+
+    // Simulate a REMOTE peer's cursor move arriving over the shared SSE
+    // transport — this is what `applyAwarenessEvent` receives, and it emits
+    // `awareness.emit("change", [changes, "remote"])` after reconciling.
+    await act(async () => {
+      source!.onmessage?.({
+        data: JSON.stringify({
+          source: "awareness",
+          type: "awareness-change",
+          docId: "doc-1",
+          states: [
+            {
+              clientId: 999_001,
+              state: JSON.stringify({
+                user: {
+                  name: "Remote",
+                  email: "remote@example.com",
+                  color: "#222",
+                },
+                cursor: { x: 0.5, y: 0.5 },
+              }),
+            },
+          ],
+        }),
+      });
+      // Past the 150ms fast-awareness-push throttle window.
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const awarenessPostsAfter = mock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/awareness") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    ).length;
+
+    // A remote-originated awareness change must not cause THIS client to
+    // re-broadcast its own (unchanged) state — otherwise every peer's cursor
+    // move would fan out into an extra POST from every other connected
+    // client (an awareness storm that gets worse as more people join).
+    expect(awarenessPostsAfter).toBe(awarenessPostsBefore);
   });
 });

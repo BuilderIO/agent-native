@@ -474,3 +474,21 @@ export function computeIframeLocalCanvasPoint(args: {
     y: Math.max(0, (args.clientY - args.iframeRect.top) / factor),
   };
 }
+
+/**
+ * Reads MultiScreenCanvas's live imperative zoom from the exact inline
+ * transform written by `applyViewToDom` while a wheel/pinch gesture is still
+ * settling. React's `overviewCanvasZoom` intentionally lags those per-frame
+ * DOM writes until the gesture commit, so cursor-sensitive commands must use
+ * this value when it is available.
+ */
+export function readOverviewZoomPercentFromTransform(
+  transform: string | null | undefined,
+  fallbackZoomPercent: number,
+): number {
+  const match = transform?.match(/(?:^|\s)scale\(\s*([-+]?\d*\.?\d+)\s*\)/i);
+  const scale = match ? Number(match[1]) : Number.NaN;
+  return Number.isFinite(scale) && scale > 0
+    ? scale * 100
+    : fallbackZoomPercent;
+}

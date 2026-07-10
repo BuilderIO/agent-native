@@ -139,7 +139,19 @@ export function withLayerSizeMarker(
 
 export function splitCssLayers(value: string): string[] {
   const trimmed = value.trim();
-  if (!trimmed || trimmed === "none") return [];
+  // CSS-wide keywords represent the property's default/inherited value as a
+  // whole; they are not real comma-stack layers and cannot legally be
+  // preserved beside a new gradient/image (`url(...), initial` invalidates
+  // the entire declaration). Shorthand-authored page backgrounds commonly
+  // surface as `initial` through CSSStyleDeclaration, so normalize these to
+  // an empty editable layer stack before adding a real fill.
+  if (
+    !trimmed ||
+    trimmed === "none" ||
+    /^(?:initial|inherit|unset|revert|revert-layer)$/i.test(trimmed)
+  ) {
+    return [];
+  }
   const layers: string[] = [];
   let depth = 0;
   let start = 0;

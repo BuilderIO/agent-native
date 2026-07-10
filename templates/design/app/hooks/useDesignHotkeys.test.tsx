@@ -53,6 +53,7 @@ async function withHotkeys(
 function dispatchKey(
   key: string,
   init: KeyboardEventInit & { code?: string } = {},
+  target: EventTarget = window,
 ) {
   const event = new KeyboardEvent("keydown", {
     key,
@@ -60,7 +61,7 @@ function dispatchKey(
     cancelable: true,
     ...init,
   });
-  window.dispatchEvent(event);
+  target.dispatchEvent(event);
   return event;
 }
 
@@ -85,6 +86,42 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withHotkeys({ onShowKeyboardShortcuts }, () => {
+      dispatchKey("?", {
+        code: "Slash",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      dispatchKey("?", {
+        code: "Slash",
+        metaKey: true,
+        shiftKey: true,
+      });
+    });
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps shortcut help global without routing editing keys from editable targets", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    const onTextTool = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    await withHotkeys({ onShowKeyboardShortcuts, onTextTool }, () => {
+      const helpEvent = dispatchKey(
+        "?",
+        { code: "Slash", ctrlKey: true, shiftKey: true },
+        input,
+      );
+      dispatchKey("t", {}, input);
+      expect(helpEvent.defaultPrevented).toBe(true);
+    });
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+    expect(onTextTool).not.toHaveBeenCalled();
+    input.remove();
+  });
+
   it("Y arms the annotation/draw tool", async () => {
     const onDrawTool = vi.fn();
     const onToolChange = vi.fn();
@@ -316,6 +353,77 @@ describe("useDesignHotkeys — selection toggles (Cmd+Shift+H / Cmd+Shift+L)", (
   });
 });
 
+describe("useDesignHotkeys — typography toggles (Cmd+U / Cmd+Shift+X)", () => {
+  it("fires onToggleUnderline for Cmd+U", async () => {
+    const onToggleUnderline = vi.fn();
+    await withHotkeys({ onToggleUnderline }, () => {
+      dispatchKey("u", { metaKey: true });
+    });
+    expect(onToggleUnderline).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToggleStrikethrough for Cmd+Shift+X and does not also fire onCut", async () => {
+    const onToggleStrikethrough = vi.fn();
+    const onCut = vi.fn();
+    await withHotkeys({ onToggleStrikethrough, onCut }, () => {
+      dispatchKey("x", { metaKey: true, shiftKey: true });
+    });
+    expect(onToggleStrikethrough).toHaveBeenCalledTimes(1);
+    expect(onCut).not.toHaveBeenCalled();
+  });
+
+  it("plain Cmd+X still cuts and does not fire onToggleStrikethrough", async () => {
+    const onToggleStrikethrough = vi.fn();
+    const onCut = vi.fn();
+    await withHotkeys({ onToggleStrikethrough, onCut }, () => {
+      dispatchKey("x", { metaKey: true });
+    });
+    expect(onCut).toHaveBeenCalledTimes(1);
+    expect(onToggleStrikethrough).not.toHaveBeenCalled();
+  });
+
+  it("Shift+X (no primary) still swaps fill/stroke, not strikethrough", async () => {
+    const onToggleStrikethrough = vi.fn();
+    const onSwapFillStroke = vi.fn();
+    await withHotkeys({ onToggleStrikethrough, onSwapFillStroke }, () => {
+      dispatchKey("x", { shiftKey: true });
+    });
+    expect(onSwapFillStroke).toHaveBeenCalledTimes(1);
+    expect(onToggleStrikethrough).not.toHaveBeenCalled();
+  });
+
+  it("does not fire underline/strikethrough hotkeys inside editable targets", async () => {
+    const onToggleUnderline = vi.fn();
+    const onToggleStrikethrough = vi.fn();
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    try {
+      await withHotkeys({ onToggleUnderline, onToggleStrikethrough }, () => {
+        const event = new KeyboardEvent("keydown", {
+          key: "u",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        input.dispatchEvent(event);
+        const event2 = new KeyboardEvent("keydown", {
+          key: "x",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        });
+        input.dispatchEvent(event2);
+      });
+      expect(onToggleUnderline).not.toHaveBeenCalled();
+      expect(onToggleStrikethrough).not.toHaveBeenCalled();
+    } finally {
+      input.remove();
+    }
+  });
+});
+
 describe("useDesignHotkeys — group/ungroup/frame (Cmd+G family)", () => {
   it("Cmd+G groups", async () => {
     const onGroup = vi.fn();
@@ -335,13 +443,13 @@ describe("useDesignHotkeys — group/ungroup/frame (Cmd+G family)", () => {
     expect(onFrameSelection).not.toHaveBeenCalled();
   });
 
-  it("does not retain the historical Shift+Cmd+G ungroup binding", async () => {
+  it("Shift+Cmd+G also ungroups (BUG-UNGROUP-HOTKEY: matches the context-menu Ungroup action, which is dead without this)", async () => {
     const onUngroup = vi.fn();
     const onGroup = vi.fn();
     await withHotkeys({ onUngroup, onGroup }, () => {
       dispatchKey("g", { metaKey: true, shiftKey: true });
     });
-    expect(onUngroup).not.toHaveBeenCalled();
+    expect(onUngroup).toHaveBeenCalledTimes(1);
     expect(onGroup).not.toHaveBeenCalled();
   });
 
@@ -489,6 +597,16 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
     );
     expect(onCreateComponent).toHaveBeenCalledTimes(1);
     expect(onFrameSelection).toHaveBeenCalledTimes(1);
+    expect(onAlignSelection).not.toHaveBeenCalled();
+  });
+
+  it("Cmd+Alt+B detaches the selected instance and does not fire align", async () => {
+    const onAlignSelection = vi.fn();
+    const onDetachInstance = vi.fn();
+    await withHotkeys({ onAlignSelection, onDetachInstance }, () => {
+      dispatchKey("b", { metaKey: true, altKey: true });
+    });
+    expect(onDetachInstance).toHaveBeenCalledTimes(1);
     expect(onAlignSelection).not.toHaveBeenCalled();
   });
 });

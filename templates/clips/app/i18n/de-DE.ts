@@ -388,6 +388,7 @@ const messages = {
     searchPlaceholder: "Transkript durchsuchen",
     copyTranscript: "Transkript kopieren",
     downloadSrt: "Laden Sie .srt herunter",
+    regenerate: "Transkript neu erstellen",
     cleanupRunning: "Bereinigen des Transkripts im Hintergrund.",
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",

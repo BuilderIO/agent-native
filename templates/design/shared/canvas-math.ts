@@ -1315,24 +1315,60 @@ export function resizeRotatedFrameFromDelta(
   );
 }
 
+/** Resize handles in clockwise screen order (y grows downward), so rotating a
+ *  handle by one 90° quadrant clockwise is a +2 step through this ring. */
+const RESIZE_HANDLES_CLOCKWISE: readonly ResizeHandle[] = [
+  "n",
+  "ne",
+  "e",
+  "se",
+  "s",
+  "sw",
+  "w",
+  "nw",
+];
+
+/** Maps a local resize handle to the world-space direction it points after
+ *  rotating the frame clockwise by `quadrants` 90° steps (CSS-positive
+ *  rotation is clockwise on screen): at 90°, the local east handle points
+ *  due south in world space, so "e" → "s". */
+function rotateHandleByQuadrants(
+  handle: ResizeHandle,
+  quadrants: number,
+): ResizeHandle {
+  const index = RESIZE_HANDLES_CLOCKWISE.indexOf(handle);
+  return RESIZE_HANDLES_CLOCKWISE[(index + 2 * ((quadrants % 4) + 4)) % 8]!;
+}
+
+/**
+ * Beyond this many degrees away from the nearest axis-aligned orientation
+ * (0/90/180/270), resize snapping is skipped for rotated frames: the frame's
+ * true edges diverge too far from any axis-aligned box for edge/center
+ * alignment against siblings to mean anything, and a wrong-axis guide is
+ * worse than none.
+ */
+const ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES = 30;
+
 /**
  * Rotation-aware counterpart to resizeRotatedFrameFromDelta that also snaps
  * to nearby stationary siblings, matching computeResizeSnap's contract for
  * the unrotated group-resize path (CV-style: same threshold/guide shape).
  *
- * Approximation (documented, see WORK ITEM 2 in the canvas bug pass this was
- * added for): true Figma parity would project the dragged handle's actual
- * ROTATED world position/edge onto sibling edges. This instead snaps the
- * frame's own unrotated LOCAL bounds — the same box resizeRotatedFrameFromDelta
- * computes before re-anchoring — directly against stationary siblings' WORLD
- * bounds, using the exact same computeResizeSnap machinery a non-rotated
- * resize uses. That comparison is exact when the dragged frame's rotation is
- * 0 (identical to the plain resize+snap path) and increasingly approximate as
- * rotation grows, since the local box's edges diverge further from its actual
- * rotated world edges. It still snaps to the closest sibling edge/center in
- * the vast majority of authoring cases (small rotations, or siblings aligned
- * near the anchor corner the resize is pivoting around) without the added
- * complexity of full rotated-edge projection.
+ * How rotated snapping works (see WORK ITEM 2 in the canvas bug pass this was
+ * added for, reworked in the pre-ship review): the unsnapped rotated resize
+ * is computed first, then its actual world-space AABB is snapped against
+ * stationary siblings' world bounds with the exact same computeResizeSnap
+ * machinery a non-rotated resize uses — with the resize handle mapped into
+ * its world orientation by the frame's nearest 90° quadrant (at ~90° the
+ * local east edge faces due south in world space, so "e" snaps the AABB's
+ * bottom edge; at ~180° it faces west; etc.). Any snap offset is then fed
+ * back into the rotated resize as extra world pointer travel, so anchoring
+ * stays exact. This is edge-exact at 0/90/180/270 (the AABB edges ARE the
+ * frame's edges there) and approximate in between (pointer travel maps to
+ * AABB-edge movement with a cos² factor); once the rotation is more than
+ * ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES from every axis-aligned
+ * orientation, snapping is skipped entirely (no guides) rather than snapping
+ * an axis that no longer matches what the user sees.
  */
 export function resizeRotatedFrameFromDeltaWithSnap(
   origin: FrameGeometry,
@@ -1385,14 +1421,75 @@ export function resizeRotatedFrameFromDeltaWithSnap(
     };
   }
 
-  const snap = computeResizeSnap(resizedLocal, stationary, handle, snapOptions);
+  const unsnapped = reanchorRotatedResizeToWorld(
+    origin,
+    handle,
+    degrees,
+    resizedLocal,
+    options,
+  );
+
+  // Map the resize handle into its world orientation by the nearest 90°
+  // quadrant (see the doc comment above). Far off-axis, skip snapping
+  // outright — a wrong-axis snap/guide is worse than none.
+  const normalizedDegrees = ((degrees % 360) + 360) % 360;
+  const nearestQuadrant = Math.round(normalizedDegrees / 90) % 4;
+  const offAxisDegrees = Math.abs(
+    normalizedDegrees - Math.round(normalizedDegrees / 90) * 90,
+  );
+  if (offAxisDegrees > ROTATED_RESIZE_SNAP_MAX_OFF_AXIS_DEGREES) {
+    return { frame: unsnapped, guides: [] };
+  }
+
+  const worldHandle = rotateHandleByQuadrants(handle, nearestQuadrant);
+  const aabb = getRotatedFrameAABB(unsnapped);
+  const worldBox: FrameGeometry = {
+    x: aabb.left,
+    y: aabb.top,
+    width: aabb.width,
+    height: aabb.height,
+  };
+  // Min sizes are per-axis, so they swap with the axes at 90/270.
+  const worldSnapOptions =
+    nearestQuadrant % 2 === 1
+      ? {
+          ...snapOptions,
+          minWidth: snapOptions.minHeight,
+          minHeight: snapOptions.minWidth,
+        }
+      : snapOptions;
+
+  const snap = computeResizeSnap(
+    worldBox,
+    stationary,
+    worldHandle,
+    worldSnapOptions,
+  );
+  if (snap.guides.length === 0) {
+    return { frame: unsnapped, guides: [] };
+  }
+
+  // The snap moved the dragged world edge(s) of the AABB; express that
+  // movement as extra world pointer travel and recompute the rotated resize,
+  // so the anchor-fixing translation stays exact instead of being applied to
+  // an already-snapped box.
+  const snapDx = handleAffectsEast(worldHandle)
+    ? snap.frame.x + snap.frame.width - (worldBox.x + worldBox.width)
+    : handleAffectsWest(worldHandle)
+      ? snap.frame.x - worldBox.x
+      : 0;
+  const snapDy = handleAffectsSouth(worldHandle)
+    ? snap.frame.y + snap.frame.height - (worldBox.y + worldBox.height)
+    : handleAffectsNorth(worldHandle)
+      ? snap.frame.y - worldBox.y
+      : 0;
 
   return {
-    frame: reanchorRotatedResizeToWorld(
+    frame: resizeRotatedFrameFromDelta(
       origin,
       handle,
-      degrees,
-      snap.frame,
+      worldDx + snapDx,
+      worldDy + snapDy,
       options,
     ),
     guides: snap.guides,

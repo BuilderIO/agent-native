@@ -68,6 +68,15 @@ export interface ElementInfo {
   primitiveKind?: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
   boundingRect: { x: number; y: number; width: number; height: number };
+  /** Exact bounds of the selected element's direct parent in the same
+   * document coordinate space as `boundingRect`. Constraint edits use this
+   * to preserve edge gaps, center offsets, and proportional Scale geometry. */
+  parentBoundingRect?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
   textContent?: string;
   htmlContent?: string;
   /** Direct element children; text nodes are ignored. */
@@ -112,6 +121,13 @@ export interface ElementSelectionIntent {
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;
+}
+
+export interface CanvasLayerHitCandidate {
+  key: string;
+  label: string;
+  screenId?: string;
+  info: ElementInfo;
 }
 
 export type DeviceFrameType = "none" | "desktop" | "tablet" | "mobile";

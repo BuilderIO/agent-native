@@ -78,10 +78,14 @@ export default defineAction({
       conflict:
         workspace.sourceType === "inline" ? null : "unsupported-source-backend",
       currentVersionHash: live.versionHash,
-      // The hash the file WOULD have after this edit is applied — needed
-      // exactly when something changed, so a caller can pass it as
-      // apply-source-edit's expectedVersionHash and close the
-      // preview→apply race (detect if the file changed again in between).
+      // The hash the file WOULD have after this edit is applied. Do NOT pass
+      // this as apply-source-edit's expectedVersionHash — that CAS compares
+      // against the CURRENT pre-edit hash, so the post-edit hash would always
+      // fail; pass `currentVersionHash` (above) instead to close the
+      // preview→apply race, exactly as the code workbench's inline-provider
+      // does. `nextVersionHash` is for detecting that the preview's target
+      // content changed (compare a later preview/read against it) and for
+      // optimistic client bookkeeping of the expected post-apply hash.
       // When nothing changed, the content is still `live.content`, so there
       // is no new hash to report.
       nextVersionHash: next.changed

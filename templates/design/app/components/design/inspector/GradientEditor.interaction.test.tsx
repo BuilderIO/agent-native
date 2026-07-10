@@ -287,4 +287,81 @@ describe("GradientEditor onCommit", () => {
     expect(updatedStops.find((s) => s.id === "a")?.position).toBe(1);
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
+
+  it("does not fire onCommit when the angle field is focused and blurred without editing", () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+
+    act(() => {
+      root.render(
+        <GradientEditor
+          value={baseValue}
+          onChange={onChange}
+          onCommit={onCommit}
+          selectedStopId="a"
+          onSelectStop={vi.fn()}
+        />,
+      );
+    });
+
+    const angleField = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Gradient angle"]',
+    );
+    expect(angleField).not.toBeNull();
+
+    act(() => {
+      // React implements onBlur via the native (bubbling) "focusout" event
+      // rather than "blur" (which doesn't bubble) — see React's
+      // SimpleEventPlugin. Dispatch that here so the synthetic handler
+      // actually fires.
+      angleField!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      angleField!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("fires onCommit exactly once when the angle field is edited and blurred", () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+
+    act(() => {
+      root.render(
+        <GradientEditor
+          value={baseValue}
+          onChange={onChange}
+          onCommit={onCommit}
+          selectedStopId="a"
+          onSelectStop={vi.fn()}
+        />,
+      );
+    });
+
+    const angleField = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Gradient angle"]',
+    );
+    expect(angleField).not.toBeNull();
+
+    act(() => {
+      // Bypass React's tracked-value setter so the synthetic onChange
+      // handler actually observes the new value (a plain `.value =`
+      // assignment followed by a bare "input" event dispatch is a no-op
+      // under React's controlled-input change detection).
+      const setValue = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setValue?.call(angleField, "180");
+      angleField!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    act(() => {
+      angleField!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
 });

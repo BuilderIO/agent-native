@@ -171,3 +171,102 @@ export function resolveFontFamilyFieldValue(
   if (isMixedValue(computedFontFamily)) return MIXED_VALUE;
   return resolveFontFamilySelectValue(computedFontFamily);
 }
+
+/**
+ * PERSISTENCE GOTCHA — commit text-decoration toggles through "text-decoration"
+ * (the shorthand), never "text-decoration-line" (the longhand).
+ *
+ * The persisted-source style patcher (`applyStyleEdit`/`normalizeStyleProperty`
+ * in `shared/code-layer.ts`) only writes properties on its `VisualStyleProperty`
+ * allow-list. That list has "text-decoration" but does NOT have
+ * "text-decoration-line" — so an `onStyleChange("textDecorationLine", ...)`
+ * call would normalize to the unlisted kebab name, miss the allow-list, and
+ * return "unsupported": the live iframe preview (which patches the DOM
+ * directly via `element.style.setProperty`, no allow-list) would still
+ * visually flip on the toggle tick, but the change would never reach the
+ * saved HTML source and would revert on the next load/reparse — a
+ * works-in-preview, doesn't-persist bug. The shorthand happily accepts a bare
+ * line-keyword list ("underline", "underline line-through", "none") as its
+ * value, which is valid CSS and *is* on the allow-list, so every helper below
+ * reads/writes through "text-decoration" (property name "textDecoration" from
+ * call sites) even though the bridge separately exposes the clean longhand
+ * `textDecorationLine` computed value for reading current state.
+ */
+export type TextDecorationLineToken = "underline" | "line-through" | "overline";
+
+const TEXT_DECORATION_LINE_TOKENS: readonly TextDecorationLineToken[] = [
+  "underline",
+  "line-through",
+  "overline",
+];
+
+/**
+ * Parses a text-decoration-line-ish CSS value ("none", "underline",
+ * "underline line-through", or even the full shorthand computed string like
+ * "underline solid rgb(0, 0, 0)") into the set of line tokens present. Works
+ * on either the clean longhand or the composite shorthand since it just
+ * looks for each known keyword as a whole word.
+ */
+export function parseTextDecorationLineTokens(
+  value: string | undefined,
+): Set<TextDecorationLineToken> {
+  const tokens = new Set<TextDecorationLineToken>();
+  if (!value) return tokens;
+  for (const token of TEXT_DECORATION_LINE_TOKENS) {
+    if (new RegExp(`(?:^|\\s)${token}(?:\\s|$)`).test(value)) {
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+/**
+ * True when `line` is active in `value`. A mixed-selection sentinel (see
+ * `isMixedValue`) always reads as inactive — same convention every other
+ * mixed-aware field in this panel uses (fontFamily/fontWeight/fontSize/...):
+ * an indeterminate state renders as "off", not as a guess at one element's
+ * value.
+ */
+export function isTextDecorationLineActive(
+  value: string | undefined,
+  line: TextDecorationLineToken,
+): boolean {
+  if (isMixedValue(value)) return false;
+  return parseTextDecorationLineTokens(value).has(line);
+}
+
+/**
+ * Returns the "text-decoration" value to commit after toggling `line` on/off
+ * against the element's current decoration-line state. A mixed selection is
+ * treated as "no lines active yet" so the first click always turns the
+ * toggled line ON uniformly across every selected element — matching how
+ * every other Select-driven field here (fontFamily, fontWeight, ...)
+ * overwrites a mixed selection with one explicit value instead of trying to
+ * merge each element's own prior state.
+ */
+export function nextTextDecorationLineValue(
+  currentValue: string | undefined,
+  line: TextDecorationLineToken,
+): string {
+  const current = isMixedValue(currentValue)
+    ? new Set<TextDecorationLineToken>()
+    : parseTextDecorationLineTokens(currentValue);
+  if (current.has(line)) current.delete(line);
+  else current.add(line);
+  return current.size === 0 ? "none" : Array.from(current).join(" ");
+}
+
+/**
+ * text-transform options (Figma's "Case" control). Unlike font-family/weight,
+ * "text-transform" is already on the persisted-source `VisualStyleProperty`
+ * allow-list under its own name, so callers can commit it directly with
+ * `onStyleChange("textTransform", value)` — no shorthand workaround needed.
+ */
+export const TEXT_CASE_OPTIONS = [
+  { value: "none", key: "none" },
+  { value: "uppercase", key: "uppercase" },
+  { value: "lowercase", key: "lowercase" },
+  { value: "capitalize", key: "capitalize" },
+] as const;
+
+export type TextCaseValue = (typeof TEXT_CASE_OPTIONS)[number]["value"];
