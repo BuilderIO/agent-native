@@ -1,5 +1,44 @@
 # @agent-native/core
 
+## 0.93.0
+
+### Minor Changes
+
+- d967304: Add managed multi-workspace Slack OAuth with Agent view and direct messages, team-aware threads, bounded native context, streaming task controls, channel identities, explicit memory, channel routines, and usage governance.
+- d967304: Add verified Microsoft Teams and Discord interaction channel adapters, preserve Telegram topic and WhatsApp contextual-reply identity, and expose exact runtime capabilities in Dispatch setup.
+
+### Patch Changes
+
+- d967304: Add Clay's Public API as a constrained provider preset with official API-key authentication, documentation discovery, and hosted-agent guidance.
+- d967304: Add a safe, provider-neutral automation workflow runtime with explicit n8n support metadata and honest Zapier blueprint guidance.
+- d967304: Remove outline-like shadows from shared app and agent main surfaces for a consistently borderless shell.
+- d967304: Allow host apps to observe active shared-composer text and render contextual content above the composer.
+- d967304: Back off browser speech-recognition retries after network failures, and let authenticated app workers reuse the durable Netlify background runtime.
+- d967304: Clarify in docs and agent routing that extensions render on their own pages or in named slots, while deeper host UI customization should continue through the Builder.io Cloud Agent or local source editing flow.
+- d967304: Allow resumable file-upload providers to clean up aborted upload sessions.
+- d967304: Exclude local databases and generated visual plan previews from newly scaffolded apps.
+- d967304: Keep unconnected chat composers stable with an accessible, icon-free AI connection popover.
+- d967304: Point Figma provider API discovery at the current official documentation and explain required scopes and canvas-write limitations.
+- d967304: Render horizontal grid lines in OG images with the same spacing and styling as the vertical lines.
+- d967304: Route opted-in async A2A tasks through Netlify's durable background worker so long analytics queries are not killed by the foreground function timeout.
+- d967304: Avoid false stuck warnings while a durable worker is alive inside its bounded tool window, make retries wait for the prior run to be durably aborted, and keep concurrent progress updates from moving the displayed no-progress clock backward.
+- d967304: Fix a race where a background chat run silently deferred for sweep-based recovery could hit the client's idle timeout before the server redispatched it, surfacing a false "run stopped" error instead of resuming quietly. Queued follow-ups now reattach to the recovering run instead of colliding with it, and terminal continuation conflicts settle pending activity cards so completed or failed chats never retain a working spinner.
+- d967304: Allow the Design local-file bridge to edit existing safe text and code files without relying on a narrow extension allowlist, while continuing to block secrets and binary files.
+- d967304: Apply app final-response guards to delegated A2A turns and resolve Slack sender profiles with request-scoped configured credentials.
+- d967304: Allow design-system indexing callers to fail loudly when inline files exceed size or count limits instead of silently dropping them.
+- d967304: Stop the stuck-run banner's Retry button from aborting a run that still has a live tool call or sub-agent (A2A) `call agent` in flight — a slow provider query or cross-app call can legitimately go minutes without emitting progress, and Retry previously killed that work and re-executed it from scratch. When `AssistantChat`'s new `hasInFlightWork()` reports live work, `RunStuckBanner` hides Retry and offers only an explicit, clearly-labeled Cancel; auto-retry is likewise suppressed. `MultiTabAssistantChat` wires this through automatically.
+- d967304: Scope shared workspace resources and learnings to the active organization, load them for queued Slack and integration turns, and preserve legacy app-wide resources as inherited defaults.
+- d967304: Fix a false `stale_run` failure for background runs holding a long tool call or A2A `call-agent` delegation: the stale-run reaper now grants a bounded grace to a run whose in-flight work is provably still open, even when its heartbeat write itself failed, instead of killing it on a single missed heartbeat window. A genuinely dead run with stuck in-flight work is still failed loudly once the bounded grace elapses. `/runs/active` also now surfaces this signal as `hasInFlightWork` so clients can tell a run with live work apart from one that is truly stuck.
+- d967304: Make Desktop's New action prompt-first: a coding agent now builds and registers local Agent Native apps, remembers the preferred apps folder, starts managed dev servers when opened, keeps the app's sidebar coding tools available for explicitly marked local Desktop previews, and adds native sidebar tab editing, removal, and reordering.
+- d967304: Keep local development auto-login credentials out of terminal output while preserving zero-setup sign-in.
+- d967304: Keep authenticated local Design preview sessions shared across URL-backed screens and proxy same-origin app mutations safely.
+- d967304: Preserve canonical Slack and Telegram request context across A2A delegation, resolve structured intake and domain workflows through workspace instructions and app capabilities, and return verified destination links for saved Content records, Analytics monitors, and published Forms.
+- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and SQLite migration failures.
+- d967304: Harden integration tenant isolation, service-principal identity, shared job routing, audit visibility, and usage-budget settlement.
+- d967304: Add a shared integration catalog with accurate built-in messaging metadata and reusable client helpers for integration setup routes.
+- d967304: Surface real remote liveness during cross-app agent calls (call-agent): while the A2A poll waits on another app, each successful poll that reports the remote still working now keeps progress moving, so a slow-but-healthy sub-agent no longer triggers a false "no progress" stuck warning whose Retry button aborts the healthy call and re-runs it from scratch. A hung or unresponsive remote still emits nothing, so the stuck warning correctly appears.
+- d967304: Keep in-memory run aborts successful when durable abort cleanup temporarily fails.
+
 ## 0.92.12
 
 ### Patch Changes

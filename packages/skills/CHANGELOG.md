@@ -1,5 +1,42 @@
 # @agent-native/skills
 
+## 0.2.284
+
+### Patch Changes
+
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+- Updated dependencies [d967304]
+  - @agent-native/core@0.93.0
+
 ## 0.2.283
 
 ### Patch Changes
