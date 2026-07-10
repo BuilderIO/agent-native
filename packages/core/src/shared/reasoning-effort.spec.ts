@@ -4,6 +4,7 @@ import {
   DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
+  normalizeReasoningEffortForRequest,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
@@ -123,6 +124,23 @@ describe("resolveReasoningEffortSelection", () => {
     expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
       "medium",
     );
+  });
+});
+
+describe("normalizeReasoningEffortForRequest", () => {
+  it("preserves explicit none and minimal instead of replacing them with Medium", () => {
+    expect(normalizeReasoningEffortForRequest("claude-sonnet-5", "none")).toBe(
+      "none",
+    );
+    expect(
+      normalizeReasoningEffortForRequest("claude-sonnet-5", "minimal"),
+    ).toBe("minimal");
+  });
+
+  it("uses Medium when the request omits an effort", () => {
+    expect(
+      normalizeReasoningEffortForRequest("claude-sonnet-5", undefined),
+    ).toBe("medium");
   });
 });
 

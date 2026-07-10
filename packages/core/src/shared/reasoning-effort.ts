@@ -95,6 +95,19 @@ export function normalizeReasoningEffortForModel(
   return normalized;
 }
 
+/**
+ * Normalize a chat request before it reaches an engine. Explicit off/minimal
+ * sentinels must survive this layer so the engine can distinguish them from a
+ * missing selection, which now means the Medium default.
+ */
+export function normalizeReasoningEffortForRequest(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (effort === "none" || effort === "minimal") return effort;
+  return normalizeReasoningEffortForModel(model, effort);
+}
+
 export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
   return REASONING_EFFORT_LABELS[
     !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort

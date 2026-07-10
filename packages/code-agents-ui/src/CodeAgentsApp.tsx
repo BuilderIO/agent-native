@@ -105,8 +105,15 @@ import type {
 } from "./types.js";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import {
@@ -1842,41 +1849,7 @@ function CodeAgentComposer({
   onStop?: () => void;
   onConnectProvider?: () => void;
 }) {
-  const composerModelGroups = useMemo(
-    () => modelOptionsToComposerGroups(modelOptions),
-    [modelOptions],
-  );
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel = normalizedModel.model ?? "auto";
-  const selectedEngine = normalizedModel.engine ?? "auto";
-  const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "auto",
-  );
-
-  const handleModelChange = useCallback(
-    (model: string, engine: string) => {
-      if (engine === "auto" && model === "auto") {
-        onModelSelectionChange({ effort: selectedEffort });
-        return;
-      }
-      onModelSelectionChange({
-        engine,
-        model,
-        effort: selectedEffort,
-      });
-    },
-    [onModelSelectionChange, selectedEffort],
-  );
-
-  const handleEffortChange = useCallback(
-    (effort: CodeAgentReasoningEffort) => {
-      onModelSelectionChange({
-        ...normalizedModel,
-        effort: normalizeReasoningEffort(effort),
-      });
-    },
-    [normalizedModel, onModelSelectionChange],
-  );
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
@@ -1884,14 +1857,14 @@ function CodeAgentComposer({
     [],
   );
 
-  const modeControl = (
-    <div className="code-agents-composer-mode-slot">
-      <RunModeSelect
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        compact
-      />
-    </div>
+  const advancedControls = (
+    <AgentAdvancedMenu
+      permissionMode={permissionMode}
+      modelSelection={normalizedModel}
+      modelOptions={modelOptions}
+      onPermissionModeChange={onPermissionModeChange}
+      onModelSelectionChange={onModelSelectionChange}
+    />
   );
 
   const stopButton =
@@ -1925,14 +1898,8 @@ function CodeAgentComposer({
         promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
       }
       initialTextKey={promptSeed}
-      toolbarSlot={modeControl}
+      toolbarSlot={advancedControls}
       actionButton={stopButton}
-      availableModels={composerModelGroups}
-      selectedModel={selectedModel}
-      selectedEngine={selectedEngine}
-      selectedEffort={selectedEffort}
-      onModelChange={handleModelChange}
-      onEffortChange={handleEffortChange}
       modelStatusChecksEnabled={false}
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
@@ -1952,51 +1919,6 @@ function CodeAgentComposer({
       onConnectProvider={onConnectProvider}
     />
   );
-}
-
-function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
-  engine: string;
-  label: string;
-  models: string[];
-  configured: boolean;
-}> {
-  const groups = new Map<
-    string,
-    {
-      engine: string;
-      label: string;
-      models: string[];
-      configured: boolean;
-    }
-  >();
-
-  for (const option of models) {
-    const label = providerLabelForModel(option);
-    const key = `${option.engine}:${label}`;
-    const configured = option.configured !== false;
-    const group = groups.get(key) ?? {
-      engine: option.engine,
-      label,
-      models: [],
-      configured,
-    };
-    if (!group.models.includes(option.model)) {
-      group.models.push(option.model);
-    }
-    group.configured = group.configured || configured;
-    groups.set(key, group);
-  }
-
-  return [...groups.values()];
-}
-
-function providerLabelForModel(option: CodeAgentModelOption): string {
-  const model = option.model.toLowerCase();
-  if (option.engine === "auto" || model === "auto") return option.engineLabel;
-  if (model.startsWith("claude-")) return "Anthropic";
-  if (model.startsWith("gpt-") || model.startsWith("o")) return "OpenAI";
-  if (model.startsWith("gemini-")) return "Gemini";
-  return option.engineLabel === "Builder.io" ? "More" : option.engineLabel;
 }
 
 function buildCodeAgentSlashCommands(
@@ -3526,11 +3448,6 @@ function TranscriptPanel({
       hideCredentialMessages ? "hide" : "show",
     ].join(":");
   }, [events, hideCredentialMessages, run.id]);
-  const composerGroups = useMemo(
-    () => modelOptionsToComposerGroups(modelOptions),
-    [modelOptions],
-  );
-
   return (
     <div className="code-agents-transcript">
       {error && (
@@ -3561,31 +3478,17 @@ function TranscriptPanel({
           externalStreaming={runIsActive}
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
-            <CodeAgentChatComposerSlot
+            <AgentAdvancedMenu
               permissionMode={permissionMode}
+              modelSelection={normalizedModel}
+              modelOptions={modelOptions}
               onPermissionModeChange={onPermissionModeChange}
+              onModelSelectionChange={onModelSelectionChange}
             />
           }
           composerExtraActionButton={
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          availableModels={composerGroups}
-          onModelChange={(model, engine) => {
-            if (engine === "auto" && model === "auto") {
-              onModelSelectionChange({ effort: selectedEffort });
-              return;
-            }
-            onModelSelectionChange({ engine, model, effort: selectedEffort });
-          }}
-          onEffortChange={(effort) => {
-            onModelSelectionChange({
-              ...normalizedModel,
-              effort: normalizeReasoningEffort(effort),
-            });
-          }}
           onConnectProvider={onConnectProvider}
         />
       )}
@@ -3666,21 +3569,110 @@ function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
   );
 }
 
-function CodeAgentChatComposerSlot({
+function AgentAdvancedMenu({
   permissionMode,
+  modelSelection,
+  modelOptions,
   onPermissionModeChange,
+  onModelSelectionChange,
 }: {
   permissionMode: CodeAgentPermissionMode;
+  modelSelection: CodeAgentModelSelection;
+  modelOptions: CodeAgentModelOption[];
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  onModelSelectionChange: (value: CodeAgentModelSelection) => void;
 }) {
+  const selectedModel = modelSelection.model ?? "auto";
+  const selectedEngine = modelSelection.engine ?? "auto";
+  const selectedEffort = normalizeReasoningEffort(
+    modelSelection.effort ?? "auto",
+  );
+
   return (
-    <div className="code-agents-chat-composer-slot">
-      <RunModeSelect
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        compact
-      />
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="code-agents-composer-advanced-trigger"
+          aria-label="Advanced task settings"
+          title="Advanced task settings"
+        >
+          <IconSettings size={15} strokeWidth={1.8} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="code-agents-composer-advanced-menu"
+        align="start"
+        side="top"
+      >
+        <DropdownMenuLabel>Mode</DropdownMenuLabel>
+        <DropdownMenuGroup>
+          {CODE_AGENT_RUN_MODES.map((mode) => {
+            const checked =
+              runModeFromPermissionMode(permissionMode) === mode.id;
+            return (
+              <DropdownMenuCheckboxItem
+                key={mode.id}
+                checked={checked}
+                onSelect={() =>
+                  onPermissionModeChange(permissionModeFromRunMode(mode.id))
+                }
+              >
+                {mode.label}
+              </DropdownMenuCheckboxItem>
+            );
+          })}
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Model</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
+            {modelOptions.map((option) => (
+              <DropdownMenuCheckboxItem
+                key={`${option.engine}:${option.model}`}
+                checked={
+                  selectedEngine === option.engine &&
+                  selectedModel === option.model
+                }
+                disabled={option.configured === false}
+                onSelect={() =>
+                  onModelSelectionChange({
+                    engine: option.engine,
+                    model: option.model,
+                    effort: selectedEffort,
+                  })
+                }
+              >
+                {option.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Reasoning</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
+            {CODE_AGENT_REASONING_EFFORTS.map((effort) => (
+              <DropdownMenuCheckboxItem
+                key={effort.id}
+                checked={selectedEffort === effort.id}
+                onSelect={() =>
+                  onModelSelectionChange({
+                    ...modelSelection,
+                    effort: effort.id,
+                  })
+                }
+              >
+                {effort.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

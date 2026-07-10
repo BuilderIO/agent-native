@@ -44,7 +44,7 @@ import {
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
   isReasoningEffort,
-  normalizeReasoningEffortForModel,
+  normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
@@ -5786,6 +5786,21 @@ function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
   }
 }
 
+export function resolveAgentRequestReasoningEffort({
+  model,
+  requestEffort,
+  configuredEffort,
+}: {
+  model: string;
+  requestEffort?: unknown;
+  configuredEffort?: ReasoningEffort;
+}): ReasoningEffort | undefined {
+  return normalizeReasoningEffortForRequest(
+    model,
+    isReasoningEffort(requestEffort) ? requestEffort : configuredEffort,
+  );
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -6133,12 +6148,11 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: stored-model resolution finished.
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
-    const reasoningEffort = normalizeReasoningEffortForModel(
+    const reasoningEffort = resolveAgentRequestReasoningEffort({
       model,
-      isReasoningEffort(requestEffort)
-        ? requestEffort
-        : options.reasoningEffort,
-    );
+      requestEffort,
+      configuredEffort: options.reasoningEffort,
+    });
 
     options.onEngineResolved?.(engine, model);
 

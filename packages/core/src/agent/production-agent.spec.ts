@@ -34,6 +34,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
+  resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -84,6 +85,24 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("resolveAgentRequestReasoningEffort", () => {
+  it("defaults missing reasoning to Medium", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
+    ).toBe("medium");
+  });
+
+  it("preserves explicit none through the production request path", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({
+        model: "claude-sonnet-5",
+        requestEffort: "none",
+        configuredEffort: "high",
+      }),
+    ).toBe("none");
+  });
+});
 
 describe("resolveSkillReferenceContent", () => {
   it("does not resolve scope: dev codebase skills for runtime agent references", async () => {
