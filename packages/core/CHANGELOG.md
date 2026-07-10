@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.92.10
+
+### Patch Changes
+
+- 22abd76: Prevent Netlify, Vercel, and AWS Lambda deployments from failing SSR requests when collaboration runtime chunks import Yjs.
+
 ## 0.92.9
 
 ### Patch Changes
