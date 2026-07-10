@@ -16,6 +16,7 @@ vi.mock("../server/lib/verify-write-grant.js", () => ({
 
 let bridgeUrl = "http://127.0.0.1:7666";
 let connectionBridgeToken: string | null = null;
+let connectionRootPath = "/tmp/app";
 
 function makeSelectChain(rows: unknown[]) {
   return {
@@ -30,13 +31,20 @@ function makeSelectChain(rows: unknown[]) {
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
     select: () =>
-      makeSelectChain([{ bridgeUrl, bridgeToken: connectionBridgeToken }]),
+      makeSelectChain([
+        {
+          bridgeUrl,
+          bridgeToken: connectionBridgeToken,
+          rootPath: connectionRootPath,
+        },
+      ]),
   }),
   schema: {
     designLocalhostConnections: {
       id: "id",
       bridgeUrl: "bridgeUrl",
       bridgeToken: "bridgeToken",
+      rootPath: "rootPath",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
     },
@@ -49,6 +57,7 @@ describe("write-local-file", () => {
   beforeEach(() => {
     bridgeUrl = "http://127.0.0.1:7666";
     connectionBridgeToken = null;
+    connectionRootPath = "/tmp/app";
     mockVerifyWriteGrant.mockResolvedValue({
       rootPath: "/tmp/app",
       bridgeToken: "bridge-token",
@@ -100,6 +109,46 @@ describe("write-local-file", () => {
         orgId: "org_1",
       }),
     );
+  });
+
+  it.each(["src/tool.py", "Dockerfile", ".prettierrc"])(
+    "allows an existing local text/code path to reach the byte-checking bridge (%s)",
+    async (relPath) => {
+      await expect(
+        action.run({
+          designId: "design_1",
+          connectionId: "conn_1",
+          relPath,
+          content: "updated text\n",
+        }),
+      ).resolves.toMatchObject({ operation: "write", written: true });
+    },
+  );
+
+  it("rejects known binary file types before fetching", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "public/logo.png",
+        content: "not an image",
+      }),
+    ).rejects.toThrow(/binary/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("invalidates consent when the connection points at a different root", async () => {
+    connectionRootPath = "/tmp/other-app";
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "conn_1",
+        relPath: "src/App.tsx",
+        content: "export default function App() {}\n",
+      }),
+    ).rejects.toThrow(/folder changed.*re-grant/i);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("prefers the connection's current bridge token over the grant snapshot (VE4)", async () => {

@@ -17,6 +17,41 @@ export const envKeys: EnvKeyConfig[] = [
     required: true,
   },
   {
+    key: "TELEGRAM_WEBHOOK_SECRET",
+    label: "Telegram webhook secret",
+    required: true,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_ID",
+    label: "Microsoft Bot app ID",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_PASSWORD",
+    label: "Microsoft Bot client secret",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_TENANT_ID",
+    label: "Microsoft Bot tenant ID",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_ALLOWED_TENANT_IDS",
+    label: "Allowed Microsoft Teams tenant IDs",
+    required: false,
+  },
+  {
+    key: "DISCORD_APPLICATION_ID",
+    label: "Discord application ID",
+    required: false,
+  },
+  {
+    key: "DISCORD_PUBLIC_KEY",
+    label: "Discord public key",
+    required: false,
+  },
+  {
     key: "EMAIL_AGENT_ADDRESS",
     label: "Agent email address",
     required: false,
@@ -39,6 +74,11 @@ export const envKeys: EnvKeyConfig[] = [
   {
     key: "WHATSAPP_PHONE_NUMBER_ID",
     label: "WhatsApp phone number ID",
+    required: false,
+  },
+  {
+    key: "WHATSAPP_APP_SECRET",
+    label: "WhatsApp app secret",
     required: false,
   },
   {
