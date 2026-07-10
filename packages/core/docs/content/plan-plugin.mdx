@@ -88,7 +88,7 @@ long-lived (30-day default, sliding 365-day refresh), so this should be rare;
 when it happens, the lightweight fix is:
 
 ```bash
-npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
 `reconnect` finds and refreshes the connector by URL for the selected local
@@ -255,7 +255,7 @@ After install, **start a new Codex thread** so the skills and MCP tools load int
 
 <Callout tone="info">
 
-**Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
+**Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
 
 </Callout>
 

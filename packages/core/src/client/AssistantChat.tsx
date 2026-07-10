@@ -147,6 +147,10 @@ import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
+  appendRealtimeVoiceTranscriptToRepository,
+  realtimeVoiceTranscriptRegistry,
+} from "./composer/realtime-voice-transcript.js";
+import {
   TiptapComposer,
   type ComposerSubmitIntent,
   type ComposerImageModelMenu,
@@ -2258,6 +2262,35 @@ const AssistantChatInner = forwardRef<
       ensureMessageMetadata(normalizeThreadRepository(threadRuntime.export())),
     [threadRuntime],
   );
+
+  const appendRealtimeVoiceTranscript = useCallback(
+    (transcript: Parameters<typeof realtimeVoiceTranscriptRegistry.publish>[0]) => {
+      if (isRestoring || isRunning) return false;
+      const result = appendRealtimeVoiceTranscriptToRepository(
+        exportCleanThreadRepo(),
+        transcript,
+      );
+      if (!result.appended) return true;
+      threadRuntime.import(ensureMessageMetadata(result.repository));
+      return true;
+    },
+    [exportCleanThreadRepo, isRestoring, isRunning, threadRuntime],
+  );
+
+  useEffect(() => {
+    const transcriptThreadId = threadId ?? tabId;
+    if (!transcriptThreadId) return;
+    return realtimeVoiceTranscriptRegistry.register({
+      threadId: transcriptThreadId,
+      active: isActiveComposer,
+      append: appendRealtimeVoiceTranscript,
+    });
+  }, [
+    appendRealtimeVoiceTranscript,
+    isActiveComposer,
+    tabId,
+    threadId,
+  ]);
 
   const appendThreadMessage = useCallback(
     (message: Parameters<typeof threadRuntime.append>[0]) => {

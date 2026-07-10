@@ -21,6 +21,56 @@ export interface RealtimeVoiceTranscriptRegistry {
   pendingCount: () => number;
 }
 
+export function appendRealtimeVoiceTranscriptToRepository(
+  value: unknown,
+  transcript: RealtimeVoiceTranscriptMessage,
+): { appended: boolean; repository: Record<string, unknown> } {
+  const repository =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const messages = Array.isArray(repository.messages)
+    ? [...repository.messages]
+    : [];
+  const duplicate = messages.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const record = entry as Record<string, unknown>;
+    const message =
+      record.message && typeof record.message === "object"
+        ? (record.message as Record<string, unknown>)
+        : record;
+    return message.id === transcript.id;
+  });
+  if (duplicate) return { appended: false, repository };
+
+  const parentId =
+    typeof repository.headId === "string" ? repository.headId : null;
+  const createdAt = new Date(transcript.createdAt);
+  const message = {
+    id: transcript.id,
+    role: transcript.role,
+    content: [{ type: "text", text: transcript.text }],
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    metadata: {
+      custom: {
+        source: "realtime-voice",
+      },
+    },
+    ...(transcript.role === "assistant"
+      ? { status: { type: "complete", reason: "stop" } }
+      : {}),
+  };
+
+  return {
+    appended: true,
+    repository: {
+      ...repository,
+      messages: [...messages, { message, parentId }],
+      headId: transcript.id,
+    },
+  };
+}
+
 export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscriptRegistry {
   const sinks = new Map<symbol, RealtimeVoiceTranscriptSink & { order: number }>();
   const pending = new Map<string, RealtimeVoiceTranscriptMessage>();

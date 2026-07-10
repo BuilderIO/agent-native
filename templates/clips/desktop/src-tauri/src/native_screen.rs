@@ -3912,6 +3912,27 @@ impl AudioSignalProbe {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreparedAudioSignalDecision {
+    AcceptCandidate,
+    UseOriginal,
+}
+
+fn decide_prepared_audio_signal(
+    candidate: AudioSignalProbe,
+    source: Option<AudioSignalProbe>,
+) -> PreparedAudioSignalDecision {
+    if !candidate.has_audible_signal()
+        && source
+            .map(AudioSignalProbe::has_audible_signal)
+            .unwrap_or(false)
+    {
+        PreparedAudioSignalDecision::UseOriginal
+    } else {
+        PreparedAudioSignalDecision::AcceptCandidate
+    }
+}
+
 fn parse_ffmpeg_volume_db(stderr: &str, label: &str) -> Option<f64> {
     stderr.lines().rev().find_map(|line| {
         let (_, value) = line.split_once(label)?;
@@ -3988,14 +4009,11 @@ fn verify_prepared_audio_signal(
     }
 
     let source_probe = audio_signal_probe_with_ffmpeg(ffmpeg_path, source_path);
-    let source_has_signal = source_probe
-        .as_ref()
-        .ok()
-        .copied()
-        .map(AudioSignalProbe::has_audible_signal)
-        .unwrap_or(false);
+    let source_signal = source_probe.as_ref().ok().copied();
     let source_summary = describe_audio_signal_probe(source_probe);
-    if source_has_signal {
+    if decide_prepared_audio_signal(candidate_probe, source_signal)
+        == PreparedAudioSignalDecision::UseOriginal
+    {
         eprintln!(
             "[clips-tray] AUDIO QUIET AFTER PREPARE: {label} is effectively silent ({}) but original has signal ({source_summary}) — uploading original instead",
             candidate_probe.summary()
@@ -4004,13 +4022,14 @@ fn verify_prepared_audio_signal(
     }
 
     eprintln!(
-        "[clips-tray] AUDIO CAPTURE TOO QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary})",
+        "[clips-tray] AUDIO CAPTURE QUIET: prepared {label} has an audio track but no usable signal ({}) and original was not usable either ({source_summary}) — publishing the playable candidate",
         candidate_probe.summary()
     );
-    Err(format!(
-        "Recorded file contains an audio track, but the captured audio is too quiet to publish ({})",
-        candidate_probe.summary()
-    ))
+    // Silence in both files is a capture outcome, not a processing regression.
+    // Rejecting it strands the recording in `uploading`, and every retry fails
+    // deterministically after re-running the same probes. Only fall back when
+    // preparation removed signal that was present in the source.
+    Ok(None)
 }
 
 fn prepare_recording_file(
@@ -4069,13 +4088,6 @@ fn prepare_recording_file(
 
     let mut smallest_attempt_bytes: Option<u64> = None;
     let ffmpeg_path = resolve_ffmpeg_path();
-    if has_audio {
-        if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
-            let raw_summary =
-                describe_audio_signal_probe(audio_signal_probe_with_ffmpeg(ffmpeg_path, path));
-            eprintln!("[clips-tray] raw recording audio signal before prepare: {raw_summary}");
-        }
-    }
 
     if !COMPRESSION_ENABLED || source_bytes < TRANSCODE_THRESHOLD_BYTES {
         if has_audio {
@@ -5125,7 +5137,8 @@ fn concat_mp4_segments(segments: &[PathBuf], output: &Path) -> Result<(), String
 #[cfg(test)]
 mod audio_track_probe_tests {
     use super::{
-        audio_filter_chain, mp4_has_audio_track, parse_ffmpeg_volume_db, AudioSignalProbe,
+        audio_filter_chain, decide_prepared_audio_signal, mp4_has_audio_track,
+        parse_ffmpeg_volume_db, AudioSignalProbe, PreparedAudioSignalDecision,
         AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
         AUDIO_LOUDNESS_FILTER, AUDIO_MIC_PREGAIN_FILTER,
     };
@@ -5300,6 +5313,27 @@ mod audio_track_probe_tests {
         assert!(!silent.has_audible_signal());
         assert!(!quiet_noise_peak.has_audible_signal());
         assert!(audible.has_audible_signal());
+    }
+
+    #[test]
+    fn publishes_quiet_recordings_but_preserves_audible_source_audio() {
+        let silent = AudioSignalProbe {
+            mean_volume_db: Some(f64::NEG_INFINITY),
+            max_volume_db: Some(f64::NEG_INFINITY),
+        };
+        let audible = AudioSignalProbe {
+            mean_volume_db: Some(-21.5),
+            max_volume_db: Some(-1.4),
+        };
+
+        assert_eq!(
+            decide_prepared_audio_signal(silent, Some(silent)),
+            PreparedAudioSignalDecision::AcceptCandidate,
+        );
+        assert_eq!(
+            decide_prepared_audio_signal(silent, Some(audible)),
+            PreparedAudioSignalDecision::UseOriginal,
+        );
     }
 }
 
