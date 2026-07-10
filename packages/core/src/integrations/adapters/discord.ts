@@ -17,6 +17,7 @@ const DISCORD_APPLICATION_COMMAND = 2;
 const DISCORD_CHAT_INPUT_COMMAND = 1;
 const DISCORD_PONG = 1;
 const DISCORD_DEFERRED_CHANNEL_MESSAGE = 5;
+const DISCORD_SIGNATURE_MAX_SKEW_MS = 5 * 60 * 1000;
 
 type DiscordInteraction = {
   id?: unknown;
@@ -96,8 +97,16 @@ export function discordAdapter(): PlatformAdapter {
         !applicationId ||
         !signature ||
         !timestamp ||
+        !/^\d+$/.test(timestamp) ||
         !/^[0-9a-f]{64}$/i.test(publicKey) ||
         !/^[0-9a-f]{128}$/i.test(signature)
+      ) {
+        return false;
+      }
+      const signedAtMs = Number(timestamp) * 1000;
+      if (
+        !Number.isSafeInteger(signedAtMs) ||
+        Math.abs(Date.now() - signedAtMs) > DISCORD_SIGNATURE_MAX_SKEW_MS
       ) {
         return false;
       }

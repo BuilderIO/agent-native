@@ -9,6 +9,7 @@ import {
 } from "./webhook-handler.js";
 
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
+const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
@@ -17,6 +18,7 @@ const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
   insertPendingTask: insertPendingTaskMock,
+  isDuplicateEventError: isDuplicateEventErrorMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -89,6 +91,7 @@ describe("integration webhook handler", () => {
     vi.clearAllMocks();
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     insertPendingTaskMock.mockResolvedValue(undefined);
+    isDuplicateEventErrorMock.mockReturnValue(false);
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
@@ -170,6 +173,7 @@ describe("integration webhook handler", () => {
     const incoming = createIncoming(1003);
     const adapter = {
       ...createAdapter(),
+      capabilities: { deferredWebhookResponse: true },
       getImmediateWebhookResponse: () => ({
         status: 200,
         body: { type: 5 },
@@ -245,13 +249,87 @@ describe("integration webhook handler", () => {
       return result;
     });
 
-    await vi.advanceTimersByTimeAsync(249);
+    await vi.advanceTimersByTimeAsync(1_499);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(response).resolves.toEqual({
       status: 200,
       body: { type: 5 },
     });
+  });
+
+  it("lets a slow cold-host dispatch settle before returning a deferred acknowledgement", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            setTimeout(
+              () => resolve(new Response("ok", { status: 200 })),
+              1_200,
+            ),
+          ),
+      ),
+    );
+    const incoming = createIncoming(1005);
+    const adapter = {
+      ...createAdapter(),
+      capabilities: { deferredWebhookResponse: true },
+      getImmediateWebhookResponse: () => ({
+        status: 200,
+        body: { type: 5 },
+      }),
+    };
+    let settled = false;
+    const response = handleWebhook(createEvent(), {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.advanceTimersByTimeAsync(1_199);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(response).resolves.toEqual({
+      status: 200,
+      body: { type: 5 },
+    });
+  });
+
+  it("returns the deferred acknowledgement for duplicate deliveries", async () => {
+    const duplicateError = new Error("duplicate event");
+    insertPendingTaskMock.mockRejectedValueOnce(duplicateError);
+    isDuplicateEventErrorMock.mockImplementation(
+      (error) => error === duplicateError,
+    );
+    const incoming = createIncoming(1006);
+    const adapter = {
+      ...createAdapter(),
+      capabilities: { deferredWebhookResponse: true },
+      getImmediateWebhookResponse: () => ({
+        status: 200,
+        body: { type: 5 },
+      }),
+    };
+
+    await expect(
+      handleWebhook(createEvent(), {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "alice+qa@agent-native.test",
+        incoming,
+      }),
+    ).resolves.toEqual({ status: 200, body: { type: 5 } });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {
@@ -284,6 +362,33 @@ describe("integration webhook handler", () => {
     expect(insertPendingTaskMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("returns the deferred acknowledgement when beforeProcess handles the interaction", async () => {
+    const incoming = createIncoming(1007);
+    incoming.responseContext = { interactionToken: "interaction-token-example" };
+    const adapter = {
+      ...createAdapter(),
+      capabilities: { deferredWebhookResponse: true },
+      getImmediateWebhookResponse: () => ({
+        status: 200,
+        body: { type: 5 },
+      }),
+    };
+
+    const result = await handleWebhook(createEvent(), {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+      beforeProcess: async () => ({ handled: true }),
+    });
+
+    expect(result).toEqual({ status: 200, body: { type: 5 } });
+    expect(insertPendingTaskMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("does not use deploy-level fallback keys for guarded integration runs", async () => {

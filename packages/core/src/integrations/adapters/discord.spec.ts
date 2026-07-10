@@ -48,12 +48,15 @@ function commandInteraction(overrides: Record<string, unknown> = {}) {
 
 afterEach(() => {
   headers.clear();
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe("discordAdapter", () => {
   it("verifies Ed25519 signatures over the timestamp plus exact raw body", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2023-11-14T22:13:20.000Z"));
     const keyPair = nacl.sign.keyPair();
     const raw = JSON.stringify(commandInteraction());
     const timestamp = "1700000000";
@@ -77,6 +80,34 @@ describe("discordAdapter", () => {
     await expect(
       discordAdapter().verifyWebhook(eventWithRaw(raw)),
     ).resolves.toBe(false);
+  });
+
+  it("rejects correctly signed requests outside the five-minute timestamp window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T14:00:00.000Z"));
+    const keyPair = nacl.sign.keyPair();
+    const raw = JSON.stringify(commandInteraction());
+    vi.stubEnv("DISCORD_APPLICATION_ID", "application-example");
+    vi.stubEnv(
+      "DISCORD_PUBLIC_KEY",
+      Buffer.from(keyPair.publicKey).toString("hex"),
+    );
+
+    for (const timestamp of [
+      String(Math.floor(Date.now() / 1000) - 301),
+      String(Math.floor(Date.now() / 1000) + 301),
+    ]) {
+      const signature = nacl.sign.detached(
+        new TextEncoder().encode(timestamp + raw),
+        keyPair.secretKey,
+      );
+      headers.set("x-signature-timestamp", timestamp);
+      headers.set("x-signature-ed25519", Buffer.from(signature).toString("hex"));
+
+      await expect(
+        discordAdapter().verifyWebhook(eventWithRaw(raw)),
+      ).resolves.toBe(false);
+    }
   });
 
   it("acknowledges signed endpoint PINGs with PONG", async () => {
