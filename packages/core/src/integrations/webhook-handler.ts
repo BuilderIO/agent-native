@@ -965,7 +965,15 @@ async function processIncomingMessage(
               threadDeepLinkUrl,
             });
             let delivered = false;
-            if (progress) {
+            if (queuedA2AContinuation && progress?.ref) {
+              // Post substantive parent results as a normal thread reply while
+              // the one continuation that claimed this resumable stream keeps
+              // it open for its eventual terminal result.
+              await adapter.sendResponse(outgoing, incoming, {
+                placeholderRef: opts.placeholderRef,
+              });
+              delivered = true;
+            } else if (progress) {
               try {
                 await progress.complete(outgoing);
                 delivered = true;

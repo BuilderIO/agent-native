@@ -393,12 +393,12 @@ async function deliverA2AContinuationResponse(
   status: "done" | "error",
 ): Promise<void> {
   if (progress) {
-    await progress.onEvent({
-      type: "agent_call",
-      agent: continuation.agentName,
-      status,
-    });
     try {
+      await progress.onEvent({
+        type: "agent_call",
+        agent: continuation.agentName,
+        status,
+      });
       await progress.complete(message);
       return;
     } catch {
