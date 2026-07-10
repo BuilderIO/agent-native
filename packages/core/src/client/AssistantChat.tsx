@@ -18,7 +18,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
   IconMessage,
   IconX,
-  IconPlayerStop,
+  IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
   IconRefresh,
@@ -4903,13 +4903,14 @@ const AssistantChatInner = forwardRef<
                                         <button
                                           type="button"
                                           onClick={() => stopActiveRun()}
-                                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                                          aria-label="Stop response"
+                                          className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         >
-                                          <IconPlayerStop className="h-3.5 w-3.5" />
+                                          <IconPlayerStopFilled className="h-3 w-3" />
                                         </button>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        Stop generating
+                                        Stop response
                                       </TooltipContent>
                                     </Tooltip>
                                   )}

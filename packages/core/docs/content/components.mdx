@@ -488,10 +488,12 @@ action so the UI and agent share the same capability.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -506,3 +508,11 @@ export default defineAction({
 Use `sendToAgentChat({ background: true, openSidebar: false })` instead when
 the work needs tools, state, auditability, user steering, or multi-step
 reasoning.
+
+## What's next {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentSidebar>` and `<AgentPanel>` with a tutorial-first walkthrough
+- [**Native Chat UI**](/docs/native-chat-ui) — the action result contract behind data widgets and custom renderers
+- [**Actions**](/docs/actions) — `defineAction()`, schemas, and the action surface these components call
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the collab hooks and presence components in depth
+- [**Sharing**](/docs/sharing) — `<ShareButton>` and `<ShareDialog>` wiring for ownable resources
