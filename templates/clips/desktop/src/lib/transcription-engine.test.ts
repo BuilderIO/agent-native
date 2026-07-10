@@ -73,4 +73,19 @@ describe("meeting microphone capture", () => {
       owner: "meeting",
     });
   });
+
+  it("surfaces the native fallback error when both local engines fail", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("local Whisper capture unavailable"))
+      .mockRejectedValueOnce(
+        new Error("VoiceProcessingIO enable failed: unavailable"),
+      );
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      }),
+    ).rejects.toThrow("VoiceProcessingIO enable failed: unavailable");
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -913,6 +913,13 @@ mod macos {
                     reuse_voice_processing_engine: false,
                 }
             );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, true, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Enabled,
+                    reuse_voice_processing_engine: false,
+                }
+            );
         }
     }
 }
