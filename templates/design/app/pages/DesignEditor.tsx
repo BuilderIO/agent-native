@@ -576,6 +576,7 @@ import {
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
 } from "./design-editor/history";
+import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   type AlignableRect,
   computeAlignedPositions,
@@ -4672,11 +4673,6 @@ function DesignEditor() {
   // instead of a whole browser tab, since this key legitimately needs to
   // accept OTHER tabs'/the agent's writes, just not echo its own.
   const lastAppliedActiveBreakpointIdRef = useRef<string | null>(null);
-  // Local breakpoint writes can overlap when a designer moves quickly between
-  // responsive frames. While any are in flight, the poll-driven app-state
-  // reader below must not apply an earlier write's echo over the newer local
-  // intent (for example Mobile -> Tablet -> "This breakpoint only").
-  const pendingActiveBreakpointWritesRef = useRef(0);
 
   // ── Interaction-state forced preview (phase 2) ───────────────────────────────
   // Mirrors EditPanel's own InteractionStatePanel selection (Default/Hover/…)
@@ -5718,20 +5714,35 @@ function DesignEditor() {
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
   );
+  type ActiveBreakpointWrite = {
+    designId: string;
+    breakpointId: string;
+    editScope: ResponsiveEditScope;
+  };
+  const setActiveBreakpointMutateAsyncRef = useRef(
+    setActiveBreakpointMutation.mutateAsync,
+  );
+  setActiveBreakpointMutateAsyncRef.current =
+    setActiveBreakpointMutation.mutateAsync;
+  const activeBreakpointWriteQueueRef =
+    useRef<ReturnType<typeof createLatestWriteQueue<ActiveBreakpointWrite>>>(
+      null,
+    );
+  if (!activeBreakpointWriteQueueRef.current) {
+    activeBreakpointWriteQueueRef.current = createLatestWriteQueue((input) =>
+      setActiveBreakpointMutateAsyncRef.current(input),
+    );
+  }
   const persistActiveBreakpoint = useCallback(
     (breakpointId: string, editScope: ResponsiveEditScope) => {
       if (!id) return;
-      pendingActiveBreakpointWritesRef.current += 1;
-      void setActiveBreakpointMutation
-        .mutateAsync({ designId: id, breakpointId, editScope })
-        .finally(() => {
-          pendingActiveBreakpointWritesRef.current = Math.max(
-            0,
-            pendingActiveBreakpointWritesRef.current - 1,
-          );
-        });
+      activeBreakpointWriteQueueRef.current?.enqueue({
+        designId: id,
+        breakpointId,
+        editScope,
+      });
     },
-    [id, setActiveBreakpointMutation],
+    [id],
   );
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
@@ -7849,7 +7860,7 @@ function DesignEditor() {
     if (!id) return;
     let cancelled = false;
     void (async () => {
-      if (pendingActiveBreakpointWritesRef.current > 0) return;
+      if (activeBreakpointWriteQueueRef.current?.hasPending()) return;
       const value = await readClientAppState<{
         designId?: string;
         activeBreakpointId?: string;
@@ -7857,7 +7868,7 @@ function DesignEditor() {
       }>(`design-active-breakpoint:${id}`).catch(() => null);
       if (
         cancelled ||
-        pendingActiveBreakpointWritesRef.current > 0 ||
+        activeBreakpointWriteQueueRef.current?.hasPending() ||
         !value ||
         value.designId !== id
       ) {

@@ -34,6 +34,7 @@ export function createAgentHarnessBackgroundAgentController(
       listAgentHarnessBackgroundRuns({
         ...options,
         ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
       }),
     get: (runId) => getAgentHarnessBackgroundRun(runId, scope),
     transcript: (runId) =>
@@ -47,24 +48,32 @@ export const agentHarnessBackgroundAgentController =
   createAgentHarnessBackgroundAgentController();
 
 export async function listAgentHarnessBackgroundRuns(
-  options: ListBackgroundAgentRunsOptions = {},
+  options: ListBackgroundAgentRunsOptions & { orgId?: string | null } = {},
 ): Promise<BackgroundAgentRun[]> {
   if (options.goalId && options.goalId !== "agent-harness") return [];
   const sessions = await listAgentHarnessSessions({
     ownerEmail: options.ownerEmail,
+    orgId: options.orgId,
   });
   return sessions
     .filter((session) => session.ownerEmail === (options.ownerEmail ?? null))
+    .filter(
+      (session) =>
+        options.orgId === undefined || session.orgId === options.orgId,
+    )
     .filter((session) => session.runId)
     .map(toAgentHarnessBackgroundRun);
 }
 
 export async function getAgentHarnessBackgroundRun(
   runId: string,
-  options: { ownerEmail: string | null } = { ownerEmail: null },
+  options: AgentHarnessOwnerScope = { ownerEmail: null },
 ): Promise<BackgroundAgentRun | null> {
   const session = await getAgentHarnessSessionByRunId(runId);
-  if (session?.ownerEmail !== options.ownerEmail) {
+  if (
+    session?.ownerEmail !== options.ownerEmail ||
+    (options.orgId !== undefined && session.orgId !== options.orgId)
+  ) {
     return null;
   }
   return session ? toAgentHarnessBackgroundRun(session) : null;
@@ -72,10 +81,13 @@ export async function getAgentHarnessBackgroundRun(
 
 export async function listAgentHarnessBackgroundTranscriptEvents(
   runId: string,
-  options: { ownerEmail: string | null } = { ownerEmail: null },
+  options: AgentHarnessOwnerScope = { ownerEmail: null },
 ): Promise<BackgroundAgentTranscriptEvent[]> {
   const session = await getAgentHarnessSessionByRunId(runId);
-  if (session?.ownerEmail !== options.ownerEmail) {
+  if (
+    session?.ownerEmail !== options.ownerEmail ||
+    (options.orgId !== undefined && session.orgId !== options.orgId)
+  ) {
     return [];
   }
   if (!session?.runId) return [];

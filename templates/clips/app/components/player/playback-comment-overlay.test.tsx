@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -69,5 +72,19 @@ describe("PlaybackCommentOverlay", () => {
 
     act(() => root.unmount());
     container.remove();
+  });
+});
+
+describe("embedded playback comments", () => {
+  it("passes public comments into the player used by Slack unfurls", () => {
+    const embedRoute = readFileSync(
+      resolve(process.cwd(), "app/routes/embed.$shareId.tsx"),
+      "utf8",
+    );
+
+    expect(embedRoute).toContain(
+      "const comments = dataQ.data?.data?.comments ?? [];",
+    );
+    expect(embedRoute).toContain("comments={comments}");
   });
 });

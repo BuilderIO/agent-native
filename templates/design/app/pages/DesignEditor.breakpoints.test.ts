@@ -404,16 +404,15 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf('// §6.4 — "show all breakpoints" toggle'),
     );
     expect(persistence).toContain(
-      "pendingActiveBreakpointWritesRef.current += 1",
+      "activeBreakpointWriteQueueRef.current?.enqueue",
     );
-    expect(persistence).toContain(".finally(() =>");
 
     const sync = source.slice(
       source.indexOf("// Item 9 — agent→UI breakpoint sync"),
       source.indexOf("// Agent→UI: open the write-consent dialog"),
     );
     expect(
-      sync.match(/pendingActiveBreakpointWritesRef\.current > 0/g),
+      sync.match(/activeBreakpointWriteQueueRef\.current\?\.hasPending\(\)/g),
     ).toHaveLength(2);
   });
 

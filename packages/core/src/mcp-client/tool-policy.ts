@@ -19,11 +19,15 @@ export interface McpToolPolicyDecision extends McpToolCallClassification {
 
 const READ_OPERATIONS = new Set([
   "capture",
+  "fetch",
   "get",
   "inspect",
   "list",
+  "lookup",
   "observe",
+  "query",
   "read",
+  "search",
   "screenshot",
   "snapshot",
   "status",
@@ -82,11 +86,11 @@ export function classifyMcpToolCall(
         reason: "MCP readOnlyHint marks this tool as mutating",
       };
     }
-    return {
+    return classifyKnownOperation(
       family,
-      effect: "unknown",
-      reason: "ordinary MCP tool has no read-only annotation",
-    };
+      normalizedOperation(tool.originalName),
+      "unannotated tool name",
+    );
   }
 
   const runtimeAction = normalizedOperation(args.action);
@@ -108,12 +112,9 @@ export function evaluateMcpToolCallPolicy(
     return { ...classification, allowed: true };
   }
 
-  // Preserve ordinary MCP compatibility when annotations are absent. The
-  // stricter fail-closed rule targets computer/browser control, while an
-  // explicit readOnlyHint=false is always honored.
-  const allowed =
-    classification.effect === "read" ||
-    (classification.family === "other" && classification.effect === "unknown");
+  // Plan mode is fail-closed. Unannotated tools remain available only when
+  // their declared operation name is an explicitly recognized read verb.
+  const allowed = classification.effect === "read";
   return { ...classification, allowed };
 }
 
@@ -131,7 +132,7 @@ function classifyToolFamily(tool: McpTool): McpToolFamily {
 }
 
 function classifyKnownOperation(
-  family: "browser" | "computer",
+  family: McpToolFamily,
   value: string | undefined,
   source: string,
 ): McpToolCallClassification {
@@ -160,7 +161,10 @@ function classifyKnownOperation(
   return {
     family,
     effect: "unknown",
-    reason: `${family} ${source} is not a recognized safe observation operation`,
+    reason:
+      family === "other"
+        ? `${family} ${source} is not a recognized safe read operation`
+        : `${family} ${source} is not a recognized safe observation operation`,
   };
 }
 

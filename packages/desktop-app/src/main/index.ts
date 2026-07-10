@@ -110,6 +110,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -117,6 +118,7 @@ import {
   Notification,
   session,
   shell,
+  systemPreferences,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -137,6 +139,13 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import {
+  ComputerControlBroker,
+  DesktopComputerMcpBridge,
+  EphemeralScreenObserver,
+  getComputerPermissionStatus,
+  SwiftDesktopHelperClient,
+} from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   initializeDesktopSentry,
@@ -207,6 +216,7 @@ if (IS_DEV) {
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
+let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
@@ -3198,6 +3208,73 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 
+function desktopComputerHelperPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "native", "agent-native-computer-helper")
+    : path.resolve(__dirname, "../../native/bin/agent-native-computer-helper");
+}
+
+async function initializeDesktopComputerMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
+  const helperPath = desktopComputerHelperPath();
+  if (!fs.existsSync(helperPath)) {
+    console.warn("[computer-control] bundled macOS helper is unavailable.");
+    return;
+  }
+  const helper = new SwiftDesktopHelperClient(helperPath);
+  const broker = new ComputerControlBroker({
+    helper,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const screenObserver = new EphemeralScreenObserver({
+    desktopCapturer,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const bridge = new DesktopComputerMcpBridge({
+    broker,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+    screenObserver,
+  });
+  try {
+    await bridge.start();
+    desktopComputerMcpBridge = bridge;
+  } catch (error) {
+    broker.close();
+    console.warn(
+      "[computer-control] authenticated loopback bridge could not start:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+function desktopComputerChildEnv(
+  runId: string,
+  permissionMode: CodeAgentPermissionMode,
+): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerRun(
+      runId,
+      permissionMode,
+    );
+    return {
+      AGENT_NATIVE_DESKTOP_CHILD: "1",
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL: registration.url,
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN: registration.bearerToken,
+    };
+  } catch (error) {
+    console.warn(
+      "[computer-control] task registration failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return {};
+  }
+}
+
+function revokeDesktopComputerRun(runId: string): void {
+  void desktopComputerMcpBridge?.revokeRun(runId).catch(() => undefined);
+}
+
 function signalCodeAgentProcess(pid: number, signal: NodeJS.Signals): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   if (process.platform !== "win32") {
@@ -3220,6 +3297,7 @@ function pauseActiveCodeAgentProcessesForShutdown(): void {
   for (const [runId, active] of activeCodeAgentProcesses) {
     if (active.pid) signalCodeAgentProcess(active.pid, "SIGTERM");
     reconcileInterruptedCodeAgentRun(runId, "shutdown");
+    revokeDesktopComputerRun(runId);
     activeCodeAgentProcesses.delete(runId);
   }
 }
@@ -3295,6 +3373,10 @@ function spawnCodeAgentRunner(
         runId,
       ];
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3303,6 +3385,7 @@ function spawnCodeAgentRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3335,6 +3418,7 @@ function spawnCodeAgentRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       codeAgentAssistantDeltaSeq.delete(runId);
       appendCodeAgentStatusEvent(
@@ -3370,6 +3454,7 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     appendCodeAgentStatusEvent(
       runId,
       "Could not start Agent-Native Code process.",
@@ -3445,6 +3530,10 @@ function spawnCodeAgentApprovalRunner(
       ];
 
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3453,6 +3542,7 @@ function spawnCodeAgentApprovalRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3492,6 +3582,7 @@ function spawnCodeAgentApprovalRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       appendCodeAgentStatusEvent(
         runId,
@@ -3531,6 +3622,7 @@ function spawnCodeAgentApprovalRunner(
       message: "Approval command started.",
     };
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
       source: "desktop-approval-runner",
@@ -3705,6 +3797,7 @@ async function controlDesktopCodeBackgroundAgentRun(
   }
 
   if (input.command === "stop") {
+    revokeDesktopComputerRun(input.runId);
     const active = activeCodeAgentProcesses.get(input.runId);
     const status = getRecordString(runRecord, "status");
     const phase = getRecordString(runRecord, "phase");
@@ -9401,7 +9494,8 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -9613,6 +9707,8 @@ app.on("before-quit", () => {
   }
   remoteConnectorProcess?.kill("SIGTERM");
   remoteConnectorProcess = null;
+  void desktopComputerMcpBridge?.close();
+  desktopComputerMcpBridge = null;
 });
 
 app.on("will-quit", () => {

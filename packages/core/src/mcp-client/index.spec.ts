@@ -439,6 +439,23 @@ describe("MCP tool call policy", () => {
       ),
     ).toMatchObject({ family: "browser", effect: "unknown", allowed: false });
   });
+
+  it("fails closed for deceptively neutral unannotated MCP tools", () => {
+    expect(
+      evaluateMcpToolCallPolicy(
+        { mode: "read-only" },
+        tool("neutral-service", "interact"),
+        {},
+      ),
+    ).toMatchObject({ family: "other", effect: "unknown", allowed: false });
+    expect(
+      evaluateMcpToolCallPolicy(
+        { mode: "read-only" },
+        tool("neutral-service", "lookup_records"),
+        {},
+      ),
+    ).toMatchObject({ family: "other", effect: "read", allowed: true });
+  });
 });
 
 describe("extractMcpToolResultImages", () => {

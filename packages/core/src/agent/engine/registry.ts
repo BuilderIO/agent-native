@@ -622,6 +622,46 @@ export interface ResolveEngineConfig {
 }
 
 /**
+ * Return the usable engine explicitly selected by the current user/org.
+ *
+ * This is intentionally narrower than {@link resolveEngine}: it only inspects
+ * persisted app/global selections and does not auto-detect credentials or fall
+ * back to deployment defaults. Callers that have their own configured fallback
+ * (notably messaging integrations) can therefore honor the live request's
+ * Agent settings before applying that fallback, while still resolving the API
+ * key for the provider that was actually selected.
+ */
+export async function getConfiguredEngineNameForRequest(
+  options: { appId?: string } = {},
+): Promise<string | undefined> {
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(
+    options.appId,
+  ).catch(() => null);
+  if (appDefault?.engine) {
+    const entry = _registry.get(appDefault.engine);
+    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
+      return entry.name;
+    }
+  }
+
+  let stored: { engine?: unknown; config?: unknown } | null = null;
+  try {
+    stored = (await getSetting("agent-engine")) as {
+      engine?: unknown;
+      config?: unknown;
+    } | null;
+  } catch {
+    return undefined;
+  }
+  if (typeof stored?.engine !== "string") return undefined;
+  const entry = _registry.get(stored.engine);
+  if (!entry || !(await isStoredEngineUsableForRequest(stored, entry))) {
+    return undefined;
+  }
+  return entry.name;
+}
+
+/**
  * Resolve an AgentEngine from options → explicit env → app default →
  * settings → request credentials → env → default.
  *

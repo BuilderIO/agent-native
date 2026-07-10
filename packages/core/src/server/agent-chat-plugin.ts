@@ -7507,7 +7507,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const query = getQuery(event);
             const goalId = query.goalId ? String(query.goalId) : undefined;
             const runs = await runWithRequestContext(
-              { userEmail: owner },
+              { userEmail: owner, orgId },
               async () => {
                 const runs: unknown[] = [];
                 if (!goalId || goalId === "agent-team") {
@@ -7522,6 +7522,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     ...(await listAgentHarnessBackgroundRuns({
                       goalId: "agent-harness",
                       ownerEmail: owner,
+                      orgId,
                     })),
                   );
                 }
@@ -7541,14 +7542,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const runId = decodeURIComponent(stopMatch[1]);
             const { stopAgentTeamBackgroundRun } =
               await import("./agent-teams.js");
-            let result = await runWithRequestContext({ userEmail: owner }, () =>
-              stopAgentTeamBackgroundRun(runId),
+            let result = await runWithRequestContext(
+              { userEmail: owner, orgId },
+              () => stopAgentTeamBackgroundRun(runId),
             );
             if (!result.ok && result.error === "Task not found") {
               const { stopAgentHarnessBackgroundRun } =
                 await import("../agent/harness/background.js");
-              result = await runWithRequestContext({ userEmail: owner }, () =>
-                stopAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+              result = await runWithRequestContext(
+                { userEmail: owner, orgId },
+                () =>
+                  stopAgentHarnessBackgroundRun(runId, {
+                    ownerEmail: owner,
+                    orgId,
+                  }),
               );
             }
             if (!result.ok) {
@@ -7621,18 +7628,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               listAgentHarnessBackgroundTranscriptEvents,
             } = await import("../agent/harness/background.js");
             const harnessRun = await runWithRequestContext(
-              { userEmail: owner },
-              () => getAgentHarnessBackgroundRun(runId, { ownerEmail: owner }),
+              { userEmail: owner, orgId },
+              () =>
+                getAgentHarnessBackgroundRun(runId, {
+                  ownerEmail: owner,
+                  orgId,
+                }),
             );
             if (!harnessRun) {
               setResponseStatus(event, 404);
               return { status: "unavailable", runId, events: [] };
             }
             const events = await runWithRequestContext(
-              { userEmail: owner },
+              { userEmail: owner, orgId },
               () =>
                 listAgentHarnessBackgroundTranscriptEvents(runId, {
                   ownerEmail: owner,
+                  orgId,
                 }),
             );
             return { status: "ok", runId, events };

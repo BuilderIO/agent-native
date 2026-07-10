@@ -340,6 +340,9 @@ describe("realtime voice session route", () => {
     );
     expect(failedEvent.statusCode).toBe(502);
     expect(JSON.stringify(failedResult)).not.toContain("sk-test-example");
+    expect(failedResult).toMatchObject({
+      error: expect.stringContaining("[REDACTED]"),
+    });
   });
 });
 

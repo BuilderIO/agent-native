@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Agent-Native Browser Control",
+  "short_name": "Agent Control",
+  "version": "0.1.0",
+  "description": "Lets the Agent-Native desktop app operate explicitly assigned Chrome tabs.",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": ["alarms", "debugger", "nativeMessaging", "storage", "tabs"]
+}

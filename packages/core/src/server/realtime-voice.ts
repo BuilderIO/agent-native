@@ -139,6 +139,37 @@ function sanitizeOutput(value: unknown, maxChars: number): string {
   return truncate(sanitizeToolErrorText(serialized), maxChars);
 }
 
+async function safeOpenAiErrorDetail(
+  response: Response,
+  apiKey: string,
+): Promise<string | null> {
+  const raw = await response.text().catch(() => "");
+  if (!raw) return null;
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { message?: unknown; code?: unknown; type?: unknown } | unknown;
+    };
+    if (parsed.error && typeof parsed.error === "object") {
+      const error = parsed.error as {
+        message?: unknown;
+        code?: unknown;
+        type?: unknown;
+      };
+      detail = [error.message, error.code, error.type]
+        .filter((value) => typeof value === "string" && value.trim())
+        .join(" · ");
+    }
+  } catch {
+    // Plain-text upstream errors are sanitized below.
+  }
+  const redacted = sanitizeToolErrorText(detail).replaceAll(
+    apiKey,
+    "[REDACTED]",
+  );
+  return truncate(redacted, 500) || null;
+}
+
 function normalizeToolSchema(
   inputSchema: unknown,
 ): Record<string, unknown> | null {
@@ -368,9 +399,10 @@ function createSessionHandler(
         }
 
         if (!upstream.ok) {
+          const detail = await safeOpenAiErrorDetail(upstream, apiKey);
           setResponseStatus(event, 502);
           return {
-            error: `OpenAI rejected the realtime session (${upstream.status})`,
+            error: `OpenAI rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
           };
         }
 

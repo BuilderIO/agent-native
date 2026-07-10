@@ -20,19 +20,23 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "build:mac": "electron-vite build && electron-builder --mac --config",
+    "build:native:mac": "bash native/build-macos-helper.sh",
+    "build:mac": "pnpm build:native:mac && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
+    "test:computer-control": "vitest run src/main/computer-control",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-ui/react-select": "2.2.6",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
     "electron-updater": "^6.8.3",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
@@ -48,7 +52,8 @@
     "tailwindcss": "^4.3.0",
     "typescript": "catalog:",
     "typescript-7": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "^4.1.10"
   },
   "productName": "Agent Native"
 }

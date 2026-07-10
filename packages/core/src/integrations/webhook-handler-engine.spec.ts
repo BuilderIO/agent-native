@@ -14,6 +14,7 @@ const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
+const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
@@ -54,6 +55,7 @@ vi.mock("../agent/production-agent.js", () => ({
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
     engine: { defaultModel?: string },
@@ -216,6 +218,7 @@ describe("integration webhook handler engine resolution", () => {
     setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
+    getConfiguredEngineNameForRequestMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
       defaultModel: "builder-default-model",
@@ -459,6 +462,64 @@ describe("integration webhook handler engine resolution", () => {
         apiKey: "openai-user-key",
         model: "gpt-5.2",
       });
+    },
+  );
+
+  it(
+    "prefers the org's configured engine over the integration plugin default",
+    { timeout: 15000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { getRequestOrgId, getRequestUserEmail } =
+        await import("../server/request-context.js");
+      const sendResponse = vi.fn();
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        expect(getRequestUserEmail()).toBe("dispatch+qa@integration.local");
+        expect(getRequestOrgId()).toBe("org-qa");
+        return "anthropic";
+      });
+      getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      resolveEngineMock.mockResolvedValueOnce({
+        name: "anthropic",
+        defaultModel: "claude-sonnet-4-6",
+        stream: vi.fn(),
+      });
+
+      const task = pendingTask({
+        id: "task-org-engine",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "builder-default-model",
+        apiKey: "",
+        engine: "builder",
+        appId: "dispatch",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
+        appId: "dispatch",
+      });
+      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
+        "anthropic",
+        task.ownerEmail,
+      );
+      expect(resolveEngineMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        apiKey: "anthropic-org-key",
+        model: "builder-default-model",
+        appId: "dispatch",
+      });
+      expect(runAgentLoopMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          engine: expect.objectContaining({ name: "anthropic" }),
+        }),
+      );
     },
   );
 

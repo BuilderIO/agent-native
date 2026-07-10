@@ -10,6 +10,7 @@ import {
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
 import {
+  getConfiguredEngineNameForRequest,
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveEngine,
@@ -160,6 +161,18 @@ function explicitEngineName(
     return engineOption.name;
   }
   return undefined;
+}
+
+async function resolveIntegrationEngineOption(
+  engineOption: WebhookHandlerOptions["engine"],
+  appId?: string,
+): Promise<WebhookHandlerOptions["engine"]> {
+  // A custom engine instance/config is an intentional per-plugin override and
+  // must remain authoritative. A string option is the normal integration
+  // plugin default; org/user Agent settings should override that default just
+  // as they do in web chat.
+  if (engineOption && typeof engineOption === "object") return engineOption;
+  return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
 }
 
 function collectToolResultSummaries(
@@ -805,13 +818,17 @@ async function processIncomingMessage(
               : undefined,
           },
           async () => {
-            const effectiveApiKey = await resolveIntegrationApiKey(
+            const effectiveEngineOption = await resolveIntegrationEngineOption(
               engineOption,
+              options.appId,
+            );
+            const effectiveApiKey = await resolveIntegrationApiKey(
+              effectiveEngineOption,
               ownerEmail,
               apiKey,
             );
             const engine = await resolveEngine({
-              engineOption,
+              engineOption: effectiveEngineOption,
               apiKey: effectiveApiKey,
               model,
               appId: options.appId,

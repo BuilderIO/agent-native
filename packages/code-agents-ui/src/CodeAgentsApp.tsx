@@ -107,10 +107,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -218,13 +215,14 @@ const CODE_AGENT_RUN_MODES: Array<{
   {
     id: "plan",
     label: "Plan",
-    description: "Read the workspace and propose a plan before editing.",
+    description:
+      "Inspect the workspace and connected apps, then propose a plan without taking actions.",
   },
   {
     id: "auto",
     label: "Auto",
     description:
-      "Edit, run checks, and only pause for destructive file, git, or data operations.",
+      "Edit, run checks, and operate connected apps; pause for destructive or sensitive actions.",
   },
 ];
 
@@ -1858,13 +1856,18 @@ function CodeAgentComposer({
   );
 
   const advancedControls = (
-    <AgentAdvancedMenu
-      permissionMode={permissionMode}
-      modelSelection={normalizedModel}
-      modelOptions={modelOptions}
-      onPermissionModeChange={onPermissionModeChange}
-      onModelSelectionChange={onModelSelectionChange}
-    />
+    <div className="code-agents-composer-mode-slot">
+      <RunModeSelect
+        value={permissionMode}
+        onChange={onPermissionModeChange}
+        compact
+      />
+      <AgentAdvancedMenu
+        modelSelection={normalizedModel}
+        modelOptions={modelOptions}
+        onModelSelectionChange={onModelSelectionChange}
+      />
+    </div>
   );
 
   const stopButton =
@@ -3478,13 +3481,18 @@ function TranscriptPanel({
           externalStreaming={runIsActive}
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
-            <AgentAdvancedMenu
-              permissionMode={permissionMode}
-              modelSelection={normalizedModel}
-              modelOptions={modelOptions}
-              onPermissionModeChange={onPermissionModeChange}
-              onModelSelectionChange={onModelSelectionChange}
-            />
+            <div className="code-agents-chat-composer-slot">
+              <RunModeSelect
+                value={permissionMode}
+                onChange={onPermissionModeChange}
+                compact
+              />
+              <AgentAdvancedMenu
+                modelSelection={normalizedModel}
+                modelOptions={modelOptions}
+                onModelSelectionChange={onModelSelectionChange}
+              />
+            </div>
           }
           composerExtraActionButton={
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
@@ -3570,16 +3578,12 @@ function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
 }
 
 function AgentAdvancedMenu({
-  permissionMode,
   modelSelection,
   modelOptions,
-  onPermissionModeChange,
   onModelSelectionChange,
 }: {
-  permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
-  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
 }) {
   const selectedModel = modelSelection.model ?? "auto";
@@ -3605,25 +3609,6 @@ function AgentAdvancedMenu({
         align="start"
         side="top"
       >
-        <DropdownMenuLabel>Mode</DropdownMenuLabel>
-        <DropdownMenuGroup>
-          {CODE_AGENT_RUN_MODES.map((mode) => {
-            const checked =
-              runModeFromPermissionMode(permissionMode) === mode.id;
-            return (
-              <DropdownMenuCheckboxItem
-                key={mode.id}
-                checked={checked}
-                onSelect={() =>
-                  onPermissionModeChange(permissionModeFromRunMode(mode.id))
-                }
-              >
-                {mode.label}
-              </DropdownMenuCheckboxItem>
-            );
-          })}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <span>Model</span>
