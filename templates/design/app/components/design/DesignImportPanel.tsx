@@ -35,6 +35,7 @@ import {
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
 import { cn } from "@/lib/utils";
+import { parseFigmaFileKey } from "@shared/figma-url";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
 
@@ -155,14 +156,17 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   }, [t]);
 
   const openFigmaUrlImport = useCallback(() => {
-    setActiveMode((mode) => {
-      const nextMode = mode === "figma-url" ? null : "figma-url";
-      if (nextMode === "figma-url" && !figmaConnectionChecked) {
-        void checkFigmaConnection();
-      }
-      return nextMode;
-    });
-  }, [checkFigmaConnection, figmaConnectionChecked]);
+    if (activeMode === "figma-url") {
+      setFigmaAccessToken("");
+      setActiveMode(null);
+      return;
+    }
+    setActiveMode("figma-url");
+    if (!figmaConnectionChecked) void checkFigmaConnection();
+  }, [activeMode, checkFigmaConnection, figmaConnectionChecked]);
+
+  const figmaTokenRequired =
+    figmaConnectionChecked && !figmaConnected && !figmaConnectionError;
 
   const handleFigmaUrlImport = useCallback(async () => {
     const normalizedUrl = figmaUrl.trim();
@@ -170,10 +174,14 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       toast.error(t("designEditor.import.errors.figmaUrlRequired"));
       return;
     }
+    if (!parseFigmaFileKey(normalizedUrl)) {
+      toast.error(t("designEditor.import.errors.invalidFigmaUrl"));
+      return;
+    }
 
     setFigmaConnectionBusy(true);
     try {
-      if (!figmaConnected) {
+      if (figmaTokenRequired) {
         const status = await saveFigmaAccessToken(figmaAccessToken);
         setFigmaConnected(status.connected);
         setFigmaConnectionChecked(true);
@@ -200,7 +208,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   }, [
     context.designId,
     figmaAccessToken,
-    figmaConnected,
+    figmaTokenRequired,
     figmaUrl,
     finishImport,
     importFigmaFrame,
@@ -342,7 +350,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                       : t("designEditor.import.figmaConnected")}
                   </span>
                 </div>
-              ) : (
+              ) : figmaTokenRequired ? (
                 <div className="space-y-1.5 rounded-md border border-border/70 bg-muted/30 p-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label htmlFor="figma-access-token" className="text-[11px]">
@@ -376,7 +384,14 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                       t("designEditor.import.figmaTokenDescription")}
                   </p>
                 </div>
-              )}
+              ) : figmaConnectionError ? (
+                <p
+                  className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive"
+                  role="status"
+                >
+                  {figmaConnectionError}
+                </p>
+              ) : null}
 
               <Button
                 type="submit"
@@ -385,12 +400,12 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                 disabled={
                   busy ||
                   !figmaUrl.trim() ||
-                  (!figmaConnected && !figmaAccessToken.trim())
+                  (figmaTokenRequired && !figmaAccessToken.trim())
                 }
               >
-                {figmaConnected
-                  ? t("designEditor.import.importFigmaUrl")
-                  : t("designEditor.import.saveKeyAndImport")}
+                {figmaTokenRequired
+                  ? t("designEditor.import.saveKeyAndImport")
+                  : t("designEditor.import.importFigmaUrl")}
               </Button>
             </form>
           </ImportSourceRow>
