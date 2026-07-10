@@ -5950,28 +5950,6 @@ function DatabaseSettingsSourcePanel({
     isBuilderSource &&
     (source?.syncState === "error" || Boolean(source?.lastError));
 
-  // Auto-sync: the manual Refresh button is gone, so pull the read-only
-  // snapshot when the panel opens and whenever the window regains focus.
-  // Throttled so rapid focus changes don't hammer Builder; the refresh
-  // mutation is silent (no toast), so this stays quiet in the background.
-  const refreshSourceRef = useRef(onRefreshSource);
-  refreshSourceRef.current = onRefreshSource;
-  const lastAutoSyncRef = useRef(0);
-  const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
-  useEffect(() => {
-    if (!autoSyncEnabled) return;
-    const maybeSync = () => {
-      const now = Date.now();
-      if (now - lastAutoSyncRef.current < 15_000) return;
-      lastAutoSyncRef.current = now;
-      refreshSourceRef.current();
-    };
-    maybeSync();
-    const onFocus = () => maybeSync();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [autoSyncEnabled]);
-
   const top = nav[nav.length - 1];
 
   // ── Sources list (root) ───────────────────────────────────────────────
@@ -6270,23 +6248,38 @@ function DatabaseSettingsSourcePanel({
             <span className="truncate font-medium" title={source.sourceName}>
               {source.sourceName}
             </span>
-            {isBuilderSource ? (
-              source.capabilities.liveWritesEnabled ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  <IconPencil className="size-3" />
-                  {dbText("liveWritesOn")}
-                </span>
+            <div className="flex shrink-0 items-center gap-1">
+              {isBuilderSource ? (
+                source.capabilities.liveWritesEnabled ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
+                    <IconPencil className="size-3" />
+                    {dbText("liveWritesOn")}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <IconLock className="size-3" />
+                    {dbText("readOnly")}
+                  </span>
+                )
               ) : (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  {dbText("readOnly")}
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {source.syncState}
                 </span>
-              )
-            ) : (
-              <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {source.syncState}
-              </span>
-            )}
+              )}
+              {isBuilderSource && !builderSyncFailed ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={() => onRefreshSource(source.id)}
+                >
+                  <IconRefresh className="size-3" />
+                  {dbText("refreshSource")}
+                </Button>
+              ) : null}
+            </div>
           </div>
           <div className="min-w-0 break-words text-xs text-muted-foreground">
             {builderSyncFailed ? (

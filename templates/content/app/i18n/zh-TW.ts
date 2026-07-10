@@ -713,6 +713,7 @@ const messages = {
     previousTimelineRange: "上一個時間線範圍",
     propertyVisibility: "屬性可見性",
     reset: "重設",
+    refreshSource: "重新整理來源",
     resizeNameColumn: "調整名稱列寬",
     row: "行",
     rowOptions: "行選項",
