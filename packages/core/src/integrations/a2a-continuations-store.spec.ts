@@ -281,6 +281,162 @@ describe("A2A continuations store", () => {
     );
   });
 
+  it.each([
+    ["missing", null],
+    [
+      "stale",
+      JSON.stringify({
+        kind: "slack-stream",
+        streamTs: "1719000000.000001",
+      }),
+    ],
+  ])(
+    "upgrades a duplicate active continuation with a %s resumable progress reference",
+    async (_state, initialProgressRef) => {
+      const { insertA2AContinuation } = await loadStore();
+      const newerProgressRef = {
+        kind: "slack-stream",
+        streamTs: "1719000000.000002",
+      };
+      let progressRef = initialProgressRef;
+      executeMock.mockImplementation(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = querySql(query);
+          const args = queryArgs(query);
+          if (
+            sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+          ) {
+            throw Object.assign(new Error("duplicate key value"), {
+              code: "23505",
+            });
+          }
+          if (
+            sql.includes("WHERE integration_task_id = ?") &&
+            sql.includes("a2a_task_id = ?")
+          ) {
+            return {
+              rows: [
+                continuationRow({
+                  id: "cont-duplicate",
+                  status: "pending",
+                  progress_ref: progressRef,
+                }),
+              ],
+              rowsAffected: 0,
+            };
+          }
+          if (
+            sql.includes("UPDATE integration_a2a_continuations") &&
+            sql.includes("SET progress_ref = ?")
+          ) {
+            progressRef = String(args[0]);
+            return { rows: [], rowsAffected: 1 };
+          }
+          if (
+            sql.includes(
+              "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+            )
+          ) {
+            return {
+              rows: [
+                continuationRow({
+                  id: "cont-duplicate",
+                  status: "pending",
+                  progress_ref: progressRef,
+                }),
+              ],
+              rowsAffected: 0,
+            };
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      );
+
+      const continuation = await insertA2AContinuation({
+        integrationTaskId: "task-existing",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "make a deck",
+          platformContext: {},
+          timestamp: 1,
+        },
+        progressRef: newerProgressRef,
+        ownerEmail: "alice+qa@agent-native.test",
+        agentName: "Analytics",
+        agentUrl: "https://analytics.agent-native.test",
+        a2aTaskId: "a2a-task-existing",
+      });
+
+      expect(continuation.progressRef).toEqual(newerProgressRef);
+      const updateCall = executeMock.mock.calls.find(([query]) =>
+        querySql(query).includes("SET progress_ref = ?"),
+      );
+      expect(updateCall).toBeDefined();
+      expect(queryArgs(updateCall![0])).toEqual([
+        JSON.stringify(newerProgressRef),
+        expect.any(Number),
+        "cont-duplicate",
+        JSON.stringify(newerProgressRef),
+      ]);
+    },
+  );
+
+  it("does not restore progress on duplicate terminal continuations", async () => {
+    const { insertA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (
+          sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+        ) {
+          throw Object.assign(new Error("duplicate key value"), {
+            code: "23505",
+          });
+        }
+        if (
+          sql.includes("WHERE integration_task_id = ?") &&
+          sql.includes("a2a_task_id = ?")
+        ) {
+          return {
+            rows: [
+              continuationRow({ id: "cont-completed", status: "completed" }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a deck",
+        platformContext: {},
+        timestamp: 1,
+      },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000002" },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Analytics",
+      agentUrl: "https://analytics.agent-native.test",
+      a2aTaskId: "a2a-task-existing",
+    });
+
+    expect(continuation.progressRef).toBeNull();
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("SET progress_ref = ?"),
+      ),
+    ).toBe(false);
+  });
+
   it("treats invalid stored progress references as unavailable", async () => {
     const { getA2AContinuation } = await loadStore();
     executeMock.mockImplementation(

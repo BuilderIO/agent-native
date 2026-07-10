@@ -290,7 +290,29 @@ export async function insertA2AContinuation(input: {
       input.agentUrl,
       input.a2aTaskId,
     );
-    if (existing) return existing;
+    if (existing) {
+      // A retry can reach this row after the original invocation created it
+      // without a resumable progress surface (or with one that has gone
+      // stale). Keep the most recent valid adapter reference for active work,
+      // but never resurrect short-lived delivery state after a terminal row
+      // has deliberately scrubbed it.
+      if (
+        progressRef &&
+        existing.status !== "completed" &&
+        existing.status !== "failed" &&
+        JSON.stringify(existing.progressRef) !== progressRef
+      ) {
+        await client.execute({
+          sql: `UPDATE integration_a2a_continuations
+                SET progress_ref = ?, updated_at = ?
+                WHERE id = ? AND status NOT IN ('completed', 'failed')
+                  AND (progress_ref IS NULL OR progress_ref <> ?)`,
+          args: [progressRef, now, existing.id, progressRef],
+        });
+        return (await getA2AContinuation(existing.id)) ?? existing;
+      }
+      return existing;
+    }
     throw err;
   }
 }
