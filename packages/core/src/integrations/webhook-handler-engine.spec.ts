@@ -479,6 +479,7 @@ describe("integration webhook handler engine resolution", () => {
         return "anthropic";
       });
       getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      getStoredModelForEngineMock.mockResolvedValueOnce("claude-sonnet-4-6");
       resolveEngineMock.mockResolvedValueOnce({
         name: "anthropic",
         defaultModel: "claude-sonnet-4-6",
@@ -518,6 +519,7 @@ describe("integration webhook handler engine resolution", () => {
       expect(runAgentLoopMock).toHaveBeenCalledWith(
         expect.objectContaining({
           engine: expect.objectContaining({ name: "anthropic" }),
+          model: "claude-sonnet-4-6",
         }),
       );
     },
