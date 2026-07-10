@@ -163,13 +163,13 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
       }
 
       const location = teamId
-        ? `team:${teamId}:channel:${channelId ?? conversationId}`
-        : `conversation:${conversationId}`;
+        ? `:team:${teamId}:channel:${channelId ?? conversationId}`
+        : "";
       const replyRef = readString(activity.replyToId) ?? activityId;
 
       return {
         platform: "microsoft-teams",
-        externalThreadId: `tenant:${tenantId}:${location}:conversation:${conversationId}`,
+        externalThreadId: `tenant:${tenantId}${location}:conversation:${conversationId}`,
         text,
         senderName: readString(activity.from?.name),
         senderId,
@@ -181,6 +181,7 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
           channelId,
           conversationId,
           conversationType: readString(activity.conversation?.conversationType),
+          botFrameworkChannelId: readString(activity.channelId),
           activityId,
           replyToId: replyRef,
           serviceUrl,
@@ -226,6 +227,10 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
             type: "message",
             text: message.text,
             replyToId: activityId,
+            channelId:
+              readString(context.platformContext.botFrameworkChannelId) ??
+              "msteams",
+            serviceUrl,
             conversation: { id: conversationId },
             from: context.platformContext.recipient,
             recipient: context.platformContext.from,

@@ -219,7 +219,10 @@ describe("integration webhook handler", () => {
 
   it("bounds dispatch settling for providers with a 3-second acknowledgement deadline", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
     const incoming = createIncoming(1004);
     const adapter = {
       ...createAdapter(),

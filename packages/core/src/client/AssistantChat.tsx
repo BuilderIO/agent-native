@@ -1211,6 +1211,12 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /**
+   * Called with the active composer's current plain text as it changes.
+   * Host apps can use this to render contextual, non-destructive affordances
+   * beside the shared composer without replacing the composer stack.
+   */
+  onComposerTextChange?: (text: string) => void;
   /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
   /** Placeholder for the shared composer in its normal idle state. */
@@ -1516,6 +1522,7 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    onComposerTextChange,
     composerAreaClassName,
     composerPlaceholder,
     missingApiKeySetupLayout = "default",
@@ -4670,6 +4677,9 @@ const AssistantChatInner = forwardRef<
                     <ComposerAttachmentPreviewStrip />
                     <TiptapComposer
                       focusRef={tiptapRef}
+                      onTextChange={
+                        isActiveComposer ? onComposerTextChange : undefined
+                      }
                       disabled={isComposerDisabled}
                       placeholder={
                         missingApiKey

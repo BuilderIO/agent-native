@@ -388,9 +388,7 @@ async function enqueueAndDispatch(
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
   await Promise.race([
     dispatchPromise,
-    new Promise<void>((resolve) =>
-      setTimeout(resolve, settleWaitMs),
-    ),
+    new Promise<void>((resolve) => setTimeout(resolve, settleWaitMs)),
   ]);
 }
 

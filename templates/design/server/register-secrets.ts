@@ -51,7 +51,7 @@ registerRequiredSecret({
   key: "FIGMA_ACCESS_TOKEN",
   label: "Figma access token",
   description:
-    "Connect Figma frame links, exact clipboard paste, libraries, styles, and open-ended agent queries. Generate a personal access token with current_user:read and file_content:read; add library_content:read or Enterprise file_variables:read only when needed.",
+    "Connect Figma frame links, exact clipboard paste, libraries, styles, and open-ended agent queries. Generate a personal access token with current_user:read and file_content:read; add library_content:read for file libraries, team_library_content:read for team libraries, or Enterprise file_variables:read only when needed.",
   docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
   scope: "user",
   kind: "api-key",

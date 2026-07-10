@@ -216,6 +216,8 @@ describe("microsoftTeamsAdapter", () => {
       type: "message",
       text: "Done",
       replyToId: "activity-example",
+      channelId: "msteams",
+      serviceUrl: "https://smba.trafficmanager.net/amer",
       conversation: { id: "conversation-example" },
     });
   });

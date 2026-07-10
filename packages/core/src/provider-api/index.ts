@@ -872,7 +872,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "Personal access tokens should include current_user:read for validation and file_content:read for file/node imports. Add library_content:read or library_assets:read only for the corresponding library endpoints.",
+      "Personal access tokens should include current_user:read for validation and file_content:read for file/node imports. Add library_content:read for file libraries, team_library_content:read for team libraries, or library_assets:read for individual published assets only when needed.",
       "Enterprise Variables endpoints require file_variables:read; writes additionally require file_variables:write, a Full seat, and edit access.",
       "The REST API cannot create arbitrary canvas frames or layers. Use Figma's official OAuth MCP write tools when connected, or export a Design selection as Figma-compatible SVG for visual handoff.",
     ],

@@ -147,7 +147,7 @@ describe("write-local-file", () => {
         relPath: "src/App.tsx",
         content: "export default function App() {}\n",
       }),
-    ).rejects.toThrow(/folder changed.*re-grant/i);
+    ).rejects.toThrow(/grant.*folder.*re-grant/i);
     expect(fetch).not.toHaveBeenCalled();
   });
 

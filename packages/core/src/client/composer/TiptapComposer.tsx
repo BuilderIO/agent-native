@@ -1677,6 +1677,14 @@ export function TiptapComposer({
     },
   });
 
+  // A tab can stay mounted while becoming the active composer later. Publish
+  // its existing draft when the host starts observing it so contextual UI is
+  // correct immediately after a tab switch, not only after the next keystroke.
+  useEffect(() => {
+    if (!editor || !onTextChange) return;
+    onTextChange(editor.state.doc.textContent.trim());
+  }, [editor, onTextChange]);
+
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
       const normalized = normalizeAgentComposerReference(ref);

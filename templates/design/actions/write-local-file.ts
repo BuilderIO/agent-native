@@ -295,8 +295,11 @@ export default defineAction({
       );
     }
     if (!connection.rootPath || connection.rootPath !== grant.rootPath) {
-      throw new Error(
-        "The connected local folder changed after write consent was granted. Re-grant write consent for the current folder before saving.",
+      throw Object.assign(
+        new Error(
+          "The localhost write-consent grant no longer matches the connected local folder. Re-grant write consent for the current folder before saving.",
+        ),
+        { statusCode: 428 },
       );
     }
 

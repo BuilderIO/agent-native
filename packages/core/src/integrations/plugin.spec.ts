@@ -383,7 +383,7 @@ describe("integrations plugin routes", () => {
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
   });
 
-  it("loads compact owner resources when handling integration webhooks", async () => {
+  it("defers scoped resource loading until after webhook acknowledgement", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
       owner: "owner+qa@example.com",
@@ -440,16 +440,8 @@ describe("integrations plugin routes", () => {
     );
     expect(handleWebhookMock).toHaveBeenCalledTimes(1);
     const [, options] = handleWebhookMock.mock.calls[0];
-    expect(options.systemPrompt).toContain("Base prompt.");
-    expect(options.systemPrompt).toContain("Shared Dispatch instruction");
-    expect(options.systemPrompt).toContain(
-      "Shared learnings (LEARNINGS.md) and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
-    );
-    expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
+    expect(options.systemPrompt).toBe("Base prompt.");
     expect(options.ownerEmail).toBe("owner+qa@example.com");
-    expect(resourceGetByPathMock).not.toHaveBeenCalledWith(
-      "owner+qa@example.com",
-      "memory/MEMORY.md",
-    );
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
   });
 });
