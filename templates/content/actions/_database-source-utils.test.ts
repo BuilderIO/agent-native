@@ -937,6 +937,113 @@ describe("database source helpers", () => {
     ]);
   });
 
+  it.each([
+    {
+      label: "select",
+      propertyType: "select" as const,
+      propertyId: "prop-status",
+      sourceFieldKey: "data.status",
+      sourceFieldLabel: "Status",
+      sourceValue: "Draft",
+      localValue: "published",
+      storedCurrentValue: "Draft",
+      storedProposedValue: "Published",
+      options: [
+        { id: "draft", name: "Draft", color: "gray" },
+        { id: "published", name: "Published", color: "green" },
+      ],
+    },
+    {
+      label: "multi-select",
+      propertyType: "multi_select" as const,
+      propertyId: "prop-topics",
+      sourceFieldKey: "data.topics",
+      sourceFieldLabel: "Topics",
+      sourceValue: ["Headless CMS"],
+      localValue: ["headless-cms", "agent-workflows"],
+      storedCurrentValue: ["Headless CMS"],
+      storedProposedValue: ["Agent workflows", "Headless CMS"],
+      options: [
+        { id: "headless-cms", name: "Headless CMS", color: "blue" },
+        {
+          id: "agent-workflows",
+          name: "Agent workflows",
+          color: "green",
+        },
+      ],
+    },
+  ])(
+    "does not duplicate legacy label-based Builder $label reviews",
+    ({
+      propertyType,
+      propertyId,
+      sourceFieldKey,
+      sourceFieldLabel,
+      sourceValue,
+      localValue,
+      storedCurrentValue,
+      storedProposedValue,
+      options,
+    }) => {
+      const pending = buildBuilderLocalOutboundChangeSets({
+        source: { sourceType: "builder-cms" },
+        rowRows: [
+          {
+            id: "row-source",
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            sourceDisplayKey: "Same title",
+            sourceValuesJson: JSON.stringify({
+              [sourceFieldKey]: sourceValue,
+            }),
+          },
+        ],
+        documentTitleById: new Map([["doc-1", "Same title"]]),
+        localValuesByDocument: new Map([
+          ["doc-1", new Map([[propertyId, localValue]])],
+        ]),
+        writableFields: [
+          {
+            propertyId,
+            localFieldKey: propertyId,
+            sourceFieldKey,
+            sourceFieldLabel,
+            propertyType,
+            propertyOptions: { options },
+          },
+        ],
+        storedChangeSets: [
+          {
+            id: "legacy-pending-1",
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            kind: "field_update",
+            direction: "outbound",
+            state: "pending_push",
+            pushMode: "autosave",
+            localOnly: true,
+            summary: "Pending local Builder CMS changes.",
+            fieldChanges: [
+              {
+                propertyId,
+                propertyName: sourceFieldLabel,
+                localFieldKey: propertyId,
+                sourceFieldKey,
+                currentValue: storedCurrentValue,
+                proposedValue: storedProposedValue,
+              },
+            ],
+            bodyChange: null,
+            createdAt: "2026-07-10T00:00:00.000Z",
+            updatedAt: "2026-07-10T00:00:00.000Z",
+          },
+        ],
+      } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+      expect(pending).toHaveLength(0);
+    },
+  );
+
   it("treats duplicate Builder natural keys as ambiguous rather than guessing a row link", () => {
     const entries = [
       {

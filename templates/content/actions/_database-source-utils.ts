@@ -2166,12 +2166,25 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       }
       return (
         changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some(
-            (change) =>
-              change.localFieldKey === stored.localFieldKey &&
-              sameSourceFieldValue(change.currentValue, stored.currentValue) &&
-              sameSourceFieldValue(change.proposedValue, stored.proposedValue),
-          ),
+          fieldChanges.some((change) => {
+            if (change.localFieldKey !== stored.localFieldKey) return false;
+            const writableField = args.writableFields?.find(
+              (field) => field.localFieldKey === change.localFieldKey,
+            );
+            const sameStoredValue = (current: unknown, previous: unknown) =>
+              writableField
+                ? sameMappedSourceFieldValue(
+                    current,
+                    previous,
+                    writableField.propertyType,
+                    writableField.propertyOptions,
+                  )
+                : sameSourceFieldValue(current, previous);
+            return (
+              sameStoredValue(change.currentValue, stored.currentValue) &&
+              sameStoredValue(change.proposedValue, stored.proposedValue)
+            );
+          }),
         ) ||
         (!!bodyChange && !!changeSet.bodyChange)
       );
