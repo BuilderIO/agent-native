@@ -378,18 +378,18 @@ import {
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
-  plainTextFromDesignHtml,
-  readDesignClipboardPayloadFromDataTransfer,
-  readDesignClipboardPayloadFromSystem,
-  writeDesignClipboard,
-} from "@/lib/design-clipboard";
-import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
   type ClipboardContentLineage,
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
+import {
+  plainTextFromDesignHtml,
+  readDesignClipboardPayloadFromDataTransfer,
+  readDesignClipboardPayloadFromSystem,
+  writeDesignClipboard,
+} from "@/lib/design-clipboard";
 import {
   applyDesignClipboardManagedStyles,
   extractDesignClipboardManagedStyles,
@@ -11372,10 +11372,7 @@ function DesignEditor() {
         publication: args.publication,
       });
       if (nextLineage) {
-        latestClipboardMutationContentRef.current.set(
-          args.fileId,
-          nextLineage,
-        );
+        latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
       }
     },
     [],

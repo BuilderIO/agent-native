@@ -10,8 +10,7 @@ export interface ClipboardContentMutationPublication {
   origin: ClipboardContentMutationOrigin;
 }
 
-export interface ClipboardContentLineage
-  extends ClipboardContentMutationPublication {
+export interface ClipboardContentLineage extends ClipboardContentMutationPublication {
   content: string;
 }
 
