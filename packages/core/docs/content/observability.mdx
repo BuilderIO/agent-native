@@ -92,8 +92,7 @@ No code changes needed. The instrumentation hooks into `production-agent.ts` tra
 
 Add the dashboard to any template with a single route:
 
-```tsx
-// app/routes/observability.tsx
+```tsx filename="app/routes/observability.tsx"
 import { ObservabilityDashboard } from "@agent-native/core/client";
 
 export default function ObservabilityPage() {
@@ -360,8 +359,7 @@ Optional knobs:
 
 Every template inherits this automatically — there's nothing to import. For SSR apps, the server injects a tiny browser config script when `SENTRY_CLIENT_DSN`, `VITE_SENTRY_CLIENT_DSN`, or shared `SENTRY_DSN` is available at runtime, so browser capture is not limited to Vite build-time env. Templates that want custom behavior (extra tags, different DSN per template, hard-disable Sentry) can override by exporting their own plugin from `server/plugins/sentry.ts`:
 
-```ts
-// server/plugins/sentry.ts
+```ts filename="server/plugins/sentry.ts"
 import { createSentryPlugin } from "@agent-native/core/server";
 export default createSentryPlugin();
 ```

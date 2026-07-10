@@ -73,8 +73,7 @@ The runner resolves a provider-agnostic engine/model from the existing registry 
 
 Drop a `*.eval.ts` file anywhere in the app (or an `evals/*.ts` file). Each file `export default defineEval(...)` (or exports an array of them):
 
-```ts
-// evals/greeting.eval.ts
+```ts filename="evals/greeting.eval.ts"
 import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
 
 export default defineEval({
@@ -255,10 +254,9 @@ coverage in normal PR CI.
 
 ### As a CI deploy gate {#ci}
 
-Add it to the pipeline that runs before a deploy:
+Add it to the pipeline that runs before a deploy (excerpt):
 
-```yaml
-# .github/workflows/deploy.yml (excerpt)
+```yaml filename=".github/workflows/deploy.yml"
 - run: npx agent-native eval --json
 ```
 

@@ -579,3 +579,11 @@ See [Frames](/docs/frames) for more on the embedded agent panel vs. cloud frame 
 ## Multi-instance deploys {#multi-instance}
 
 Agent-native apps store all state in SQL via Drizzle and sync the UI via [polling](/docs/key-concepts#polling-sync) against the database — no file-system state, no sticky sessions, no in-memory caches. That means multi-instance and serverless deployments work out of the box: point every instance at the same `DATABASE_URL` and they converge automatically. See [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) and [Portability](/docs/key-concepts#hosting-agnostic).
+
+## What's next
+
+- [**Database**](/docs/database#production) — pick a persistent SQL backend before your first production deploy
+- [**Security**](/docs/security) — the production checklist and opt-in flags referenced throughout this page
+- [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model behind `deploy`'s one-origin build
+- [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits

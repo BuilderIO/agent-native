@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
   />
 </WireframeBlock>
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a public Clips share link or a temporary **Copy for agent** link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
+Async screen recordings, calendar-synced meeting notes, and push-to-talk voice dictation rolled into one app — the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a public Clips share link or a temporary **Copy for agent** link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
 <Diagram id="doc-block-pqnd4p" title="Capture, transcribe, reuse" summary={"Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."}>
 
@@ -85,7 +85,7 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
 - **Search across every transcript** — screen recordings, meetings, and dictations all in one library. "Find the clip where we discussed the rollout plan."
 - **Share clips** with per-clip permissions (public, team, private). Link tracking and threaded comments work too.
-- **Preview public clips in Slack** with a Loom-style playable unfurl after the
+- **Preview public clips in Slack** with a playable video unfurl after the
   workspace installs your Clips Slack app.
 - **Capture browser logs with the Chrome extension.** Browser recordings can
   attach redacted console logs and fetch/XHR metadata, which is helpful for
@@ -574,7 +574,7 @@ Routes in the UI live under `templates/clips/app/routes/` — the authenticated 
 
 ### Key actions
 
-Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are ~80 actions; the useful groupings:
+Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are about 100 actions; the useful groupings:
 
 - **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `get-recording-player-data` returns the sidecar to editors.
