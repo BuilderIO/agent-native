@@ -3,6 +3,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
+import { getRequestRunContext } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
 import type {
   ExtensionContentEdit,
@@ -38,6 +39,8 @@ import {
   unhideExtension,
   updateExtension,
   updateExtensionContent,
+  type ExtensionHistoryDetail,
+  type ExtensionHistoryEntry,
   type ExtensionRow,
 } from "./store.js";
 
@@ -126,7 +129,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension": {
       tool: {
         description:
-          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content so you can make a targeted update-extension edit.",
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content once per run so you can make a targeted update-extension edit; repeated unchanged reads return compact metadata unless forceContent=true.",
         parameters: {
           type: "object",
           properties: {
@@ -140,6 +143,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 "Include full Alpine.js content. Defaults to true for targeted edits.",
             },
+            forceContent: {
+              type: "boolean",
+              description:
+                "Return full content even if this run already read the same unchanged body. Use sparingly; prefer update-extension edits after the first read.",
+            },
           },
           required: ["id"],
         },
@@ -151,14 +159,16 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           args?.includeContent === undefined
             ? true
             : coerceBoolean(args.includeContent);
+        const forceContent = coerceBoolean(args?.forceContent);
         const localExtension = await getLocalExtension(id);
         if (localExtension) {
           return {
             ok: true,
-            extension: await summarizeExtension(
+            extension: await summarizeExtensionForAgentRead(
               localExtension,
               new Set(),
               includeContent,
+              forceContent,
             ),
           };
         }
@@ -167,10 +177,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
         return {
           ok: true,
-          extension: await summarizeExtension(
+          extension: await summarizeExtensionForAgentRead(
             extension,
             hiddenIds,
             includeContent,
+            forceContent,
           ),
         };
       },
@@ -223,7 +234,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension-history-version": {
       tool: {
         description:
-          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed.",
+          "Get one extension history version with its previous-version diff. Use after list-extension-history when the user wants to inspect exactly what changed. Full HTML bodies are omitted by default; set includeContent=true only when restoring or manually comparing full source.",
         parameters: {
           type: "object",
           properties: {
@@ -234,6 +245,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             version: {
               type: "number",
               description: "History version number to inspect.",
+            },
+            includeContent: {
+              type: "boolean",
+              description:
+                "Include full HTML for the current and previous versions. Defaults to false to keep agent context compact.",
             },
           },
           required: ["id", "version"],
@@ -252,7 +268,13 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!detail) {
           return `Error: extension history version not found: ${id}#${version}`;
         }
-        return { ok: true, ...detail };
+        return {
+          ok: true,
+          ...compactExtensionHistoryDetail(
+            detail,
+            coerceBoolean(args?.includeContent),
+          ),
+        };
       },
       readOnly: true,
     },
@@ -260,7 +282,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "render-inline-extension": {
       tool: {
         description:
-          "Render a one-time, transient sandboxed Alpine.js mini-app directly inside the chat. Use this for generated UI that should answer the current turn inline without saving anything to the Extensions view: calculators, adjustable controls, knobs, pickers, visualizers, temporary dashboards, and interactive results. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<inline extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. For transient UIs, extensionData is browser-local throwaway state; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) so it inherits the parent app theme. Use create-extension instead when the user wants the UI saved or reusable.",
+          "Render a one-time, transient sandboxed Alpine.js mini-app directly inside the chat. Use this for generated UI that should answer the current turn inline without saving anything to the Extensions view: calculators, adjustable controls, knobs, pickers, visualizers, temporary dashboards, and interactive results. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() or extensionData for writes; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<inline extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. For transient UIs, extensionData is browser-local throwaway state; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) so it inherits the parent app theme. Use create-extension instead when the user wants the UI saved or reusable.",
         parameters: {
           type: "object",
           properties: {
@@ -446,7 +468,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
+          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() for app data writes and extensionData for extension-owned persisted UI state; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery() only for known existing SQL tables and never for writes. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
         parameters: {
           type: "object",
           properties: {
@@ -1059,9 +1081,95 @@ async function summarizeExtension(
     hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    contentLength: row.content.length,
+    contentHash: contentFingerprint(row.content),
     ...(local ? { source: row.source } : {}),
     ...(includeContent ? { content: row.content } : {}),
   };
+}
+
+async function summarizeExtensionForAgentRead(
+  row: ExtensionRow | LocalExtensionRow,
+  hiddenIds: Set<string>,
+  includeContent: boolean,
+  forceContent: boolean,
+) {
+  if (!includeContent) {
+    return summarizeExtension(row, hiddenIds, false);
+  }
+
+  const fingerprint = contentFingerprint(row.content);
+  const runCtx = getRequestRunContext();
+  const reads = runCtx ? (runCtx.extensionContentReads ??= {}) : undefined;
+  const alreadySent = !forceContent && reads?.[row.id] === fingerprint;
+  if (!alreadySent && reads) {
+    reads[row.id] = fingerprint;
+  }
+
+  const summary = await summarizeExtension(row, hiddenIds, !alreadySent);
+  if (!alreadySent) return summary;
+
+  return {
+    ...summary,
+    contentOmitted: {
+      reason: "unchanged-content-already-returned-this-run",
+      contentHash: fingerprint,
+      contentLength: row.content.length,
+      next: "Use the content already returned earlier in this run and call update-extension with focused edits/patches. Set forceContent=true only if you truly need the full body again.",
+    },
+  };
+}
+
+function compactExtensionHistoryDetail(
+  detail: ExtensionHistoryDetail,
+  includeContent: boolean,
+): ExtensionHistoryDetail & {
+  diffOmitted?: { omittedLines: number; maxLines: number };
+} {
+  const diffMaxLines = 400;
+  const fullDiff = detail.diff ?? [];
+  const diff =
+    fullDiff.length > diffMaxLines
+      ? [...fullDiff.slice(0, 200), ...fullDiff.slice(fullDiff.length - 200)]
+      : fullDiff;
+  return {
+    ...detail,
+    entry: compactHistoryEntry(detail.entry, includeContent),
+    previous: detail.previous
+      ? compactHistoryEntry(detail.previous, includeContent)
+      : null,
+    diff,
+    ...(fullDiff.length > diff.length
+      ? {
+          diffOmitted: {
+            omittedLines: fullDiff.length - diff.length,
+            maxLines: diffMaxLines,
+          },
+        }
+      : {}),
+  };
+}
+
+function compactHistoryEntry(
+  entry: ExtensionHistoryEntry,
+  includeContent: boolean,
+): ExtensionHistoryEntry & { contentHash?: string } {
+  const content = entry.content ?? "";
+  const withHash = {
+    ...entry,
+    ...(content ? { contentHash: contentFingerprint(content) } : {}),
+  };
+  if (includeContent) return withHash;
+  const { content: _content, ...withoutContent } = withHash;
+  return withoutContent;
+}
+
+function contentFingerprint(content: string): string {
+  let hash = 5381;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 33) ^ content.charCodeAt(i);
+  }
+  return `${content.length.toString(36)}-${(hash >>> 0).toString(36)}`;
 }
 
 async function localExtensionEditMessage(id: string): Promise<string | null> {

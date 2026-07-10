@@ -46,6 +46,7 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ eq: args }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core/server", () => ({

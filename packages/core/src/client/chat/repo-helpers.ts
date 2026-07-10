@@ -207,6 +207,41 @@ function repoTerminalAssistantCount(
   }).length;
 }
 
+function toolCallProgressScore(part: RepoMessageContent): number {
+  if (part.type !== "tool-call") return 0;
+  let score = 1;
+  if (part.activity !== true) score += 1;
+  if ("result" in part) score += 4;
+  return score;
+}
+
+function repoToolCallProgress(repo: NormalizedRepo | null | undefined): {
+  total: number;
+  materialized: number;
+  completed: number;
+  score: number;
+} {
+  const progress = {
+    total: 0,
+    materialized: 0,
+    completed: 0,
+    score: 0,
+  };
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const content = message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part?.type !== "tool-call") continue;
+      progress.total += 1;
+      if (part.activity !== true) progress.materialized += 1;
+      if ("result" in part) progress.completed += 1;
+      progress.score += toolCallProgressScore(part);
+    }
+  }
+  return progress;
+}
+
 export function shouldImportServerThreadData(
   currentRepo: NormalizedRepo | null | undefined,
   incomingRepo: NormalizedRepo | null | undefined,
@@ -227,6 +262,16 @@ export function shouldImportServerThreadData(
     if (
       incomingTerminalAssistants <= currentTerminalAssistants &&
       repoTextLength(incomingRepo) < repoTextLength(currentRepo)
+    ) {
+      return false;
+    }
+    const currentTools = repoToolCallProgress(currentRepo);
+    const incomingTools = repoToolCallProgress(incomingRepo);
+    if (
+      incomingTools.total < currentTools.total ||
+      incomingTools.materialized < currentTools.materialized ||
+      incomingTools.completed < currentTools.completed ||
+      incomingTools.score < currentTools.score
     ) {
       return false;
     }

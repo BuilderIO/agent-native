@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
+import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
 import { serializeBuilderCmsSourceReadMetadataRecord } from "./_database-source-utils";
 import { normalizeContentDatabasePageOptions } from "./_database-utils";
 import addSourceFieldProperty, {
   propertyTypeForSourceField,
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
-import attachSource from "./attach-content-database-source";
+import attachSource, {
+  builderCmsAttachReadMetadata,
+  readInitialBuilderCmsAttachEntries,
+} from "./attach-content-database-source";
 import changeSourceRole from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
 import executeBatch from "./execute-builder-source-batch";
@@ -16,12 +20,14 @@ import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
 import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
+  BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
 import stageBuilderRevision from "./stage-builder-revision";
+import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
@@ -54,6 +60,47 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts Builder source bulk update staging args", () => {
+    expect(
+      stageBulkUpdate.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        itemIds: ["item-1", "item-2"],
+        field: {
+          propertyId: "property-1",
+          value: "Docs team",
+        },
+        dryRun: false,
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      itemIds: ["item-1", "item-2"],
+      field: {
+        propertyId: "property-1",
+        value: "Docs team",
+      },
+      dryRun: false,
+    });
+  });
+
+  it("rejects Builder source bulk update requests above the combined row limit", () => {
+    expect(() =>
+      stageBulkUpdate.schema.parse({
+        documentId: "database-page",
+        itemIds: Array.from({ length: 75 }, (_, index) => `item-${index}`),
+        documentIds: Array.from(
+          { length: 75 },
+          (_, index) => `document-${index}`,
+        ),
+        field: {
+          propertyId: "property-1",
+          value: "Docs team",
+        },
+      }),
+    ).toThrow("Builder source bulk updates are limited to 100 rows.");
+  });
+
   it("defaults source attachment to the safe mock-local source type", () => {
     expect(attachSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
@@ -82,6 +129,83 @@ describe("content database source actions", () => {
       relationshipMode: "items",
       limit: 50,
       offset: 25,
+    });
+  });
+
+  it("bounds initial Builder source attachment to a single continuation page", async () => {
+    const calls: Array<{ model: string; maxPages?: number }> = [];
+    const result = await readInitialBuilderCmsAttachEntries(
+      "blog-article",
+      async (args) => {
+        calls.push({ model: args.model, maxPages: args.maxPages });
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+    );
+
+    expect(result.state).toBe("live");
+    expect(calls).toEqual([{ model: "blog-article", maxPages: 1 }]);
+  });
+
+  it("marks partial Builder source attachment reads as continuing work", () => {
+    expect(
+      builderCmsAttachReadMetadata({
+        state: "live",
+        entries: [{ id: "entry-1" }],
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        message: null,
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 1,
+          fetchedEntryCount: 1,
+          hasMore: true,
+          partial: true,
+          readMode: "builder-api",
+        },
+      } as BuilderCmsReadResult),
+    ).toMatchObject({
+      sourceFetchState: "fetching",
+      syncState: "refreshing",
+      activeReadSourceRowIds: ["entry-1"],
+    });
+
+    expect(
+      builderCmsAttachReadMetadata({
+        state: "error",
+        entries: [],
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        message: "Builder read failed.",
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 0,
+          fetchedEntryCount: 0,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api",
+        },
+      }),
+    ).toMatchObject({
+      sourceFetchState: "error",
+      syncState: "error",
+      activeReadSourceRowIds: undefined,
     });
   });
 
@@ -236,6 +360,40 @@ describe("content database source actions", () => {
     expect(result[0]?.value).not.toBeNull();
   });
 
+  it("maps constrained source option labels to option ids when backfilling values", () => {
+    const result = sourceFieldPropertyValuesFromRows(
+      [
+        {
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceValuesJson: JSON.stringify({
+            "data.topics": ["Headless CMS", "Governance &amp; Security"],
+          }),
+        },
+      ],
+      "data.topics",
+      "multi_select",
+      {
+        options: [
+          { id: "headless-cms", name: "Headless CMS", color: "blue" },
+          {
+            id: "governance-security",
+            name: "Governance &amp; Security",
+            color: "green",
+          },
+        ],
+      },
+    );
+
+    expect(result).toEqual([
+      {
+        itemId: "item-1",
+        documentId: "doc-1",
+        value: ["headless-cms", "governance-security"],
+      },
+    ]);
+  });
+
   it("accepts no-argument Builder model discovery requests", () => {
     expect(listBuilderModels.schema.parse({})).toEqual({});
   });
@@ -280,12 +438,14 @@ describe("content database source actions", () => {
     expect(
       prepareReview.schema.parse({
         documentId: "database-page",
+        changeSetIds: ["change-set"],
         pushModeConfirmation: "autosave",
         publicationTransition: "unpublish",
         confirmUnpublish: true,
       }),
     ).toEqual({
       documentId: "database-page",
+      changeSetIds: ["change-set"],
       pushModeConfirmation: "autosave",
       publicationTransition: "unpublish",
       confirmUnpublish: true,
@@ -457,5 +617,8 @@ describe("content database source actions", () => {
     expect(review.rows[0]?.title).toBe("New title");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
+    expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);
+    expect(review.totalRowCount).toBe(1);
+    expect(review.preparedRowLimit).toBe(1);
   });
 });

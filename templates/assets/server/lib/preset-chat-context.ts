@@ -4,6 +4,7 @@ import { inArray } from "drizzle-orm";
 import type { StyleBrief } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
+import { normalizePresetReferences } from "./preset-references.js";
 
 const PRESET_REF_TYPE = "preset";
 
@@ -67,10 +68,12 @@ export async function preparePresetChatContext(args: {
 }
 
 function describePreset(preset: PresetRow, library?: LibraryRow): string {
-  const settings = parseJson<{ tier?: string; includeLogo?: boolean }>(
-    preset.settings,
-    {},
-  );
+  const settings = parseJson<{
+    tier?: string;
+    includeLogo?: boolean;
+    presetReferences?: unknown;
+  }>(preset.settings, {});
+  const presetReferences = normalizePresetReferences(settings.presetReferences);
   const style = library
     ? parseJson<StyleBrief>(library.styleBrief, {})
     : ({} as StyleBrief);
@@ -108,6 +111,16 @@ function describePreset(preset: PresetRow, library?: LibraryRow): string {
   }
   if (style.doNot?.length) {
     lines.push(`- Avoid: ${style.doNot.join("; ")}.`);
+  }
+  for (const entry of presetReferences) {
+    lines.push(
+      `- Reference "${entry.label}" (id: ${entry.id}): role ${entry.role}, ${entry.variable ? "variable" : "fixed"}${entry.required ? ", required" : ""}, ${entry.assetIds.length ? `${entry.assetIds.length} pinned image(s)` : "no images yet"}.${entry.description ? ` ${entry.description}` : ""}`,
+    );
+  }
+  if (presetReferences.some((entry) => entry.variable)) {
+    lines.push(
+      "- Before generating, collect images for required variable references (from the user's attachments or the library) and pass presetReferenceFills to generate-image / generate-image-batch. Fixed references attach automatically.",
+    );
   }
   const customInstructions = library?.customInstructions?.trim();
   if (customInstructions) {

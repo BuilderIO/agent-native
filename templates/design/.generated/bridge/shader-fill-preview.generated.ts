@@ -24,8 +24,28 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       }
       return document.body;
     }
+    function isSafeBackgroundStyleValue(value) {
+      if (typeof value !== "string") return false;
+      var trimmed = value.trim();
+      if (!trimmed) return false;
+      if (/expression\\s*\\(/i.test(trimmed)) return false;
+      if (/javascript\\s*:/i.test(trimmed)) return false;
+      if (/url\\s*\\(/i.test(trimmed)) return false;
+      if (/[<>{};]/.test(trimmed)) return false;
+      return true;
+    }
     function applyPreview(selector, nodeId, css) {
       clearPreview();
+      if (css && !isSafeBackgroundStyleValue(css)) {
+        try {
+          window.parent.postMessage(
+            { type: "shader-fill-preview-rejected", reason: "unsafe-css-value" },
+            "*"
+          );
+        } catch (_err) {
+        }
+        return;
+      }
       var el = resolveTarget(selector, nodeId);
       if (!el) return;
       originalBackground = el.style.background || "";
@@ -37,6 +57,115 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       patchedEl.style.background = originalBackground;
       patchedEl = null;
       originalBackground = "";
+    }
+    var MAX_GLSL_LENGTH = 2e4;
+    var UNIFORM_NAME_RE = /^u_[A-Za-z0-9_]{1,48}$/;
+    var SHADER_BUILTIN_UNIFORMS = ["u_time", "u_resolution"];
+    function validatePreviewGlslSource(glsl) {
+      var errors = [];
+      if (typeof glsl !== "string" || glsl.trim().length === 0) {
+        return ["GLSL source is empty"];
+      }
+      if (glsl.length > MAX_GLSL_LENGTH) {
+        errors.push(
+          "GLSL source is " + glsl.length + " chars \\u2014 max is " + MAX_GLSL_LENGTH
+        );
+      }
+      if (!/void\\s+main\\s*\\(/.test(glsl)) {
+        errors.push("GLSL source must define void main()");
+      }
+      if (!/gl_FragColor/.test(glsl)) {
+        errors.push("GLSL source must write gl_FragColor");
+      }
+      if (/<script/i.test(glsl)) {
+        errors.push("GLSL source must not contain an opening script tag");
+      }
+      if (/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]/.test(glsl)) {
+        errors.push("GLSL source contains control characters");
+      }
+      return errors;
+    }
+    function validatePreviewUniformManifest(uniforms) {
+      var errors = [];
+      if (uniforms === void 0 || uniforms === null) return errors;
+      if (typeof uniforms !== "object") {
+        return ["uniforms manifest must be an object"];
+      }
+      var manifest = uniforms;
+      var names = Object.keys(manifest);
+      if (names.length > 16) {
+        errors.push("too many uniforms (" + names.length + ") \\u2014 max is 16");
+      }
+      for (var i = 0; i < names.length; i++) {
+        var name = names[i];
+        var def = manifest[name];
+        if (!UNIFORM_NAME_RE.test(name)) {
+          errors.push(
+            'uniform "' + name + '" must match u_[A-Za-z0-9_]+ (max 50 chars)'
+          );
+          continue;
+        }
+        if (SHADER_BUILTIN_UNIFORMS.indexOf(name) !== -1) {
+          errors.push(
+            'uniform "' + name + '" is a built-in provided by the runtime'
+          );
+          continue;
+        }
+        if (!def || typeof def !== "object") {
+          errors.push('uniform "' + name + '" definition must be an object');
+          continue;
+        }
+        if (def.type === "float") {
+          if (typeof def.value !== "number" || !isFinite(def.value)) {
+            errors.push('uniform "' + name + '" value must be a finite number');
+          }
+        } else if (def.type === "vec2") {
+          var v = def.value;
+          if (!Array.isArray(v) || v.length !== 2 || typeof v[0] !== "number" || typeof v[1] !== "number" || !isFinite(v[0]) || !isFinite(v[1])) {
+            errors.push(
+              'uniform "' + name + '" value must be [x, y] finite numbers'
+            );
+          }
+        } else if (def.type === "color") {
+          if (typeof def.value !== "string" || !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(def.value)) {
+            errors.push(
+              'uniform "' + name + '" value must be a hex color like "#1a2b3c"'
+            );
+          }
+        } else {
+          errors.push(
+            'uniform "' + name + '" has unknown type \\u2014 use float, vec2, or color'
+          );
+        }
+      }
+      return errors;
+    }
+    function validatePreviewShaderDef(shader) {
+      var errors = validatePreviewGlslSource(shader.glsl);
+      errors = errors.concat(validatePreviewUniformManifest(shader.uniforms));
+      if (shader.name !== void 0) {
+        if (typeof shader.name !== "string" || shader.name.length > 80) {
+          errors.push("shader name must be a string \\u2264 80 chars");
+        } else if (shader.name.indexOf("*/") !== -1 || /<\\/?script/i.test(shader.name)) {
+          errors.push("shader name contains forbidden sequences");
+        }
+      }
+      return errors;
+    }
+    function postShaderRejected(errors) {
+      try {
+        window.parent.postMessage(
+          { type: "glsl-shader-preview-rejected", errors },
+          "*"
+        );
+      } catch (_err) {
+      }
+    }
+    var MAX_PREVIEW_MOUNTS = 8;
+    var acceptedPreviewCountSinceClear = 0;
+    function runtime() {
+      var api = window.__anShaders;
+      return api && api.version >= 1 ? api : null;
     }
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
@@ -50,6 +179,82 @@ export const shaderFillPreviewBridgeScript: string = `"use strict";
       }
       if (e.data.type === "shader-fill-preview-clear") {
         clearPreview();
+        return;
+      }
+      if (e.data.type === "glsl-shader-preview") {
+        var api = runtime();
+        if (!api) return;
+        var target = e.data.target && typeof e.data.target === "object" ? e.data.target : {};
+        var shader = e.data.shader && typeof e.data.shader === "object" ? e.data.shader : null;
+        if (!shader || typeof shader.glsl !== "string") return;
+        var validationErrors = validatePreviewShaderDef(shader);
+        if (validationErrors.length > 0) {
+          postShaderRejected(validationErrors);
+          return;
+        }
+        if (acceptedPreviewCountSinceClear >= MAX_PREVIEW_MOUNTS) {
+          postShaderRejected([
+            "too many active shader previews \\u2014 max is " + MAX_PREVIEW_MOUNTS
+          ]);
+          return;
+        }
+        acceptedPreviewCountSinceClear += 1;
+        api.applyPreview(
+          { nodeId: target.nodeId, selector: target.selector },
+          {
+            id: shader.id,
+            name: shader.name,
+            glsl: shader.glsl,
+            uniforms: shader.uniforms,
+            values: e.data.values && typeof e.data.values === "object" ? e.data.values : void 0
+          },
+          e.data.mode === "effect" ? "effect" : "fill"
+        );
+        return;
+      }
+      if (e.data.type === "glsl-shader-set-uniform") {
+        var api2 = runtime();
+        if (!api2) return;
+        if (typeof e.data.name !== "string") return;
+        api2.setUniform(
+          e.data.filter && typeof e.data.filter === "object" ? e.data.filter : {},
+          e.data.name,
+          e.data.value
+        );
+        return;
+      }
+      if (e.data.type === "glsl-shader-update") {
+        var api3 = runtime();
+        if (!api3) return;
+        if (typeof e.data.id !== "string") return;
+        var updateErrors = [];
+        if (typeof e.data.glsl === "string") {
+          updateErrors = updateErrors.concat(
+            validatePreviewGlslSource(e.data.glsl)
+          );
+        }
+        updateErrors = updateErrors.concat(
+          validatePreviewUniformManifest(e.data.uniforms)
+        );
+        if (updateErrors.length > 0) {
+          postShaderRejected(updateErrors);
+          return;
+        }
+        api3.updateShader(e.data.id, {
+          glsl: typeof e.data.glsl === "string" ? e.data.glsl : void 0,
+          uniforms: e.data.uniforms && typeof e.data.uniforms === "object" ? e.data.uniforms : void 0
+        });
+        return;
+      }
+      if (e.data.type === "glsl-shader-preview-clear") {
+        var api4 = runtime();
+        if (api4) api4.clearPreview();
+        acceptedPreviewCountSinceClear = 0;
+        return;
+      }
+      if (e.data.type === "glsl-shader-rescan") {
+        var api5 = runtime();
+        if (api5) api5.scan();
         return;
       }
     });

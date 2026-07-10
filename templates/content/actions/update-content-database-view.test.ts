@@ -14,7 +14,16 @@ describe("update content database view", () => {
             name: "Table",
             type: "table",
             sorts: [],
-            filters: [],
+            filters: [
+              {
+                key: "author",
+                label: "Author",
+                operator: "contains",
+                value: "Alice",
+                filterGroupId: "advanced-nested",
+                parentFilterGroupId: "advanced",
+              },
+            ],
             filterMode: "or",
             columnWidths: {},
             groupByPropertyId: "status",
@@ -35,6 +44,12 @@ describe("update content database view", () => {
 
     expect(parsed.viewConfig.views[0]).toMatchObject({
       filterMode: "or",
+      filters: [
+        {
+          filterGroupId: "advanced-nested",
+          parentFilterGroupId: "advanced",
+        },
+      ],
       collapsedGroupIds: ["status:done"],
       hideEmptyGroups: true,
       calculations: { status: "count_values" },

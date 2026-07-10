@@ -8,6 +8,7 @@ import {
   setCookie,
   deleteCookie,
   getRequestURL,
+  getRequestIP,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -24,6 +25,7 @@ import {
   detectEngineFromEnv,
   detectEngineFromUserSecrets,
   isStoredEngineUsableForRequest,
+  normalizeModelForEngine,
 } from "../agent/engine/registry.js";
 import {
   canUpdateAgentLoopSettings,
@@ -174,6 +176,16 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
+export function normalizeAgentEngineStatusModel(
+  entry:
+    | { name: string; defaultModel: string; supportedModels: readonly string[] }
+    | undefined,
+  model: string | null | undefined,
+): string {
+  if (!entry) return model ?? DEFAULT_MODEL;
+  return normalizeModelForEngine(entry, model ?? entry.defaultModel);
+}
+
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
     { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
@@ -285,9 +297,16 @@ const BUILDER_WAITLIST_DEFAULT_USE_CASE = "builder_agent_background_coding";
 const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
+  "docs_build_online_waitlist",
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
+const BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS = 60_000;
+const BUILDER_WAITLIST_RATE_LIMIT_MAX = 5;
+const builderWaitlistRateLimitHits = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
 
 interface BuilderWaitlistFormTarget {
   formId: string;
@@ -295,6 +314,7 @@ interface BuilderWaitlistFormTarget {
 }
 
 export interface BuilderWaitlistBody {
+  email?: unknown;
   prompt?: unknown;
   orgName?: unknown;
   appUrl?: unknown;
@@ -330,6 +350,106 @@ function normalizeBuilderWaitlistUseCase(value: unknown): string {
   return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
     ? useCase
     : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+}
+
+function isValidWaitlistEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function isAnonymousWaitlistSessionEmail(email: string): boolean {
+  return email.startsWith("anon-") && email.endsWith("@agent-native.com");
+}
+
+export function resolveWaitlistEmail(
+  sessionEmail: string | undefined,
+  bodyEmail: unknown,
+): string | null {
+  const provided = cleanBuilderWaitlistText(bodyEmail, 320);
+  if (provided && isValidWaitlistEmail(provided)) return provided;
+  if (sessionEmail && !isAnonymousWaitlistSessionEmail(sessionEmail)) {
+    return sessionEmail;
+  }
+  return null;
+}
+
+function normalizeWaitlistRateLimitPart(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
+  const trusted =
+    getHeader(event, "x-nf-client-connection-ip") ??
+    getHeader(event, "cf-connecting-ip") ??
+    getHeader(event, "true-client-ip") ??
+    getHeader(event, "x-real-ip");
+  if (trusted && trusted.trim()) return trusted.trim();
+
+  const forwardedFor = getHeader(event, "x-forwarded-for");
+  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
+  if (forwardedClientIp) return forwardedClientIp;
+
+  try {
+    return getRequestIP(event) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getBuilderWaitlistRateLimitKeys(
+  event: H3Event,
+  email: string,
+): string[] {
+  const clientIp = getBuilderWaitlistClientIp(event);
+  return [
+    `email:${normalizeWaitlistRateLimitPart(email)}`,
+    `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
+  ];
+}
+
+export function checkBuilderWaitlistRateLimit(
+  event: H3Event,
+  email: string,
+  now = Date.now(),
+): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const keys = getBuilderWaitlistRateLimitKeys(event, email);
+  let retryAfterMs = 0;
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry) continue;
+    if (entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.delete(key);
+      continue;
+    }
+    if (entry.count >= BUILDER_WAITLIST_RATE_LIMIT_MAX) {
+      retryAfterMs = Math.max(retryAfterMs, entry.resetAt - now);
+    }
+  }
+
+  if (retryAfterMs > 0) {
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+    };
+  }
+
+  for (const key of keys) {
+    const entry = builderWaitlistRateLimitHits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      builderWaitlistRateLimitHits.set(key, {
+        count: 1,
+        resetAt: now + BUILDER_WAITLIST_RATE_LIMIT_WINDOW_MS,
+      });
+    } else {
+      entry.count += 1;
+    }
+  }
+
+  return { ok: true };
+}
+
+export function resetBuilderWaitlistRateLimitForTests() {
+  builderWaitlistRateLimitHits.clear();
 }
 
 function normalizeHttpOrigin(value: string): string | null {
@@ -515,8 +635,6 @@ async function detectUsageEngineName(
       { userEmail, orgId },
       () => detectEngineFromUserSecrets(),
     );
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-
     if (stored && typeof stored.engine === "string") {
       const entry = getAgentEngineEntry(stored.engine);
       if (
@@ -528,13 +646,13 @@ async function detectUsageEngineName(
         return stored.engine;
       }
     }
+    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
     if (detectedFromUser) return detectedFromUser.name;
 
-    const canUseDeployEnv = await runWithRequestContext(
+    return await runWithRequestContext(
       { userEmail, orgId },
-      () => canUseDeployCredentialFallbackForRequest(),
+      () => detectEngineFromEnv()?.name ?? null,
     );
-    return canUseDeployEnv ? (detectEngineFromEnv()?.name ?? null) : null;
   } catch {
     return null;
   }
@@ -1114,6 +1232,95 @@ export function createCoreRoutesPlugin(
           })),
         );
       }
+
+      // ─── Durable sandbox execution processor ─────────────────────────
+      // Self-fired by run-code's background queue (see
+      // coding-tools/sandbox/background.ts): the enqueueing request POSTs here
+      // so the code executes in a FRESH invocation with its own budget instead
+      // of riding the ~40s agent-loop wall. Authenticity is verified via the
+      // shared HMAC internal-token scheme (same as the A2A / integration /
+      // agent-teams processors) plus the atomic SQL claim inside
+      // processQueuedSandboxExecution, which prevents double execution.
+      getH3App(nitroApp).use(
+        `${P}/sandbox/_process-execution`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const body = (await readBody(event).catch(() => null)) as {
+            executionId?: unknown;
+            taskId?: unknown;
+          } | null;
+          const executionId =
+            body && typeof body.executionId === "string" && body.executionId
+              ? body.executionId
+              : body && typeof body.taskId === "string"
+                ? body.taskId
+                : "";
+          if (!executionId) {
+            setResponseStatus(event, 400);
+            return { error: "executionId required" };
+          }
+
+          const { hasConfiguredA2ASecret, isA2AProductionRuntime } =
+            await import("../a2a/auth-policy.js");
+          if (hasConfiguredA2ASecret()) {
+            const { verifyInternalToken, extractBearerToken } =
+              await import("../integrations/internal-token.js");
+            const token = extractBearerToken(getHeader(event, "authorization"));
+            if (!verifyInternalToken(executionId, token ?? "")) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired processor token" };
+            }
+          } else if (isA2AProductionRuntime()) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment.",
+            };
+          }
+
+          try {
+            const { processQueuedSandboxExecution } =
+              await import("../coding-tools/sandbox/background.js");
+            const result = await processQueuedSandboxExecution(executionId);
+            return { ok: true, ...result };
+          } catch (err) {
+            console.error("[sandbox] _process-execution failed:", err);
+            setResponseStatus(event, 500);
+            return { error: "process-execution failed" };
+          }
+        }),
+      );
+
+      // ─── Durable sandbox execution sweep ──────────────────────────────
+      // Backstop for lost dispatches and dead executors: re-drives queued rows
+      // whose enqueue-time dispatch never landed and reclaims/reaps running
+      // rows whose lease expired. Cheap (one indexed query per 2-min window;
+      // a missing table short-circuits to a no-op) and best-effort — the
+      // poll-time drain in run-code covers deployments where warm-instance
+      // timers rarely fire.
+      (() => {
+        let lastSweep = 0;
+        const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+
+        setTimeout(() => {
+          setInterval(() => {
+            const now = Date.now();
+            if (now - lastSweep < SWEEP_INTERVAL_MS) return;
+            lastSweep = now;
+
+            (async () => {
+              const { drainDueSandboxExecutions } =
+                await import("../coding-tools/sandbox/background.js");
+              await drainDueSandboxExecutions({ limit: 5 });
+            })().catch(() => {
+              // best-effort — never break the server
+            });
+          }, 30_000); // Check every 30s but only sweep once per 2min
+        }, 25_000); // Start 25s after init (after the agent sweeps)
+      })();
 
       // Health + DB warmup — liveness probe that touches the database so
       // uptime monitors and the keep-warm cron prevent a scale-to-zero
@@ -1782,15 +1989,35 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
           const session = await getSession(event).catch(() => null);
-          if (!session?.email) {
-            setResponseStatus(event, 401);
-            return { error: "Authentication required" };
-          }
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
+          const waitlistEmail = resolveWaitlistEmail(
+            session?.email,
+            body.email,
+          );
+          if (!waitlistEmail) {
+            setResponseStatus(event, 400);
+            return { error: "Valid email required" };
+          }
+          const waitlistRateLimit = checkBuilderWaitlistRateLimit(
+            event,
+            waitlistEmail,
+          );
+          if (!waitlistRateLimit.ok) {
+            setResponseStatus(event, 429);
+            setResponseHeader(
+              event,
+              "Retry-After",
+              String(waitlistRateLimit.retryAfterSeconds),
+            );
+            return {
+              error:
+                "Too many waitlist requests. Please try again in a minute.",
+            };
+          }
           const waitlistPayload = buildBuilderWaitlistFormPayload(
             event,
-            session.email,
+            waitlistEmail,
             body,
           );
           const waitlistSource = waitlistPayload.data.source;
@@ -1799,14 +2026,14 @@ export function createCoreRoutesPlugin(
           try {
             formSubmission = await submitBuilderWaitlistForm(
               event,
-              session.email,
+              waitlistEmail,
               body,
             );
           } catch (err) {
             await trackBuilderLifecycle(
               event,
               "builder branch waitlist form failed",
-              session.email,
+              waitlistEmail,
               {
                 reason:
                   err instanceof Error ? err.message : "unknown_waitlist_error",
@@ -1824,7 +2051,7 @@ export function createCoreRoutesPlugin(
           await trackBuilderLifecycle(
             event,
             "builder branch waitlist joined",
-            session.email,
+            waitlistEmail,
             {
               formId: formSubmission.formId ?? null,
               formSubmitted: formSubmission.submitted,
@@ -2498,8 +2725,9 @@ export function createCoreRoutesPlugin(
                   /* fall through to deployment env when allowed */
                 }
                 return (
-                  canUseDeployCredentialFallbackForRequest() &&
-                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                  canUseDeployCredentialFallbackForRequest(
+                    OPENAI_BASE_URL_ENV_VAR,
+                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
                 );
               },
             );
@@ -2510,10 +2738,14 @@ export function createCoreRoutesPlugin(
             if (isAgentEngineSettingConfigured(stored)) {
               const engine = (stored as { engine: string }).engine;
               const entry = getAgentEngineEntry(engine);
+              const model = normalizeAgentEngineStatusModel(
+                entry,
+                stored?.model,
+              );
               return {
                 configured: true,
                 engine,
-                model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
+                model,
                 source: "settings" as const,
                 openAiBaseUrlConfigured,
               };
@@ -2544,12 +2776,34 @@ export function createCoreRoutesPlugin(
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
             // their own provider key) may not have any deploy-level env vars
-            // set, so check their per-user secret store before reporting "no
-            // engine configured" and re-showing the onboarding gate.
+            // set. Stored provider selections are checked first so saving a
+            // BYOK engine can override an existing Builder connection.
             const detectedFromUser = await runWithRequestContext(
               { userEmail, orgId },
               () => detectEngineFromUserSecrets(),
             );
+            if (stored && typeof stored.engine === "string") {
+              const entry = getAgentEngineEntry(stored.engine);
+              if (
+                entry &&
+                (await runWithRequestContext({ userEmail, orgId }, () =>
+                  isStoredEngineUsableForRequest(stored, entry),
+                ))
+              ) {
+                const model = normalizeAgentEngineStatusModel(
+                  entry,
+                  stored.model,
+                );
+                return {
+                  configured: true,
+                  engine: stored.engine,
+                  model,
+                  source: "env" as const,
+                  envVar: entry.requiredEnvVars[0],
+                  openAiBaseUrlConfigured,
+                };
+              }
+            }
             if (detectedFromUser?.name === "builder") {
               return {
                 configured: true,
@@ -2559,24 +2813,6 @@ export function createCoreRoutesPlugin(
                 envVar: detectedFromUser.requiredEnvVars[0],
                 openAiBaseUrlConfigured,
               };
-            }
-            if (stored && typeof stored.engine === "string") {
-              const entry = getAgentEngineEntry(stored.engine);
-              if (
-                entry &&
-                (await runWithRequestContext({ userEmail, orgId }, () =>
-                  isStoredEngineUsableForRequest(stored, entry),
-                ))
-              ) {
-                return {
-                  configured: true,
-                  engine: stored.engine,
-                  model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
-                  source: "env" as const,
-                  envVar: entry.requiredEnvVars[0],
-                  openAiBaseUrlConfigured,
-                };
-              }
             }
             if (detectedFromUser) {
               return {
@@ -2588,11 +2824,10 @@ export function createCoreRoutesPlugin(
                 openAiBaseUrlConfigured,
               };
             }
-            const canUseDeployEnv = await runWithRequestContext(
+            const detected = await runWithRequestContext(
               { userEmail, orgId },
-              () => canUseDeployCredentialFallbackForRequest(),
+              () => detectEngineFromEnv(),
             );
-            const detected = canUseDeployEnv ? detectEngineFromEnv() : null;
             if (detected) {
               return {
                 configured: true,
@@ -3052,6 +3287,16 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
       } catch {
         // Extensions module not available — skip
+      }
+
+      // ─── Data programs (stored server-side JS scripts + run cache) ─────
+      try {
+        const { ensureDataProgramTables, registerDataProgramsShareable } =
+          await import("../data-programs/store.js");
+        ensureDataProgramTables().catch(() => {});
+        registerDataProgramsShareable();
+      } catch {
+        // Data programs module not available — skip
       }
 
       // ─── Page-level legacy redirect: /tools → /extensions ──────────────

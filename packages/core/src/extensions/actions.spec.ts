@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 const extensionRow = {
   id: "ext-zoom",
   name: "Connect Zoom",
@@ -193,6 +195,120 @@ describe("extensions/actions", () => {
         canEdit: true,
       },
     });
+  });
+
+  it("omits repeated unchanged extension content within one agent run", async () => {
+    const getExtension = vi.fn(async () => ({
+      ...extensionRow,
+      content: `<div>${"Zoom ".repeat(200)}</div>`,
+    }));
+
+    mockExtensionModules({
+      store: {
+        getExtension,
+        getHiddenExtensionIdsForCurrentUser: vi.fn(
+          async () => new Set<string>(),
+        ),
+      },
+      resolveAccessRole: "editor",
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    await runWithRequestContext(
+      { userEmail: "thomas@example.com", run: {} },
+      async () => {
+        const first = (await actions["get-extension"].run({
+          id: "ext-zoom",
+        })) as any;
+        const second = (await actions["get-extension"].run({
+          id: "ext-zoom",
+        })) as any;
+        const forced = (await actions["get-extension"].run({
+          id: "ext-zoom",
+          forceContent: true,
+        })) as any;
+
+        expect(first.extension.content).toContain("Zoom");
+        expect(first.extension.contentHash).toEqual(
+          second.extension.contentHash,
+        );
+        expect(second.extension).not.toHaveProperty("content");
+        expect(second.extension.contentOmitted.reason).toBe(
+          "unchanged-content-already-returned-this-run",
+        );
+        expect(forced.extension.content).toContain("Zoom");
+      },
+    );
+  });
+
+  it("omits extension history version bodies by default", async () => {
+    const getExtensionHistoryVersion = vi.fn(async () => ({
+      entry: {
+        id: "hist-2",
+        extensionId: "ext-zoom",
+        version: 2,
+        operation: "content-update",
+        summary: "Updated content",
+        name: "Connect Zoom",
+        description: "Broken Zoom connector",
+        content: "<div>new</div>",
+        icon: null,
+        actorEmail: "thomas@example.com",
+        ownerEmail: "thomas@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        createdAt: "2026-05-06T01:00:00.000Z",
+        persisted: true,
+        contentLength: 14,
+      },
+      previous: {
+        id: "hist-1",
+        extensionId: "ext-zoom",
+        version: 1,
+        operation: "baseline",
+        summary: "Baseline",
+        name: "Connect Zoom",
+        description: "Broken Zoom connector",
+        content: "<div>old</div>",
+        icon: null,
+        actorEmail: "thomas@example.com",
+        ownerEmail: "thomas@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        createdAt: "2026-05-06T00:00:00.000Z",
+        persisted: true,
+        contentLength: 14,
+      },
+      diff: [
+        { type: "delete", text: "<div>old</div>" },
+        { type: "insert", text: "<div>new</div>" },
+      ],
+      stats: { addedLines: 1, deletedLines: 1, changed: true },
+    }));
+
+    mockExtensionModules({
+      store: { getExtensionHistoryVersion },
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const compact = (await actions["get-extension-history-version"].run({
+      id: "ext-zoom",
+      version: 2,
+    })) as any;
+    const full = (await actions["get-extension-history-version"].run({
+      id: "ext-zoom",
+      version: 2,
+      includeContent: true,
+    })) as any;
+
+    expect(compact.entry).not.toHaveProperty("content");
+    expect(compact.previous).not.toHaveProperty("content");
+    expect(compact.entry.contentHash).toBeTruthy();
+    expect(full.entry.content).toBe("<div>new</div>");
+    expect(full.previous.content).toBe("<div>old</div>");
   });
 
   it("lists extension history snapshots without content by default", async () => {

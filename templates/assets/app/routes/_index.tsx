@@ -123,7 +123,7 @@ export default function CreatePage() {
                 </button>
               ))}
             </div>
-            <div className="mt-8 w-full text-left">
+            <div className="mt-8 w-[min(100vw-2rem,64rem)] px-4 text-left sm:px-6">
               <RecentDraftsSection />
             </div>
           </div>

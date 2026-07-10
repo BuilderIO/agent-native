@@ -28,6 +28,7 @@ import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
+import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import {
   makeSeekable,
@@ -217,7 +218,8 @@ export async function ensureRecordingSeekable(params: {
     filename: `${recordingId}.${videoFormat}`,
     mimeType,
     ownerEmail,
-    skipCompressionWait: true,
+    stableUrl: true,
+    recordAsset: false,
   });
 
   if (!upload?.url) {
@@ -246,6 +248,21 @@ export async function ensureRecordingSeekable(params: {
 
   await markRecordingSeekable(recordingId, upload.url);
   await writeAppState("refresh-signal", { ts: Date.now() });
+
+  void queueBuilderMediaCompression({
+    recordingId,
+    ownerEmail,
+    videoUrl: upload.url,
+    mimeType,
+    providerId: upload.provider,
+    assetDbId: upload.id,
+    sourceSizeBytes: seekable.bytes.byteLength,
+  }).catch((err) => {
+    console.warn("[ensure-seekable-video] media compression queue failed", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   return {
     recordingId,

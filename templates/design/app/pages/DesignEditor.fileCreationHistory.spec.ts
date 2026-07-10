@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import {
   pruneFileCreationHistoryStack,
   type FileCreationHistoryEntry,
-} from "./DesignEditor";
+} from "./design-editor/history";
 
 function entry(filename: string): FileCreationHistoryEntry {
   return { filename, content: "<div></div>", fileType: "html" };

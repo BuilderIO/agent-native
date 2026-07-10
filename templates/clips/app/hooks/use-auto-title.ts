@@ -15,7 +15,9 @@ import {
   agentNativePath,
   callAction,
   sendToAgentChat,
+  type AgentChatMessage,
 } from "@agent-native/core/client";
+import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
 import { useRecordings, type RecordingSummary } from "./use-library";
@@ -53,6 +55,8 @@ interface AiRequest {
   agentsContext?: string;
   thresholdMs?: number;
   message?: string;
+  includeFullVideoInAi?: boolean;
+  openInChat?: boolean;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
@@ -139,16 +143,7 @@ export function useAutoTitleBridge(): void {
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
 
-            sendToAgentChat({
-              message:
-                request.message ??
-                `Handle queued ${request.kind} work for recording ${rec.id}.`,
-              context: JSON.stringify(buildRequestContext(rec, request)),
-              submit: true,
-              openSidebar: false,
-              newTab: true,
-              background: true,
-            });
+            dispatchAiRequest(rec, request);
 
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -203,8 +198,38 @@ function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
     agentsContext: request.agentsContext ?? "",
     transcriptStatus: request.transcriptStatus ?? "ready",
     transcriptSegments: parseJsonArray(request.segmentsJson),
+    includeFullVideoInAi: request.includeFullVideoInAi === true,
     request,
   };
+}
+
+export function buildAiRequestChatOptions(
+  rec: RecordingSummary,
+  request: AiRequest,
+): AgentChatMessage {
+  const includeFullVideo = request.includeFullVideoInAi === true;
+  const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
+  const openInChat = request.openInChat === true;
+  return {
+    message:
+      request.message ??
+      `Handle queued ${request.kind} work for recording ${rec.id}.`,
+    context: JSON.stringify(buildRequestContext(rec, request)),
+    submit: true,
+    openSidebar: openInChat ? true : false,
+    newTab: true,
+    background: !openInChat,
+    ...(gemini
+      ? {
+          engine: gemini.engine,
+          model: gemini.model,
+        }
+      : {}),
+  };
+}
+
+function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
+  sendToAgentChat(buildAiRequestChatOptions(rec, request));
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

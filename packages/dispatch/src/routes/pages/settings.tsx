@@ -2,24 +2,23 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import { Link } from "react-router";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
+import changelog from "../../../CHANGELOG.md?raw";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-
-import changelog from "../../../CHANGELOG.md?raw";
+} from "../../components/ui/card";
+import { Label } from "../../components/ui/label";
 
 export function meta() {
   return [{ title: "Settings - Dispatch" }];
@@ -27,6 +26,7 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
 
   return (
     <DispatchShell
@@ -34,6 +34,7 @@ export default function SettingsRoute() {
       description={t("settings.description")}
     >
       <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
         general={
           <div className="mx-auto w-full max-w-3xl space-y-6">
             <Card>
@@ -72,15 +73,31 @@ export default function SettingsRoute() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  {t("settings.agentTitle")}
+                  {t("settings.automationsTitle")}
                 </CardTitle>
                 <CardDescription>
-                  {t("settings.agentDescription")}
+                  {t("settings.automationsDescription")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button variant="outline" onClick={() => openAgentSettings()}>
-                  {t("settings.openAgentSettings")}
+                <Button variant="outline" asChild>
+                  <Link to="/automations">{t("settings.openAutomations")}</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.deliveryTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.deliveryDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link to="/destinations">{t("settings.openDelivery")}</Link>
                 </Button>
               </CardContent>
             </Card>

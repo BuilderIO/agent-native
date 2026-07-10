@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconCheck, IconChevronDown } from "@tabler/icons-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -7,15 +10,12 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from "@agent-native/toolkit/ui/command";
+} from "@/components/ui/command";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-import { useState } from "react";
-
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 const FALLBACK_TIMEZONES = [

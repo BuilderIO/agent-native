@@ -8,26 +8,6 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconApps,
   IconPalette,
@@ -38,6 +18,23 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export interface UploadedFile {
   path: string;
@@ -342,6 +339,33 @@ function isNestedPromptPopoverTarget(target: EventTarget | null) {
   );
 }
 
+// While a nested Radix Select/Popover/Dropdown is open, Radix locks
+// `pointer-events` on everything outside its own portalled content so only
+// that content (and its trigger) remain interactive. That lockout is what
+// lets the interaction happen at all, but it also means the pointer/focus
+// event that reaches our `onInteractOutside` handler resolves its `target`
+// to `<html>`/`document` instead of the element the user actually clicked —
+// the real target sits under a `pointer-events: none` ancestor, so the
+// browser reports the outermost still-hit-testable node. That target fails
+// any `closest()` containment check, so the click looks "outside" the
+// dialog and dismisses it even though the user never left the popover.
+//
+// Rather than pattern-match on the resolved (and unreliable) target, check
+// whether any of our nested portalled surfaces are currently open in the
+// DOM — they're stamped with the same data attributes whether or not the
+// interact-outside target correctly resolved into them. If one is open,
+// this is never a genuine outside click.
+function hasOpenNestedPromptPopoverSurface() {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(
+      '[data-agent-native-composer-popover][data-state="open"],' +
+        "[data-assets-picker-dialog]," +
+        '[data-agent-native-prompt-select][data-state="open"]',
+    ),
+  );
+}
+
 export default function PromptPopover({
   open,
   onOpenChange,
@@ -366,6 +390,38 @@ export default function PromptPopover({
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
+  // While the nested design-system Select is open, Radix disables pointer
+  // events on everything else and the click that closes the Select also
+  // moves focus back to its trigger. That focus-return is itself reported to
+  // the popover's dismissable layer as a "focus outside" interaction — and it
+  // fires *after* the Select has already unmounted its portalled content, so
+  // by then there is nothing left in the DOM for `onInteractOutside` to
+  // recognize as "still nested and open". Latch a short-lived flag the
+  // instant the Select reports closing, and have the popover's
+  // interact-outside guard also honor that flag so the popover survives the
+  // Select's own close-triggered focus shuffle. See PromptDialog R87/R91.
+  const justClosedNestedSelectRef = useRef(false);
+  const clearJustClosedNestedSelectTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const markNestedSelectJustClosed = useCallback(() => {
+    justClosedNestedSelectRef.current = true;
+    if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+      clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+    }
+    clearJustClosedNestedSelectTimeoutRef.current = setTimeout(() => {
+      justClosedNestedSelectRef.current = false;
+      clearJustClosedNestedSelectTimeoutRef.current = null;
+    }, 300);
+  }, []);
+  useEffect(
+    () => () => {
+      if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+        clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (open) return;
@@ -505,10 +561,48 @@ export default function PromptPopover({
     [assetsPickerOpen, onOpenChange],
   );
 
-  const hasVirtualAnchor = !centered && Boolean(anchorRef?.current);
-  const virtualAnchorRef = anchorRef as React.RefObject<{
-    getBoundingClientRect: () => DOMRect;
-  }>;
+  const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
+  // Radix keeps the closed popover mounted while the exit animation plays, but
+  // callers may clear `anchorRef` as soon as they close it. Latch the anchor
+  // mode from the last open render so the closing popover never swaps over to
+  // the static fallback anchor mid-exit (which re-anchored the fading popover
+  // to the top-left corner of the screen).
+  const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
+  if (open) {
+    anchorModeWhileOpenRef.current = hasLiveVirtualAnchor;
+  }
+  const hasVirtualAnchor = open
+    ? hasLiveVirtualAnchor
+    : anchorModeWhileOpenRef.current;
+
+  // Stable virtual anchor that measures the live anchor element while it is
+  // attached and falls back to the last good rect afterwards. The anchor
+  // element can unmount on unrelated sidebar re-renders, and the ref can be
+  // cleared during the exit animation; measuring a detached element returns a
+  // zero rect, which used to reposition the popover to the viewport origin.
+  const latestAnchorRef = useRef(anchorRef);
+  latestAnchorRef.current = anchorRef;
+  const lastAnchorRectRef = useRef<DOMRect | null>(null);
+  const [virtualAnchorRef] = useState<
+    React.RefObject<{ getBoundingClientRect: () => DOMRect }>
+  >(() => ({
+    current: {
+      getBoundingClientRect: () => {
+        const el = latestAnchorRef.current?.current;
+        if (el?.isConnected) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            lastAnchorRectRef.current = rect;
+            return rect;
+          }
+        }
+        return (
+          lastAnchorRectRef.current ??
+          new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0)
+        );
+      },
+    },
+  }));
 
   return (
     <Popover open={open} onOpenChange={handlePopoverOpenChange}>
@@ -542,7 +636,11 @@ export default function PromptPopover({
           if (assetsPickerOpen) event.preventDefault();
         }}
         onInteractOutside={(event) => {
-          if (isNestedPromptPopoverTarget(event.target)) {
+          if (
+            isNestedPromptPopoverTarget(event.target) ||
+            hasOpenNestedPromptPopoverSurface() ||
+            justClosedNestedSelectRef.current
+          ) {
             event.preventDefault();
           }
         }}
@@ -591,6 +689,9 @@ export default function PromptPopover({
                   onValueChange={(value) =>
                     onDesignSystemChange?.(value === "none" ? null : value)
                   }
+                  onOpenChange={(nextOpen) => {
+                    if (!nextOpen) markNestedSelectJustClosed();
+                  }}
                   disabled={designSystemsLoading}
                 >
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">

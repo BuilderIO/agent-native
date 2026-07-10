@@ -22,13 +22,13 @@ description: How to connect to and query the Stripe API for analytics data.
 Use `stripe` for agent-facing Stripe work. Do not call `/api/stripe/*`
 directly from the agent.
 
-| Mode | Args | Description |
-| --- | --- | --- |
-| `billing` | `email`, `customerId`, `query`, `months` | Invoices for a customer in timeframe |
-| `payment-status` | `email`, `customerId`, `query` | Recent charges + payment intents |
-| `refunds` | `email`, `customerId`, `query` | Refunds associated with customer |
-| `subscriptions` | `email`, `customerId`, `query` | Active subscriptions |
-| `billing-by-product` | `email`, `customerId`, `query`, `months` | Billing aggregated by product |
+| Mode                 | Args                                     | Description                          |
+| -------------------- | ---------------------------------------- | ------------------------------------ |
+| `billing`            | `email`, `customerId`, `query`, `months` | Invoices for a customer in timeframe |
+| `payment-status`     | `email`, `customerId`, `query`           | Recent charges + payment intents     |
+| `refunds`            | `email`, `customerId`, `query`           | Refunds associated with customer     |
+| `subscriptions`      | `email`, `customerId`, `query`           | Active subscriptions                 |
+| `billing-by-product` | `email`, `customerId`, `query`, `months` | Billing aggregated by product        |
 
 ## API Routes
 

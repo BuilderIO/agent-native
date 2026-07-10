@@ -1,8 +1,8 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
 
 export function meta() {
   return [{ title: "Identities — Dispatch" }];

@@ -34,6 +34,7 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { captureError } from "./capture-error.js";
 import { runWithRequestContext } from "./request-context.js";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 
@@ -391,6 +392,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // that aid reconnaissance attacks. In dev we surface the message text
       // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
+      captureError(err, {
+        route: p,
+        method: event.req.method,
+        userAgent: event.req.headers.get("user-agent") ?? undefined,
+        tags: { renderMode: "anonymous-public", surface: "ssr" },
+      });
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"

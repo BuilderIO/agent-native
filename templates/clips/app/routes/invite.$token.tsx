@@ -1,4 +1,9 @@
 import { callAction, useSession, useT } from "@agent-native/core/client";
+import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,19 +13,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { IconCheck, IconMailFast, IconX } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
-
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {

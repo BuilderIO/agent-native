@@ -26,13 +26,20 @@ export interface RunStuckState {
   heartbeatAt: number | null;
   /** Milliseconds since `heartbeatAt`, computed against the server clock. */
   heartbeatSinceMs: number | null;
-  /** How the run was dispatched, e.g. foreground or background-processing. */
+  /** How the run was dispatched/continued, e.g. foreground-self-chain or background-processing. */
   dispatchMode: string | null;
 }
 
 export interface UseRunStuckDetectionOptions {
   /** The thread to monitor. Pass null/undefined to disable polling. */
   threadId: string | null | undefined;
+  /**
+   * Set false to skip scheduling the poll loop entirely — used to gate
+   * polling to only the active chat tab when multiple tabs are mounted
+   * (inactive tabs are kept alive via display:none, not unmounted).
+   * Defaults to true.
+   */
+  enabled?: boolean;
   /**
    * Threshold above which an in-flight FOREGROUND run is considered stuck.
    * The default sits comfortably above the adapter's 75s no-progress
@@ -83,6 +90,7 @@ const EMPTY_STATE: RunStuckState = {
 
 export function useRunStuckDetection({
   threadId,
+  enabled = true,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
   backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
@@ -94,7 +102,7 @@ export function useRunStuckDetection({
     // Reset on every thread change so the previous thread's stuck banner
     // doesn't bleed onto the new one before the first poll completes.
     setState(EMPTY_STATE);
-    if (!threadId) return;
+    if (!threadId || !enabled) return;
 
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
@@ -125,10 +133,13 @@ export function useRunStuckDetection({
             heartbeatAt != null ? nowMs - heartbeatAt : null;
           const dispatchMode =
             typeof data.dispatchMode === "string" ? data.dispatchMode : null;
-          // Background-dispatched runs get the wider threshold: the server's
-          // own recovery (150s no-progress backstop + chained continuations)
-          // must get its chance before the user sees a "stuck" affordance.
-          const effectiveThresholdMs = dispatchMode?.startsWith("background")
+          // Server-continued runs get the wider threshold: the server's own
+          // recovery (150s no-progress backstop + chained continuations) must
+          // get its chance before the user sees a "stuck" affordance.
+          const serverContinued =
+            dispatchMode === "foreground-self-chain" ||
+            dispatchMode?.startsWith("background") === true;
+          const effectiveThresholdMs = serverContinued
             ? backgroundStuckThresholdMs
             : stuckThresholdMs;
           const isStuck = Boolean(
@@ -173,6 +184,7 @@ export function useRunStuckDetection({
     };
   }, [
     threadId,
+    enabled,
     stuckThresholdMs,
     backgroundStuckThresholdMs,
     pollIntervalMs,

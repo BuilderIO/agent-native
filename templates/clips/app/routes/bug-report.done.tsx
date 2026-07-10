@@ -1,5 +1,4 @@
 import { appBasePath, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconArrowLeft,
   IconCheck,
@@ -9,6 +8,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {

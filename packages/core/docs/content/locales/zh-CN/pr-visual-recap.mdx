@@ -138,11 +138,11 @@ npx @agent-native/core@latest recap doctor
 
 除了后端之外，两个存储库变量还可以调整代理的运行方式：
 
-- **`VISUAL_RECAP_MODEL`** 固定传递给 CLI (`--model`) 的模型 — 例如 `gpt-5.5` 用于 Codex，或 Claude 模型 ID。保留其未设置以使用 CLI 自己的默认模型。
+- **`VISUAL_RECAP_MODEL`** 固定传递给 CLI (`--model`) 的模型 — 例如 `gpt-5.6-sol` 用于 Codex，或 Claude 模型 ID。保留其未设置以使用 CLI 自己的默认模型。
 - **`VISUAL_RECAP_REASONING`** 设置推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于Codex后端； Claude 的推理是模型驱动的，因此该变量被忽略。
 - **`VISUAL_RECAP_SKILL_SOURCE`** 控制提示新鲜度：`auto`/unset 使用最新的捆绑技能指南，而 `repo` 固定到已提交的存储库本地 `visual-recap` 技能文件夹。
 
-例如，要在 Codex 和 GPT-5.5 上以高推理运行回顾，请设置存储库变量 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.5` 和 `VISUAL_RECAP_REASONING=high`。
+例如，要在 Codex 和 GPT-5.6 Sol 上以高推理运行回顾，请设置存储库变量 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol` 和 `VISUAL_RECAP_REASONING=high`。
 
 ## 秘密和变量
 
@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 秘密。与 `VISUAL_RECAP_AGENT=codex` 一起设置以使用 Codex 运行回顾。                                                          |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 变量。选择编码代理后端（`claude` 或 `codex`）。                                                                              |
-| `VISUAL_RECAP_MODEL`     | 每个CLI的默认值                 | 变量。固定模型 - 例如`gpt-5.5` 表示 Codex，或 Claude 型号 ID。取消设置使用 CLI 自己的默认值。                                |
+| `VISUAL_RECAP_MODEL`     | 每个CLI的默认值                 | 变量。固定模型 - 例如`gpt-5.6-sol` 表示 Codex，或 Claude 型号 ID。取消设置使用 CLI 自己的默认值。                            |
 | `VISUAL_RECAP_REASONING` | 每个模型的默认值                | 变量。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。适用于Codex后端。                                     |
 | `RECAP_CLI_VERSION`      | `latest`                        | 变量。固定工作流程安装的 `@agent-native/core` CLI 版本 - 例如`1.5.0`。参见[Version pinning](#version-pinning-copy-variant)。 |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。仅当在不同来源自行托管计划应用时。                                                                                     |

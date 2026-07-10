@@ -66,6 +66,8 @@ const mocks = vi.hoisted(() => {
     applyText: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     nanoid: vi.fn(),
+    designData: {} as Record<string, unknown>,
+    mutateDesignData: vi.fn(),
   };
 });
 
@@ -98,6 +100,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("nanoid", () => ({
@@ -124,14 +127,31 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import action from "./present-design-variants.js";
 
 describe("present-design-variants", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.designSelectChain.limit.mockResolvedValue([{ data: "{}" }]);
+    mocks.designData = {};
+    mocks.mutateDesignData.mockImplementation(
+      async (options: {
+        mutate: (
+          current: Record<string, unknown>,
+          context: { updatedAt: string },
+        ) => Record<string, unknown>;
+        isApplied: (current: Record<string, unknown>) => boolean;
+      }) => {
+        const updatedAt = "2026-07-09T00:00:00.000Z";
+        mocks.designData = options.mutate(mocks.designData, { updatedAt });
+        expect(options.isApplied(mocks.designData)).toBe(true);
+        return { data: mocks.designData, updatedAt };
+      },
+    );
     mocks.filesSelectChain.where.mockResolvedValue([]);
-    mocks.txSelectChain.limit.mockResolvedValue([{ data: "{}" }]);
     mocks.insertChain.values.mockResolvedValue(undefined);
     mocks.updateChain.where.mockResolvedValue(undefined);
     mocks.txUpdateChain.where.mockResolvedValue(undefined);
@@ -143,9 +163,7 @@ describe("present-design-variants", () => {
       .mockReturnValueOnce("file-a")
       .mockReturnValueOnce("file-b")
       .mockReturnValueOnce("file-c");
-    mocks.db.select
-      .mockReturnValueOnce(mocks.designSelectChain)
-      .mockReturnValueOnce(mocks.filesSelectChain);
+    mocks.db.select.mockReturnValue(mocks.filesSelectChain);
   });
 
   it("writes variants as overview screens and asks the user with chat buttons", async () => {
@@ -274,10 +292,7 @@ describe("present-design-variants", () => {
     );
     expect(mocks.deleteAppState).toHaveBeenCalledWith("design-variants");
 
-    const dataUpdate = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
-      data: string;
-    };
-    const data = JSON.parse(dataUpdate.data);
+    const data = mocks.designData;
     expect(data.canvasFrames).toMatchObject({
       "file-a": { x: 0, y: 0, width: 390, height: 844 },
       "file-b": { x: 486, y: 0, width: 390, height: 844 },
@@ -476,10 +491,7 @@ describe("present-design-variants", () => {
     expect(firstContent).toContain("width: 390px");
     expect(firstContent).not.toContain("Finalize launch checklist");
 
-    const dataUpdate = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
-      data: string;
-    };
-    const data = JSON.parse(dataUpdate.data);
+    const data = mocks.designData;
     expect(Object.values(data.canvasFrames)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ width: 390, height: 844 }),
@@ -530,5 +542,42 @@ describe("present-design-variants", () => {
       label: "Open screen overview",
       view: "editor",
     });
+  });
+
+  it("stamps missing data-agent-native-node-id attributes on every persisted variant", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Explore two directions",
+      variants: [
+        {
+          id: "provided-html",
+          label: "Provided HTML",
+          content: "<main><button>Buy</button></main>",
+        },
+        {
+          id: "generated-fallback",
+          label: "Generated Fallback",
+          description: "A fallback representative screen.",
+        },
+      ],
+    });
+
+    expect(mocks.insertChain.values).toHaveBeenCalledTimes(2);
+    const providedInsert = mocks.insertChain.values.mock.calls[0]![0] as {
+      content: string;
+    };
+    const fallbackInsert = mocks.insertChain.values.mock.calls[1]![0] as {
+      content: string;
+    };
+
+    expect(providedInsert.content).toContain("data-agent-native-node-id");
+    expect(providedInsert.content).toContain("<button");
+    // The provided-HTML path preserves text content verbatim alongside the
+    // injected ids.
+    expect(providedInsert.content).toContain(">Buy<");
+
+    // The generated fallbackVariantContent() path is also annotated, since it
+    // persists just as any other AI-authored screen would.
+    expect(fallbackInsert.content).toContain("data-agent-native-node-id");
   });
 });

@@ -18,3 +18,27 @@ describe("get-motion-timeline access model", () => {
     );
   });
 });
+
+describe("get-motion-timeline playback mode + timing recovery (source contract)", () => {
+  const src = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "get-motion-timeline.ts",
+    ),
+    "utf8",
+  );
+
+  it("surfaces playbackMode from the tracks JSON stamp for stored rows", () => {
+    expect(src).toContain("readTimelinePlaybackMode(parsedTracks)");
+  });
+
+  it("recovers playbackMode from the managed CSS for recovered timelines", () => {
+    expect(src).toContain("parsePlaybackMode(css)");
+  });
+
+  it("recovers the timeline duration from the full span (offset-aware)", () => {
+    expect(src).toContain(
+      "parseTimelineSpanMs(css) ?? parseFirstAnimationDurationMs(css)",
+    );
+  });
+});

@@ -40,6 +40,8 @@ type ExtensionSettings = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
 };
 
 type PopupStartMessage = {
@@ -53,7 +55,12 @@ type PopupMessage =
   | { type: "CLIPS_POPUP_STOP" }
   | { type: "CLIPS_POPUP_CANCEL" }
   | { type: "CLIPS_POPUP_OPEN" }
-  | { type: "CLIPS_POPUP_SIGN_IN"; settings?: Partial<ExtensionSettings> };
+  | { type: "CLIPS_POPUP_SIGN_IN"; settings?: Partial<ExtensionSettings> }
+  | {
+      type: "CLIPS_POPUP_PREPARE_PERMISSION_START";
+      settings?: Partial<ExtensionSettings>;
+      targetTabId?: number;
+    };
 
 type ExternalMessage =
   | {
@@ -80,6 +87,7 @@ type ExternalMessage =
 
 type ChromeTab = {
   id?: number;
+  windowId?: number;
   title?: string;
   url?: string;
 };
@@ -145,6 +153,8 @@ type NativeRecording = {
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
+  videoDeviceId: string;
+  audioDeviceId: string;
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
@@ -228,6 +238,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
+  videoDeviceId: "",
+  audioDeviceId: "",
 };
 
 const sessions = new Map<string, CaptureSession>();
@@ -306,6 +318,7 @@ function overlayStateForBroadcast(): {
 // the overlay can't be injected) the recorder must still start. Without this,
 // recording would silently never begin on those pages.
 const COUNTDOWN_SECONDS = 3;
+const PENDING_PERMISSION_START_TTL_MS = 5 * 60 * 1000;
 
 function clearCountdownTimer(): void {
   countdownEndsAtMs = 0;
@@ -631,6 +644,10 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function normalizeDeviceId(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function chromeLastError(): Error | null {
   const error = chrome.runtime.lastError;
   return error ? new Error(error.message) : null;
@@ -661,6 +678,8 @@ async function readSettings(
     "includeCamera",
     "includeMicrophone",
     "includeDeveloperLogs",
+    "videoDeviceId",
+    "audioDeviceId",
   ]);
   return {
     clipsBaseUrl: normalizeBaseUrl(
@@ -680,6 +699,12 @@ async function readSettings(
     includeDeveloperLogs: normalizeBoolean(
       overrides?.includeDeveloperLogs ?? stored.includeDeveloperLogs,
       DEFAULT_SETTINGS.includeDeveloperLogs,
+    ),
+    videoDeviceId: normalizeDeviceId(
+      overrides?.videoDeviceId ?? stored.videoDeviceId,
+    ),
+    audioDeviceId: normalizeDeviceId(
+      overrides?.audioDeviceId ?? stored.audioDeviceId,
     ),
   };
 }
@@ -843,6 +868,33 @@ function queryActiveTab(): Promise<ChromeTab | null> {
   });
 }
 
+function getTab(tabId: number): Promise<ChromeTab | null> {
+  return new Promise((resolve) => {
+    chrome.tabs.get(tabId, (tab) => {
+      const error = chromeLastError();
+      resolve(error ? null : ((tab as ChromeTab | undefined) ?? null));
+    });
+  });
+}
+
+async function activateTab(tab: ChromeTab): Promise<void> {
+  if (typeof tab.id !== "number") return;
+  await new Promise<void>((resolve) => {
+    chrome.tabs.update(tab.id as number, { active: true }, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
+  if (typeof tab.windowId === "number") {
+    await new Promise<void>((resolve) => {
+      chrome.windows.update(tab.windowId as number, { focused: true }, () => {
+        void chrome.runtime.lastError;
+        resolve();
+      });
+    });
+  }
+}
+
 function createTab(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     chrome.tabs.create({ url }, () => {
@@ -851,6 +903,44 @@ function createTab(url: string): Promise<void> {
       else resolve();
     });
   });
+}
+
+type PendingPermissionStart = {
+  settings: ExtensionSettings;
+  targetTabId: number;
+  createdAtMs: number;
+};
+
+async function writePendingPermissionStart(
+  pending: PendingPermissionStart,
+): Promise<void> {
+  await sessionStorageSet({ pendingPermissionStart: pending }).catch(
+    () => undefined,
+  );
+}
+
+async function clearPendingPermissionStart(): Promise<void> {
+  await sessionStorageRemove("pendingPermissionStart").catch(() => undefined);
+}
+
+async function readPendingPermissionStart(): Promise<PendingPermissionStart | null> {
+  const raw = (await sessionStorageGet(["pendingPermissionStart"]))
+    .pendingPermissionStart;
+  if (!raw || typeof raw !== "object") return null;
+  const pending = raw as Partial<PendingPermissionStart>;
+  if (
+    !pending.settings ||
+    typeof pending.targetTabId !== "number" ||
+    typeof pending.createdAtMs !== "number"
+  ) {
+    await clearPendingPermissionStart();
+    return null;
+  }
+  if (Date.now() - pending.createdAtMs > PENDING_PERMISSION_START_TTL_MS) {
+    await clearPendingPermissionStart();
+    return null;
+  }
+  return pending as PendingPermissionStart;
 }
 
 function debuggerAttach(tabId: number): Promise<void> {
@@ -956,9 +1046,9 @@ async function ensureOffscreenDocument(): Promise<void> {
 
   await chrome.offscreen.createDocument({
     url: path,
-    reasons: ["USER_MEDIA"],
+    reasons: ["USER_MEDIA", "CLIPBOARD"],
     justification:
-      "Record tab, camera, and microphone streams after the user starts Clips.",
+      "Record tab, camera, and microphone streams after the user starts Clips, then copy the finished clip link.",
   });
 }
 
@@ -983,6 +1073,36 @@ function recordingUrl(
   recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
 ): string {
   return `${recording.clipsBaseUrl}/r/${encodeURIComponent(recording.recordingId)}`;
+}
+
+async function copyRecordingUrlToClipboard(
+  recording: NativeRecording,
+): Promise<void> {
+  try {
+    await ensureOffscreenDocument();
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_COPY_TEXT",
+      text: recording.recordingUrl,
+    });
+  } catch (err) {
+    console.warn("[clips-bg] could not copy recording URL", err);
+    captureExtensionError(err, {
+      tags: { surface: "background", recordingStep: "copy-recording-url" },
+      extra: { recordingId: recording.recordingId },
+    });
+  }
+}
+
+function settingsFromRecording(recording: NativeRecording): ExtensionSettings {
+  return {
+    clipsBaseUrl: recording.clipsBaseUrl,
+    captureSurface: recording.captureSurface,
+    includeCamera: recording.includeCamera,
+    includeMicrophone: recording.includeMicrophone,
+    includeDeveloperLogs: recording.includeDeveloperLogs,
+    videoDeviceId: recording.videoDeviceId ?? "",
+    audioDeviceId: recording.audioDeviceId ?? "",
+  };
 }
 
 function createSession(
@@ -1019,6 +1139,19 @@ function createSession(
 }
 
 async function handlePopupStart(message: PopupStartMessage) {
+  const tab = await queryActiveTab();
+  if (!tab || typeof tab.id !== "number") {
+    return { ok: false, error: "No active tab is available to record." };
+  }
+  const settings = await readSettings(message.settings);
+  return startRecordingFromTab({ tab, settings });
+}
+
+async function startRecordingFromTab(args: {
+  tab: ChromeTab;
+  settings: ExtensionSettings;
+}) {
+  const { tab, settings } = args;
   // The persisted value is authoritative (survives a worker suspension during
   // arming); the in-memory var is only a same-tick fast path on top of it.
   // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
@@ -1037,24 +1170,57 @@ async function handlePopupStart(message: PopupStartMessage) {
       error: "Clips is already recording. Stop the active clip first.",
     };
   }
+  if (typeof tab.id !== "number") {
+    return { ok: false, error: "No active tab is available to record." };
+  }
 
   const sessionId = crypto.randomUUID();
   await setArmingGuard(sessionId);
   try {
-    const tab = await queryActiveTab();
-    if (!tab || typeof tab.id !== "number") {
-      return { ok: false, error: "No active tab is available to record." };
-    }
-
-    const settings = await readSettings(message.settings);
     await storageSet(settings);
-
     return await armRecording({ sessionId, tab, settings });
   } finally {
     if (armingNativeRecordingSessionId === sessionId) {
       await setArmingGuard(null);
     }
   }
+}
+
+async function handlePopupPreparePermissionStart(message: {
+  settings?: Partial<ExtensionSettings>;
+  targetTabId?: number;
+}) {
+  const settings = await readSettings(message.settings);
+  const tab =
+    typeof message.targetTabId === "number"
+      ? await getTab(message.targetTabId)
+      : await queryActiveTab();
+  if (!tab || typeof tab.id !== "number") {
+    return { ok: false, error: "No active tab is available to record." };
+  }
+  await writePendingPermissionStart({
+    settings,
+    targetTabId: tab.id,
+    createdAtMs: Date.now(),
+  });
+  return { ok: true };
+}
+
+async function handlePermissionStartAfterGrant() {
+  const pending = await readPendingPermissionStart();
+  if (!pending) {
+    return {
+      ok: false,
+      error: "Start the recording again from the Clips icon.",
+    };
+  }
+  await clearPendingPermissionStart();
+  const tab = await getTab(pending.targetTabId);
+  if (!tab || typeof tab.id !== "number") {
+    return { ok: false, error: "The original tab is no longer available." };
+  }
+  await activateTab(tab);
+  return startRecordingFromTab({ tab, settings: pending.settings });
 }
 
 // Arm a Loom-style in-page recording: show the native picker, create the row,
@@ -1090,6 +1256,8 @@ async function armRecording(args: {
     surface,
     includeMicrophone: settings.includeMicrophone,
     includeCamera: settings.includeCamera,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
   });
   console.log("[clips-bg] arm: acquired stream", acq);
 
@@ -1184,6 +1352,8 @@ async function armRecording(args: {
     includeCamera: settings.includeCamera,
     includeMicrophone: settings.includeMicrophone,
     includeDeveloperLogs: settings.includeDeveloperLogs,
+    videoDeviceId: settings.videoDeviceId,
+    audioDeviceId: settings.audioDeviceId,
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
@@ -1356,15 +1526,13 @@ async function handleOverlayRestart() {
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
+  const cameraInvolved =
+    recording.captureSurface === "camera" || recording.includeCamera;
+  overlayShowsBubble = cameraInvolved;
+  recordingShowsBubble = cameraInvolved;
   recording.status = "recording";
   const restartAuthToken = (
-    await readAuthSession({
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    })
+    await readAuthSession(settingsFromRecording(recording))
   )?.token;
   // Re-arm the recorder on the same (re-homed) source streams with a fresh
   // pre-roll. The offscreen reports "recording" when it restarts.
@@ -1375,9 +1543,8 @@ async function handleOverlayRestart() {
       recordingId: recording.recordingId,
       uploadUrl: recording.uploadUrl,
       uploadMode: recording.uploadMode ?? "buffered",
-      hasCamera:
-        recording.captureSurface === "camera" || recording.includeCamera,
-      startDelayMs: COUNTDOWN_SECONDS * 1000,
+      hasCamera: cameraInvolved,
+      startDelayMs: cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000,
       authToken: restartAuthToken,
     });
   } catch (err) {
@@ -1404,13 +1571,7 @@ async function resetRecordingChunks(
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
-  const headers = await authHeaders({
-    clipsBaseUrl: recording.clipsBaseUrl,
-    captureSurface: recording.captureSurface,
-    includeCamera: recording.includeCamera,
-    includeMicrophone: recording.includeMicrophone,
-    includeDeveloperLogs: recording.includeDeveloperLogs,
-  });
+  const headers = await authHeaders(settingsFromRecording(recording));
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -1438,6 +1599,7 @@ async function finishSaving(
   await deleteSession(recording.sessionId);
   await broadcastUnmount();
   broadcastOverlayState();
+  await copyRecordingUrlToClipboard(recording);
   await clearNativeRecording();
   await createTab(recording.recordingUrl);
   return true;
@@ -1470,17 +1632,9 @@ async function stopRecording() {
       // as an aborted take — discard the empty recording instead of opening a
       // playback tab for a finished-but-empty clip.
       await deleteSession(recording.sessionId);
-      await postAction(
-        {
-          clipsBaseUrl: recording.clipsBaseUrl,
-          captureSurface: recording.captureSurface,
-          includeCamera: recording.includeCamera,
-          includeMicrophone: recording.includeMicrophone,
-          includeDeveloperLogs: recording.includeDeveloperLogs,
-        },
-        "trash-recording",
-        { id: recording.recordingId },
-      ).catch(() => undefined);
+      await postAction(settingsFromRecording(recording), "trash-recording", {
+        id: recording.recordingId,
+      }).catch(() => undefined);
       resetOverlay();
       await broadcastUnmount();
       broadcastOverlayState();
@@ -1525,17 +1679,9 @@ async function cancelRecording() {
     sessionId: recording.sessionId,
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
-  await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
-    "trash-recording",
-    { id: recording.recordingId },
-  ).catch(() => undefined);
+  await postAction(settingsFromRecording(recording), "trash-recording", {
+    id: recording.recordingId,
+  }).catch(() => undefined);
   await clearNativeRecording();
   return { ok: true };
 }
@@ -1548,13 +1694,7 @@ async function saveNativeDiagnostics(
   if (!session) return;
   const diagnostics = snapshotSession(session);
   await postAction(
-    {
-      clipsBaseUrl: recording.clipsBaseUrl,
-      captureSurface: recording.captureSurface,
-      includeCamera: recording.includeCamera,
-      includeMicrophone: recording.includeMicrophone,
-      includeDeveloperLogs: recording.includeDeveloperLogs,
-    },
+    settingsFromRecording(recording),
     "save-browser-diagnostics",
     {
       recordingId: recording.recordingId,
@@ -2288,6 +2428,15 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
       return handlePopupSignIn(
         message as { settings?: Partial<ExtensionSettings> },
       );
+    case "CLIPS_POPUP_PREPARE_PERMISSION_START":
+      return handlePopupPreparePermissionStart(
+        message as {
+          settings?: Partial<ExtensionSettings>;
+          targetTabId?: number;
+        },
+      );
+    case "CLIPS_PERMISSION_START_AFTER_GRANT":
+      return handlePermissionStartAfterGrant();
     case "CLIPS_OVERLAY_COUNTDOWN_DONE":
       // Skip button on the countdown overlay: start the recorder now.
       return handleOverlaySkip();
@@ -2315,6 +2464,24 @@ chrome.tabs.onActivated.addListener((info) => {
     await ensureRestored();
     if (overlayPhase === "idle" || !activeNativeRecording) return;
     await mountOverlayOnTab(info.tabId);
+  })();
+});
+
+// The overlay content script is injected on demand (activeTab), so reloading the
+// launch tab wipes it — the camera bubble and toolbar would vanish for the rest
+// of the recording even though capture keeps running in the offscreen document.
+// Re-inject and re-mount once the launch tab finishes reloading while a recording
+// is active. Scoped to the launch tab (the only tab activeTab lets us touch); a
+// same-URL reload keeps that grant.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") return;
+  void (async () => {
+    await ensureRestored();
+    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (tabId !== overlayTabId) return;
+    await mountOverlayOnTab(tabId);
+    broadcastOverlayState();
+    if (overlayPhase === "countdown") await handleOverlaySkip();
   })();
 });
 

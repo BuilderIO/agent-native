@@ -44,9 +44,18 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   );
 }
 
-function setSkipCompressionQueryParams(url: URL): void {
-  url.searchParams.set("skipCompressionWait", "true");
-  url.searchParams.set("skipCompression", "true");
+function setStableUrlQueryParam(url: URL): void {
+  // Stable URLs let Builder compress asynchronously without changing the media URL.
+  url.searchParams.set("stableUrl", "true");
+}
+
+function setRecordAssetQueryParam(
+  url: URL,
+  recordAsset: boolean | undefined,
+): void {
+  if (recordAsset === false) {
+    url.searchParams.set("record", "false");
+  }
 }
 
 async function assertOk(res: Response, label: string): Promise<void> {
@@ -100,7 +109,10 @@ async function uploadLargeFileViaSignedUrl(
     privateKey,
     assetId,
     input.filename,
-    { skipCompressionWait: input.skipCompressionWait },
+    {
+      stableUrl: input.stableUrl,
+      recordAsset: input.recordAsset,
+    },
   );
   console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
@@ -154,20 +166,25 @@ async function completeBuilderUpload(
   privateKey: string,
   assetId: string,
   filename: string | undefined,
-  options?: { skipCompressionWait?: boolean },
+  options?: { stableUrl?: boolean; recordAsset?: boolean },
 ): Promise<{ url: string; id?: string }> {
   const host = builderUploadHost();
   const url = new URL("/api/v1/upload/complete", host);
-  if (options?.skipCompressionWait) {
-    setSkipCompressionQueryParams(url);
+  if (options?.stableUrl) {
+    setStableUrlQueryParam(url);
   }
+  setRecordAssetQueryParam(url, options?.recordAsset);
   const res = await fetchWithTimeout(url.toString(), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${privateKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ assetId, name: filename }),
+    body: JSON.stringify({
+      assetId,
+      name: filename,
+      ...(options?.recordAsset === false ? { record: false } : {}),
+    }),
   });
   await assertOk(res, "Builder.io upload complete failed");
   const json = (await res.json()) as { url?: string; id?: string };
@@ -259,9 +276,10 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
     const url = new URL("/api/v1/upload", builderUploadHost());
     if (filename) url.searchParams.set("name", filename);
-    if (input.skipCompressionWait) {
-      setSkipCompressionQueryParams(url);
+    if (input.stableUrl) {
+      setStableUrlQueryParam(url);
     }
+    setRecordAssetQueryParam(url, input.recordAsset);
 
     const response = await uploadSmallFile(url, {
       method: "POST",
@@ -400,9 +418,10 @@ export const builderFileUploadProvider: FileUploadProvider = {
         assetId,
         filename,
         {
-          skipCompressionWait:
-            options?.skipCompressionWait ||
-            session.meta.skipCompressionWait === true,
+          stableUrl: options?.stableUrl || session.meta.stableUrl === true,
+          recordAsset:
+            options?.recordAsset ??
+            (session.meta.recordAsset === false ? false : undefined),
         },
       );
       console.log(`[builder-resumable] upload complete: ${url}`);

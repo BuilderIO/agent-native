@@ -5,6 +5,15 @@ import {
   useCreateOrg,
 } from "@agent-native/core/client/org";
 import {
+  IconChevronDown,
+  IconCheck,
+  IconPlus,
+  IconUsersGroup,
+} from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -12,7 +21,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,16 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuLabel,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import {
-  IconChevronDown,
-  IconCheck,
-  IconPlus,
-  IconBuilding,
-} from "@tabler/icons-react";
-import { useState } from "react";
-import { toast } from "sonner";
-
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 interface OrganizationSwitcherProps {
@@ -86,7 +86,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           </DropdownMenuLabel>
           {orgs.length === 0 && (
             <DropdownMenuItem disabled>
-              <IconBuilding className="h-3.5 w-3.5 me-2" />
+              <IconUsersGroup className="h-3.5 w-3.5 me-2" />
               <span className="text-xs">
                 {t("organizationSwitcher.noOrganizations")}
               </span>

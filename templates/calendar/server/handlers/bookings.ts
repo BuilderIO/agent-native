@@ -64,28 +64,16 @@ async function requireRequestContext<T>(
   );
 }
 
-async function getBookingLinkSlugsForOwner(
-  ownerEmail: string,
-  db: ConflictDb = getDb(),
-): Promise<string[]> {
-  const rows = await db
-    .select({ slug: schema.bookingLinks.slug })
-    .from(schema.bookingLinks)
-    .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
-  return rows.map((row) => row.slug);
-}
-
 async function getBookingLinkSlugsForOwners(
   ownerEmails: string[],
   db: ConflictDb = getDb(),
 ): Promise<string[]> {
-  const slugs = new Set<string>();
-  for (const ownerEmail of ownerEmails) {
-    for (const slug of await getBookingLinkSlugsForOwner(ownerEmail, db)) {
-      slugs.add(slug);
-    }
-  }
-  return Array.from(slugs);
+  if (ownerEmails.length === 0) return [];
+  const rows = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(inArray(schema.bookingLinks.ownerEmail, ownerEmails));
+  return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
 async function getBookingLinkOwnerEmail(
@@ -370,38 +358,38 @@ async function resolveAvailabilityContext({
   slug: string;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
-  const config = (await getSetting(
-    "calendar-availability",
-  )) as unknown as AvailabilityConfig | null;
-  const bookingLink = slug
-    ? await db
-        .select()
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.slug, slug))
-        .then((rows) => rows[0])
-    : undefined;
+  const [configRaw, bookingLink] = await Promise.all([
+    getSetting("calendar-availability"),
+    slug
+      ? db
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, slug))
+          .then((rows) => rows[0])
+      : Promise.resolve(undefined),
+  ]);
+  const config = configRaw as unknown as AvailabilityConfig | null;
   const ownerEmail = bookingLink?.ownerEmail;
-  const ownerConfig = ownerEmail
-    ? ((await getUserSetting(
-        ownerEmail,
-        "calendar-availability",
-      )) as unknown as AvailabilityConfig | null)
-    : null;
-  const ownerSettings = ownerEmail
-    ? ((await getUserSetting(ownerEmail, "calendar-settings")) as {
-        timezone?: string;
-      } | null)
-    : null;
   const hostEmails = bookingLink
     ? getBookingLinkRequiredHostEmails(bookingLink)
     : ownerEmail
       ? [ownerEmail]
       : [];
-  const conflictSlugs = ownerEmail
-    ? await getBookingLinkSlugsForOwners(hostEmails, db)
-    : slug
-      ? [slug]
-      : [];
+  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-availability")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-settings")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getBookingLinkSlugsForOwners(hostEmails, db)
+      : slug
+        ? Promise.resolve([slug])
+        : Promise.resolve([]),
+  ]);
+  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
+  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
 
   return {
     effectiveConfig:
@@ -459,14 +447,20 @@ export async function getConflictItems({
 
   if (ownerConnected) {
     try {
-      if (requiredHosts.length > 0) {
-        const freeBusy = await googleCalendar.getFreeBusy(
-          rangeStartIso,
-          rangeEndIso,
-          requiredHosts,
-          ownerEmail,
-          timezone,
-        );
+      const [freeBusy, googleEventsResult] = await Promise.all([
+        requiredHosts.length > 0
+          ? googleCalendar.getFreeBusy(
+              rangeStartIso,
+              rangeEndIso,
+              requiredHosts,
+              ownerEmail,
+              timezone,
+            )
+          : Promise.resolve(null),
+        googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail),
+      ]);
+
+      if (freeBusy) {
         if (freeBusy.errors.length > 0) {
           return {
             items: [],
@@ -490,7 +484,7 @@ export async function getConflictItems({
       }
 
       const { events: googleEvents, errors: googleEventErrors } =
-        await googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail);
+        googleEventsResult;
       if (googleEventErrors.length > 0) {
         return {
           items: [],

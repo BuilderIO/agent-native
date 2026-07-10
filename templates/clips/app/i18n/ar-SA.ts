@@ -197,6 +197,11 @@ const messages = {
     edit: "تحرير",
     aiTools: "أدوات الذكاء الاصطناعي",
     enhanceRecording: "تعزيز هذا التسجيل",
+    includeFullVideo: "تضمين الفيديو الكامل",
+    includeFullVideoDescription:
+      "عند التشغيل، تشاهد أدوات الذكاء الاصطناعي التسجيل (Gemini فقط) لسياق الشاشة — وليس نسخة الصوت النصية فقط. ينطبق أيضاً على إنشاء العنوان والوصف الافتراضيين. يتطلب نموذج Gemini عبر Builder أو GEMINI_API_KEY.",
+    includeFullVideoOn: "ستستخدم أدوات الذكاء الاصطناعي الفيديو الكامل (Gemini)",
+    includeFullVideoOff: "ستستخدم أدوات الذكاء الاصطناعي النص فقط",
     regenerateTitle: "إعادة إنشاء العنوان",
     regenerateDescription: "إعادة إنشاء الوصف",
     autoChapters: "فصول السيارات",
@@ -302,7 +307,7 @@ const messages = {
     unassigned: "غير معين",
     them: "هم",
     me: "أنا",
-    regeneratingNotes: "تجديد الملاحظات - يتم الاحتفاظ بالملاحظات الخاصة بك",
+    regeneratingNotes: "جارٍ إعادة إنشاء الملخص",
     meetingRemoved: "تمت إزالة الاجتماع",
     couldNotRemoveMeeting: "تعذرت إزالة الاجتماع",
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
@@ -310,8 +315,8 @@ const messages = {
     couldNotCopyTranscript: "تعذر نسخ النص",
     allMeetings: "جميع الاجتماعات",
     live: "يعيش",
-    generatingNotesInline: "جارٍ إنشاء الملاحظات…",
-    regenerateNotes: "إعادة إنشاء الملاحظات",
+    generatingNotesInline: "جارٍ إنشاء الملخص…",
+    regenerateNotes: "إعادة إنشاء الملخص",
     share: "يشارك",
     meetingOptions: "خيارات الاجتماع",
     removeMeeting: "إزالة الاجتماع",
@@ -322,14 +327,15 @@ const messages = {
     removing: "جارٍ الإزالة...",
     remove: "يزيل",
     desktopHint:
-      "قم بتسجيل الملاحظات المباشرة لهذا الاجتماع من تطبيق سطح المكتب Clips - سيظهر النص وملاحظات الذكاء الاصطناعي هنا تلقائيًا.",
+      "لبدء الملاحظات، افتح Clips Desktop من شريط القوائم واختر Start Meeting Notes، أو انقر على Start notes عند ظهور التذكير. يلتقط Clips الميكروفون وصوت النظام ويكتب النص هنا.",
     getDesktopApp: "احصل على تطبيق سطح المكتب",
-    generateNotesFailed: "تعذر إنشاء الملاحظات. حاول ثانية.",
+    generateNotesFailed: "تعذر إنشاء الملخص. حاول ثانية.",
     attendee_one: "الحضور {{count}}",
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
     aiNotes: "تلاحظ منظمة العفو الدولية",
+    summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",
     noActionItems:
@@ -342,6 +348,17 @@ const messages = {
     attendee_two: "{{count}} attendees",
     attendee_few: "{{count}} attendees",
     attendee_many: "{{count}} attendees",
+    timeRemaining_zero: "{{count}} دقيقة متبقية",
+    timeRemaining_one: "{{count}} دقيقة متبقية",
+    timeRemaining_two: "{{count}} دقيقتان متبقيتان",
+    timeRemaining_few: "{{count}} دقائق متبقية",
+    timeRemaining_many: "{{count}} دقيقة متبقية",
+    timeRemaining_other: "{{count}} دقيقة متبقية",
+    endMeeting: "إنهاء الاجتماع",
+    endThisMeeting: "هل تريد إنهاء هذا الاجتماع؟",
+    endMeetingDescription:
+      "يوقف هذا التسجيل والنسخ لهذا الاجتماع. لا يزال بإمكانك إنشاء ملاحظات مما تم التقاطه حتى الآن.",
+    couldNotEndMeeting: "تعذر إنهاء الاجتماع",
   },
   transcriptPanel: {
     transcribing: "جارٍ النسخ…",
@@ -496,6 +513,12 @@ const messages = {
     send: "إرسال",
     sentToChat:
       "تم الإرسال إلى الدردشة — راجع الشريط الجانبي للوكيل للحصول على الرد.",
+    suggestQuestions: "اقترح أسئلة لأطرحها",
+    suggestQuestionsPrompt:
+      "اقترح بضعة أسئلة جيدة يمكنني طرحها لاحقًا في هذا الاجتماع، بناءً على ما تمت مناقشته حتى الآن.",
+    makeMeSoundSmart: "اجعلني أبدو ذكيًا",
+    makeMeSoundSmartPrompt:
+      "أعطني تعليقًا أو سؤالًا ذكيًا ومؤثرًا يمكنني إضافته الآن، بناءً على هذا الاجتماع حتى الآن.",
   },
   brandingEditor: {
     title: "العلامة التجارية",
@@ -763,6 +786,9 @@ const messages = {
     anonymous: "مجهول",
     anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
+    viewedBy: "شاهده",
+    someone: "شخص ما",
+    noViewsYet: "لا توجد مشاهدات بعد.",
   },
   libraryGrid: {
     spaceRoot: "جذر المساحة",
@@ -882,7 +908,7 @@ const messages = {
     unavailable: "هذا الاجتماع خاص أو لم يعد متاحًا.",
     tryClips: "جرّب Clips",
     attendees: "{{count}} حاضرون",
-    noAiNotes: "لم يتم إنشاء ملاحظات الذكاء الاصطناعي لهذا الاجتماع بعد.",
+    noAiNotes: "لم يتم إنشاء ملخص لهذا الاجتماع بعد.",
     summary: "الملخص",
     keyPoints: "النقاط الرئيسية",
     actionItems: "عناصر العمل",
@@ -920,6 +946,8 @@ const messages = {
     noVideo: "لا يوجد فيديو متاح",
     thanks: "شكرًا للمشاهدة",
     playClip: "تشغيل المقطع",
+    unsupportedFormat:
+      "لا يمكن لهذا المتصفح تشغيل هذا الفيديو. جرّب فتح الرابط في Chrome أو Edge أو Firefox.",
   },
   searchBar: {
     placeholder: "البحث في التسجيلات…",
@@ -974,7 +1002,11 @@ const messages = {
     inHours: "بعد {{count}} س",
     join: "انضمام",
     openNotes: "فتح الملاحظات",
-    open: "فتح",
+    open: "فتح الملاحظات",
+    startFromDesktopNow:
+      "ابدأ الملاحظات المباشرة من تذكير سطح المكتب أو شريط القوائم.",
+    startFromDesktopLater:
+      "سيعرض Clips Desktop زر Start notes عندما يحين الوقت.",
   },
   transcriptBubbles: {
     listening: "يستمع…",
@@ -982,6 +1014,13 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    searchTranscript: "البحث في النص",
+    searchPlaceholder: "البحث في النص…",
+    searchMatchCount: "{{current}} من {{total}}",
+    searchNoMatches: "لا توجد نتائج",
+    searchPrevMatch: "النتيجة السابقة",
+    searchNextMatch: "النتيجة التالية",
+    searchClose: "إغلاق البحث",
   },
   editorLayout: {
     trimmed: "تم القص",
@@ -1256,6 +1295,11 @@ const messages = {
     browserDictation: "Browser dictation (مترجم)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (مترجم)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (مترجم)",
+    quickNoteTitle: "Quick dictation note (مترجم)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (مترجم)",
     desktopShortcuts: "Desktop shortcuts (مترجم)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (مترجم)",
     holdFn: "Hold Fn (مترجم)",
@@ -1288,6 +1332,18 @@ const messages = {
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (مترجم)",
     loadFailed: "Couldn't load dictations. (مترجم)",
     noFilterMatches: "No dictations matching this filter. (مترجم)",
+    dictionaryTitle: "Dictionary (مترجم)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (مترجم)",
+    dictionaryTermPlaceholder: "Term (مترجم)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (مترجم)",
+    dictionaryAdd: "Add (مترجم)",
+    dictionaryLoading: "Loading dictionary... (مترجم)",
+    dictionaryEmpty: "No learned terms yet. (مترجم)",
+    dictionaryUsesCount: "Used {{count}}x (مترجم)",
+    dictionaryRemove: "Remove (مترجم)",
+    vocabularyAddFailed: "Couldn't add term (مترجم)",
+    vocabularyRemoveFailed: "Couldn't remove term (مترجم)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
@@ -1381,10 +1437,10 @@ const messages = {
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically. (مترجم)",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",
     requiredForReminders:
-      "Required for meeting reminders and transcription. (مترجم)",
+      "Desktop captures mic + system audio for meeting transcription. (مترجم)",
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
@@ -1392,14 +1448,27 @@ const messages = {
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",
     title: "Meetings (مترجم)",
-    intro: "Upcoming calendar meetings and your recorded notes. (مترجم)",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
     searchPlaceholder: "Search meetings... (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes. (مترجم)",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (مترجم)",
     noMeetingsMatch: 'No meetings match "{{query}}" (مترجم)',
     refreshing: "Refreshing… (مترجم)",
+    howToTriggerTitle: "How to trigger meeting notes (مترجم)",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (مترجم)",
+    guideCalendarTitle: "Connect Google Calendar (مترجم)",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you. (مترجم)",
+    guideDesktopTitle: "Keep Clips Desktop open (مترجم)",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription. (مترجم)",
+    guideStartTitle: "Click Start notes (مترجم)",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
   },
 };
 

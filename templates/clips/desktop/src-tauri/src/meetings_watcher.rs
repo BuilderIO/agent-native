@@ -2,9 +2,9 @@
 //!
 //! Runs as a tokio task spawned from `lib.rs::run` setup. Every 30s it calls
 //! the backend's `list-meetings` action for the next handful of live Google
-//! Calendar meetings. For any meeting starting in the next 5 minutes we
-//! haven't already alerted on, we fire a native notification + the in-app
-//! banner overlay.
+//! Calendar meetings. For any meeting in the Granola-style reminder window
+//! (1 minute before start through 5 minutes after) that we haven't already
+//! alerted on, we fire the in-app banner overlay.
 //!
 //! ## Wire-up (from the popover renderer)
 //!
@@ -39,8 +39,12 @@ use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
 const MEETING_POLL_LIMIT: u8 = 10;
 
-/// Notify when a meeting starts within this many seconds (the reminder lead).
-const NOTIFY_LEAD_SECS: i64 = 300;
+/// Show the reminder starting this many seconds before meeting start.
+const NOTIFY_LEAD_SECS: i64 = 60;
+
+/// Keep reminding eligible (until dismissed / acted on) this many seconds
+/// after the scheduled start. Overlay auto-hide mirrors this hold window.
+const NOTIFY_HOLD_AFTER_START_SECS: i64 = 5 * 60;
 
 /// Forget de-dupe / snooze entries once a meeting's start is this far past, so
 /// the maps don't grow unbounded across a long-running session.
@@ -80,6 +84,53 @@ struct MeetingsWatcherInner {
     /// meetingId -> unix-seconds deadline. While now < deadline the meeting is
     /// skipped; once it passes we re-fire the reminder exactly once.
     snoozed_until: HashMap<String, i64>,
+    /// platform -> unix-seconds when a calendar reminder last fired. Soft
+    /// guard so adhoc Zoom/Teams detection doesn't double-prompt right after
+    /// a calendar banner for the same app.
+    last_calendar_notify_at: HashMap<String, i64>,
+}
+
+/// Snapshot of auth fields the adhoc watcher needs to POST create-meeting.
+#[derive(Clone, Default)]
+pub struct MeetingsSessionSnapshot {
+    pub server_url: Option<String>,
+    pub session_cookie: Option<String>,
+    pub auth_token: Option<String>,
+}
+
+impl MeetingsWatcherState {
+    pub fn session_snapshot(&self) -> MeetingsSessionSnapshot {
+        let Ok(g) = self.inner.lock() else {
+            return MeetingsSessionSnapshot::default();
+        };
+        MeetingsSessionSnapshot {
+            server_url: g.server_url.clone(),
+            session_cookie: g.session_cookie.clone(),
+            auth_token: g.auth_token.clone(),
+        }
+    }
+
+    pub fn note_calendar_notify(&self, platform: Option<&str>) {
+        let Some(platform) = platform.map(str::trim).filter(|p| !p.is_empty()) else {
+            return;
+        };
+        if let Ok(mut g) = self.inner.lock() {
+            g.last_calendar_notify_at
+                .insert(platform.to_lowercase(), chrono::Utc::now().timestamp());
+        }
+    }
+
+    /// True if a calendar reminder for `platform` fired within `within_secs`.
+    pub fn recent_calendar_notify(&self, platform: &str, within_secs: i64) -> bool {
+        let Ok(g) = self.inner.lock() else {
+            return false;
+        };
+        let key = platform.to_lowercase();
+        let Some(at) = g.last_calendar_notify_at.get(&key).copied() else {
+            return false;
+        };
+        chrono::Utc::now().timestamp() - at <= within_secs
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -88,8 +139,12 @@ struct MeetingItem {
     title: Option<String>,
     #[serde(default, alias = "scheduledStart")]
     scheduled_start: Option<String>,
+    #[serde(default, alias = "scheduledEnd")]
+    scheduled_end: Option<String>,
     #[serde(default, alias = "joinUrl")]
     join_url: Option<String>,
+    #[serde(default)]
+    platform: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,9 +287,18 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
 
     let url = format!("{}/_agent-native/actions/list-meetings", server_url);
     let limit = MEETING_POLL_LIMIT.to_string();
-    let mut req = client
-        .get(&url)
-        .query(&[("view", "upcoming"), ("limit", limit.as_str())]);
+    // Include meetings that started within the hold window so a late-open
+    // desktop still surfaces the reminder until 5 minutes after start.
+    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60 + 1).to_string();
+    let mut req = client.get(&url).query(&[
+        ("view", "upcoming"),
+        ("limit", limit.as_str()),
+        ("upcomingWithinMin", within_min.as_str()),
+        // list-meetings also uses this for the lower bound when we widen the
+        // upcoming window to include recently-started events (see action).
+        ("includeStartedWithinMin", "5"),
+        ("excludePersonalSoloEvents", "true"),
+    ]);
     req = req.header("X-Request-Source", "clips-desktop");
     if let Some(c) = cookie.as_deref() {
         req = req.header("Cookie", c);
@@ -301,14 +365,19 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
             g.snoozed_until
                 .retain(|_, until| *until > now_ts - STALE_AFTER_SECS);
 
+            // Eligible from 1 min before start through 5 min after start.
+            // secs_until > 0 => still upcoming; negative => already started.
+            let in_window =
+                secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
+
             let eligible = match g.snoozed_until.get(&m.id).copied() {
                 Some(until) if now_ts < until => false, // still snoozed
                 Some(_) => {
-                    // Snooze elapsed — re-fire now regardless of the lead window.
+                    // Snooze elapsed — re-fire if still inside the hold window.
                     g.snoozed_until.remove(&m.id);
-                    true
+                    in_window
                 }
-                None => (0..=NOTIFY_LEAD_SECS).contains(&secs_until),
+                None => in_window,
             };
 
             if !eligible {
@@ -333,10 +402,16 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         if config.show_meeting_widget_enabled
             || config.meeting_transcription_mode == MeetingTranscriptionMode::Auto
         {
+            if let Some(state) = app.try_state::<MeetingsWatcherState>() {
+                state.note_calendar_notify(m.platform.as_deref());
+            }
             let app_clone = app.clone();
             let id_clone = m.id.clone();
             let title_clone = title.clone();
             let join_clone = join_url.clone();
+            let start_clone = m.scheduled_start.clone();
+            let end_clone = m.scheduled_end.clone();
+            let platform_clone = m.platform.clone();
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
             tauri::async_runtime::spawn(async move {
                 let _ = crate::notifications::notify_meeting_starting(
@@ -345,7 +420,11 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
                     title_clone,
                     secs_until,
                     join_clone,
+                    start_clone,
+                    end_clone,
+                    platform_clone,
                     Some(auto_start),
+                    None,
                 )
                 .await;
             });

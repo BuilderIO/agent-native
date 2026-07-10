@@ -26,8 +26,38 @@ const DEFAULT_READY_RECOVERY_TIMEOUT_MS = 90_000;
 const DEFAULT_READY_RECOVERY_INTERVAL_MS = 3_000;
 const DEFAULT_READY_RECOVERY_FETCH_TIMEOUT_MS = 2_000;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(
+        signal.reason instanceof Error ? signal.reason : new Error("Aborted"),
+      );
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(
+          signal.reason instanceof Error ? signal.reason : new Error("Aborted"),
+        );
+      },
+      { once: true },
+    );
+  });
+}
+
+export function isStoredButUnservableFinalizeError(value: unknown): boolean {
+  const message =
+    typeof value === "string"
+      ? value
+      : value instanceof Error
+        ? value.message
+        : value && typeof value === "object" && "message" in value
+          ? String((value as { message?: unknown }).message ?? "")
+          : "";
+  return /\bstored-but-unservable\b/i.test(message);
 }
 
 function absoluteUploadUrl(uploadUrl: string): URL {
@@ -157,9 +187,10 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   timeoutMs?: number;
   intervalMs?: number;
   fetchTimeoutMs?: number;
+  signal?: AbortSignal;
 }): Promise<RecoveredReadyRecording | null> {
   const fetchImpl = args.fetchImpl ?? fetch;
-  const sleepImpl = args.sleepImpl ?? sleep;
+  const sleepImpl = args.sleepImpl ?? ((ms) => sleep(ms, args.signal));
   const timeoutMs = Math.max(
     1,
     args.timeoutMs ?? DEFAULT_READY_RECOVERY_TIMEOUT_MS,
@@ -182,6 +213,7 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   }
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (args.signal?.aborted) return null;
     const urls = authenticatedUrl
       ? [
           { url: authenticatedUrl, authenticated: true },

@@ -8,6 +8,8 @@
  * - A content hash gate means identical re-renders never re-invoke Shiki.
  * - A final highlight is triggered immediately when streaming ends (caller
  *   passes streaming=false).
+ * - Non-streaming first paint waits for Shiki (invisible placeholder reserves
+ *   space) so the UI never snaps from plain text to highlighted HTML.
  *
  * Usage:
  *   <HighlightedCodeBlock code={code} lang="typescript" containerClass="agent-markdown-shiki" />
@@ -69,6 +71,7 @@ export function HighlightedCodeBlock({
   loadHighlighter,
 }: HighlightedCodeBlockProps): React.ReactElement {
   const [html, setHtml] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   // Track the content hash for which html was last rendered so identical
   // re-renders never re-invoke Shiki.
   const renderedHashRef = useRef<number | null>(null);
@@ -111,12 +114,14 @@ export function HighlightedCodeBlock({
         .then((out) => {
           if (!cancelledRef.current) {
             renderedHashRef.current = contentHash;
+            setFailed(false);
             setHtml(out as string);
           }
         })
         .catch(() => {
           if (!cancelledRef.current) {
             renderedHashRef.current = contentHash;
+            setFailed(true);
             setHtml(null);
           }
         });
@@ -148,9 +153,21 @@ export function HighlightedCodeBlock({
       />
     );
   }
+
+  // Streaming: show plain growing text (previous html already kept above when
+  // available). Non-streaming first paint: reserve space invisibly so we never
+  // flash unhighlighted → highlighted.
+  const showPlain = streaming || failed;
   return (
-    <pre>
-      <code className={lang ? `language-${lang}` : undefined}>{code}</code>
-    </pre>
+    <div className={containerClass} aria-busy={!showPlain && !failed}>
+      <pre>
+        <code
+          className={lang ? `language-${lang}` : undefined}
+          style={showPlain ? undefined : { visibility: "hidden" }}
+        >
+          {code}
+        </code>
+      </pre>
+    </div>
   );
 }

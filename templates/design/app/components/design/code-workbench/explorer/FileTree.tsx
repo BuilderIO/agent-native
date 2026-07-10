@@ -1,21 +1,4 @@
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@agent-native/toolkit/ui/context-menu";
-import {
   IconChevronDown,
   IconChevronRight,
   IconFold,
@@ -30,6 +13,23 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
 import { useWorkbench } from "../store";
@@ -351,10 +351,8 @@ export function FileTree({
                   className={cn(
                     "group flex h-6 cursor-pointer items-center gap-1 rounded-[5px] pr-1 text-[12px] outline-none",
                     isActive
-                      ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-active-fg)]"
+                      ? "bg-[var(--workbench-list-active-bg,var(--workbench-active-bg))] text-[var(--workbench-fg)]"
                       : "text-[var(--workbench-fg)] hover:bg-[var(--workbench-hover-bg)]",
-                    isFocused &&
-                      "ring-1 ring-inset ring-[var(--workbench-accent)]",
                   )}
                   style={{ paddingLeft: 4 + row.depth * 12 }}
                   draggable={false}

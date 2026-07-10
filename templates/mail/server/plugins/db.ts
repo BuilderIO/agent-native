@@ -159,6 +159,35 @@ const runMailMigrations = runMigrations(
 CREATE INDEX IF NOT EXISTS idx_contact_frequency_owner ON contact_frequency(owner_email);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_email)`,
     },
+    {
+      version: 15,
+      name: "snippets-table",
+      sql: `CREATE TABLE IF NOT EXISTS snippets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name)`,
+    },
+    {
+      // listPendingJobs (jobs.ts) scopes its WHERE clause to
+      // (status, owner_email) on every inbox/unread list load. The v14 index
+      // only covers (status, run_at), which doesn't serve the owner-scoped
+      // lookup, so add the composite index so that read stays indexed as the
+      // scheduled_jobs table grows across all users.
+      version: 16,
+      name: "scheduled-jobs-owner-status-run-at-idx",
+      sql: `CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_owner_status_run_at ON scheduled_jobs(owner_email, status, run_at)`,
+    },
+    {
+      version: 17,
+      name: "queued-draft-send-claim",
+      sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
+    },
   ],
   { table: "mail_migrations" },
 );

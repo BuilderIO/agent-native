@@ -125,6 +125,41 @@ export default defineEventHandler(() => ({
 
 仅当您需要路由型协议或二进制/流行为时才使用自定义 `/api/*` 路由。参见[Actions](/docs/actions)。
 
+### 仅 API 应用 {#api-only-apps}
+
+应用仅提供 API 并不意味着需要 Express 服务器。Agent Native 应用已经自带 Nitro/H3 服务器，`defineAction()` 是默认的 API 表面。将操作定义在 `actions/` 中；框架会把每个 action 挂载到 `/_agent-native/actions/<name>`，并带有 schema 验证和请求上下文。
+
+使用 action 的 `http` 选项来调整直接 HTTP 访问方式：actions 默认是 `POST`，`http: { method: "GET" | "PUT" | "DELETE" }` 会更改动词，`http: false` 会关闭该 action 的 HTTP 端点。只有在处理路由形状或协议问题时才使用 `server/routes/api/*`：文件上传、流式传输/SSE、webhooks、OAuth 回调、公共页面，或无法干净表示为 action 的外部 REST 形状。不要创建主要只是包装或重新导出 actions 的 `/api/*` 路由。
+
+对于只读状态 endpoint，请保持为 action：
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+直接通过 HTTP 调用：
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+对于 `POST` 和其他写入 actions，请将 JSON body 发送到相同的 action path。
+
 ## 一次性文本完成 {#complete-text}
 
 大多数人工智能工作应通过代理聊天进行，以便用户可以查看、引导和审核

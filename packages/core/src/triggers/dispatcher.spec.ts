@@ -8,6 +8,7 @@ const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 
@@ -29,6 +30,10 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: vi.fn(() => []),
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
   runAgentLoop: runAgentLoopMock,
+}));
+
+vi.mock("../usage/store.js", () => ({
+  recordUsage: recordUsageMock,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
@@ -84,7 +89,14 @@ Respond to the event.`,
     resourcePutMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
-    runAgentLoopMock.mockResolvedValue(undefined);
+    runAgentLoopMock.mockResolvedValue({
+      inputTokens: 200,
+      outputTokens: 50,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 10,
+      model: "test-model",
+    });
+    recordUsageMock.mockResolvedValue(undefined);
   });
 
   it("creates trigger run history threads owned by the trigger user", async () => {
@@ -111,6 +123,61 @@ Respond to the event.`,
         title: expect.stringContaining("Trigger: inbox-alert"),
       }),
     );
+    expect(runAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "thread-1" }),
+    );
+  });
+
+  it("records event automation usage with trigger label and event ref", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-usage",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/usage-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: usage.event.record
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+      appId: "calendar",
+    });
+
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "usage.event.record",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(recordUsageMock).toHaveBeenCalledWith({
+      ownerEmail: "alice+triggers@agent-native.test",
+      inputTokens: 200,
+      outputTokens: 50,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 10,
+      model: "test-model",
+      label: "automation:usage-alert",
+      app: "calendar",
+      refId: "event-1",
+    });
   });
 
   it("loads prompt resources for the trigger run owner", async () => {

@@ -40,8 +40,10 @@ in the moment of agent use.
 
 ## Reusable Kits
 
-- **Settings kit**: account, workspace, AI models, LLM keys, connections,
-  secrets, usage, notifications, changelog, and app-specific panels.
+- **Settings kit**: a searchable settings page with account, workspace, AI
+  models, LLM keys, connections, secrets, usage, notifications, changelog, and
+  app-specific panels. Search is on by default; register a `SettingsSearchEntry`
+  per control so users find settings by name across tabs.
 - **Collaboration kit**: Yjs docs, presence, agent presence, live cursors,
   remote selections, recent edit highlights, real-time sync indicators, and
   undo/redo grouping.

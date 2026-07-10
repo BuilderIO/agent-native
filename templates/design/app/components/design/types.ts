@@ -15,6 +15,21 @@ export interface ElementInfo {
   componentName?: string;
   id?: string;
   sourceId?: string;
+  /**
+   * Node-id integrity (id-on-demand): a durable candidate id the bridge minted
+   * for this element because it has no stable `data-agent-native-node-id`
+   * (or other stable source id) at all — common on AI-generated screens,
+   * where every id-keyed host operation (move/reorder, style commits that
+   * resolve a targetNode, motion tracks, scrub) otherwise silently no-ops or
+   * throws `Node with data-agent-native-node-id="" not found in sourceHtml`.
+   * Only present when `sourceId` is absent/empty. The host should persist
+   * this value into the source as the element's real
+   * `data-agent-native-node-id` the moment it sees one (see
+   * DesignEditor.tsx's selection handlers), through the same guarded write
+   * path every other edit uses — after that every subsequent id-keyed op
+   * against this element resolves normally via `sourceId`.
+   */
+  pendingNodeId?: string;
   selector?: string;
   classes: string[];
   computedStyles: Record<string, string>;

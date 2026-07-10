@@ -28,9 +28,12 @@ import { z } from "zod";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { requiresConfiguredVideoStorage } from "../server/lib/video-storage.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
+const THUMBNAIL_STORAGE_REQUIRED_REASON =
+  "Thumbnail storage is not connected yet. Connect Builder.io or configure S3-compatible storage to save thumbnails.";
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
@@ -116,8 +119,12 @@ export default defineAction({
           args.filename ??
           `thumb-${args.recordingId}.${mime.split("/")[1] ?? "png"}`,
         ownerEmail,
+        recordAsset: false,
       });
-      const url = uploaded?.url ?? args.dataUrl; // fall back to inline storage
+      if (!uploaded?.url && requiresConfiguredVideoStorage()) {
+        throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
+      }
+      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
       basePatch.thumbnailUrl = url;
       thumbnailPatch = { kind: "url", value: url };
     } else if (args.kind === "frame") {
@@ -134,8 +141,12 @@ export default defineAction({
         mimeType: mime || "image/gif",
         filename: args.filename ?? `thumb-${args.recordingId}.gif`,
         ownerEmail,
+        recordAsset: false,
       });
-      const url = uploaded?.url ?? args.dataUrl;
+      if (!uploaded?.url && requiresConfiguredVideoStorage()) {
+        throw new Error(THUMBNAIL_STORAGE_REQUIRED_REASON);
+      }
+      const url = uploaded?.url ?? args.dataUrl; // Local SQL fallback only.
       basePatch.animatedThumbnailUrl = url;
       basePatch.animatedThumbnailEnabled = true;
       gifPatch = {

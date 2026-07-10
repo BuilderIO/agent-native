@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ Agent-Native-Template-Roots rufen `configureTracking()` bereits auf. Gehostete T
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 Der Browser-Helfer führt außerdem einen nach bestem Bemühen erfolgenden, nicht blockierenden Lesevorgang der aktuellen Agent-Native-Auth-Sitzung durch. Replay ist standardmäßig nur für angemeldete Benutzer verfügbar: Wenn `sessionReplay` aktiviert ist, startet die Aufzeichnung nur, wenn die Sitzung zu einer Benutzer-E-Mail-Adresse aufgelöst werden kann. Replays angemeldeter Benutzer enthalten E-Mail-basierte `userId`/`userEmail` sowie `orgId`.
 
 Setzen Sie `sessionReplay.requireSignedInUser: false` oder `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` nur für ein absichtlich anonymes Replay-Deployment. Wenn die Auth-Prüfung deaktiviert ist, bleiben anonyme Aufzeichnungen nach anonymem Besucher, Sitzung, App/Template, Hostname und Pfad abfragbar.
 
-Session Replay wird deterministisch pro Browser-Sitzung gesampelt. Eine `sampleRate` von `0.1` zeichnet etwa 10 % der infrage kommenden Sitzungen auf; verwenden Sie `1`, wenn die infrage kommende Population absichtlich klein ist, etwa beim Dogfooding nur für angemeldete Benutzer.
+Session Replay wird deterministisch pro Browser-Sitzung gesampelt. Eine `sampleRate` von `1` zeichnet alle infrage kommenden Sitzungen auf; verwenden Sie niedrigere Werte wie `0.1`, wenn die infrage kommende Population absichtlich breit ist.
 
 Die Datenschutz-Standardeinstellungen sind bewusst konservativ, aber für die Wiedergabe weiterhin nützlich:
 

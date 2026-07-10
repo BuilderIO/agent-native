@@ -5,6 +5,7 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
+  findEnclosingTemplateClose,
   moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   stripEditorOnlyAttributes,
@@ -409,6 +410,16 @@ describe("applyVisualEdit", () => {
       },
       { property: "borderWidth", cssProperty: "border-width", value: "2px" },
       { property: "borderStyle", cssProperty: "border-style", value: "solid" },
+      {
+        property: "-webkit-text-stroke-width",
+        cssProperty: "-webkit-text-stroke-width",
+        value: "2px",
+      },
+      {
+        property: "-webkit-text-stroke-color",
+        cssProperty: "-webkit-text-stroke-color",
+        value: "#0f172a",
+      },
       { property: "overflow", cssProperty: "overflow", value: "hidden" },
       { property: "flexWrap", cssProperty: "flex-wrap", value: "wrap" },
       { property: "rotate", cssProperty: "rotate", value: "15deg" },
@@ -440,11 +451,60 @@ describe("applyVisualEdit", () => {
     expect(html).toContain("border-color: #334155");
     expect(html).toContain("border-width: 2px");
     expect(html).toContain("border-style: solid");
+    // R94 — text glyph-outline stroke longhands must round-trip through the
+    // same deterministic style-edit path border/outline use (see the
+    // VisualStyleProperty allow-list in code-layer.ts).
+    expect(html).toContain("-webkit-text-stroke-width: 2px");
+    expect(html).toContain("-webkit-text-stroke-color: #0f172a");
     expect(html).toContain("overflow: hidden");
     expect(html).toContain("flex-wrap: wrap");
     expect(html).toContain("rotate: 15deg");
     expect(html).toContain("scale: -1 1");
     expect(html).toContain("left: 32px");
+  });
+
+  it("aliases camelCase webkit text-stroke longhands to their -webkit- kebab forms", () => {
+    // Regression: the edit panel's "Add layer" (text stroke) once emitted
+    // camelCase webkitTextStrokeWidth/-Color. normalizeStyleProperty's generic
+    // camel→kebab pass turns those into "webkit-text-stroke-*" (missing the
+    // leading dash), which is NOT in the allow-list → status "unsupported" and
+    // nothing persisted. STYLE_PROPERTY_ALIASES must map them explicitly.
+    const html = `<h1 data-layer-name="Title">Hello</h1>`;
+
+    const widthPatch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeWidth",
+      value: "1px",
+    });
+    expect(widthPatch.result.status).toBe("applied");
+    expect(widthPatch.result.capability).toEqual(
+      expect.objectContaining({
+        kind: "style",
+        properties: ["-webkit-text-stroke-width"],
+      }),
+    );
+    expect(widthPatch.content).toContain("-webkit-text-stroke-width: 1px");
+
+    const colorPatch = applyVisualEdit(widthPatch.content, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "webkitTextStrokeColor",
+      value: "#0f172a",
+    });
+    expect(colorPatch.result.status).toBe("applied");
+    expect(colorPatch.content).toContain("-webkit-text-stroke-color: #0f172a");
+  });
+
+  it("applies the kebab -webkit-text-stroke-width longhand directly (allow-list pin)", () => {
+    const patch = applyVisualEdit(`<h1 data-layer-name="Title">Hello</h1>`, {
+      kind: "style",
+      target: { selector: '[data-layer-name="Title"]' },
+      property: "-webkit-text-stroke-width",
+      value: "1px",
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("-webkit-text-stroke-width: 1px");
   });
 
   it("applies class edits without duplicating class tokens", () => {
@@ -1380,6 +1440,158 @@ describe("moveNodeBetweenDocuments", () => {
     // Moved content is present
     expect(result.destHtml).toContain("Deep");
   });
+
+  // Regression for the cross-screen "drop lands inside <template> markup"
+  // corruption bug: findClosingTag used to do a naive "first </tag> after
+  // `from`" search for NON_VISUAL_TAGS (template/script/style/etc), which
+  // broke the instant the same tag nested inside itself (a completely
+  // ordinary Alpine x-if-wrapping-x-for pattern). That matched the INNER
+  // </template> and desynced the whole parse, corrupting contentEnd tracking
+  // for real elements and letting body-append land inside template interiors
+  // (invisible, Alpine-cloned, unselectable afterward).
+  it("no-anchor body-append never lands inside a nested <template> — template depth 2 (x-if wrapping x-for)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `<div data-agent-native-node-id="real">Real content</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must land after the outer </template>, not inside the nested <ul>.
+    const templateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+    // The moved node must be a sibling of <body>'s real content, not nested
+    // inside the <ul> that lives inside the templates.
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+    // Real (non-template) sibling content must be untouched and still present.
+    expect(result.destHtml).toContain("Real content");
+  });
+
+  it("no-anchor body-append is unaffected by a single-level <template> (no nesting)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml = `<body><template x-if="true"><li>Task</li></template><div data-agent-native-node-id="real">Real</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const templateCloseIdx = result.destHtml.indexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+  });
+
+  it("anchored insert (placement inside) never lands inside a nested <template> even when the anchor itself precedes templates", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<div data-agent-native-node-id="container">` +
+      `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+      `</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "container",
+      placement: "inside",
+    });
+
+    expect(result.status).toBe("applied");
+    // Must not be spliced inside the nested <ul> (inside the templates).
+    const ulOpenIdx = result.destHtml.indexOf("<ul>");
+    const ulCloseIdx = result.destHtml.indexOf("</ul>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx < ulOpenIdx || movedIdx > ulCloseIdx).toBe(true);
+  });
+
+  // Finding 8: the template-interior guard (isOffsetInsideTemplateInterior /
+  // findEnclosingTemplateClose) used to always redirect a caught offset to
+  // the end of <body>/the document (a silent teleport, potentially far from
+  // where the user actually dropped). It now redirects to immediately AFTER
+  // the ENCLOSING outer </template> instead — still guaranteed-safe (a real
+  // DOM slot right after a closing tag), just much closer to the anchor.
+  //
+  // This is tested directly against findEnclosingTemplateClose (exported
+  // for exactly this purpose — see its doc comment) rather than through
+  // moveNodeBetweenDocuments: with findClosingTag's offset-miscalculation
+  // bug already fixed, every real insertAt this module computes lands
+  // outside template interiors in practice, so the guard has no reachable
+  // integration-level repro today — it is a true defense-in-depth backstop.
+  // The sibling "never lands inside a nested <template>" tests above still
+  // cover the end-to-end anchored/no-anchor paths.
+  describe("findEnclosingTemplateClose (finding 8 redirect target)", () => {
+    it("returns null when the offset is outside any template", () => {
+      const html = `<body><template x-if="a"><div>X</div></template><div>Real</div></body>`;
+      const realIdx = html.indexOf("<div>Real</div>");
+      expect(findEnclosingTemplateClose(html, realIdx)).toBeNull();
+    });
+
+    it("returns the OUTER template's closeEnd for an offset inside a nested template interior", () => {
+      const html =
+        `<body>` +
+        `<template x-if="true"><ul><template x-for="t in tasks"><li>Task</li></template></ul></template>` +
+        `<div>Trailing</div>` +
+        `</body>`;
+      const innerOffset = html.indexOf("<li>Task</li>");
+      const outerTemplateCloseEnd =
+        html.lastIndexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result).not.toBeNull();
+      expect(result?.closeEnd).toBe(outerTemplateCloseEnd);
+      // The redirect target is right after the outer template's close, NOT
+      // doc end — well before "Trailing" and far short of html.length.
+      expect(result?.closeEnd).toBeLessThan(html.indexOf("Trailing"));
+      expect(result?.closeEnd).toBeLessThan(html.length);
+    });
+
+    it("returns the enclosing template's closeEnd for a single-level (non-nested) template", () => {
+      const html = `<body><template x-if="true"><li>Task</li></template><div>Real</div></body>`;
+      // Offset strictly inside the <li> element's own tag (not exactly at
+      // the template's openEnd boundary, which the guard treats as "at",
+      // not "inside").
+      const innerOffset = html.indexOf("Task");
+      const templateCloseEnd =
+        html.indexOf("</template>") + "</template>".length;
+      const result = findEnclosingTemplateClose(html, innerOffset);
+      expect(result?.closeEnd).toBe(templateCloseEnd);
+    });
+  });
+
+  it("re-parses correctly after a triple-nested same-tag NON_VISUAL_TAGS scenario (template^3)", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me">Move</div></body>`;
+    const destHtml =
+      `<body>` +
+      `<template x-if="a"><template x-if="b"><template x-if="c"><span>Deep</span></template></template></template>` +
+      `<div data-agent-native-node-id="real">Real</div>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain("Real");
+    const lastTemplateCloseIdx = result.destHtml.lastIndexOf("</template>");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(lastTemplateCloseIdx);
+  });
 });
 
 describe("autoLayout (regression)", () => {
@@ -1527,5 +1739,300 @@ describe("stripEditorOnlyAttributes", () => {
     const html = `<button data-agent-native-node-id="an-z" type="button" class="btn">Click</button>`;
     const result = stripEditorOnlyAttributes(html);
     expect(result).toBe(`<button type="button" class="btn">Click</button>`);
+  });
+});
+
+describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
+  const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
+
+  it("responsive-class with maxWidthPx writes a max-[Npx]: scoped token", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-lg",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("max-[809px]:text-lg");
+    // Base token untouched — the override cascades below 810 only.
+    expect(patch.content).toContain("text-sm");
+  });
+
+  it("responsive-class replace at the same bound swaps the same stem", () => {
+    const withOverride = applyVisualEdit(html, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-lg",
+    } as EditIntent).content;
+
+    const patch = applyVisualEdit(withOverride, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "replace",
+      utility: "text-2xl",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("max-[809px]:text-2xl");
+    expect(patch.content).not.toContain("max-[809px]:text-lg");
+  });
+
+  it("responsive-class remove with maxWidthPx strips only that bound's stem", () => {
+    const withOverrides = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm max-[809px]:text-lg max-[389px]:text-xs">Hello</section></body></html>`;
+    const patch = applyVisualEdit(withOverrides, {
+      kind: "responsive-class",
+      target: { nodeId: "hero" },
+      prefix: "base",
+      maxWidthPx: 809,
+      operation: "remove",
+      stem: "font-size",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("max-[809px]:text-lg");
+    expect(patch.content).toContain("max-[389px]:text-xs");
+    expect(patch.content).toContain("text-sm");
+  });
+
+  it("breakpoint-style writes a managed @media rule targeting the node id", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      value: "137px",
+      operation: "set",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain("@media (max-width: 809px)");
+    // Doubled attribute selector — specificity (0,2,0) so the managed
+    // override beats runtime-injected Tailwind CDN utilities (0,1,0). A
+    // regression back to the single-attribute form must fail this test.
+    expect(patch.content).toContain(
+      '[data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {',
+    );
+    expect(patch.content).toContain("left: 137px;");
+    // The element's inline style is NOT touched — base keeps cascading.
+    expect(patch.content).not.toContain('style="left');
+  });
+
+  it("breakpoint-style stamps a node id when the element has none", () => {
+    const bare = `<html><head></head><body><section class="p-4">Hello</section></body></html>`;
+    const projection = buildCodeLayerProjection(bare);
+    const section = projection.nodes.find((node) => node.tag === "section");
+    expect(section).toBeTruthy();
+
+    const patch = applyVisualEdit(bare, {
+      kind: "breakpoint-style",
+      target: { nodeId: section!.id },
+      maxWidthPx: 1279,
+      property: "top",
+      value: "24px",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    const stamped = /data-agent-native-node-id="([^"]+)"/.exec(patch.content);
+    expect(stamped).toBeTruthy();
+    // Doubled selector, same as above — single-attribute form is a
+    // specificity regression against the Tailwind CDN runtime sheet.
+    expect(patch.content).toContain(
+      `[data-agent-native-node-id="${stamped![1]}"][data-agent-native-node-id="${stamped![1]}"] {`,
+    );
+    expect(patch.content).toContain("top: 24px;");
+  });
+
+  it("breakpoint-style remove prunes the declaration and empty block", () => {
+    const withRule = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      value: "137px",
+    } as EditIntent).content;
+
+    const patch = applyVisualEdit(withRule, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "left",
+      operation: "remove",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("data-agent-native-breakpoints");
+  });
+
+  it("breakpoint-style rejects unsafe values", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "background",
+      value: "url(https://evil.example/x)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style still rejects url() on the background shorthand even though background-image now allows it", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "background",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it.each(["background-size", "background-repeat", "background-position"])(
+    "breakpoint-style accepts the new fill layer property %s",
+    (property) => {
+      const patch = applyVisualEdit(html, {
+        kind: "breakpoint-style",
+        target: { nodeId: "hero" },
+        maxWidthPx: 809,
+        property,
+        value: "cover",
+      } as EditIntent);
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.content).toContain(`${property}: cover;`);
+    },
+  );
+
+  it("breakpoint-style accepts a safe backgroundImage url() and scopes it to the media block", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("<style data-agent-native-breakpoints>");
+    expect(patch.content).toContain(
+      'background-image: url("https://example.com/fill.png");',
+    );
+    expect(patch.content).not.toContain('style="background');
+  });
+
+  it("breakpoint-style rejects a backgroundImage url() with an unsafe scheme", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style rejects a backgroundImage data: URI that isn't an image", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(data:text/html,<script>alert(1)</script>)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+  });
+
+  it("breakpoint-style accepts a data:image/... backgroundImage url()", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "breakpoint-style",
+      target: { nodeId: "hero" },
+      maxWidthPx: 809,
+      property: "backgroundImage",
+      value: "url(data:image/png;base64,iVBORw0KGgo=)",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+  });
+});
+
+describe("style edit property normalization for fill layers", () => {
+  const html = `<button id="cta">Buy</button>`;
+
+  it.each([
+    ["background-size", "cover"],
+    ["backgroundSize", "cover"],
+    ["background-repeat", "no-repeat"],
+    ["backgroundRepeat", "no-repeat"],
+    ["background-position", "center"],
+    ["backgroundPosition", "center"],
+  ])("normalizes and applies the %s style property", (property, value) => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property,
+      value,
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(value);
+  });
+
+  it("applies a safe backgroundImage url() as a base inline style", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("background-image");
+  });
+
+  it("rejects a backgroundImage url() with a javascript: scheme", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value: "url(javascript:alert(1))",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("rejects the background shorthand carrying a url(), even a safe-looking one", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "background",
+      value: 'url("https://example.com/fill.png")',
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("unsupported");
+    expect(patch.content).toBe(html);
+  });
+
+  it("still applies a plain color value on the background shorthand", () => {
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "background",
+      value: "#f5f5f5",
+    } as EditIntent);
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("background: #f5f5f5");
   });
 });

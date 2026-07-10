@@ -15,6 +15,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
+  getRequestOrgId: () => "org_1",
 }));
 
 type GrantRow = { id: string };
@@ -46,6 +47,7 @@ vi.mock("../server/db/index.js", () => ({
       designId: "designId",
       connectionId: "connectionId",
       ownerEmail: "ownerEmail",
+      orgId: "orgId",
     },
   },
 }));

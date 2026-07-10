@@ -201,6 +201,11 @@ const messages = {
     edit: "편집",
     aiTools: "AI 도구",
     enhanceRecording: "이 녹음 품질을 향상하세요",
+    includeFullVideo: "전체 동영상 포함",
+    includeFullVideoDescription:
+      "켜면 AI 도구가 녹화(Gemini 전용)를 시청해 화면 맥락을 파악합니다 — 오디오 스크립트만 사용하지 않습니다. 기본 제목 및 설명 생성에도 적용됩니다. Builder 또는 GEMINI_API_KEY를 통한 Gemini 모델이 필요합니다.",
+    includeFullVideoOn: "AI 도구가 전체 동영상을 사용합니다 (Gemini)",
+    includeFullVideoOff: "AI 도구가 스크립트만 사용합니다",
     regenerateTitle: "제목 재생성",
     regenerateDescription: "설명 재생성",
     autoChapters: "자동 챕터",
@@ -307,7 +312,7 @@ const messages = {
     unassigned: "할당되지 않음",
     them: "그들을",
     me: "나",
-    regeneratingNotes: "메모 재생성 - 자신의 메모가 유지됩니다.",
+    regeneratingNotes: "요약 재생성 중",
     meetingRemoved: "회의가 삭제되었습니다.",
     couldNotRemoveMeeting: "회의를 삭제할 수 없습니다.",
     couldNotLoadMeeting: "이 회의를 로드할 수 없습니다.",
@@ -315,8 +320,8 @@ const messages = {
     couldNotCopyTranscript: "스크립트를 복사할 수 없습니다.",
     allMeetings: "모든 회의",
     live: "살다",
-    generatingNotesInline: "메모 생성 중…",
-    regenerateNotes: "메모 재생성",
+    generatingNotesInline: "요약 생성 중…",
+    regenerateNotes: "요약 재생성",
     share: "공유하다",
     meetingOptions: "회의 옵션",
     removeMeeting: "회의 삭제",
@@ -327,14 +332,15 @@ const messages = {
     removing: "풀이...",
     remove: "제거하다",
     desktopHint:
-      "Clips 데스크톱 앱에서 이 회의에 대한 실시간 메모를 녹음하세요. 대화 내용과 AI 메모가 여기에 자동으로 표시됩니다.",
+      "메모를 시작하려면 메뉴 막대에서 Clips Desktop을 열고 Start Meeting Notes를 선택하거나, 알림이 표시되면 Start notes를 클릭하세요. Clips가 마이크와 시스템 오디오를 캡처하고 여기에 기록을 작성합니다.",
     getDesktopApp: "데스크톱 앱 받기",
-    generateNotesFailed: "메모를 생성할 수 없습니다. 다시 시도해 보세요.",
+    generateNotesFailed: "요약을 생성할 수 없습니다. 다시 시도해 보세요.",
     attendee_one: "{{count}} 참석자",
     attendee_other: "{{count}} 참석자",
     joinCall: "통화에 참여",
     myNotes: "내 노트",
     aiNotes: "AI 노트",
+    summary: "요약",
     actionItems: "조치사항",
     working: "일하고 있는…",
     noActionItems:
@@ -343,6 +349,13 @@ const messages = {
     segments: "{{count}} 세그먼트",
     copyTranscript: "성적표 복사",
     copyFullTranscript: "전체 성적표 복사",
+    timeRemaining_one: "{{count}}분 남음",
+    timeRemaining_other: "{{count}}분 남음",
+    endMeeting: "회의 종료",
+    endThisMeeting: "이 회의를 종료할까요?",
+    endMeetingDescription:
+      "이 회의의 녹음과 기록이 중지됩니다. 지금까지 기록된 내용으로 노트를 생성할 수 있습니다.",
+    couldNotEndMeeting: "회의를 종료할 수 없습니다",
   },
   transcriptPanel: {
     transcribing: "스크립트 작성 중…",
@@ -487,6 +500,12 @@ const messages = {
     quickPrompts: "빠른 프롬프트",
     whatDidIMiss: "내가 놓친 것은?",
     whatDidIMissPrompt: "내가 놓친 것은?",
+    suggestQuestions: "내가 물어볼 질문 제안",
+    suggestQuestionsPrompt:
+      "지금까지 논의된 내용을 바탕으로, 이 회의에서 다음에 물어보면 좋을 질문을 몇 가지 제안해 주세요.",
+    makeMeSoundSmart: "나를 똑똑해 보이게 해줘",
+    makeMeSoundSmartPrompt:
+      "지금까지의 회의 내용을 바탕으로, 지금 바로 덧붙일 수 있는 날카롭고 통찰력 있는 코멘트나 질문을 알려주세요.",
     summarizeLastFive: "지난 5분 요약",
     summarizeLastFivePrompt:
       "이 회의의 지난 5분을 3-5개의 글머리표로 요약하세요.",
@@ -763,6 +782,9 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     anonymous: "익명",
     anon: "익명",
     moreViewers: "+{{count}}명 더",
+    viewedBy: "시청자",
+    someone: "누군가",
+    noViewsYet: "아직 조회 기록이 없습니다.",
   },
   libraryGrid: {
     spaceRoot: "스페이스 루트",
@@ -883,7 +905,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     unavailable: "이 회의는 비공개이거나 더 이상 사용할 수 없습니다.",
     tryClips: "Clips 사용해 보기",
     attendees: "참석자 {{count}}명",
-    noAiNotes: "이 회의의 AI 노트가 아직 생성되지 않았습니다.",
+    noAiNotes: "이 회의의 요약이 아직 생성되지 않았습니다.",
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
@@ -921,6 +943,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     noVideo: "사용 가능한 동영상 없음",
     thanks: "시청해 주셔서 감사합니다",
     playClip: "클립 재생",
+    unsupportedFormat:
+      "이 브라우저에서는 이 동영상을 재생할 수 없습니다. Chrome, Edge 또는 Firefox에서 링크를 열어 보세요.",
   },
   searchBar: {
     placeholder: "녹화 검색…",
@@ -975,7 +999,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     inHours: "{{count}}시간 후",
     join: "참가",
     openNotes: "노트 열기",
-    open: "열기",
+    open: "노트 열기",
+    startFromDesktopNow:
+      "데스크톱 알림 또는 메뉴 막대에서 실시간 메모를 시작하세요.",
+    startFromDesktopLater:
+      "시간이 되면 Clips Desktop에 Start notes가 표시됩니다.",
   },
   transcriptBubbles: {
     listening: "듣는 중…",
@@ -984,6 +1012,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",
     them: "상대",
+    searchTranscript: "기록 검색",
+    searchPlaceholder: "기록 검색…",
+    searchMatchCount: "{{total}}개 중 {{current}}번째",
+    searchNoMatches: "일치 항목 없음",
+    searchPrevMatch: "이전 일치 항목",
+    searchNextMatch: "다음 일치 항목",
+    searchClose: "검색 닫기",
   },
   editorLayout: {
     trimmed: "잘라냈습니다",
@@ -1258,6 +1293,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     browserDictation: "Browser dictation (현지화됨)",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup. (현지화됨)",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (현지화됨)",
+    quickNoteTitle: "Quick dictation note (현지화됨)",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (현지화됨)",
     desktopShortcuts: "Desktop shortcuts (현지화됨)",
     desktopShortcutsDescriptionSuffix: ", in the desktop app. (현지화됨)",
     holdFn: "Hold Fn (현지화됨)",
@@ -1290,6 +1330,18 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut. (현지화됨)",
     loadFailed: "Couldn't load dictations. (현지화됨)",
     noFilterMatches: "No dictations matching this filter. (현지화됨)",
+    dictionaryTitle: "Dictionary (현지화됨)",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (현지화됨)",
+    dictionaryTermPlaceholder: "Term (현지화됨)",
+    dictionaryReplacementPlaceholder: "Replacement (optional) (현지화됨)",
+    dictionaryAdd: "Add (현지화됨)",
+    dictionaryLoading: "Loading dictionary... (현지화됨)",
+    dictionaryEmpty: "No learned terms yet. (현지화됨)",
+    dictionaryUsesCount: "Used {{count}}x (현지화됨)",
+    dictionaryRemove: "Remove (현지화됨)",
+    vocabularyAddFailed: "Couldn't add term (현지화됨)",
+    vocabularyRemoveFailed: "Couldn't remove term (현지화됨)",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "재생 위치에서 분할 (S)",
@@ -1385,10 +1437,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically. (현지화됨)",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",
     requiredForReminders:
-      "Required for meeting reminders and transcription. (현지화됨)",
+      "Desktop captures mic + system audio for meeting transcription. (현지화됨)",
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
@@ -1396,14 +1448,27 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",
     title: "Meetings (현지화됨)",
-    intro: "Upcoming calendar meetings and your recorded notes. (현지화됨)",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
     searchPlaceholder: "Search meetings... (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes. (현지화됨)",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar. (현지화됨)",
     noMeetingsMatch: 'No meetings match "{{query}}" (현지화됨)',
     refreshing: "Refreshing… (현지화됨)",
+    howToTriggerTitle: "How to trigger meeting notes (현지화됨)",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (현지화됨)",
+    guideCalendarTitle: "Connect Google Calendar (현지화됨)",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you. (현지화됨)",
+    guideDesktopTitle: "Keep Clips Desktop open (현지화됨)",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription. (현지화됨)",
+    guideStartTitle: "Click Start notes (현지화됨)",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
 };
 

@@ -1,10 +1,10 @@
+import { IconFiles, IconSearch } from "@tabler/icons-react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconFiles, IconSearch } from "@tabler/icons-react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { formatKeybinding } from "./commands";
@@ -63,7 +63,7 @@ export function SideBar({
       <div
         role="tablist"
         aria-label="Code sidebar views" /* i18n-ignore */
-        className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--workbench-border)] px-2"
+        className="flex h-10 shrink-0 items-center gap-1 px-2"
       >
         {VIEW_TABS.map((item) => {
           const Icon = item.icon;

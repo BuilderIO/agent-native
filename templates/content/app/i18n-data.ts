@@ -26,13 +26,44 @@ const databaseMessages = {
   bestWhenSameKindAdditionalRows:
     "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
+  builderBulkUpdateNotStaged: "Builder bulk update not staged",
+  builderBulkUpdateStaged: "Builder bulk update staged",
   builderUpdateFailed: "Builder update failed",
   builderWriteModeWasNotChanged: "Builder write mode was not changed",
   builderBodiesReadyLocally: "Builder article bodies are ready locally.",
   builderBodiesQueued: "{{count}} queued",
   builderBodySync: "Body sync",
   builderBodySyncFailed: "{{count}} failed",
+  builderBodySyncFailedNotice:
+    "This article's body could not be synced from Builder",
+  builderBodySyncFailedDescription:
+    "The row stays editable, but the Builder body did not finish syncing. Review the article content before publishing or pushing changes.",
+  builderBodySyncing: "Content is still syncing from Builder",
+  builderBodySyncingDescription:
+    "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
+  builderReviewShowingRows:
+    "Showing {{shown}} of {{total}} Builder rows for this review.",
+  builderReviewShowMore: "Show more",
+  builderReviewRemainingBatches:
+    "Review again after this batch to prepare the remaining Builder changes.",
+  builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
+  builderBodiesSyncFinishedWithFailures:
+    "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
+  builderRowsFetched: "{{count}} Builder rows fetched",
+  builderRowsFetchedBodiesSyncing:
+    "{{rows}} rows fetched. Syncing {{hydrated}} of {{total}} bodies.",
+  builderRowsFetchedBodiesSyncFinishedWithFailures:
+    "{{rows}} rows fetched. {{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
+  builderRowsFetchedSyncingBodies:
+    "Builder rows are fetched. Article bodies are still syncing.",
+  builderRowsFetchingMore: "fetching more rows",
+  builderRowsFetchFailed: "row fetch needs attention",
+  builderRowsFetchedSoFar: "{{count}} rows fetched so far.",
+  builderRowsFinishingUp: "Builder rows are finishing up.",
+  builderRowsLoadingBackground:
+    "Builder is still loading rows in the background.",
+  builderRowsLoadingHitSnag: "Builder row loading hit a snag.",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
@@ -48,9 +79,18 @@ const databaseMessages = {
   failedToMoveRow: "Failed to move row",
   failedToSavePageIcon: "Failed to save page icon",
   failedToSavePagePreview: "Failed to save page preview",
+  failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
   filter: "Filter",
+  filterBy: "Filter by...",
+  addAdvancedFilter: "Add advanced filter",
+  addFilterRule: "Add filter rule",
+  addFilterGroup: "Add filter group",
+  nestedFilterGroupUnavailable: "Nested filter groups need a data model update",
+  deleteFilter: "Delete filter",
+  where: "Where",
+  sortBy: "Sort by...",
   group: "Group",
   click: "Click",
   column: "Column",
@@ -58,6 +98,7 @@ const databaseMessages = {
   clearColumn: "Clear column",
   clearRow: "Clear row",
   deleteColumn: "Delete column",
+  deleteSort: "Delete sort",
   drag: "Drag",
   headerColumn: "Header column",
   headerRow: "Header row",
@@ -68,6 +109,8 @@ const databaseMessages = {
   insertRight: "Insert right",
   layout: "Layout",
   matchExistingItemsToDetails: "Match existing items to details",
+  moveFilterDown: "Move down",
+  moveFilterUp: "Move up",
   name: "Name",
   nameColumnMenu: "Name column menu",
   newBoardGroupName: "New board group name",
@@ -82,7 +125,9 @@ const databaseMessages = {
   nextMonth: "Next month",
   nextTimelineRange: "Next timeline range",
   noRowsMatchThisView: "No rows match this view",
+  editFilesForSelectedRows: "Edit files for selected rows",
   oneFileOrMediaLinkPerLine: "One file or media link per line",
+  personalViewChanges: "Just for you",
   previewPageTitle: "Preview page title",
   pickDetailsBecomeColumns:
     "Pick which details should become database columns.",
@@ -90,14 +135,17 @@ const databaseMessages = {
   previousMonth: "Previous month",
   previousTimelineRange: "Previous timeline range",
   propertyVisibility: "Property visibility",
+  reset: "Reset",
   resizeNameColumn: "Resize Name column",
   row: "Row",
   rowOptions: "Row options",
   search: "Search",
+  saveForEveryone: "Save for everyone",
   searchBuilderModels: "Search Builder models",
   searchGroupProperties: "Search group properties",
   searchModels: "Search models",
   searchOptions: "Search options",
+  searchForAProperty: "Search for a property...",
   searchProperties: "Search properties",
   somethingWentWrong: "Something went wrong",
   sort: "Sort",
@@ -207,6 +255,7 @@ const databaseMessages = {
   notMappedToBuilder: "Not mapped to Builder.",
   openPage: "Open page",
   openPagesIn: "Open pages in",
+  opening: "Opening...",
   previewThisDatabasePageWithoutLeavingTheDatabase:
     "Preview this database page without leaving the database.",
   properties: "Properties",
@@ -440,6 +489,8 @@ const databaseMessagesByLocale = {
     addProperty: "添加属性",
     back: "返回",
     builderSpace: "Builder 空间",
+    builderBulkUpdateNotStaged: "Builder 批量更新未暂存",
+    builderBulkUpdateStaged: "Builder 批量更新已暂存",
     builderUpdateFailed: "Builder 更新失败",
     builderWriteModeWasNotChanged: "Builder 写入模式未更改",
     closeDatabaseSettings: "关闭数据库设置",
@@ -453,14 +504,25 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "移动行失败",
     failedToSavePageIcon: "保存页面图标失败",
     failedToSavePagePreview: "保存页面预览失败",
+    failedToSaveView: "保存视图失败",
     failedToUpdateCheckbox: "更新复选框失败",
     failedToUpdateEverySelectedRow: "未能更新所有选中行",
     filter: "筛选",
+    filterBy: "筛选条件...",
+    addAdvancedFilter: "添加高级筛选器",
+    addFilterRule: "添加筛选规则",
+    addFilterGroup: "添加筛选组",
+    nestedFilterGroupUnavailable: "嵌套筛选组需要数据模型更新",
+    deleteFilter: "删除筛选器",
+    where: "位置",
+    sortBy: "排序依据...",
     group: "分组",
     empty: "空",
     hideEmptyGroups: "隐藏空分组",
     layout: "布局",
     matchExistingItemsToDetails: "将现有项目匹配到详情",
+    moveFilterDown: "下移",
+    moveFilterUp: "上移",
     name: "名称",
     nameColumnMenu: "名称列菜单",
     newBoardGroupName: "新看板分组名称",
@@ -475,7 +537,9 @@ const databaseMessagesByLocale = {
     nextMonth: "下个月",
     nextTimelineRange: "下一个时间线范围",
     noRowsMatchThisView: "没有行匹配此视图",
+    editFilesForSelectedRows: "编辑所选行的文件",
     oneFileOrMediaLinkPerLine: "每行一个文件或媒体链接",
+    personalViewChanges: "仅自己可见",
     previewPageTitle: "预览页面标题",
     previousDatabasePage: "上一页数据库页面",
     previousMonth: "上个月",
@@ -483,10 +547,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "属性可见性",
     resizeNameColumn: "调整名称列宽",
     search: "搜索",
+    saveForEveryone: "为所有人保存",
     searchBuilderModels: "搜索 Builder 模型",
     searchGroupProperties: "搜索分组属性",
     searchModels: "搜索模型",
     searchOptions: "搜索选项",
+    searchForAProperty: "搜索属性...",
     searchProperties: "搜索属性",
     somethingWentWrong: "出了点问题",
     sort: "排序",
@@ -591,6 +657,8 @@ const databaseMessagesByLocale = {
     addProperty: "Añadir propiedad",
     back: "Atrás",
     builderSpace: "Espacio de Builder",
+    builderBulkUpdateNotStaged: "Actualización masiva de Builder no preparada",
+    builderBulkUpdateStaged: "Actualización masiva de Builder preparada",
     builderUpdateFailed: "Falló la actualización de Builder",
     builderWriteModeWasNotChanged:
       "No se cambió el modo de escritura de Builder",
@@ -608,15 +676,27 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "No se pudo mover la fila",
     failedToSavePageIcon: "No se pudo guardar el icono de la página",
     failedToSavePagePreview: "No se pudo guardar la vista previa",
+    failedToSaveView: "No se pudo guardar la vista",
     failedToUpdateCheckbox: "No se pudo actualizar la casilla",
     failedToUpdateEverySelectedRow:
       "No se pudieron actualizar todas las filas seleccionadas",
     filter: "Filtro",
+    filterBy: "Filtrar por...",
+    addAdvancedFilter: "Agregar filtro avanzado",
+    addFilterRule: "Agregar regla de filtro",
+    addFilterGroup: "Agregar grupo de filtros",
+    nestedFilterGroupUnavailable:
+      "Los grupos de filtros anidados requieren actualizar el modelo de datos",
+    deleteFilter: "Eliminar filtro",
+    where: "Donde",
+    sortBy: "Ordenar por...",
     group: "Grupo",
     empty: "Vacío",
     hideEmptyGroups: "Ocultar grupos vacíos",
     layout: "Diseño",
     matchExistingItemsToDetails: "Relacionar elementos existentes con detalles",
+    moveFilterDown: "Mover abajo",
+    moveFilterUp: "Mover arriba",
     name: "Nombre",
     nameColumnMenu: "Menú de columna Nombre",
     newBoardGroupName: "Nombre del nuevo grupo de tablero",
@@ -631,7 +711,9 @@ const databaseMessagesByLocale = {
     nextMonth: "Mes siguiente",
     nextTimelineRange: "Rango de cronología siguiente",
     noRowsMatchThisView: "Ninguna fila coincide con esta vista",
+    editFilesForSelectedRows: "Editar archivos de las filas seleccionadas",
     oneFileOrMediaLinkPerLine: "Un archivo o enlace multimedia por línea",
+    personalViewChanges: "Solo para ti",
     previewPageTitle: "Título de página de vista previa",
     previousDatabasePage: "Página de base de datos anterior",
     previousMonth: "Mes anterior",
@@ -639,10 +721,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "Visibilidad de propiedades",
     resizeNameColumn: "Cambiar ancho de la columna Nombre",
     search: "Buscar",
+    saveForEveryone: "Guardar para todos",
     searchBuilderModels: "Buscar modelos de Builder",
     searchGroupProperties: "Buscar propiedades de grupo",
     searchModels: "Buscar modelos",
     searchOptions: "Buscar opciones",
+    searchForAProperty: "Buscar una propiedad...",
     searchProperties: "Buscar propiedades",
     somethingWentWrong: "Algo salió mal",
     sort: "Ordenar",
@@ -749,6 +833,8 @@ const databaseMessagesByLocale = {
     addProperty: "Ajouter une propriété",
     back: "Retour",
     builderSpace: "Espace Builder",
+    builderBulkUpdateNotStaged: "Mise à jour groupée Builder non préparée",
+    builderBulkUpdateStaged: "Mise à jour groupée Builder préparée",
     builderUpdateFailed: "Échec de la mise à jour Builder",
     builderWriteModeWasNotChanged: "Le mode d’écriture Builder n’a pas changé",
     closeDatabaseSettings: "Fermer les paramètres de base de données",
@@ -765,15 +851,27 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "Échec du déplacement de la ligne",
     failedToSavePageIcon: "Échec de l’enregistrement de l’icône",
     failedToSavePagePreview: "Échec de l’enregistrement de l’aperçu",
+    failedToSaveView: "Échec de l’enregistrement de la vue",
     failedToUpdateCheckbox: "Échec de la mise à jour de la case",
     failedToUpdateEverySelectedRow:
       "Impossible de mettre à jour toutes les lignes sélectionnées",
     filter: "Filtrer",
+    filterBy: "Filtrer par...",
+    addAdvancedFilter: "Ajouter un filtre avance",
+    addFilterRule: "Ajouter une regle de filtre",
+    addFilterGroup: "Ajouter un groupe de filtres",
+    nestedFilterGroupUnavailable:
+      "Les groupes de filtres imbriques necessitent une mise a jour du modele de donnees",
+    deleteFilter: "Supprimer le filtre",
+    where: "Ou",
+    sortBy: "Trier par...",
     group: "Grouper",
     empty: "Vide",
     hideEmptyGroups: "Masquer les groupes vides",
     layout: "Disposition",
     matchExistingItemsToDetails: "Associer les éléments existants aux détails",
+    moveFilterDown: "Déplacer vers le bas",
+    moveFilterUp: "Déplacer vers le haut",
     name: "Nom",
     nameColumnMenu: "Menu de la colonne Nom",
     newBoardGroupName: "Nom du nouveau groupe de tableau",
@@ -788,7 +886,9 @@ const databaseMessagesByLocale = {
     nextMonth: "Mois suivant",
     nextTimelineRange: "Plage chronologique suivante",
     noRowsMatchThisView: "Aucune ligne ne correspond à cette vue",
+    editFilesForSelectedRows: "Modifier les fichiers des lignes sélectionnées",
     oneFileOrMediaLinkPerLine: "Un fichier ou lien média par ligne",
+    personalViewChanges: "Juste pour vous",
     previewPageTitle: "Titre de la page d’aperçu",
     previousDatabasePage: "Page de base de données précédente",
     previousMonth: "Mois précédent",
@@ -796,10 +896,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "Visibilité des propriétés",
     resizeNameColumn: "Redimensionner la colonne Nom",
     search: "Rechercher",
+    saveForEveryone: "Enregistrer pour tout le monde",
     searchBuilderModels: "Rechercher des modèles Builder",
     searchGroupProperties: "Rechercher des propriétés de groupe",
     searchModels: "Rechercher des modèles",
     searchOptions: "Rechercher des options",
+    searchForAProperty: "Rechercher une propriété...",
     searchProperties: "Rechercher des propriétés",
     somethingWentWrong: "Une erreur est survenue",
     sort: "Trier",
@@ -906,6 +1008,9 @@ const databaseMessagesByLocale = {
     addProperty: "Eigenschaft hinzufügen",
     back: "Zurück",
     builderSpace: "Builder-Bereich",
+    builderBulkUpdateNotStaged:
+      "Builder-Massenaktualisierung nicht bereitgestellt",
+    builderBulkUpdateStaged: "Builder-Massenaktualisierung bereitgestellt",
     builderUpdateFailed: "Builder-Aktualisierung fehlgeschlagen",
     builderWriteModeWasNotChanged: "Builder-Schreibmodus wurde nicht geändert",
     closeDatabaseSettings: "Datenbankeinstellungen schließen",
@@ -922,15 +1027,27 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "Zeile konnte nicht verschoben werden",
     failedToSavePageIcon: "Seitensymbol konnte nicht gespeichert werden",
     failedToSavePagePreview: "Seitenvorschau konnte nicht gespeichert werden",
+    failedToSaveView: "Ansicht konnte nicht gespeichert werden",
     failedToUpdateCheckbox: "Kontrollkästchen konnte nicht aktualisiert werden",
     failedToUpdateEverySelectedRow:
       "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
     filter: "Filter",
+    filterBy: "Filtern nach...",
+    addAdvancedFilter: "Erweiterten Filter hinzufugen",
+    addFilterRule: "Filterregel hinzufugen",
+    addFilterGroup: "Filtergruppe hinzufugen",
+    nestedFilterGroupUnavailable:
+      "Verschachtelte Filtergruppen brauchen ein Datenmodell-Update",
+    deleteFilter: "Filter loschen",
+    where: "Wo",
+    sortBy: "Sortieren nach...",
     group: "Gruppe",
     empty: "Leer",
     hideEmptyGroups: "Leere Gruppen ausblenden",
     layout: "Layout",
     matchExistingItemsToDetails: "Vorhandene Elemente mit Details abgleichen",
+    moveFilterDown: "Nach unten verschieben",
+    moveFilterUp: "Nach oben verschieben",
     name: "Name",
     nameColumnMenu: "Menü der Namensspalte",
     newBoardGroupName: "Name der neuen Board-Gruppe",
@@ -945,7 +1062,9 @@ const databaseMessagesByLocale = {
     nextMonth: "Nächster Monat",
     nextTimelineRange: "Nächster Zeitachsenbereich",
     noRowsMatchThisView: "Keine Zeilen entsprechen dieser Ansicht",
+    editFilesForSelectedRows: "Dateien für ausgewählte Zeilen bearbeiten",
     oneFileOrMediaLinkPerLine: "Eine Datei oder ein Medienlink pro Zeile",
+    personalViewChanges: "Nur für dich",
     previewPageTitle: "Titel der Seitenvorschau",
     previousDatabasePage: "Vorherige Datenbankseite",
     previousMonth: "Vorheriger Monat",
@@ -953,10 +1072,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "Eigenschaftensichtbarkeit",
     resizeNameColumn: "Namensspalte anpassen",
     search: "Suchen",
+    saveForEveryone: "Für alle speichern",
     searchBuilderModels: "Builder-Modelle suchen",
     searchGroupProperties: "Gruppeneigenschaften suchen",
     searchModels: "Modelle suchen",
     searchOptions: "Optionen suchen",
+    searchForAProperty: "Eigenschaft suchen...",
     searchProperties: "Eigenschaften suchen",
     somethingWentWrong: "Etwas ist schiefgelaufen",
     sort: "Sortieren",
@@ -1060,6 +1181,8 @@ const databaseMessagesByLocale = {
     addProperty: "プロパティを追加",
     back: "戻る",
     builderSpace: "Builder スペース",
+    builderBulkUpdateNotStaged: "Builder 一括更新はステージングされていません",
+    builderBulkUpdateStaged: "Builder 一括更新をステージングしました",
     builderUpdateFailed: "Builder の更新に失敗しました",
     builderWriteModeWasNotChanged:
       "Builder の書き込みモードは変更されませんでした",
@@ -1076,14 +1199,26 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "行を移動できませんでした",
     failedToSavePageIcon: "ページアイコンを保存できませんでした",
     failedToSavePagePreview: "ページプレビューを保存できませんでした",
+    failedToSaveView: "ビューの保存に失敗しました",
     failedToUpdateCheckbox: "チェックボックスを更新できませんでした",
     failedToUpdateEverySelectedRow: "選択したすべての行を更新できませんでした",
     filter: "フィルター",
+    filterBy: "フィルター条件...",
+    addAdvancedFilter: "高度なフィルターを追加",
+    addFilterRule: "フィルタールールを追加",
+    addFilterGroup: "フィルターグループを追加",
+    nestedFilterGroupUnavailable:
+      "ネストされたフィルターグループにはデータモデルの更新が必要です",
+    deleteFilter: "フィルターを削除",
+    where: "条件",
+    sortBy: "並べ替え...",
     group: "グループ",
     empty: "空",
     hideEmptyGroups: "空のグループを非表示",
     layout: "レイアウト",
     matchExistingItemsToDetails: "既存のアイテムを詳細に一致させる",
+    moveFilterDown: "下へ移動",
+    moveFilterUp: "上へ移動",
     name: "名前",
     nameColumnMenu: "名前列メニュー",
     newBoardGroupName: "新しいボードグループ名",
@@ -1098,7 +1233,9 @@ const databaseMessagesByLocale = {
     nextMonth: "次の月",
     nextTimelineRange: "次のタイムライン範囲",
     noRowsMatchThisView: "このビューに一致する行はありません",
+    editFilesForSelectedRows: "選択した行のファイルを編集",
     oneFileOrMediaLinkPerLine: "1 行に 1 つのファイルまたはメディアリンク",
+    personalViewChanges: "自分だけ",
     previewPageTitle: "プレビューページタイトル",
     previousDatabasePage: "前のデータベースページ",
     previousMonth: "前の月",
@@ -1106,10 +1243,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "プロパティの表示",
     resizeNameColumn: "名前列のサイズ変更",
     search: "検索",
+    saveForEveryone: "全員に保存",
     searchBuilderModels: "Builder モデルを検索",
     searchGroupProperties: "グループプロパティを検索",
     searchModels: "モデルを検索",
     searchOptions: "オプションを検索",
+    searchForAProperty: "プロパティを検索...",
     searchProperties: "プロパティを検索",
     somethingWentWrong: "問題が発生しました",
     sort: "並べ替え",
@@ -1213,6 +1352,8 @@ const databaseMessagesByLocale = {
     addProperty: "속성 추가",
     back: "뒤로",
     builderSpace: "Builder 공간",
+    builderBulkUpdateNotStaged: "Builder 대량 업데이트가 스테이징되지 않음",
+    builderBulkUpdateStaged: "Builder 대량 업데이트가 스테이징됨",
     builderUpdateFailed: "Builder 업데이트 실패",
     builderWriteModeWasNotChanged: "Builder 쓰기 모드가 변경되지 않았습니다",
     closeDatabaseSettings: "데이터베이스 설정 닫기",
@@ -1227,14 +1368,26 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "행을 이동하지 못했습니다",
     failedToSavePageIcon: "페이지 아이콘을 저장하지 못했습니다",
     failedToSavePagePreview: "페이지 미리보기를 저장하지 못했습니다",
+    failedToSaveView: "보기를 저장하지 못했습니다",
     failedToUpdateCheckbox: "체크박스를 업데이트하지 못했습니다",
     failedToUpdateEverySelectedRow: "선택한 모든 행을 업데이트하지 못했습니다",
     filter: "필터",
+    filterBy: "필터 기준...",
+    addAdvancedFilter: "고급 필터 추가",
+    addFilterRule: "필터 규칙 추가",
+    addFilterGroup: "필터 그룹 추가",
+    nestedFilterGroupUnavailable:
+      "중첩 필터 그룹에는 데이터 모델 업데이트가 필요합니다",
+    deleteFilter: "필터 삭제",
+    where: "조건",
+    sortBy: "정렬 기준...",
     group: "그룹",
     empty: "비어 있음",
     hideEmptyGroups: "빈 그룹 숨기기",
     layout: "레이아웃",
     matchExistingItemsToDetails: "기존 항목을 세부 정보와 일치시키기",
+    moveFilterDown: "아래로 이동",
+    moveFilterUp: "위로 이동",
     name: "이름",
     nameColumnMenu: "이름 열 메뉴",
     newBoardGroupName: "새 보드 그룹 이름",
@@ -1249,7 +1402,9 @@ const databaseMessagesByLocale = {
     nextMonth: "다음 달",
     nextTimelineRange: "다음 타임라인 범위",
     noRowsMatchThisView: "이 보기에 일치하는 행이 없습니다",
+    editFilesForSelectedRows: "선택한 행의 파일 편집",
     oneFileOrMediaLinkPerLine: "한 줄에 파일 또는 미디어 링크 하나",
+    personalViewChanges: "나에게만",
     previewPageTitle: "미리보기 페이지 제목",
     previousDatabasePage: "이전 데이터베이스 페이지",
     previousMonth: "이전 달",
@@ -1257,10 +1412,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "속성 표시 여부",
     resizeNameColumn: "이름 열 크기 조정",
     search: "검색",
+    saveForEveryone: "모두에게 저장",
     searchBuilderModels: "Builder 모델 검색",
     searchGroupProperties: "그룹 속성 검색",
     searchModels: "모델 검색",
     searchOptions: "옵션 검색",
+    searchForAProperty: "속성 검색...",
     searchProperties: "속성 검색",
     somethingWentWrong: "문제가 발생했습니다",
     sort: "정렬",
@@ -1366,6 +1523,8 @@ const databaseMessagesByLocale = {
     addProperty: "Adicionar propriedade",
     back: "Voltar",
     builderSpace: "Espaço do Builder",
+    builderBulkUpdateNotStaged: "Atualização em massa do Builder não preparada",
+    builderBulkUpdateStaged: "Atualização em massa do Builder preparada",
     builderUpdateFailed: "Falha na atualização do Builder",
     builderWriteModeWasNotChanged: "O modo de escrita do Builder não mudou",
     closeDatabaseSettings: "Fechar configurações do banco de dados",
@@ -1381,16 +1540,28 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "Falha ao mover linha",
     failedToSavePageIcon: "Falha ao salvar ícone da página",
     failedToSavePagePreview: "Falha ao salvar prévia da página",
+    failedToSaveView: "Falha ao salvar visualização",
     failedToUpdateCheckbox: "Falha ao atualizar caixa de seleção",
     failedToUpdateEverySelectedRow:
       "Falha ao atualizar todas as linhas selecionadas",
     filter: "Filtro",
+    filterBy: "Filtrar por...",
+    addAdvancedFilter: "Adicionar filtro avancado",
+    addFilterRule: "Adicionar regra de filtro",
+    addFilterGroup: "Adicionar grupo de filtros",
+    nestedFilterGroupUnavailable:
+      "Grupos de filtros aninhados precisam de atualizacao do modelo de dados",
+    deleteFilter: "Excluir filtro",
+    where: "Onde",
+    sortBy: "Ordenar por...",
     group: "Grupo",
     empty: "Vazio",
     hideEmptyGroups: "Ocultar grupos vazios",
     layout: "Layout",
     matchExistingItemsToDetails:
       "Correspondência de itens existentes com detalhes",
+    moveFilterDown: "Mover para baixo",
+    moveFilterUp: "Mover para cima",
     name: "Nome",
     nameColumnMenu: "Menu da coluna Nome",
     newBoardGroupName: "Nome do novo grupo do quadro",
@@ -1405,7 +1576,9 @@ const databaseMessagesByLocale = {
     nextMonth: "Próximo mês",
     nextTimelineRange: "Próximo intervalo da linha do tempo",
     noRowsMatchThisView: "Nenhuma linha corresponde a esta visualização",
+    editFilesForSelectedRows: "Editar arquivos das linhas selecionadas",
     oneFileOrMediaLinkPerLine: "Um arquivo ou link de mídia por linha",
+    personalViewChanges: "Só para você",
     previewPageTitle: "Título da página de prévia",
     previousDatabasePage: "Página anterior do banco de dados",
     previousMonth: "Mês anterior",
@@ -1413,10 +1586,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "Visibilidade da propriedade",
     resizeNameColumn: "Redimensionar coluna Nome",
     search: "Buscar",
+    saveForEveryone: "Salvar para todos",
     searchBuilderModels: "Buscar modelos do Builder",
     searchGroupProperties: "Buscar propriedades de grupo",
     searchModels: "Buscar modelos",
     searchOptions: "Buscar opções",
+    searchForAProperty: "Buscar uma propriedade...",
     searchProperties: "Buscar propriedades",
     somethingWentWrong: "Algo deu errado",
     sort: "Ordenar",
@@ -1517,6 +1692,8 @@ const databaseMessagesByLocale = {
     addProperty: "प्रॉपर्टी जोड़ें",
     back: "वापस",
     builderSpace: "Builder स्पेस",
+    builderBulkUpdateNotStaged: "Builder बल्क अपडेट स्टेज नहीं हुआ",
+    builderBulkUpdateStaged: "Builder बल्क अपडेट स्टेज हुआ",
     builderUpdateFailed: "Builder अपडेट विफल रहा",
     builderWriteModeWasNotChanged: "Builder लेखन मोड नहीं बदला गया",
     closeDatabaseSettings: "डेटाबेस सेटिंग्स बंद करें",
@@ -1531,14 +1708,25 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "पंक्ति ले जाने में विफल",
     failedToSavePageIcon: "पेज आइकन सहेजने में विफल",
     failedToSavePagePreview: "पेज प्रीव्यू सहेजने में विफल",
+    failedToSaveView: "दृश्य सहेजने में विफल",
     failedToUpdateCheckbox: "चेकबॉक्स अपडेट करने में विफल",
     failedToUpdateEverySelectedRow: "हर चुनी गई पंक्ति अपडेट नहीं हो सकी",
     filter: "फ़िल्टर",
+    filterBy: "इसके अनुसार फ़िल्टर करें...",
+    addAdvancedFilter: "उन्नत फ़िल्टर जोड़ें",
+    addFilterRule: "फ़िल्टर नियम जोड़ें",
+    addFilterGroup: "फ़िल्टर समूह जोड़ें",
+    nestedFilterGroupUnavailable: "नेस्टेड फ़िल्टर समूहों के लिए डेटा मॉडल अपडेट चाहिए",
+    deleteFilter: "फ़िल्टर हटाएँ",
+    where: "जहाँ",
+    sortBy: "इसके अनुसार क्रमबद्ध करें...",
     group: "समूह",
     empty: "ख़ाली",
     hideEmptyGroups: "खाली समूह छिपाएं",
     layout: "लेआउट",
     matchExistingItemsToDetails: "मौजूदा आइटम को विवरण से मिलाएँ",
+    moveFilterDown: "नीचे ले जाएँ",
+    moveFilterUp: "ऊपर ले जाएँ",
     name: "नाम",
     nameColumnMenu: "नाम कॉलम मेनू",
     newBoardGroupName: "नए बोर्ड समूह का नाम",
@@ -1553,7 +1741,9 @@ const databaseMessagesByLocale = {
     nextMonth: "अगला महीना",
     nextTimelineRange: "अगला टाइमलाइन रेंज",
     noRowsMatchThisView: "इस दृश्य से कोई पंक्ति मेल नहीं खाती",
+    editFilesForSelectedRows: "चयनित पंक्तियों की फ़ाइलें संपादित करें",
     oneFileOrMediaLinkPerLine: "हर पंक्ति में एक फ़ाइल या मीडिया लिंक",
+    personalViewChanges: "सिर्फ़ आपके लिए",
     previewPageTitle: "प्रीव्यू पेज शीर्षक",
     previousDatabasePage: "पिछला डेटाबेस पेज",
     previousMonth: "पिछला महीना",
@@ -1561,10 +1751,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "प्रॉपर्टी दृश्यता",
     resizeNameColumn: "नाम कॉलम का आकार बदलें",
     search: "खोजें",
+    saveForEveryone: "सभी के लिए सहेजें",
     searchBuilderModels: "Builder मॉडल खोजें",
     searchGroupProperties: "समूह प्रॉपर्टीज़ खोजें",
     searchModels: "मॉडल खोजें",
     searchOptions: "विकल्प खोजें",
+    searchForAProperty: "प्रॉपर्टी खोजें...",
     searchProperties: "प्रॉपर्टीज़ खोजें",
     somethingWentWrong: "कुछ गलत हुआ",
     sort: "क्रमबद्ध करें",
@@ -1664,6 +1856,8 @@ const databaseMessagesByLocale = {
     addProperty: "إضافة خاصية",
     back: "رجوع",
     builderSpace: "مساحة Builder",
+    builderBulkUpdateNotStaged: "لم يتم تجهيز تحديث Builder المجمع",
+    builderBulkUpdateStaged: "تم تجهيز تحديث Builder المجمع",
     builderUpdateFailed: "فشل تحديث Builder",
     builderWriteModeWasNotChanged: "لم يتغير وضع كتابة Builder",
     closeDatabaseSettings: "إغلاق إعدادات قاعدة البيانات",
@@ -1678,14 +1872,26 @@ const databaseMessagesByLocale = {
     failedToMoveRow: "فشل نقل الصف",
     failedToSavePageIcon: "فشل حفظ أيقونة الصفحة",
     failedToSavePagePreview: "فشل حفظ معاينة الصفحة",
+    failedToSaveView: "فشل حفظ العرض",
     failedToUpdateCheckbox: "فشل تحديث مربع الاختيار",
     failedToUpdateEverySelectedRow: "تعذر تحديث كل الصفوف المحددة",
     filter: "تصفية",
+    filterBy: "تصفية حسب...",
+    addAdvancedFilter: "إضافة فلتر متقدم",
+    addFilterRule: "إضافة قاعدة فلتر",
+    addFilterGroup: "إضافة مجموعة فلاتر",
+    nestedFilterGroupUnavailable:
+      "مجموعات الفلاتر المتداخلة تحتاج إلى تحديث نموذج البيانات",
+    deleteFilter: "حذف الفلتر",
+    where: "حيث",
+    sortBy: "فرز حسب...",
     group: "مجموعة",
     empty: "فارغ",
     hideEmptyGroups: "إخفاء المجموعات الفارغة",
     layout: "التخطيط",
     matchExistingItemsToDetails: "مطابقة العناصر الحالية مع التفاصيل",
+    moveFilterDown: "نقل لأسفل",
+    moveFilterUp: "نقل لأعلى",
     name: "الاسم",
     nameColumnMenu: "قائمة عمود الاسم",
     newBoardGroupName: "اسم مجموعة اللوحة الجديدة",
@@ -1700,7 +1906,9 @@ const databaseMessagesByLocale = {
     nextMonth: "الشهر التالي",
     nextTimelineRange: "نطاق المخطط الزمني التالي",
     noRowsMatchThisView: "لا توجد صفوف تطابق هذا العرض",
+    editFilesForSelectedRows: "تحرير ملفات الصفوف المحددة",
     oneFileOrMediaLinkPerLine: "ملف أو رابط وسائط واحد في كل سطر",
+    personalViewChanges: "لك فقط",
     previewPageTitle: "عنوان صفحة المعاينة",
     previousDatabasePage: "صفحة قاعدة البيانات السابقة",
     previousMonth: "الشهر السابق",
@@ -1708,10 +1916,12 @@ const databaseMessagesByLocale = {
     propertyVisibility: "رؤية الخصائص",
     resizeNameColumn: "تغيير حجم عمود الاسم",
     search: "بحث",
+    saveForEveryone: "حفظ للجميع",
     searchBuilderModels: "بحث في نماذج Builder",
     searchGroupProperties: "بحث في خصائص المجموعة",
     searchModels: "بحث في النماذج",
     searchOptions: "بحث في الخيارات",
+    searchForAProperty: "البحث عن خاصية...",
     searchProperties: "بحث في الخصائص",
     somethingWentWrong: "حدث خطأ ما",
     sort: "فرز",
@@ -1731,6 +1941,7 @@ const editorPropertiesMessages = {
   add: "Add",
   addOption: "Add option",
   addProperty: "Add property",
+  addPropertyFailed: "Could not add property.",
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
@@ -1747,6 +1958,9 @@ const editorPropertiesMessages = {
   deleteProperty: "Delete property",
   deletePropertyDescription:
     'This removes "{{name}}" and its values from every document in this workspace.',
+  deletePropertyDescriptionPrefix: 'This removes "',
+  deletePropertyDescriptionSuffix:
+    '" and its values from every document in this workspace.',
   deletePropertyQuestion: "Delete property?",
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
@@ -1872,6 +2086,7 @@ const editorMediaMessages = {
   generatingAltText: "Generating alt text...",
   image: "Image",
   imageAdded: "Image added",
+  imageBroken: "Image could not be loaded",
   imageCommentWithAlt: "Image: {{alt}}",
   imageCopied: "Image copied.",
   imageDownloadStarted: "Image download started.",
@@ -2128,6 +2343,9 @@ const localFilesMessages = {
   folder: "Folder",
   folderLinked: "{{count}} folder linked",
   foldersLinked: "{{count}} folders linked",
+  importedFiles: "{{count}} files",
+  importedLocalFiles: "Imported local files",
+  importedSource: "Imported source",
   lastSync: "Last sync",
   localFolders: "Local folders",
   mainFolder: "Main folder",
@@ -2138,7 +2356,9 @@ const localFilesMessages = {
   pulling: "Pulling...",
   push: "Push",
   pushing: "Pushing...",
+  remove: "Remove",
   removeFolder: "Remove {{name}}",
+  removing: "Removing...",
   restoring: "Restoring...",
   sidebar: "Sidebar",
 };
@@ -2241,7 +2461,12 @@ const enUS = {
     noDocumentSelected: "No document selected",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
+    collabConnectingReadOnly:
+      "Connecting live editor. Showing a read-only snapshot.",
     documentTitle: "Document title",
+    builderBodySyncing: "Content is still syncing from Builder",
+    builderBodySyncingDescription:
+      "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
     reorderField: "Reorder {{name}}",
@@ -2378,11 +2603,16 @@ const enUS = {
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
     failedMovePage: "Failed to move page",
+    failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
     deletePageDescription:
       "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
     deletePageQuestion: "Delete page?",
     localFiles: "Local files",
+    localFilesActions: "Local files actions",
+    localFilesRemoved: "Local files removed",
+    localFilesRemovedDescription: "{{count}} items removed",
+    manageLocalFolders: "Manage folders",
     new: "New",
     newPage: "New page",
     nextStep: "Next step",
@@ -2428,6 +2658,10 @@ const enUS = {
     search: "Search",
     searchPages: "Search pages...",
     refreshConnection: "Refresh connection",
+    removeLocalFilesDescription:
+      "This removes local-file entries from Content and the sidebar. Files on disk are not deleted.",
+    removeLocalFilesFromSidebar: "Remove from sidebar",
+    removeLocalFilesQuestion: "Remove local files from sidebar?",
     restoreDatabase: "Restore",
     restoreDatabaseNamed: "Restore {{title}}",
     saving: "Saving...",
@@ -2463,6 +2697,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       clearColumn: "清空列",
       clearRow: "清空行",
       deleteColumn: "删除列",
+      deleteSort: "删除排序",
       drag: "拖动",
       headerColumn: "标题列",
       headerRow: "标题行",
@@ -2563,8 +2798,13 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deletePermanently: "永久删除",
       disconnectWorkspace: "断开工作区连接",
       failedCreateDatabase: "创建数据库失败",
+      failedRemoveLocalFiles: "移除本地文件失败",
       failedPermanentDeleteDatabase: "永久删除数据库失败",
       failedRestoreDatabase: "恢复数据库失败",
+      localFilesActions: "本地文件操作",
+      localFilesRemoved: "本地文件已移除",
+      localFilesRemovedDescription: "已移除 {{count}} 个项目",
+      manageLocalFolders: "管理文件夹",
       new: "新建",
       nextStep: "下一步",
       notionConfigureOAuthAuthorize: "配置 OAuth，然后授权你的工作区。",
@@ -2594,6 +2834,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       notionUploadCredentialsJson: "上传凭据 JSON",
       page: "页面",
       refreshConnection: "刷新连接",
+      removeLocalFilesDescription:
+        "这会从 Content 和侧边栏移除本地文件条目。不会删除磁盘上的文件。",
+      removeLocalFilesFromSidebar: "从侧边栏移除",
+      removeLocalFilesQuestion: "从侧边栏移除本地文件？",
       restoreDatabase: "恢复",
       restoreDatabaseNamed: "恢复 {{title}}",
       saving: "正在保存...",
@@ -2628,6 +2872,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       clearColumn: "Borrar columna",
       clearRow: "Borrar fila",
       deleteColumn: "Eliminar columna",
+      deleteSort: "Eliminar ordenación",
       drag: "Arrastra",
       headerColumn: "Columna de encabezado",
       headerRow: "Fila de encabezado",
@@ -2851,9 +3096,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deletePageQuestion: "¿Eliminar página?",
       deletePermanently: "Eliminar permanentemente",
       failedCreateDatabase: "No se pudo crear la base de datos",
+      failedRemoveLocalFiles: "No se pudieron quitar los archivos locales",
       failedPermanentDeleteDatabase:
         "No se pudo eliminar permanentemente la base de datos",
       failedRestoreDatabase: "No se pudo restaurar la base de datos",
+      localFilesActions: "Acciones de archivos locales",
+      localFilesRemoved: "Archivos locales quitados",
+      localFilesRemovedDescription: "{{count}} elementos quitados",
+      manageLocalFolders: "Gestionar carpetas",
       new: "Nuevo",
       nextStep: "Siguiente paso",
       notionConfigureOAuthAuthorize:
@@ -2886,6 +3136,10 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       notionUploadCredentialsJson: "Subir JSON de credenciales",
       page: "Página",
       refreshConnection: "Actualizar conexión",
+      removeLocalFilesDescription:
+        "Esto quita las entradas de archivos locales de Content y de la barra lateral. No se eliminan archivos del disco.",
+      removeLocalFilesFromSidebar: "Quitar de la barra lateral",
+      removeLocalFilesQuestion: "¿Quitar archivos locales de la barra lateral?",
       restoreDatabase: "Restaurar",
       restoreDatabaseNamed: "Restaurar {{title}}",
       saving: "Guardando...",
@@ -2906,10 +3160,19 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "永久刪除資料庫？",
       deletePermanently: "永久刪除",
       failedCreateDatabase: "建立資料庫失敗",
+      failedRemoveLocalFiles: "移除本機檔案失敗",
       failedPermanentDeleteDatabase: "永久刪除資料庫失敗",
       failedRestoreDatabase: "還原資料庫失敗",
+      localFilesActions: "本機檔案操作",
+      localFilesRemoved: "已移除本機檔案",
+      localFilesRemovedDescription: "已移除 {{count}} 個項目",
+      manageLocalFolders: "管理資料夾",
       new: "新增",
       page: "頁面",
+      removeLocalFilesDescription:
+        "這會從 Content 和側邊欄移除本機檔案項目。不會刪除磁碟上的檔案。",
+      removeLocalFilesFromSidebar: "從側邊欄移除",
+      removeLocalFilesQuestion: "從側邊欄移除本機檔案？",
       restoreDatabase: "還原",
       restoreDatabaseNamed: "還原 {{title}}",
       trash: "垃圾桶",
@@ -2929,11 +3192,21 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "Supprimer définitivement la base de données ?",
       deletePermanently: "Supprimer définitivement",
       failedCreateDatabase: "Échec de la création de la base de données",
+      failedRemoveLocalFiles: "Échec de la suppression des fichiers locaux",
       failedPermanentDeleteDatabase:
         "Échec de la suppression définitive de la base de données",
       failedRestoreDatabase: "Échec de la restauration de la base de données",
+      localFilesActions: "Actions des fichiers locaux",
+      localFilesRemoved: "Fichiers locaux supprimés",
+      localFilesRemovedDescription: "{{count}} éléments supprimés",
+      manageLocalFolders: "Gérer les dossiers",
       new: "Nouveau",
       page: "Page",
+      removeLocalFilesDescription:
+        "Cela supprime les entrées de fichiers locaux de Content et de la barre latérale. Les fichiers sur le disque ne sont pas supprimés.",
+      removeLocalFilesFromSidebar: "Supprimer de la barre latérale",
+      removeLocalFilesQuestion:
+        "Supprimer les fichiers locaux de la barre latérale ?",
       restoreDatabase: "Restaurer",
       restoreDatabaseNamed: "Restaurer {{title}}",
       trash: "Corbeille",
@@ -2952,11 +3225,21 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "Datenbank endgültig löschen?",
       deletePermanently: "Endgültig löschen",
       failedCreateDatabase: "Datenbank konnte nicht erstellt werden",
+      failedRemoveLocalFiles: "Lokale Dateien konnten nicht entfernt werden",
       failedPermanentDeleteDatabase:
         "Datenbank konnte nicht endgültig gelöscht werden",
       failedRestoreDatabase: "Datenbank konnte nicht wiederhergestellt werden",
+      localFilesActions: "Aktionen für lokale Dateien",
+      localFilesRemoved: "Lokale Dateien entfernt",
+      localFilesRemovedDescription: "{{count}} Elemente entfernt",
+      manageLocalFolders: "Ordner verwalten",
       new: "Neu",
       page: "Seite",
+      removeLocalFilesDescription:
+        "Dies entfernt lokale Dateieinträge aus Content und der Seitenleiste. Dateien auf dem Datenträger werden nicht gelöscht.",
+      removeLocalFilesFromSidebar: "Aus Seitenleiste entfernen",
+      removeLocalFilesQuestion:
+        "Lokale Dateien aus der Seitenleiste entfernen?",
       restoreDatabase: "Wiederherstellen",
       restoreDatabaseNamed: "{{title}} wiederherstellen",
       trash: "Papierkorb",
@@ -2975,10 +3258,20 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "データベースを完全に削除しますか？",
       deletePermanently: "完全に削除",
       failedCreateDatabase: "データベースを作成できませんでした",
+      failedRemoveLocalFiles: "ローカルファイルを削除できませんでした",
       failedPermanentDeleteDatabase: "データベースを完全に削除できませんでした",
       failedRestoreDatabase: "データベースを復元できませんでした",
+      localFilesActions: "ローカルファイルの操作",
+      localFilesRemoved: "ローカルファイルを削除しました",
+      localFilesRemovedDescription: "{{count}} 件を削除しました",
+      manageLocalFolders: "フォルダーを管理",
       new: "新規",
       page: "ページ",
+      removeLocalFilesDescription:
+        "Content とサイドバーからローカルファイル項目を削除します。ディスク上のファイルは削除されません。",
+      removeLocalFilesFromSidebar: "サイドバーから削除",
+      removeLocalFilesQuestion:
+        "ローカルファイルをサイドバーから削除しますか？",
       restoreDatabase: "復元",
       restoreDatabaseNamed: "{{title}} を復元",
       trash: "ゴミ箱",
@@ -2997,10 +3290,19 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "데이터베이스를 영구 삭제할까요?",
       deletePermanently: "영구 삭제",
       failedCreateDatabase: "데이터베이스를 만들지 못했습니다",
+      failedRemoveLocalFiles: "로컬 파일을 제거하지 못했습니다",
       failedPermanentDeleteDatabase: "데이터베이스를 영구 삭제하지 못했습니다",
       failedRestoreDatabase: "데이터베이스를 복원하지 못했습니다",
+      localFilesActions: "로컬 파일 작업",
+      localFilesRemoved: "로컬 파일이 제거되었습니다",
+      localFilesRemovedDescription: "{{count}}개 항목 제거됨",
+      manageLocalFolders: "폴더 관리",
       new: "새로 만들기",
       page: "페이지",
+      removeLocalFilesDescription:
+        "Content와 사이드바에서 로컬 파일 항목을 제거합니다. 디스크의 파일은 삭제되지 않습니다.",
+      removeLocalFilesFromSidebar: "사이드바에서 제거",
+      removeLocalFilesQuestion: "사이드바에서 로컬 파일을 제거할까요?",
       restoreDatabase: "복원",
       restoreDatabaseNamed: "{{title}} 복원",
       trash: "휴지통",
@@ -3020,11 +3322,20 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "Excluir banco de dados permanentemente?",
       deletePermanently: "Excluir permanentemente",
       failedCreateDatabase: "Falha ao criar banco de dados",
+      failedRemoveLocalFiles: "Falha ao remover arquivos locais",
       failedPermanentDeleteDatabase:
         "Falha ao excluir banco de dados permanentemente",
       failedRestoreDatabase: "Falha ao restaurar banco de dados",
+      localFilesActions: "Ações de arquivos locais",
+      localFilesRemoved: "Arquivos locais removidos",
+      localFilesRemovedDescription: "{{count}} itens removidos",
+      manageLocalFolders: "Gerenciar pastas",
       new: "Novo",
       page: "Página",
+      removeLocalFilesDescription:
+        "Isso remove entradas de arquivos locais do Content e da barra lateral. Os arquivos no disco não são excluídos.",
+      removeLocalFilesFromSidebar: "Remover da barra lateral",
+      removeLocalFilesQuestion: "Remover arquivos locais da barra lateral?",
       restoreDatabase: "Restaurar",
       restoreDatabaseNamed: "Restaurar {{title}}",
       trash: "Lixeira",
@@ -3043,10 +3354,19 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "डेटाबेस स्थायी रूप से हटाएं?",
       deletePermanently: "स्थायी रूप से हटाएं",
       failedCreateDatabase: "डेटाबेस नहीं बन सका",
+      failedRemoveLocalFiles: "स्थानीय फ़ाइलें हटाई नहीं जा सकीं",
       failedPermanentDeleteDatabase: "डेटाबेस स्थायी रूप से हटाया नहीं जा सका",
       failedRestoreDatabase: "डेटाबेस बहाल नहीं हो सका",
+      localFilesActions: "स्थानीय फ़ाइल क्रियाएं",
+      localFilesRemoved: "स्थानीय फ़ाइलें हटाई गईं",
+      localFilesRemovedDescription: "{{count}} आइटम हटाए गए",
+      manageLocalFolders: "फ़ोल्डर प्रबंधित करें",
       new: "नया",
       page: "पेज",
+      removeLocalFilesDescription:
+        "यह Content और साइडबार से स्थानीय फ़ाइल प्रविष्टियां हटाता है। डिस्क की फ़ाइलें हटाई नहीं जातीं।",
+      removeLocalFilesFromSidebar: "साइडबार से हटाएं",
+      removeLocalFilesQuestion: "स्थानीय फ़ाइलें साइडबार से हटाएं?",
       restoreDatabase: "बहाल करें",
       restoreDatabaseNamed: "{{title}} बहाल करें",
       trash: "ट्रैश",
@@ -3065,6 +3385,16 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       deleteDatabasePermanentlyQuestion: "هل تريد حذف قاعدة البيانات نهائيًا؟",
       deletePermanently: "حذف نهائيًا",
       failedCreateDatabase: "فشل إنشاء قاعدة البيانات",
+      failedRemoveLocalFiles: "فشلت إزالة الملفات المحلية",
+      localFilesActions: "إجراءات الملفات المحلية",
+      localFilesRemoved: "تمت إزالة الملفات المحلية",
+      localFilesRemovedDescription: "تمت إزالة {{count}} عنصر",
+      manageLocalFolders: "إدارة المجلدات",
+      removeLocalFilesDescription:
+        "يزيل هذا إدخالات الملفات المحلية من Content والشريط الجانبي. لا يتم حذف الملفات من القرص.",
+      removeLocalFilesFromSidebar: "إزالة من الشريط الجانبي",
+      removeLocalFilesQuestion:
+        "هل تريد إزالة الملفات المحلية من الشريط الجانبي؟",
       failedPermanentDeleteDatabase: "فشل حذف قاعدة البيانات نهائيًا",
       failedRestoreDatabase: "فشلت استعادة قاعدة البيانات",
       new: "جديد",
@@ -3115,7 +3445,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "已从文件夹拉取",
     pullFailed: "拉取失败",
     folderRemoved: "文件夹已移除",
+    importedFiles: "{{count}} 个文件",
+    importedLocalFiles: "导入的本地文件",
+    importedSource: "导入的来源",
+    remove: "移除",
     removeFailed: "移除失败",
+    removing: "正在移除...",
   },
   "es-ES": {
     unsupportedElectron:
@@ -3158,7 +3493,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "Extraído de la carpeta",
     pullFailed: "Error al extraer",
     folderRemoved: "Carpeta eliminada",
+    importedFiles: "{{count}} archivos",
+    importedLocalFiles: "Archivos locales importados",
+    importedSource: "Origen importado",
+    remove: "Quitar",
     removeFailed: "Error al eliminar",
+    removing: "Quitando...",
   },
   "fr-FR": {
     unsupportedElectron:
@@ -3202,7 +3542,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "Importé depuis le dossier",
     pullFailed: "Échec de l’import",
     folderRemoved: "Dossier supprimé",
+    importedFiles: "{{count}} fichiers",
+    importedLocalFiles: "Fichiers locaux importés",
+    importedSource: "Source importée",
+    remove: "Supprimer",
     removeFailed: "Échec de la suppression",
+    removing: "Suppression...",
   },
   "de-DE": {
     unsupportedElectron:
@@ -3243,7 +3588,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "Aus Ordner abgerufen",
     pullFailed: "Abruf fehlgeschlagen",
     folderRemoved: "Ordner entfernt",
+    importedFiles: "{{count}} Dateien",
+    importedLocalFiles: "Importierte lokale Dateien",
+    importedSource: "Importierte Quelle",
+    remove: "Entfernen",
     removeFailed: "Entfernen fehlgeschlagen",
+    removing: "Wird entfernt...",
   },
   "ja-JP": {
     unsupportedElectron:
@@ -3286,7 +3636,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "フォルダーから取り込みました",
     pullFailed: "取り込みに失敗しました",
     folderRemoved: "フォルダーを削除しました",
+    importedFiles: "{{count}} 件のファイル",
+    importedLocalFiles: "インポートされたローカルファイル",
+    importedSource: "インポート元",
+    remove: "削除",
     removeFailed: "削除に失敗しました",
+    removing: "削除中...",
   },
   "ko-KR": {
     unsupportedElectron:
@@ -3328,7 +3683,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "폴더에서 가져옴",
     pullFailed: "가져오기 실패",
     folderRemoved: "폴더 제거됨",
+    importedFiles: "{{count}}개 파일",
+    importedLocalFiles: "가져온 로컬 파일",
+    importedSource: "가져온 소스",
+    remove: "제거",
     removeFailed: "제거 실패",
+    removing: "제거 중...",
   },
   "pt-BR": {
     unsupportedElectron:
@@ -3371,7 +3731,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "Importado da pasta",
     pullFailed: "Falha ao importar",
     folderRemoved: "Pasta removida",
+    importedFiles: "{{count}} arquivos",
+    importedLocalFiles: "Arquivos locais importados",
+    importedSource: "Origem importada",
+    remove: "Remover",
     removeFailed: "Falha ao remover",
+    removing: "Removendo...",
   },
   "hi-IN": {
     unsupportedElectron:
@@ -3412,7 +3777,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "फ़ोल्डर से खींचा गया",
     pullFailed: "खींचना विफल",
     folderRemoved: "फ़ोल्डर हटाया गया",
+    importedFiles: "{{count}} फ़ाइलें",
+    importedLocalFiles: "आयातित स्थानीय फ़ाइलें",
+    importedSource: "आयातित स्रोत",
+    remove: "हटाएं",
     removeFailed: "हटाने में विफल",
+    removing: "हटाया जा रहा है...",
   },
   "ar-SA": {
     unsupportedElectron:
@@ -3453,7 +3823,12 @@ const localFilesMessagesByLocale = {
     pulledFromFolder: "تم السحب من المجلد",
     pullFailed: "فشل السحب",
     folderRemoved: "تمت إزالة المجلد",
+    importedFiles: "{{count}} ملفات",
+    importedLocalFiles: "الملفات المحلية المستوردة",
+    importedSource: "مصدر مستورد",
+    remove: "إزالة",
     removeFailed: "فشلت الإزالة",
+    removing: "جار الإزالة...",
   },
 } satisfies Partial<Record<LocaleCode, Partial<Messages["localFiles"]>>>;
 
@@ -3510,6 +3885,7 @@ const databaseExactEnglishMessagesByLocale = {
     filterEmpty: "筛选为空",
     filterNotEmpty: "筛选非空",
     filterRowsWhere: "筛选满足条件的行",
+    failedToSaveView: "保存视图失败",
     filterUnchecked: "筛选未选中",
     groupBy: "分组依据",
     groupName: "分组名称",
@@ -3542,6 +3918,7 @@ const databaseExactEnglishMessagesByLocale = {
     noOtherDatabasesAvailableToAdd: "没有其他可添加的数据库。",
     noPropertiesFound: "未找到属性",
     notMappedToBuilder: "未映射到 Builder。",
+    personalViewChanges: "仅自己可见",
     openPagesIn: "打开页面位置",
     openPage: "打开页面",
     percentChecked: "已选百分比",
@@ -3557,6 +3934,7 @@ const databaseExactEnglishMessagesByLocale = {
     reviewDiff: "审核差异",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
+    saveForEveryone: "为所有人保存",
     sortAscending: "升序排序",
     sortDescending: "降序排序",
     sortRowsBy: "排序行依据",
@@ -4464,6 +4842,10 @@ const databaseExactEnglishMessagesByLocale = {
 const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
+    collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
+    builderBodySyncing: "内容仍在从 Builder 同步",
+    builderBodySyncingDescription:
+      "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
     creatingDatabase: "正在创建内联数据库...",
     databaseCreated: "内联数据库已创建",
     describeWhatToGenerate: "描述要生成什么...",
@@ -4523,6 +4905,7 @@ const editorMessagesByLocale = {
       generatingAltText: "正在生成替代文本...",
       image: "图片",
       imageAdded: "图片已添加",
+      imageBroken: "图片无法加载",
       imageCommentWithAlt: "图片：{{alt}}",
       imageCopied: "图像已复制。",
       imageDownloadStarted: "图像下载开始。",
@@ -4581,6 +4964,7 @@ const editorMessagesByLocale = {
       add: "添加",
       addOption: "添加选项",
       addProperty: "添加属性",
+      addPropertyFailed: "无法添加属性。",
       addPropertyLink: "添加 {{name}} 链接",
       addPropertyPerson: "添加 {{name}} 人",
       addPropertyType: "添加 {{type}} 属性",
@@ -4597,6 +4981,8 @@ const editorMessagesByLocale = {
       deleteProperty: "删除属性",
       deletePropertyDescription:
         '这将从该工作区中的每个文档中删除"{{name}}"及其值。',
+      deletePropertyDescriptionPrefix: '这将从该工作区中的每个文档中删除"',
+      deletePropertyDescriptionSuffix: '"及其值。',
       deletePropertyQuestion: "删除属性？",
       duplicateProperty: "重复的属性",
       editEndDate: "编辑 {{name}} 结束日期",
@@ -4781,6 +5167,11 @@ const editorMessagesByLocale = {
   },
   "es-ES": {
     noDocumentSelected: "Ningún documento seleccionado",
+    collabConnectingReadOnly:
+      "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
+    builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
+    builderBodySyncingDescription:
+      "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
     creatingDatabase: "Creando base de datos integrada...",
     databaseCreated: "Base de datos integrada creada",
     describeWhatToGenerate: "Describe qué generar...",
@@ -4842,6 +5233,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Generando texto alternativo...",
       image: "Imagen",
       imageAdded: "Imagen agregada",
+      imageBroken: "No se pudo cargar la imagen",
       imageCommentWithAlt: "Imagen: {{alt}}",
       imageCopied: "Imagen copiada.",
       imageDownloadStarted: "Se inició la descarga de la imagen.",
@@ -4900,6 +5292,7 @@ const editorMessagesByLocale = {
       add: "Añadir",
       addOption: "Agregar opción",
       addProperty: "Agregar propiedad",
+      addPropertyFailed: "No se pudo agregar la propiedad.",
       addPropertyLink: "Agregar enlace {{name}}",
       addPropertyPerson: "Agregar persona {{name}}",
       addPropertyType: "Agregar propiedad {{type}}",
@@ -4916,6 +5309,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eliminar propiedad",
       deletePropertyDescription:
         'Esto elimina "{{name}}" y sus valores de todos los documentos de este espacio de trabajo.',
+      deletePropertyDescriptionPrefix: 'Esto elimina "',
+      deletePropertyDescriptionSuffix:
+        '" y sus valores de todos los documentos de este espacio de trabajo.',
       deletePropertyQuestion: "¿Eliminar propiedad?",
       duplicateProperty: "Propiedad duplicada",
       editEndDate: "Editar fecha de finalización de {{name}}",
@@ -5108,6 +5504,12 @@ const editorMessagesByLocale = {
   },
   "fr-FR": {
     noDocumentSelected: "Aucun document sélectionné",
+    collabConnectingReadOnly:
+      "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
+    builderBodySyncing:
+      "Le contenu est encore en cours de synchronisation depuis Builder",
+    builderBodySyncingDescription:
+      "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
     creatingDatabase: "Création d'une base de données intégrée...",
     databaseCreated: "Base de données intégrée créée",
     describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
@@ -5171,6 +5573,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Génération du texte alternatif...",
       image: "Images",
       imageAdded: "Image ajoutée",
+      imageBroken: "L'image n'a pas pu être chargée",
       imageCommentWithAlt: "Image : {{alt}}",
       imageCopied: "Image copiée.",
       imageDownloadStarted: "Le téléchargement de l'image a commencé.",
@@ -5229,6 +5632,7 @@ const editorMessagesByLocale = {
       add: "Ajouter",
       addOption: "Ajouter une option",
       addProperty: "Ajouter une propriété",
+      addPropertyFailed: "Impossible d’ajouter la propriété.",
       addPropertyLink: "Ajouter un lien {{name}}",
       addPropertyPerson: "Ajouter une personne {{name}}",
       addPropertyType: "Ajouter la propriété {{type}}",
@@ -5245,6 +5649,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Supprimer la propriété",
       deletePropertyDescription:
         "Cela supprime « {{name}} » et ses valeurs de chaque document de cet espace de travail.",
+      deletePropertyDescriptionPrefix: "Cela supprime « ",
+      deletePropertyDescriptionSuffix:
+        " » et ses valeurs de chaque document de cet espace de travail.",
       deletePropertyQuestion: "Supprimer la propriété ?",
       duplicateProperty: "Propriété en double",
       editEndDate: "Modifier la date de fin de {{name}}",
@@ -5437,6 +5844,11 @@ const editorMessagesByLocale = {
   },
   "de-DE": {
     noDocumentSelected: "Kein Dokument ausgewählt",
+    collabConnectingReadOnly:
+      "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
+    builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+    builderBodySyncingDescription:
+      "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
     creatingDatabase: "Inline-Datenbank wird erstellt...",
     databaseCreated: "Inline-Datenbank erstellt",
     describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
@@ -5500,6 +5912,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Alternativtext wird generiert...",
       image: "Bild",
       imageAdded: "Bild hinzugefügt",
+      imageBroken: "Bild konnte nicht geladen werden",
       imageCommentWithAlt: "Bild: {{alt}}",
       imageCopied: "Bild kopiert.",
       imageDownloadStarted: "Bild-Download gestartet.",
@@ -5559,6 +5972,7 @@ const editorMessagesByLocale = {
       add: "Hinzufügen",
       addOption: "Option hinzufügen",
       addProperty: "Eigenschaft hinzufügen",
+      addPropertyFailed: "Eigenschaft konnte nicht hinzugefügt werden.",
       addPropertyLink: "{{name}}-Link hinzufügen",
       addPropertyPerson: "{{name}}-Person hinzufügen",
       addPropertyType: "{{type}}-Eigenschaft hinzufügen",
@@ -5575,6 +5989,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eigenschaft löschen",
       deletePropertyDescription:
         'Dadurch werden „{{name}}" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
+      deletePropertyDescriptionPrefix: "Dadurch werden „",
+      deletePropertyDescriptionSuffix:
+        '" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
       deletePropertyQuestion: "Eigenschaft löschen?",
       duplicateProperty: "Doppelte Eigenschaft",
       editEndDate: "{{name}}-Enddatum bearbeiten",
@@ -5771,6 +6188,11 @@ const editorMessagesByLocale = {
   },
   "ja-JP": {
     noDocumentSelected: "ドキュメントが選択されていません",
+    collabConnectingReadOnly:
+      "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
+    builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+    builderBodySyncingDescription:
+      "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
     creatingDatabase: "インラインデータベースを作成しています...",
     databaseCreated: "インラインデータベースが作成されました",
     describeWhatToGenerate: "何を生成するかを説明します...",
@@ -5830,6 +6252,7 @@ const editorMessagesByLocale = {
       generatingAltText: "代替テキストを生成しています...",
       image: "画像",
       imageAdded: "画像追加",
+      imageBroken: "画像を読み込めませんでした",
       imageCommentWithAlt: "画像: {{alt}}",
       imageCopied: "画像をコピーしました。",
       imageDownloadStarted: "画像のダウンロードが始まりました。",
@@ -5889,6 +6312,7 @@ const editorMessagesByLocale = {
       add: "追加",
       addOption: "オプションを追加",
       addProperty: "プロパティの追加",
+      addPropertyFailed: "プロパティを追加できませんでした。",
       addPropertyLink: "{{name}} リンクを追加",
       addPropertyPerson: "{{name}} 人を追加",
       addPropertyType: "{{type}}プロパティを追加",
@@ -5905,6 +6329,9 @@ const editorMessagesByLocale = {
       deleteProperty: "プロパティの削除",
       deletePropertyDescription:
         "これにより、このワークスペース内のすべてのドキュメントから「{{name}}」とその値が削除されます。",
+      deletePropertyDescriptionPrefix:
+        "これにより、このワークスペース内のすべてのドキュメントから「",
+      deletePropertyDescriptionSuffix: "」とその値が削除されます。",
       deletePropertyQuestion: "プロパティを削除しますか?",
       duplicateProperty: "重複したプロパティ",
       editEndDate: "{{name}} の終了日を編集",
@@ -6095,6 +6522,11 @@ const editorMessagesByLocale = {
   },
   "ko-KR": {
     noDocumentSelected: "선택한 문서가 없습니다.",
+    collabConnectingReadOnly:
+      "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
+    builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+    builderBodySyncingDescription:
+      "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
     creatingDatabase: "인라인 데이터베이스 생성 중...",
     databaseCreated: "인라인 데이터베이스가 생성되었습니다.",
     describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
@@ -6154,6 +6586,7 @@ const editorMessagesByLocale = {
       generatingAltText: "대체 텍스트 생성 중...",
       image: "이미지",
       imageAdded: "이미지가 추가됨",
+      imageBroken: "이미지를 불러올 수 없습니다",
       imageCommentWithAlt: "이미지: {{alt}}",
       imageCopied: "이미지가 복사되었습니다.",
       imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
@@ -6212,6 +6645,7 @@ const editorMessagesByLocale = {
       add: "추가",
       addOption: "옵션 추가",
       addProperty: "속성 추가",
+      addPropertyFailed: "속성을 추가하지 못했습니다.",
       addPropertyLink: "{{name}} 링크 추가",
       addPropertyPerson: "{{name}} 사람 추가",
       addPropertyType: "{{type}} 속성 추가",
@@ -6228,6 +6662,9 @@ const editorMessagesByLocale = {
       deleteProperty: "속성 삭제",
       deletePropertyDescription:
         '이렇게 하면 이 작업공간의 모든 문서에서 "{{name}}"와 해당 값이 제거됩니다.',
+      deletePropertyDescriptionPrefix:
+        '이렇게 하면 이 작업공간의 모든 문서에서 "',
+      deletePropertyDescriptionSuffix: '"와 해당 값이 제거됩니다.',
       deletePropertyQuestion: "속성을 삭제하시겠습니까?",
       duplicateProperty: "중복된 속성",
       editEndDate: "{{name}} 종료일 수정",
@@ -6418,6 +6855,11 @@ const editorMessagesByLocale = {
   },
   "pt-BR": {
     noDocumentSelected: "Nenhum documento selecionado",
+    collabConnectingReadOnly:
+      "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
+    builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+    builderBodySyncingDescription:
+      "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
     creatingDatabase: "Criando banco de dados embutido...",
     databaseCreated: "Banco de dados embutido criado",
     describeWhatToGenerate: "Descreva o que gerar...",
@@ -6479,6 +6921,7 @@ const editorMessagesByLocale = {
       generatingAltText: "Gerando texto alternativo...",
       image: "Imagem",
       imageAdded: "Imagem adicionada",
+      imageBroken: "Não foi possível carregar a imagem",
       imageCommentWithAlt: "Imagem: {{alt}}",
       imageCopied: "Imagem copiada.",
       imageDownloadStarted: "O download da imagem foi iniciado.",
@@ -6538,6 +6981,7 @@ const editorMessagesByLocale = {
       add: "Adicionar",
       addOption: "Adicionar opção",
       addProperty: "Adicionar propriedade",
+      addPropertyFailed: "Não foi possível adicionar a propriedade.",
       addPropertyLink: "Adicionar link {{name}}",
       addPropertyPerson: "Adicionar pessoa {{name}}",
       addPropertyType: "Adicionar propriedade {{type}}",
@@ -6554,6 +6998,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Excluir propriedade",
       deletePropertyDescription:
         'Isso remove "{{name}}" e seus valores de todos os documentos nesta área de trabalho.',
+      deletePropertyDescriptionPrefix: 'Isso remove "',
+      deletePropertyDescriptionSuffix:
+        '" e seus valores de todos os documentos nesta área de trabalho.',
       deletePropertyQuestion: "Excluir propriedade?",
       duplicateProperty: "Propriedade duplicada",
       editEndDate: "Editar data de término do {{name}}",
@@ -6747,6 +7194,11 @@ const editorMessagesByLocale = {
   },
   "hi-IN": {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    collabConnectingReadOnly:
+      "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
+    builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+    builderBodySyncingDescription:
+      "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
     creatingDatabase: "इनलाइन डेटाबेस बनाया जा रहा है...",
     databaseCreated: "इनलाइन डेटाबेस बनाया गया",
     describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
@@ -6806,6 +7258,7 @@ const editorMessagesByLocale = {
       generatingAltText: "वैकल्पिक टेक्स्ट जनरेट किया जा रहा है...",
       image: "छवि",
       imageAdded: "छवि जोड़ी गई",
+      imageBroken: "छवि लोड नहीं हो सकी",
       imageCommentWithAlt: "छवि: {{alt}}",
       imageCopied: "छवि कॉपी की गई.",
       imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
@@ -6864,6 +7317,7 @@ const editorMessagesByLocale = {
       add: "जोड़ें",
       addOption: "विकल्प जोड़ें",
       addProperty: "संपत्ति जोड़ें",
+      addPropertyFailed: "प्रॉपर्टी नहीं जोड़ी जा सकी।",
       addPropertyLink: "{{name}} लिंक जोड़ें",
       addPropertyPerson: "{{name}} व्यक्ति जोड़ें",
       addPropertyType: "{{type}} गुण जोड़ें",
@@ -6880,6 +7334,8 @@ const editorMessagesByLocale = {
       deleteProperty: "संपत्ति हटाएं",
       deletePropertyDescription:
         'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "{{name}}" और उसके मानों को हटा देता है।',
+      deletePropertyDescriptionPrefix: 'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "',
+      deletePropertyDescriptionSuffix: '" और उसके मानों को हटा देता है।',
       deletePropertyQuestion: "संपत्ति हटाएं?",
       duplicateProperty: "डुप्लिकेट संपत्ति",
       editEndDate: "{{name}} समाप्ति तिथि संपादित करें",
@@ -7067,6 +7523,11 @@ const editorMessagesByLocale = {
   },
   "ar-SA": {
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    collabConnectingReadOnly:
+      "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
+    builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+    builderBodySyncingDescription:
+      "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
     creatingDatabase: "جارٍ إنشاء قاعدة بيانات مضمنة...",
     databaseCreated: "تم إنشاء قاعدة البيانات المضمنة",
     describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
@@ -7126,6 +7587,7 @@ const editorMessagesByLocale = {
       generatingAltText: "جارٍ إنشاء نص بديل...",
       image: "صورة",
       imageAdded: "تمت إضافة الصورة",
+      imageBroken: "تعذّر تحميل الصورة",
       imageCommentWithAlt: "الصورة: {{alt}}",
       imageCopied: "تم نسخ الصورة.",
       imageDownloadStarted: "بدأ تنزيل الصورة.",
@@ -7184,6 +7646,7 @@ const editorMessagesByLocale = {
       add: "أضف",
       addOption: "إضافة خيار",
       addProperty: "أضف خاصية",
+      addPropertyFailed: "تعذرت إضافة الخاصية.",
       addPropertyLink: "أضف رابط {{name}}",
       addPropertyPerson: "إضافة شخص {{name}}",
       addPropertyType: "إضافة خاصية {{type}}",
@@ -7200,6 +7663,9 @@ const editorMessagesByLocale = {
       deleteProperty: "حذف الممتلكات",
       deletePropertyDescription:
         'يؤدي هذا إلى إزالة "{{name}}" وقيمه من كل مستند في مساحة العمل هذه.',
+      deletePropertyDescriptionPrefix: 'يؤدي هذا إلى إزالة "',
+      deletePropertyDescriptionSuffix:
+        '" وقيمه من كل مستند في مساحة العمل هذه.',
       deletePropertyQuestion: "هل تريد حذف الخاصية؟",
       duplicateProperty: "خاصية مكررة",
       editEndDate: "تحرير تاريخ انتهاء {{name}}",
@@ -7642,6 +8108,32 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["zh-CN"],
       builderBodiesReadyLocally: "Builder 文章正文已在本地准备就绪。",
       builderBodySync: "正文同步",
+      builderBodySyncFailedNotice: "此文章正文无法从 Builder 同步",
+      builderBodySyncFailedDescription:
+        "该行仍可编辑，但 Builder 正文未完成同步。发布或推送更改前请检查文章内容。",
+      builderBodySyncing: "内容仍在从 Builder 同步",
+      builderBodySyncingDescription:
+        "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderReviewShowingRows:
+        "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
+      builderReviewShowMore: "显示更多",
+      builderReviewRemainingBatches:
+        "此批次完成后请再次审查，以准备其余 Builder 更改。",
+      builderBodiesSyncingProgress:
+        "正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderBodiesSyncFinishedWithFailures:
+        "已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
+      builderRowsFetchedBodiesSyncing:
+        "已获取 {{rows}} 行。正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "已获取 {{rows}} 行。已同步 {{total}} 个正文中的 {{hydrated}} 个。{{failed}} 个失败。",
+      builderRowsFetchedSyncingBodies:
+        "Builder 行已全部获取。文章正文仍在同步中。",
+      builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
+      builderRowsFinishingUp: "Builder 行即将完成加载。",
+      builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
+      opening: "正在打开...",
     },
     localFiles: localFilesMessagesByLocale["zh-CN"],
     root: {
@@ -7776,6 +8268,37 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Los cuerpos de los artículos de Builder están listos localmente.",
       builderBodySync: "Sincronización del cuerpo",
+      builderBodySyncFailedNotice:
+        "El cuerpo de este artículo no se pudo sincronizar desde Builder",
+      builderBodySyncFailedDescription:
+        "La fila sigue siendo editable, pero el cuerpo de Builder no terminó de sincronizarse. Revisa el contenido del artículo antes de publicar o enviar cambios.",
+      builderBodySyncing:
+        "El contenido aún se está sincronizando desde Builder",
+      builderBodySyncingDescription:
+        "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
+      builderReviewShowMore: "Mostrar más",
+      builderReviewRemainingBatches:
+        "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
+      builderBodiesSyncingProgress:
+        "Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} filas obtenidas. Sincronizando {{hydrated}} de {{total}} cuerpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} filas obtenidas. {{hydrated}} de {{total}} cuerpos sincronizados. {{failed}} fallaron.",
+      builderRowsFetchedSyncingBodies:
+        "Las filas de Builder están obtenidas. Los cuerpos de los artículos aún se están sincronizando.",
+      builderRowsFetchedSoFar: "{{count}} filas obtenidas hasta ahora.",
+      builderRowsFinishingUp:
+        "Las filas de Builder están terminando de cargarse.",
+      builderRowsLoadingBackground:
+        "Builder sigue cargando filas en segundo plano.",
+      builderRowsLoadingHitSnag:
+        "La carga de filas de Builder tuvo un problema.",
+      opening: "Abriendo...",
     },
     localFiles: localFilesMessagesByLocale["es-ES"],
     root: {
@@ -7920,6 +8443,36 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Les corps d’articles Builder sont prêts localement.",
       builderBodySync: "Synchronisation du corps",
+      builderBodySyncFailedNotice:
+        "Le corps de cet article n'a pas pu être synchronisé depuis Builder",
+      builderBodySyncFailedDescription:
+        "La ligne reste modifiable, mais le corps Builder n'a pas terminé sa synchronisation. Vérifiez le contenu de l'article avant de publier ou de pousser des modifications.",
+      builderBodySyncing:
+        "Le contenu est encore en cours de synchronisation depuis Builder",
+      builderBodySyncingDescription:
+        "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderReviewShowingRows:
+        "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
+      builderReviewShowMore: "Afficher plus",
+      builderReviewRemainingBatches:
+        "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
+      builderBodiesSyncingProgress:
+        "Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} lignes récupérées. Synchronisation de {{hydrated}} corps sur {{total}}.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} lignes récupérées. {{hydrated}} corps synchronisés sur {{total}}. {{failed}} échecs.",
+      builderRowsFetchedSyncingBodies:
+        "Les lignes Builder sont récupérées. Les corps d'articles se synchronisent encore.",
+      builderRowsFetchedSoFar: "{{count}} lignes récupérées jusqu’à présent.",
+      builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
+      builderRowsLoadingBackground:
+        "Builder charge encore des lignes en arrière-plan.",
+      builderRowsLoadingHitSnag:
+        "Le chargement des lignes Builder a rencontré un problème.",
+      opening: "Ouverture...",
     },
     localFiles: localFilesMessagesByLocale["fr-FR"],
     root: {
@@ -8067,6 +8620,35 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["de-DE"],
       builderBodiesReadyLocally: "Builder-Artikelinhalte sind lokal bereit.",
       builderBodySync: "Inhaltssynchronisierung",
+      builderBodySyncFailedNotice:
+        "Der Inhalt dieses Artikels konnte nicht aus Builder synchronisiert werden",
+      builderBodySyncFailedDescription:
+        "Die Zeile bleibt bearbeitbar, aber der Builder-Inhalt wurde nicht vollständig synchronisiert. Prüfen Sie den Artikelinhalt vor dem Veröffentlichen oder Pushen.",
+      builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
+      builderBodySyncingDescription:
+        "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderReviewShowingRows:
+        "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
+      builderReviewShowMore: "Mehr anzeigen",
+      builderReviewRemainingBatches:
+        "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+      builderBodiesSyncingProgress:
+        "{{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten werden synchronisiert.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} Zeilen geladen. {{hydrated}} von {{total}} Texten synchronisiert. {{failed}} fehlgeschlagen.",
+      builderRowsFetchedSyncingBodies:
+        "Builder-Zeilen sind geladen. Artikeltexte werden noch synchronisiert.",
+      builderRowsFetchedSoFar: "{{count}} Zeilen bisher abgerufen.",
+      builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
+      builderRowsLoadingBackground:
+        "Builder lädt weiterhin Zeilen im Hintergrund.",
+      builderRowsLoadingHitSnag:
+        "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
+      opening: "Wird geöffnet...",
     },
     localFiles: localFilesMessagesByLocale["de-DE"],
     root: {
@@ -8215,6 +8797,34 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Builder の記事本文はローカルで準備できています。",
       builderBodySync: "本文同期",
+      builderBodySyncFailedNotice:
+        "この記事の本文を Builder から同期できませんでした",
+      builderBodySyncFailedDescription:
+        "この行は引き続き編集できますが、Builder 本文の同期は完了していません。公開または変更のプッシュ前に記事内容を確認してください。",
+      builderBodySyncing: "コンテンツはまだ Builder から同期中です",
+      builderBodySyncingDescription:
+        "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderReviewShowingRows:
+        "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
+      builderReviewShowMore: "さらに表示",
+      builderReviewRemainingBatches:
+        "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
+      builderBodiesSyncingProgress:
+        "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} 行を取得しました。{{total}} 件中 {{hydrated}} 件の本文を同期しました。{{failed}} 件が失敗しました。",
+      builderRowsFetchedSyncingBodies:
+        "Builder の行は取得済みです。記事本文はまだ同期中です。",
+      builderRowsFetchedSoFar: "現在 {{count}} 行を取得済みです。",
+      builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
+      builderRowsLoadingBackground:
+        "Builder はバックグラウンドで行を読み込み続けています。",
+      builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
+      opening: "開いています...",
     },
     localFiles: localFilesMessagesByLocale["ja-JP"],
     root: {
@@ -8358,6 +8968,34 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ko-KR"],
       builderBodiesReadyLocally: "Builder 문서 본문이 로컬에서 준비되었습니다.",
       builderBodySync: "본문 동기화",
+      builderBodySyncFailedNotice:
+        "이 문서 본문을 Builder에서 동기화하지 못했습니다",
+      builderBodySyncFailedDescription:
+        "이 행은 계속 편집할 수 있지만 Builder 본문 동기화가 완료되지 않았습니다. 게시하거나 변경 사항을 푸시하기 전에 문서 내용을 검토하세요.",
+      builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
+      builderBodySyncingDescription:
+        "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderReviewShowingRows:
+        "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
+      builderReviewShowMore: "더 보기",
+      builderReviewRemainingBatches:
+        "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
+      builderBodiesSyncingProgress:
+        "본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderBodiesSyncFinishedWithFailures:
+        "본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
+      builderRowsFetchedBodiesSyncing:
+        "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "행 {{rows}}개를 가져왔습니다. 본문 {{total}}개 중 {{hydrated}}개를 동기화했습니다. {{failed}}개 실패했습니다.",
+      builderRowsFetchedSyncingBodies:
+        "Builder 행을 모두 가져왔습니다. 문서 본문은 아직 동기화 중입니다.",
+      builderRowsFetchedSoFar: "지금까지 {{count}}개 행을 가져왔습니다.",
+      builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
+      builderRowsLoadingBackground:
+        "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
+      opening: "여는 중...",
     },
     localFiles: localFilesMessagesByLocale["ko-KR"],
     root: {
@@ -8494,6 +9132,36 @@ export const messagesByLocale = {
       builderBodiesReadyLocally:
         "Os corpos dos artigos do Builder estão prontos localmente.",
       builderBodySync: "Sincronização do corpo",
+      builderBodySyncFailedNotice:
+        "O corpo deste artigo não pôde ser sincronizado do Builder",
+      builderBodySyncFailedDescription:
+        "A linha continua editável, mas o corpo do Builder não terminou de sincronizar. Revise o conteúdo do artigo antes de publicar ou enviar alterações.",
+      builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
+      builderBodySyncingDescription:
+        "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderReviewShowingRows:
+        "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
+      builderReviewShowMore: "Mostrar mais",
+      builderReviewRemainingBatches:
+        "Revise novamente após este lote para preparar as alterações restantes do Builder.",
+      builderBodiesSyncingProgress:
+        "Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderBodiesSyncFinishedWithFailures:
+        "{{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} linhas obtidas. Sincronizando {{hydrated}} de {{total}} corpos.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} linhas obtidas. {{hydrated}} de {{total}} corpos sincronizados. {{failed}} falharam.",
+      builderRowsFetchedSyncingBodies:
+        "As linhas do Builder foram obtidas. Os corpos dos artigos ainda estão sincronizando.",
+      builderRowsFetchedSoFar: "{{count}} linhas buscadas até agora.",
+      builderRowsFinishingUp:
+        "As linhas do Builder estão terminando de carregar.",
+      builderRowsLoadingBackground:
+        "O Builder ainda está carregando linhas em segundo plano.",
+      builderRowsLoadingHitSnag:
+        "O carregamento de linhas do Builder encontrou um problema.",
+      opening: "Abrindo...",
     },
     localFiles: localFilesMessagesByLocale["pt-BR"],
     root: {
@@ -8640,6 +9308,33 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["hi-IN"],
       builderBodiesReadyLocally: "Builder लेखों की बॉडी स्थानीय रूप से तैयार है।",
       builderBodySync: "बॉडी सिंक",
+      builderBodySyncFailedNotice: "इस लेख की बॉडी Builder से सिंक नहीं हो सकी",
+      builderBodySyncFailedDescription:
+        "पंक्ति संपादन योग्य रहती है, लेकिन Builder बॉडी ने सिंक पूरा नहीं किया। प्रकाशित करने या परिवर्तन पुश करने से पहले लेख सामग्री की समीक्षा करें।",
+      builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
+      builderBodySyncingDescription:
+        "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderReviewShowingRows:
+        "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
+      builderReviewShowMore: "और दिखाएँ",
+      builderReviewRemainingBatches:
+        "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
+      builderBodiesSyncingProgress:
+        "{{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderBodiesSyncFinishedWithFailures:
+        "{{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
+      builderRowsFetchedBodiesSyncing:
+        "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "{{rows}} पंक्तियाँ प्राप्त हुईं। {{total}} में से {{hydrated}} मुख्य भाग सिंक हुए। {{failed}} विफल हुए।",
+      builderRowsFetchedSyncingBodies:
+        "Builder पंक्तियाँ प्राप्त हो गई हैं। लेखों के मुख्य भाग अभी भी सिंक हो रहे हैं।",
+      builderRowsFetchedSoFar: "अब तक {{count}} पंक्तियां लाई गईं।",
+      builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
+      builderRowsLoadingBackground:
+        "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
+      opening: "खोला जा रहा है...",
     },
     localFiles: localFilesMessagesByLocale["hi-IN"],
     root: {
@@ -8774,6 +9469,32 @@ export const messagesByLocale = {
       ...databaseExactEnglishMessagesByLocale["ar-SA"],
       builderBodiesReadyLocally: "أصبحت نصوص مقالات Builder جاهزة محليًا.",
       builderBodySync: "مزامنة النص",
+      builderBodySyncFailedNotice: "تعذرت مزامنة نص هذه المقالة من Builder",
+      builderBodySyncFailedDescription:
+        "يبقى الصف قابلاً للتحرير، لكن نص Builder لم يكمل المزامنة. راجع محتوى المقالة قبل النشر أو دفع التغييرات.",
+      builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
+      builderBodySyncingDescription:
+        "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderReviewShowingRows:
+        "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
+      builderReviewShowMore: "عرض المزيد",
+      builderReviewRemainingBatches:
+        "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
+      builderBodiesSyncingProgress:
+        "تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderBodiesSyncFinishedWithFailures:
+        "تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
+      builderRowsFetchedBodiesSyncing:
+        "تم جلب {{rows}} صفًا. تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
+      builderRowsFetchedBodiesSyncFinishedWithFailures:
+        "تم جلب {{rows}} صفًا. تمت مزامنة {{hydrated}} من {{total}} من النصوص. فشل {{failed}}.",
+      builderRowsFetchedSyncingBodies:
+        "تم جلب صفوف Builder. لا تزال نصوص المقالات قيد المزامنة.",
+      builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
+      builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
+      builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
+      opening: "جارٍ الفتح...",
     },
     localFiles: localFilesMessagesByLocale["ar-SA"],
     root: {

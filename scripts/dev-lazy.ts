@@ -39,6 +39,9 @@ interface TemplateApp {
   outputTail?: string;
   ready?: boolean;
   readinessProbe?: Promise<void>;
+  lastActivityAt?: number;
+  openSockets?: number;
+  evicting?: boolean;
 }
 
 const argv = process.argv.slice(2);
@@ -54,6 +57,7 @@ const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
+const EVICT_SWEEP_MS = 30_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
 const DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS = ["assets"];
@@ -137,8 +141,9 @@ Options:
   --desktop                 Also start the clips-desktop tray (Tauri)
   --electron                Also start the Electron desktop shell and frame
   --eager                   Start every exposed template immediately
-  --no-prewarm              Skip background prewarm of non-default templates
-                            (defaults to on in lazy mode)
+  --prewarm                 Background-warm all selected templates for snappy
+                            switching (default: off / truly lazy)
+  --no-prewarm              No-op alias (prewarm is already off by default)
   --prewarm-concurrency=N   Max parallel Vite spawns during prewarm (default 2)
   --open                    Open the gateway URL in the browser on ready
   --no-open                 (legacy / no-op — auto-open is off by default)
@@ -246,10 +251,17 @@ const eager = hasFlag("--eager");
 const dryRun = hasFlag("--dry-run");
 const prewarmEnabled = (() => {
   if (eager) return false;
-  if (hasFlag("--no-prewarm")) return false;
-  const env = process.env.WORKSPACE_NO_PREWARM;
-  if (env === "1" || env === "true") return false;
-  return true;
+  // Prewarm is now opt-in (default off) to keep only actively-used templates
+  // resident. `--no-prewarm` / WORKSPACE_NO_PREWARM stay recognized as no-ops.
+  if (hasFlag("--prewarm")) return true;
+  return readBooleanEnv(process.env.WORKSPACE_PREWARM) === true;
+})();
+const templateIdleMs = (() => {
+  const raw = process.env.WORKSPACE_TEMPLATE_IDLE_MS;
+  if (raw === undefined) return 120_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 120_000;
+  return Math.floor(parsed);
 })();
 const prewarmConcurrency = (() => {
   const raw =
@@ -783,6 +795,54 @@ function ensureReadinessProbe(app: TemplateApp): void {
 }
 
 /**
+ * Pure eviction decision so the matrix (open socket never evicts; quiet + no
+ * socket past the timeout evicts; within the timeout does not) is testable in
+ * isolation. `idleTimeoutMs <= 0` disables eviction entirely.
+ */
+function shouldEvict(input: {
+  lastActivityAt: number;
+  openSockets: number;
+  now: number;
+  idleTimeoutMs: number;
+}): boolean {
+  if (input.idleTimeoutMs <= 0) return false;
+  if (input.openSockets > 0) return false;
+  return input.now - input.lastActivityAt > input.idleTimeoutMs;
+}
+
+function evictApp(app: TemplateApp): void {
+  process.stderr.write(
+    `${colorPrefix(app.id)} evicting idle app (no activity for ${Math.round(
+      templateIdleMs / 1_000,
+    )}s)\n`,
+  );
+  // Mark before signalling so the child's exit handler treats this as a clean
+  // teardown and does not schedule a restart. The next request cold-starts it.
+  app.evicting = true;
+  killChildProcessTree(app.process, "SIGTERM");
+}
+
+function sweepIdleApps(): void {
+  if (templateIdleMs <= 0) return;
+  const now = Date.now();
+  for (const app of apps) {
+    if (!app.process || app.process.killed) continue;
+    // Skip apps mid-restart or with an in-flight readiness probe (cold-starting).
+    if (app.restartTimer || app.readinessProbe) continue;
+    if (
+      shouldEvict({
+        lastActivityAt: app.lastActivityAt ?? now,
+        openSockets: app.openSockets ?? 0,
+        now,
+        idleTimeoutMs: templateIdleMs,
+      })
+    ) {
+      evictApp(app);
+    }
+  }
+}
+
+/**
  * Background-spawn templates other than the default so the first navigation
  * into each one doesn't pay the cold Vite + esbuild prebundle cost. The lazy
  * proxy still handles correctness; this just makes second/third/Nth visits
@@ -790,7 +850,6 @@ function ensureReadinessProbe(app: TemplateApp): void {
  */
 async function prewarmRemainingApps(): Promise<void> {
   const queue = apps
-    .filter((app) => app.id !== defaultApp)
     .filter((app) => !(app.process && !app.process.killed))
     .map((app) => app.id);
 
@@ -867,6 +926,9 @@ function startApp(app: TemplateApp): void {
   if (app.restartTimer) return;
   app.lastFailure = undefined;
   app.outputTail = undefined;
+  app.evicting = false;
+  app.lastActivityAt = Date.now();
+  app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
   const child = spawn(
@@ -937,10 +999,12 @@ function startApp(app: TemplateApp): void {
   });
   child.on("exit", (code) => {
     clearTimeout(stableTimer);
+    const wasEvicting = app.evicting;
     app.process = undefined;
     app.ready = false;
     app.readinessProbe = undefined;
-    if (code === 0 || shuttingDown) return;
+    app.evicting = false;
+    if (code === 0 || shuttingDown || wasEvicting) return;
     scheduleAppRestart(app, {
       code,
       output: app.outputTail ?? "",
@@ -997,6 +1061,7 @@ function proxyHttp(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
+  app.lastActivityAt = Date.now();
   const cold = !app.process || app.process.killed;
   startApp(app);
 
@@ -1130,6 +1195,20 @@ function proxyUpgrade(
   socket: Duplex,
   head: Buffer,
 ): void {
+  app.lastActivityAt = Date.now();
+  // Pin the app alive while this upgrade (e.g. Vite HMR) socket is open, so an
+  // actively edited/verified app is never evicted regardless of HTTP quiet.
+  app.openSockets = (app.openSockets ?? 0) + 1;
+  let released = false;
+  const releaseSocket = () => {
+    if (released) return;
+    released = true;
+    app.openSockets = Math.max(0, (app.openSockets ?? 1) - 1);
+    app.lastActivityAt = Date.now();
+  };
+  socket.once("close", releaseSocket);
+  socket.once("error", releaseSocket);
+
   startApp(app);
   let target: net.Socket | undefined;
   attachGatewaySocketErrorSink(socket, () => {
@@ -1433,7 +1512,7 @@ if (usePollingFileWatcher) {
   );
 }
 
-const coreWatchCompiler = usePollingFileWatcher ? "tsc" : "tsgo";
+const coreWatchCompiler = "tsc";
 startBackgroundProcess("core", "pnpm", [
   "--filter",
   "@agent-native/core",
@@ -1445,6 +1524,11 @@ startBackgroundProcess("core", "pnpm", [
 
 const server = createGateway();
 gatewayServer = server;
+
+if (templateIdleMs > 0) {
+  const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
+  evictSweep.unref();
+}
 
 function listen(port: number, attempts = 20): void {
   server.once("error", (err: NodeJS.ErrnoException) => {
@@ -1474,8 +1558,8 @@ function listen(port: number, attempts = 20): void {
     if (eager) {
       for (const app of apps) startApp(app);
     } else if (!includeElectron) {
-      const app = selectedById.get(defaultApp);
-      if (app) startApp(app);
+      // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
+      // browser following it cold-starts exactly one app via the proxy path.
       if (prewarmEnabled) {
         void prewarmRemainingApps().catch((err) => {
           console.error(

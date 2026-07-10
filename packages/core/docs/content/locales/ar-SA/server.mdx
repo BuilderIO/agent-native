@@ -129,6 +129,41 @@ export default defineEventHandler(() => ({
 
 استخدم مسارات `/api/*` المخصصة فقط عندما تحتاج إلى بروتوكول على شكل مسار أو سلوك ثنائي/دفق. انظر [Actions](/docs/actions).
 
+### تطبيقات API فقط {#api-only-apps}
+
+لا تحتاج إلى خادم Express لمجرد أن التطبيق مخصص للـ API فقط. يتضمن تطبيق Agent Native بالفعل خادم Nitro/H3، و`defineAction()` هو سطح API الافتراضي. عرّف العمليات في `actions/`؛ يقوم إطار العمل بتركيب كل action على `/_agent-native/actions/<name>` مع التحقق من schema وسياق الطلب.
+
+استخدم خيار `http` في action لتشكيل الوصول المباشر عبر HTTP: تكون actions افتراضيًا `POST`، ويغيّر `http: { method: "GET" | "PUT" | "DELETE" }` الفعل، ويجعل `http: false` الـ action غير متاحة عبر HTTP. استخدم `server/routes/api/*` فقط للمخاوف التي لها شكل مسار أو بروتوكول: تحميل الملفات، streaming/SSE، webhooks، استدعاءات OAuth، الصفحات العامة، أو شكل REST خارجي لا يمكن تمثيله بوضوح كـ action. لا تنشئ مسارات `/api/*` تقوم غالبًا بتغليف actions أو إعادة تصديرها.
+
+لإنشاء endpoint حالة للقراءة فقط، اجعله action:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+استدعِه مباشرة عبر HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+بالنسبة إلى `POST` وactions الكتابة الأخرى، أرسل جسم JSON إلى مسار action نفسه.
+
 ## إكمال النص بلقطة واحدة {#complete-text}
 
 يجب أن تتم معظم أعمال الذكاء الاصطناعي من خلال دردشة الوكيل حتى يتمكن المستخدمون من الرؤية والتوجيه والتدقيق

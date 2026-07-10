@@ -1,27 +1,27 @@
 import { useT } from "@agent-native/core/client";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@agent-native/toolkit/ui/tabs";
-import {
+  IconArrowUpRight,
   IconChevronRight,
   IconCloudDataConnection,
   IconPlayerPlay,
   IconSearch,
   IconTerminal2,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Link } from "react-router";
 
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { useErrorsT } from "../monitoring/errors/i18n";
 import {
   type ConsoleLevelFilter,
   consoleLevelBucket,
@@ -37,17 +37,64 @@ import {
   type ReplayNetworkEntry,
 } from "./session-replay-devtools";
 
+/**
+ * A session console error line resolved to its captured, Sentry-style issue.
+ * Keyed by `ReplayConsoleEntry.id`, computed server-side by `match-error-issues`
+ * so the resolution shares one fingerprint implementation with ingest.
+ */
+export type SessionIssueMatch = { issueId: string; status: string };
+
+/** Deep-link from a session error to the Monitoring → Errors issue detail. */
+function issueDetailPath(issueId: string): string {
+  return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
+}
+
 /** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
+const DEVTOOLS_ROW_HEIGHT = 34;
+const DEVTOOLS_EXPANDED_ESTIMATE = 220;
+const DEVTOOLS_OVERSCAN_ROWS = 10;
+const DEVTOOLS_MIN_HEIGHT = 180;
+const DEVTOOLS_MAX_HEIGHT = 620;
+
+/**
+ * Layout offsets for the virtualized Dev Tools list. Expanded rows reserve
+ * extra height so details render inline under the selected line without
+ * disabling virtualization for the rest of the list.
+ */
+export function buildDevToolsRowOffsets(
+  entryCount: number,
+  expandedIndex: number,
+): number[] {
+  const offsets = new Array<number>(entryCount + 1);
+  offsets[0] = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    const height =
+      index === expandedIndex
+        ? DEVTOOLS_EXPANDED_ESTIMATE
+        : DEVTOOLS_ROW_HEIGHT;
+    offsets[index + 1] = offsets[index] + height;
+  }
+  return offsets;
+}
 
 export function SessionDevToolsPanel({
   diagnostics,
   currentTime,
+  height,
+  maxHeight = DEVTOOLS_MAX_HEIGHT,
+  onHeightChange,
   onSeek,
+  issueMatches,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
+  height: number;
+  maxHeight?: number;
+  onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
+  /** Resolved error issues by console entry id, for cross-linking to Errors. */
+  issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
 }) {
   const t = useT();
   const [tab, setTab] = useState<"console" | "network">("console");
@@ -55,6 +102,12 @@ export function SessionDevToolsPanel({
   const [consoleQuery, setConsoleQuery] = useState("");
   const [networkKind, setNetworkKind] = useState<NetworkKindFilter>("all");
   const [networkQuery, setNetworkQuery] = useState("");
+  const [selectedConsoleId, setSelectedConsoleId] = useState<string | null>(
+    null,
+  );
+  const [selectedNetworkId, setSelectedNetworkId] = useState<string | null>(
+    null,
+  );
 
   const filteredConsole = useMemo(
     () => filterConsoleEntries(diagnostics.console, consoleLevel, consoleQuery),
@@ -76,6 +129,24 @@ export function SessionDevToolsPanel({
           ?.id ?? null)
       : null;
 
+  useEffect(() => {
+    if (
+      selectedConsoleId &&
+      !filteredConsole.some((entry) => entry.id === selectedConsoleId)
+    ) {
+      setSelectedConsoleId(null);
+    }
+  }, [filteredConsole, selectedConsoleId]);
+
+  useEffect(() => {
+    if (
+      selectedNetworkId &&
+      !filteredNetwork.some((entry) => entry.id === selectedNetworkId)
+    ) {
+      setSelectedNetworkId(null);
+    }
+  }, [filteredNetwork, selectedNetworkId]);
+
   const consoleLevelCounts = useMemo(() => {
     const counts = { log: 0, info: 0, warn: 0, error: 0 };
     for (const entry of diagnostics.console) {
@@ -94,12 +165,21 @@ export function SessionDevToolsPanel({
   }, [diagnostics.network]);
 
   return (
-    <div className="analytics-session-devtools shrink-0 border-t">
+    <div
+      className="analytics-session-devtools relative flex min-h-0 shrink-0 flex-col border-t bg-background"
+      style={{ height: Math.min(height, maxHeight) }}
+    >
+      <DevToolsResizeHandle
+        height={Math.min(height, maxHeight)}
+        maxHeight={maxHeight}
+        onHeightChange={onHeightChange}
+      />
       <Tabs
         value={tab}
         onValueChange={(value) => setTab(value as "console" | "network")}
+        className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex items-center gap-2 px-3 pt-2">
+        <div className="flex shrink-0 items-center gap-2 px-3 pt-2">
           <TabsList className="h-8 p-0.5">
             <TabsTrigger value="console" className="h-7 gap-1.5 px-2.5 text-xs">
               <IconTerminal2 className="h-3.5 w-3.5" />
@@ -122,8 +202,11 @@ export function SessionDevToolsPanel({
           </TabsList>
         </div>
 
-        <TabsContent value="console" className="mt-0">
-          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
+        <TabsContent
+          value="console"
+          className="mt-0 flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 py-2">
             <FilterChip
               label={t("sessions.devtoolsFilterAll", {
                 count: String(diagnostics.console.length),
@@ -167,30 +250,37 @@ export function SessionDevToolsPanel({
               placeholder={t("sessions.devtoolsConsoleSearch")}
             />
           </div>
-          <DevToolsScrollArea activeEntryId={activeConsoleId}>
-            {filteredConsole.length ? (
-              filteredConsole.map((entry) => (
-                <ConsoleRow
-                  key={entry.id}
-                  entry={entry}
-                  active={entry.id === activeConsoleId}
-                  onSeek={onSeek}
-                />
-              ))
-            ) : (
-              <DevToolsEmptyState
-                message={
-                  diagnostics.console.length
-                    ? t("sessions.devtoolsNoConsoleMatches")
-                    : t("sessions.devtoolsNoConsole")
+          <VirtualizedDevToolsList
+            entries={filteredConsole}
+            activeEntryId={activeConsoleId}
+            expandedEntryId={selectedConsoleId}
+            emptyMessage={
+              diagnostics.console.length
+                ? t("sessions.devtoolsNoConsoleMatches")
+                : t("sessions.devtoolsNoConsole")
+            }
+            renderRow={(entry, expanded) => (
+              <ConsoleRow
+                entry={entry}
+                active={entry.id === activeConsoleId}
+                selected={expanded}
+                issueMatch={issueMatches?.get(entry.id) ?? null}
+                onSelect={() =>
+                  setSelectedConsoleId((current) =>
+                    current === entry.id ? null : entry.id,
+                  )
                 }
+                onSeek={onSeek}
               />
             )}
-          </DevToolsScrollArea>
+          />
         </TabsContent>
 
-        <TabsContent value="network" className="mt-0">
-          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
+        <TabsContent
+          value="network"
+          className="mt-0 flex min-h-0 flex-1 flex-col"
+        >
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 py-2">
             <FilterChip
               label={t("sessions.devtoolsFilterAll", {
                 count: String(diagnostics.network.length),
@@ -226,69 +316,216 @@ export function SessionDevToolsPanel({
               placeholder={t("sessions.devtoolsNetworkSearch")}
             />
           </div>
-          <DevToolsScrollArea activeEntryId={activeNetworkId}>
-            {filteredNetwork.length ? (
-              filteredNetwork.map((entry) => (
-                <NetworkRow
-                  key={entry.id}
-                  entry={entry}
-                  active={entry.id === activeNetworkId}
-                  onSeek={onSeek}
-                />
-              ))
-            ) : (
-              <DevToolsEmptyState
-                message={
-                  diagnostics.network.length
-                    ? t("sessions.devtoolsNoNetworkMatches")
-                    : t("sessions.devtoolsNoNetwork")
+          <VirtualizedDevToolsList
+            entries={filteredNetwork}
+            activeEntryId={activeNetworkId}
+            expandedEntryId={selectedNetworkId}
+            emptyMessage={
+              diagnostics.network.length
+                ? t("sessions.devtoolsNoNetworkMatches")
+                : t("sessions.devtoolsNoNetwork")
+            }
+            renderRow={(entry, expanded) => (
+              <NetworkRow
+                entry={entry}
+                active={entry.id === activeNetworkId}
+                selected={expanded}
+                onSelect={() =>
+                  setSelectedNetworkId((current) =>
+                    current === entry.id ? null : entry.id,
+                  )
                 }
+                onSeek={onSeek}
               />
             )}
-          </DevToolsScrollArea>
+          />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function DevToolsScrollArea({
-  activeEntryId,
-  children,
+function DevToolsResizeHandle({
+  height,
+  maxHeight,
+  onHeightChange,
 }: {
+  height: number;
+  maxHeight: number;
+  onHeightChange: (height: number) => void;
+}) {
+  const t = useT();
+  const cappedMax = Math.max(DEVTOOLS_MIN_HEIGHT, maxHeight);
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = height;
+
+    function handlePointerMove(moveEvent: PointerEvent) {
+      onHeightChange(
+        clamp(
+          startHeight - (moveEvent.clientY - startY),
+          Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax),
+          cappedMax,
+        ),
+      );
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-label={t("sessions.devtoolsResize")}
+      aria-orientation="horizontal"
+      aria-valuemin={Math.min(DEVTOOLS_MIN_HEIGHT, cappedMax)}
+      aria-valuemax={cappedMax}
+      aria-valuenow={Math.round(height)}
+      className="absolute inset-x-0 -top-1 z-10 flex h-2 cursor-row-resize items-center justify-center"
+      onPointerDown={handlePointerDown}
+    >
+      <span className="h-0.5 w-9 rounded-full bg-border opacity-0 transition-opacity hover:opacity-100" />
+    </div>
+  );
+}
+
+function VirtualizedDevToolsList<T extends { id: string }>({
+  entries,
+  activeEntryId,
+  expandedEntryId,
+  emptyMessage,
+  renderRow,
+}: {
+  entries: T[];
   activeEntryId: string | null;
-  children: ReactNode;
+  expandedEntryId: string | null;
+  emptyMessage: string;
+  renderRow: (entry: T, expanded: boolean) => ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastManualScrollAtRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  const activeIndex = activeEntryId
+    ? entries.findIndex((entry) => entry.id === activeEntryId)
+    : -1;
+  const expandedIndex = expandedEntryId
+    ? entries.findIndex((entry) => entry.id === expandedEntryId)
+    : -1;
+
+  const rowOffsets = useMemo(
+    () => buildDevToolsRowOffsets(entries.length, expandedIndex),
+    [entries.length, expandedIndex],
+  );
+
+  const totalHeight = rowOffsets[entries.length] ?? 0;
 
   useEffect(() => {
-    if (!activeEntryId) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (activeIndex < 0) return;
     if (
       Date.now() - lastManualScrollAtRef.current <
       MANUAL_SCROLL_FOLLOW_PAUSE_MS
     ) {
       return;
     }
-    const row = containerRef.current?.querySelector(
-      `[data-entry-id="${activeEntryId}"]`,
-    );
-    row?.scrollIntoView({ block: "nearest" });
-  }, [activeEntryId]);
+    const el = containerRef.current;
+    if (!el) return;
+    const rowTop = rowOffsets[activeIndex] ?? 0;
+    const rowBottom =
+      rowOffsets[activeIndex + 1] ?? rowTop + DEVTOOLS_ROW_HEIGHT;
+    if (rowTop >= el.scrollTop && rowBottom <= el.scrollTop + el.clientHeight) {
+      return;
+    }
+    el.scrollTo({
+      top: Math.max(0, rowTop - el.clientHeight / 2 + DEVTOOLS_ROW_HEIGHT),
+    });
+  }, [activeIndex, entries.length, rowOffsets]);
 
   const markManualScroll = () => {
     lastManualScrollAtRef.current = Date.now();
   };
 
+  if (!entries.length) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto border-t">
+        <DevToolsEmptyState message={emptyMessage} />
+      </div>
+    );
+  }
+
+  const measuredHeight = viewportHeight || 240;
+  let startIndex = 0;
+  while (
+    startIndex < entries.length &&
+    (rowOffsets[startIndex + 1] ?? 0) < scrollTop
+  ) {
+    startIndex += 1;
+  }
+  startIndex = clamp(startIndex - DEVTOOLS_OVERSCAN_ROWS, 0, entries.length);
+
+  let endIndex = startIndex;
+  while (
+    endIndex < entries.length &&
+    (rowOffsets[endIndex] ?? 0) < scrollTop + measuredHeight
+  ) {
+    endIndex += 1;
+  }
+  endIndex = clamp(
+    endIndex + DEVTOOLS_OVERSCAN_ROWS,
+    startIndex,
+    entries.length,
+  );
+  const visibleEntries = entries.slice(startIndex, endIndex);
+
   return (
     <div
       ref={containerRef}
-      className="max-h-56 overflow-y-auto border-t"
+      className="min-h-0 flex-1 overflow-y-auto border-t"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       onWheel={markManualScroll}
       onPointerDown={markManualScroll}
       onTouchMove={markManualScroll}
     >
-      {children}
+      <div className="relative" style={{ height: totalHeight }}>
+        {visibleEntries.map((entry, offset) => {
+          const index = startIndex + offset;
+          const expanded = entry.id === expandedEntryId;
+          const top = rowOffsets[index] ?? 0;
+          const height =
+            (rowOffsets[index + 1] ?? top + DEVTOOLS_ROW_HEIGHT) - top;
+          return (
+            <div
+              key={entry.id}
+              className="absolute inset-x-0"
+              style={{
+                minHeight: height,
+                top,
+              }}
+            >
+              {renderRow(entry, expanded)}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -381,218 +618,315 @@ function JumpToButton({
   );
 }
 
+/**
+ * Compact link from a captured session error to its Errors issue detail. Kept
+ * outside the row's toggle `<button>` (an anchor nested in a button is invalid)
+ * and stops click propagation so following the link never also toggles/seeks.
+ */
+function ViewIssueLink({
+  issueId,
+  className,
+}: {
+  issueId: string;
+  className?: string;
+}) {
+  const et = useErrorsT();
+  return (
+    <Link
+      to={issueDetailPath(issueId)}
+      title={et.viewIssueTooltip}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      <IconArrowUpRight className="h-3 w-3" />
+      {et.viewIssue}
+    </Link>
+  );
+}
+
 function ConsoleRow({
   entry,
   active,
+  selected,
+  issueMatch,
+  onSelect,
   onSeek,
 }: {
   entry: ReplayConsoleEntry;
   active: boolean;
+  selected: boolean;
+  issueMatch: SessionIssueMatch | null;
+  onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const hasDetail = Boolean(entry.stack || entry.args.length > 1 || entry.url);
   const bucket = consoleLevelBucket(entry.level);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div
-        data-entry-id={entry.id}
-        className={cn(
-          "group flex items-start gap-2 border-b px-3 py-1.5 transition-colors last:border-b-0 hover:bg-muted/50",
-          active && "bg-muted",
-        )}
-      >
-        <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {formatOffsetClock(entry.offsetMs)}
-        </span>
-        <span
-          className={cn(
-            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-            bucket === "error" && "bg-red-500",
-            bucket === "warn" && "bg-amber-500",
-            bucket === "info" && "bg-sky-500",
-            bucket === "log" && "bg-muted-foreground/50",
-          )}
-          aria-hidden
-        />
-        <span className="min-w-0 flex-1">
+    <div
+      data-entry-id={entry.id}
+      className={cn(
+        "group border-b transition-colors hover:bg-muted/50",
+        active && "bg-primary/[0.06] dark:bg-primary/[0.09]",
+        selected && "bg-muted/40",
+      )}
+    >
+      <div className="flex h-[34px] items-center gap-2 px-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={selected}
+          onClick={onSelect}
+        >
+          <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {formatOffsetClock(entry.offsetMs)}
+          </span>
           <span
             className={cn(
-              "block truncate font-mono text-xs",
+              "h-2 w-2 shrink-0 rounded-full",
+              bucket === "error" && "bg-red-500",
+              bucket === "warn" && "bg-amber-500",
+              bucket === "info" && "bg-sky-500",
+              bucket === "log" && "bg-muted-foreground/50",
+            )}
+            aria-hidden
+          />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate font-mono text-xs",
               bucket === "error" && "text-red-600 dark:text-red-400",
               bucket === "warn" && "text-amber-600 dark:text-amber-400",
               bucket !== "error" && bucket !== "warn" && "text-foreground/80",
             )}
             title={entry.message}
           >
-            {entry.message}
+            {entry.message || entry.level}
           </span>
-        </span>
-        {entry.repeat > 1 ? (
-          <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-            {t("sessions.devtoolsRepeatCount", {
-              count: String(entry.repeat),
-            })}
-          </span>
-        ) : null}
-        {entry.source !== "console" ? (
-          <span className="mt-0.5 inline-flex shrink-0 items-center rounded border px-1 font-mono text-[10px] text-muted-foreground">
-            {entry.source}
-          </span>
-        ) : null}
+          {entry.repeat > 1 ? (
+            <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+              x{entry.repeat}
+            </span>
+          ) : null}
+          {entry.source !== "console" ? (
+            <span className="hidden shrink-0 rounded border px-1 font-mono text-[10px] text-muted-foreground sm:inline-flex">
+              {entry.source}
+            </span>
+          ) : null}
+          <IconChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
+              selected && "rotate-90 rtl:scale-x-100",
+            )}
+          />
+        </button>
+        {issueMatch ? <ViewIssueLink issueId={issueMatch.issueId} /> : null}
         <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
-        {hasDetail ? (
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label={t("sessions.devtoolsToggleDetails")}
-            >
-              <IconChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform rtl:-scale-x-100",
-                  open && "rotate-90 rtl:scale-x-100",
-                )}
-              />
-            </button>
-          </CollapsibleTrigger>
-        ) : null}
       </div>
-      {hasDetail ? (
-        <CollapsibleContent>
-          <div className="space-y-2 border-b bg-muted/30 px-3 py-2 ps-[3.75rem]">
-            {entry.url ? (
-              <p
-                className="truncate font-mono text-[11px] text-muted-foreground"
-                title={entry.url}
-              >
+      {selected ? (
+        <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
+          <DetailField label={t("sessions.devtoolsMessage")}>
+            <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-foreground/85">
+              {entry.message || entry.level}
+            </pre>
+          </DetailField>
+          {entry.url ? (
+            <DetailField label={t("sessions.url")}>
+              <p className="break-all font-mono text-[11px] text-muted-foreground">
                 {entry.url}
               </p>
-            ) : null}
-            {entry.args.length > 1 ? (
-              <div>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("sessions.devtoolsArgs")}
-                </p>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] text-foreground/80">
-                  {entry.args.join("\n")}
-                </pre>
-              </div>
-            ) : null}
-            {entry.stack ? (
-              <div>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("sessions.devtoolsStack")}
-                </p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
-                  {entry.stack}
-                </pre>
-              </div>
-            ) : null}
-          </div>
-        </CollapsibleContent>
+            </DetailField>
+          ) : null}
+          {entry.args.length ? (
+            <DetailField label={t("sessions.devtoolsArgs")}>
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.args.join("\n")}
+              </pre>
+            </DetailField>
+          ) : null}
+          {entry.stack ? (
+            <DetailField label={t("sessions.devtoolsStack")}>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.stack}
+              </pre>
+            </DetailField>
+          ) : null}
+          {issueMatch ? (
+            <div className="pt-1">
+              <ViewIssueLink issueId={issueMatch.issueId} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
-    </Collapsible>
+    </div>
   );
 }
 
 function NetworkRow({
   entry,
   active,
+  selected,
+  onSelect,
   onSeek,
 }: {
   entry: ReplayNetworkEntry;
   active: boolean;
+  selected: boolean;
+  onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const hasDetail = Boolean(entry.responseBody);
   const displayUrl = middleTruncate(networkDisplayUrl(entry.url), 72);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div
-        data-entry-id={entry.id}
-        className={cn(
-          "group flex items-center gap-2 border-b px-3 py-1.5 transition-colors last:border-b-0 hover:bg-muted/50",
-          active && "bg-muted",
-        )}
-      >
-        <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {formatOffsetClock(entry.offsetMs)}
-        </span>
-        <span
-          className={cn(
-            "w-12 shrink-0 font-mono text-[11px] font-semibold",
-            entry.failed
-              ? "text-red-600 dark:text-red-400"
-              : "text-muted-foreground",
-          )}
+    <div
+      data-entry-id={entry.id}
+      className={cn(
+        "group border-b transition-colors hover:bg-muted/50",
+        active && "bg-primary/[0.06] dark:bg-primary/[0.09]",
+        selected && "bg-muted/40",
+      )}
+    >
+      <div className="flex h-[34px] items-center gap-2 px-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={selected}
+          onClick={onSelect}
         >
-          {entry.status > 0 ? entry.status : t("sessions.devtoolsFailedStatus")}
-        </span>
-        <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
-          {entry.method}
-        </span>
-        <span className="w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70">
-          {entry.api === "xhr" ? "XHR" : "fetch"}
-        </span>
-        <span
-          className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
-          title={entry.url}
-        >
-          {displayUrl}
-        </span>
-        {entry.error ? (
-          <span
-            className="max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400"
-            title={entry.error}
-          >
-            {entry.error}
+          <span className="w-10 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {formatOffsetClock(entry.offsetMs)}
           </span>
-        ) : null}
-        <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
-          {t("sessions.devtoolsDurationMs", {
-            ms: String(entry.durationMs),
-          })}
-        </span>
-        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
-        {hasDetail ? (
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label={t("sessions.devtoolsToggleDetails")}
+          <span
+            className={cn(
+              "w-12 shrink-0 font-mono text-[11px] font-semibold",
+              entry.failed
+                ? "text-red-600 dark:text-red-400"
+                : "text-muted-foreground",
+            )}
+          >
+            {entry.status > 0
+              ? entry.status
+              : t("sessions.devtoolsFailedStatus")}
+          </span>
+          <span className="w-12 shrink-0 font-mono text-[11px] text-muted-foreground">
+            {entry.method}
+          </span>
+          <span className="hidden w-10 shrink-0 font-mono text-[10px] uppercase text-muted-foreground/70 sm:inline">
+            {entry.api === "xhr" ? "XHR" : "fetch"}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80"
+            title={entry.url}
+          >
+            {displayUrl}
+          </span>
+          {entry.error ? (
+            <span
+              className="hidden max-w-32 shrink-0 truncate font-mono text-[11px] text-red-600 dark:text-red-400 lg:inline"
+              title={entry.error}
             >
-              <IconChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform rtl:-scale-x-100",
-                  open && "rotate-90 rtl:scale-x-100",
-                )}
-              />
-            </button>
-          </CollapsibleTrigger>
-        ) : null}
+              {entry.error}
+            </span>
+          ) : null}
+          <span className="w-14 shrink-0 text-end font-mono text-[11px] text-muted-foreground">
+            {t("sessions.devtoolsDurationMs", {
+              ms: String(entry.durationMs),
+            })}
+          </span>
+          <IconChevronRight
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform rtl:-scale-x-100",
+              selected && "rotate-90 rtl:scale-x-100",
+            )}
+          />
+        </button>
+        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
       </div>
-      {hasDetail ? (
-        <CollapsibleContent>
-          <div className="space-y-2 border-b bg-muted/30 px-3 py-2 ps-[3.75rem]">
-            {entry.responseBody ? (
-              <div>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("sessions.devtoolsResponseBody")}
-                </p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
-                  {entry.responseBody}
-                </pre>
-              </div>
-            ) : null}
+      {selected ? (
+        <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <DetailValue
+              label={t("sessions.time")}
+              value={formatOffsetClock(entry.offsetMs)}
+            />
+            <DetailValue
+              label="API"
+              value={entry.api === "xhr" ? "XHR" : "fetch"}
+            />
+            <DetailValue
+              label="Status"
+              value={
+                entry.status > 0
+                  ? String(entry.status)
+                  : t("sessions.devtoolsFailedStatus")
+              }
+            />
+            <DetailValue
+              label="Duration"
+              value={t("sessions.devtoolsDurationMs", {
+                ms: String(entry.durationMs),
+              })}
+            />
           </div>
-        </CollapsibleContent>
+          <DetailField label={t("sessions.url")}>
+            <p className="break-all font-mono text-[11px] text-muted-foreground">
+              {entry.url}
+            </p>
+          </DetailField>
+          {entry.error ? (
+            <DetailField label="Error">
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px] text-red-600 dark:text-red-400">
+                {entry.error}
+              </pre>
+            </DetailField>
+          ) : null}
+          {entry.responseBody ? (
+            <DetailField label={t("sessions.devtoolsResponseBody")}>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-muted-foreground">
+                {entry.responseBody}
+              </pre>
+            </DetailField>
+          ) : null}
+        </div>
       ) : null}
-    </Collapsible>
+    </div>
   );
+}
+
+function DetailValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-0.5 truncate font-mono text-[11px] text-foreground/80">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }

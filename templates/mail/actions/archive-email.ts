@@ -5,6 +5,11 @@ import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
 import { archiveEmail } from "../server/lib/email-state.js";
+import {
+  gmailBatchModifyByAccount,
+  isConnected,
+} from "../server/lib/google-auth.js";
+import { invalidateThreadCache } from "../server/lib/thread-cache.js";
 
 function userFacingActionError(message: string, statusCode: number): Error {
   const error = new Error(message) as Error & { statusCode: number };
@@ -21,6 +26,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Specific connected account to use"),
+    accountEmails: z
+      .string()
+      .optional()
+      .describe(
+        "Per-id account emails, comma-separated and positionally matched to --id (bulk UI calls only)",
+      ),
     removeLabel: z
       .string()
       .optional()
@@ -31,6 +42,12 @@ export default defineAction({
       .string()
       .optional()
       .describe("Thread ID hint to skip an extra Gmail API round-trip"),
+    threadIds: z
+      .string()
+      .optional()
+      .describe(
+        "Per-id thread ID hints, comma-separated and positionally matched to --id (bulk UI calls only)",
+      ),
   }),
   run: async (args) => {
     const ids = args.id
@@ -45,20 +62,59 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
 
+    const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
+    const accountEmailList = args.accountEmails
+      ?.split(",")
+      .map((s) => s.trim());
+    const threadIdFor = (i: number) => threadIdList?.[i] || args.threadId;
+    const accountEmailFor = (i: number) =>
+      accountEmailList?.[i] || args.accountEmail;
+
     const results: { id: string; success: boolean; error?: string }[] = [];
 
-    for (const id of ids) {
-      try {
-        await archiveEmail({
-          id,
-          ownerEmail,
-          accountEmail: args.accountEmail,
-          removeLabel: args.removeLabel,
-          threadId: args.threadId,
-        });
+    // Bulk path: one Gmail batchModify call per account instead of one
+    // modify call per message. Only applies when Gmail is connected and the
+    // caller isn't resolving a label-view removeLabel (that needs a
+    // per-message label lookup, see archiveEmail's reconciliation notes).
+    if (
+      ids.length > 1 &&
+      !args.removeLabel &&
+      (await isConnected(ownerEmail))
+    ) {
+      const targets = ids.map((id, i) => ({
+        id,
+        threadId: threadIdFor(i),
+        accountEmail: accountEmailFor(i),
+      }));
+      const { succeeded, failed } = await gmailBatchModifyByAccount(
+        ownerEmail,
+        targets,
+        undefined,
+        ["INBOX"],
+      );
+      const threadIdById = new Map(targets.map((t) => [t.id, t.threadId]));
+      for (const id of succeeded) {
+        const tid = threadIdById.get(id);
+        if (tid) invalidateThreadCache(ownerEmail, tid);
         results.push({ id, success: true });
-      } catch (err: any) {
-        results.push({ id, success: false, error: err?.message ?? "failed" });
+      }
+      for (const f of failed)
+        results.push({ id: f.id, success: false, error: f.error });
+    } else {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        try {
+          await archiveEmail({
+            id,
+            ownerEmail,
+            accountEmail: accountEmailFor(i),
+            removeLabel: args.removeLabel,
+            threadId: threadIdFor(i),
+          });
+          results.push({ id, success: true });
+        } catch (err: any) {
+          results.push({ id, success: false, error: err?.message ?? "failed" });
+        }
       }
     }
 

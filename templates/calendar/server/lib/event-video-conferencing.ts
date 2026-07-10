@@ -5,6 +5,9 @@ import { createZoomMeeting, getZoomStatus } from "./zoom.js";
 
 const DEFAULT_TIMEZONE = "America/New_York";
 const ZOOM_LINK_RE = /https?:\/\/[^\s<>"')]*zoom\.us\/[^\s<>"')]+/i;
+const VIDEO_MEETING_HOST_RE =
+  /(^|\.)((meet\.google|zoom|teams\.microsoft|webex|gotomeeting|bluejeans|whereby)\.com|chime\.aws)$/i;
+const VIDEO_MEETING_LINK_RE = /https?:\/\/[^\s<>"')]+/gi;
 
 type EventForVideo = Pick<
   CalendarEvent,
@@ -14,6 +17,19 @@ type EventForVideo = Pick<
 type CalendarSettings = {
   timezone?: string;
 };
+
+type EventWithConferencing = Partial<
+  Pick<
+    CalendarEvent,
+    | "attendees"
+    | "conferenceData"
+    | "description"
+    | "eventType"
+    | "hangoutLink"
+    | "location"
+    | "meetingLink"
+  >
+>;
 
 function trimTrailingPunctuation(url: string): string {
   return url.replace(/[.,;:!?]+$/, "");
@@ -33,6 +49,48 @@ export function extractZoomMeetingLink(
   const text = `${event.location || ""}\n${event.description || ""}`;
   const match = text.match(ZOOM_LINK_RE);
   return match ? trimTrailingPunctuation(match[0]) : undefined;
+}
+
+export function hasExplicitMeetingLink(event: EventWithConferencing): boolean {
+  if (event.meetingLink || event.hangoutLink) return true;
+  if (
+    event.conferenceData?.entryPoints?.some(
+      (entryPoint) => entryPoint.entryPointType === "video" && entryPoint.uri,
+    )
+  ) {
+    return true;
+  }
+
+  const text = `${event.location || ""}\n${event.description || ""}`;
+  for (const match of text.matchAll(VIDEO_MEETING_LINK_RE)) {
+    try {
+      const url = new URL(trimTrailingPunctuation(match[0]));
+      if (VIDEO_MEETING_HOST_RE.test(url.hostname)) return true;
+    } catch {
+      // Ignore malformed free-text URL fragments.
+    }
+  }
+  return false;
+}
+
+function hasInvitedGuests(event: EventWithConferencing): boolean {
+  return (
+    event.attendees?.some((attendee) => {
+      const email = attendee.email?.trim();
+      return !!email && attendee.self !== true && attendee.organizer !== true;
+    }) ?? false
+  );
+}
+
+export function shouldAutoAddGoogleMeet(
+  event: EventWithConferencing,
+  opts?: { addGoogleMeet?: boolean; addZoom?: boolean },
+): boolean {
+  if (opts?.addGoogleMeet !== undefined) return opts.addGoogleMeet;
+  if (opts?.addZoom === true) return false;
+  if ((event.eventType ?? "default") !== "default") return false;
+  if (!hasInvitedGuests(event)) return false;
+  return !hasExplicitMeetingLink(event);
 }
 
 export function buildMeetingLinkPatch(

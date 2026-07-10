@@ -10,9 +10,6 @@ import {
 } from "@agent-native/core/client";
 import { useOrg } from "@agent-native/core/client/org";
 import type { PinpointProps } from "@agent-native/pinpoint/react";
-import { toast } from "@agent-native/toolkit/hooks/use-toast";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { ToastAction } from "@agent-native/toolkit/ui/toast";
 import {
   DndContext,
   closestCenter,
@@ -23,9 +20,9 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArrowLeft,
-  IconBuilding,
   IconLock,
   IconRefresh,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -53,6 +50,8 @@ import LogoSearchPanel from "@/components/editor/LogoSearchPanel";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import { Button } from "@/components/ui/button";
+import { ToastAction } from "@/components/ui/toast";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -62,6 +61,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
+import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -70,6 +70,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
+import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -98,7 +99,7 @@ function MissingDeckAccessPane({
 }) {
   const t = useT();
   const Icon =
-    hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
+    hasTeamJoinOption || orgLoading || orgError ? IconUsersGroup : IconLock;
   const title = orgLoading
     ? t("deckEditor.lookingForDeck")
     : orgError
@@ -323,19 +324,27 @@ export default function DeckEditor() {
     [deck, id, reorderSlides],
   );
 
-  const uploadImageAsset = useCallback(async (file: File): Promise<string> => {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-      method: "POST",
-      body: form,
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.url) {
-      throw new Error(data?.error || t("deckEditor.imageUploadFailed"));
-    }
-    return data.url as string;
-  }, []);
+  const uploadImageAsset = useCallback(
+    async (file: File): Promise<string> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.url) {
+        const serverError =
+          typeof data?.error === "string" ? data.error : undefined;
+        if (isMissingUploadProviderError(res.status, serverError)) {
+          throw new Error(t("deckEditor.imageUploadNeedsBuilder"));
+        }
+        throw new Error(serverError || t("deckEditor.imageUploadFailed"));
+      }
+      return data.url as string;
+    },
+    [t],
+  );
 
   // Replace an image or placeholder in the current slide's HTML content.
   const replaceImageInSlide = useCallback(

@@ -140,12 +140,19 @@ export function Layout({ children }: LayoutProps) {
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
   // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
+  // toolbar. Skip the framework
   // Header so there's no double-header.
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
+  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  // Monitoring renders its own header row (section tabs / "Back to monitors"
+  // + the relocated agent toggle), so skip the framework Header to avoid a
+  // redundant second title bar.
+  const isMonitoringRoute =
+    location.pathname === "/monitoring" ||
+    location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
@@ -220,8 +227,11 @@ export function Layout({ children }: LayoutProps) {
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <MobileNav />
-      {!isExtensionsRoute && !isAskRoute && <Header />}
+      <MobileNav showNewChat={isAskRoute} />
+      {!isExtensionsRoute &&
+        !isAskRoute &&
+        !isSessionDetailRoute &&
+        !isMonitoringRoute && <Header />}
       <InvitationBanner />
       <main
         className={

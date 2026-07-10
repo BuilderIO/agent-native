@@ -1,7 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 
 import { PropertyCombobox } from "./PropertyCombobox";
 

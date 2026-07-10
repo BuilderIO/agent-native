@@ -64,6 +64,7 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { builderCompressedMediaUrl } from "../../../lib/builder-media-compression.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
@@ -149,46 +150,6 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   }
 }
 
-function compressedBuilderMediaUrl(sourceUrl: string): string | null {
-  try {
-    const url = new URL(sourceUrl);
-    if (!/^cdn(?:-qa)?\.builder\.io$/i.test(url.hostname)) return null;
-    if (url.searchParams.get("optimized") === "true") return null;
-
-    let objectPath: string | null = null;
-    if (url.pathname.startsWith("/o/")) {
-      objectPath = decodeURIComponent(url.pathname.slice("/o/".length));
-    } else if (url.pathname.startsWith("/api/v1/file/")) {
-      objectPath = decodeURIComponent(
-        url.pathname.slice("/api/v1/file/".length),
-      );
-    }
-    if (!objectPath || !objectPath.startsWith("assets/")) return null;
-    if (objectPath.endsWith("/compressed")) return null;
-
-    const parts = objectPath.split("/");
-    const assetId = parts[parts.length - 1];
-    const apiKey = url.searchParams.get("apiKey") || parts[1];
-    if (!assetId || !apiKey) return null;
-
-    const compressedPath = `${objectPath}/compressed`;
-    const compressedUrl = new URL(
-      `/o/${encodeURIComponent(compressedPath)}`,
-      url.origin,
-    );
-    compressedUrl.searchParams.set("apiKey", apiKey);
-    compressedUrl.searchParams.set(
-      "token",
-      url.searchParams.get("token") || assetId,
-    );
-    compressedUrl.searchParams.set("alt", "media");
-    compressedUrl.searchParams.set("optimized", "true");
-    return compressedUrl.toString();
-  } catch {
-    return null;
-  }
-}
-
 function shouldSkipCompressedBuilderMediaProbe(
   compressedSourceUrl: string,
 ): boolean {
@@ -216,13 +177,13 @@ function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
 function shouldFallbackToOriginalMedia(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404, 416].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
 }
 
 function shouldRememberCompressedBuilderMediaMiss(
   upstream: Response | { error: string; status: number },
 ): boolean {
-  return [403, 404].includes(upstream.status);
+  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -531,15 +492,22 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          const compressedSourceUrl = compressedBuilderMediaUrl(sourceUrl);
+          const compressedSourceUrl = builderCompressedMediaUrl(sourceUrl);
           if (
             compressedSourceUrl &&
             !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
           ) {
-            upstream = await fetchProviderMedia(
-              compressedSourceUrl,
-              rangeHeader,
-            );
+            try {
+              upstream = await fetchProviderMedia(
+                compressedSourceUrl,
+                rangeHeader,
+              );
+            } catch (err) {
+              upstream = {
+                status: statusCodeForProviderFetchError(err),
+                error: messageForProviderFetchError(err),
+              };
+            }
             if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
               rememberCompressedBuilderMediaMiss(compressedSourceUrl);
             }

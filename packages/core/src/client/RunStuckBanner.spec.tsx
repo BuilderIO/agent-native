@@ -103,10 +103,10 @@ describe("RunStuckBanner", () => {
     ).toHaveLength(1);
   });
 
-  // UPDATED: background-dispatched runs now use the wider 180s stuck
-  // threshold (the server's 150s no-progress backstop and chained
-  // continuations own recovery), so the fixture's elapsed time was raised
-  // past 180s for the banner to render at all. Auto-retry stays off.
+  // UPDATED: server-continued runs now use the wider 180s stuck threshold (the
+  // server's 150s no-progress backstop and chained continuations own recovery),
+  // so the fixture's elapsed time was raised past 180s for the banner to render
+  // at all. Auto-retry stays off.
   it("does not automatically abort a stuck but heartbeating background worker", async () => {
     const onRetry = vi.fn();
     const fetchSpy = vi.fn(async (url: string) => {
@@ -193,17 +193,55 @@ describe("RunStuckBanner", () => {
     ).toBe(false);
   });
 
-  it("uses the wider 180s stuck threshold for background-dispatched runs", async () => {
-    // 120s without progress marks a FOREGROUND run stuck (90s threshold) but
-    // must not mark a background run stuck — the server's recovery machinery
-    // is still within its own windows.
+  it("never auto-retries a foreground self-chained run", async () => {
+    const onRetry = vi.fn();
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-foreground-self-chain",
+          status: "running",
+          dispatchMode: "foreground-self-chain",
+          heartbeatAt: 100_000,
+          lastProgressAt: 10_000,
+          serverNow: 300_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <RunStuckBanner threadId="thread-1" autoRetry onRetry={onRetry} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toContain("This chat looks stuck.");
+    expect(container.textContent).not.toContain("Retrying automatically now.");
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/abort") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("uses the wider 180s stuck threshold for server-continued runs", async () => {
+    // 120s without progress marks a client-continued foreground run stuck (90s
+    // threshold) but must not mark a server-continued run stuck — the server's
+    // recovery machinery is still within its own windows.
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {
         return jsonResponse({
           active: true,
           runId: "run-background-quiet",
           status: "running",
-          dispatchMode: "background-processing",
+          dispatchMode: "foreground-self-chain",
           heartbeatAt: 129_000,
           lastProgressAt: 10_000,
           serverNow: 130_000,

@@ -41,6 +41,19 @@ describe("document editor layout", () => {
     );
   });
 
+  it("shows the editor skeleton instead of stale data during document switches", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("const { data: queriedDocument, isError }");
+    expect(source).toContain("queriedDocument?.id === documentId");
+    expect(source).toContain("return <DocumentEditorSkeleton />");
+  });
+
   it("keeps desktop comments inside the document scroll surface", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

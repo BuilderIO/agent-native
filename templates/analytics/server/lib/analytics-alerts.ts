@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   and,
   asc,
@@ -53,7 +54,13 @@ export interface AnalyticsAlertRuleInput {
   severity?: AnalyticsAlertSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   enabled?: boolean;
+}
+
+export interface AnalyticsAlertRuleDefaults {
+  emailRecipients: string[];
 }
 
 export interface AnalyticsAlertRule {
@@ -70,6 +77,8 @@ export interface AnalyticsAlertRule {
   severity: AnalyticsAlertSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   enabled: boolean;
   lastEvaluatedAt: string | null;
   lastTriggeredAt: string | null;
@@ -126,6 +135,7 @@ function nowIso(): string {
 
 const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
 const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
+const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
@@ -141,6 +151,10 @@ function normalizeName(name: string): string {
   const normalized = name.trim();
   if (!normalized) throw new Error("Alert name is required");
   return normalized.slice(0, 120);
+}
+
+function badRequest(message: string): Error {
+  return Object.assign(new Error(message), { statusCode: 400 });
 }
 
 function normalizeNullableText(
@@ -201,6 +215,61 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
     normalized.push(email);
   }
   return normalized;
+}
+
+function alertRuleDefaultsKey(ctx: AccessCtx): string {
+  return `${ALERT_RULE_DEFAULTS_KEY}:${ctx.orgId ?? "personal"}`;
+}
+
+function settingStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export async function getAnalyticsAlertRuleDefaults(
+  ctx: AccessCtx,
+): Promise<AnalyticsAlertRuleDefaults> {
+  const stored = await getUserSetting(ctx.email, alertRuleDefaultsKey(ctx));
+  return {
+    emailRecipients: normalizeEmailRecipients(
+      settingStringArray(stored?.emailRecipients),
+    ),
+  };
+}
+
+export async function rememberAnalyticsAlertRuleDefaults(
+  input: Pick<AnalyticsAlertRuleInput, "emailRecipients">,
+  ctx: AccessCtx,
+): Promise<void> {
+  const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
+  if (emailRecipients.length === 0) return;
+  try {
+    await putUserSetting(ctx.email, alertRuleDefaultsKey(ctx), {
+      emailRecipients,
+      updatedAt: nowIso(),
+    });
+  } catch (error) {
+    console.warn("Failed to persist analytics alert rule defaults", error);
+  }
+}
+
+function normalizeOptionalHttpUrl(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  return trimmed;
 }
 
 function boolEnv(name: string): boolean | null {
@@ -292,6 +361,8 @@ function rowToRule(row: any): AnalyticsAlertRule {
     severity: row.severity === "critical" ? "critical" : "warning",
     channels: safeJsonParse<string[]>(row.channels, ["inbox"]),
     emailRecipients: safeJsonParse<string[]>(row.emailRecipients, []),
+    slackWebhookUrl: row.slackWebhookUrl?.trim() || null,
+    webhookUrl: row.webhookUrl?.trim() || null,
     enabled: row.enabled === true || row.enabled === 1,
     lastEvaluatedAt: row.lastEvaluatedAt ?? null,
     lastTriggeredAt: row.lastTriggeredAt ?? null,
@@ -360,6 +431,11 @@ export async function saveAnalyticsAlertRule(
   const severity = input.severity === "critical" ? "critical" : "warning";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
+  const slackWebhookUrl = normalizeOptionalHttpUrl(
+    input.slackWebhookUrl,
+    "Slack webhook URL",
+  );
+  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const enabled = input.enabled ?? true;
   const db = getDb() as any;
 
@@ -385,6 +461,8 @@ export async function saveAnalyticsAlertRule(
         severity,
         channels: JSON.stringify(channels),
         emailRecipients: JSON.stringify(emailRecipients),
+        slackWebhookUrl,
+        webhookUrl,
         enabled,
         updatedAt,
         lastError: null,
@@ -405,6 +483,8 @@ export async function saveAnalyticsAlertRule(
       severity,
       channels: JSON.stringify(channels),
       emailRecipients: JSON.stringify(emailRecipients),
+      slackWebhookUrl,
+      webhookUrl,
       enabled,
       createdAt: updatedAt,
       updatedAt,
@@ -415,6 +495,7 @@ export async function saveAnalyticsAlertRule(
 
   const saved = await getAnalyticsAlertRule(id, ctx);
   if (!saved) throw new Error("Failed to save analytics alert rule");
+  await rememberAnalyticsAlertRuleDefaults({ emailRecipients }, ctx);
   recordChange({
     source: "analytics-alert-rules",
     type: "change",
@@ -657,6 +738,7 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
 
   const body = alertBody(rule, evaluation);
   const channels = ensureInboxNotificationChannel(rule.channels);
+  const deliveryMetadata = alertNotifyDeliveryMetadata(rule);
   const delivery = await notifyWithDelivery(
     {
       severity: rule.severity,
@@ -680,6 +762,7 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
         sampleEvents: evaluation.sampleEvents,
         emailRecipients: rule.emailRecipients,
         requestedChannels: rule.channels,
+        ...(deliveryMetadata ? { delivery: deliveryMetadata } : {}),
       },
     },
     { owner: rule.ownerEmail },
@@ -717,6 +800,15 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
 function ensureInboxNotificationChannel(channels: string[]): string[] {
   const normalized = channels.map((channel) => channel.trim()).filter(Boolean);
   return normalized.includes("inbox") ? normalized : ["inbox", ...normalized];
+}
+
+function alertNotifyDeliveryMetadata(
+  rule: AnalyticsAlertRule,
+): Record<string, string> | undefined {
+  const delivery: Record<string, string> = {};
+  if (rule.slackWebhookUrl) delivery.slackWebhookUrl = rule.slackWebhookUrl;
+  if (rule.webhookUrl) delivery.webhookUrl = rule.webhookUrl;
+  return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
 export async function markAnalyticsAlertRuleError(

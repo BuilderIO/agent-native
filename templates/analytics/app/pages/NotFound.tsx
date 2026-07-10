@@ -1,7 +1,8 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconFileUnknown } from "@tabler/icons-react";
 import { Link } from "react-router";
+
+import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   const t = useT();

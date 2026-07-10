@@ -14,6 +14,7 @@ const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
 const mockIsLocalWorkspaceResourceId = vi.fn();
+const mockUploadFile = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -52,6 +53,10 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
 }));
 
+vi.mock("../file-upload/index.js", () => ({
+  uploadFile: (...args: any[]) => mockUploadFile(...args),
+}));
+
 let lastStatus = 200;
 
 vi.mock("h3", () => ({
@@ -88,6 +93,7 @@ describe("resource handlers", () => {
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
+    mockUploadFile.mockResolvedValue(null);
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
     mockGetOrgContext.mockResolvedValue({
       email: "test@test.com",
@@ -721,6 +727,97 @@ describe("resource handlers", () => {
   });
 
   describe("handleUploadResource", () => {
+    it("stores text uploads in SQL", async () => {
+      const resource = {
+        id: "doc",
+        path: "/note.md",
+        owner: "test@test.com",
+        content: "# Note",
+        mimeType: "text/markdown",
+        size: 6,
+      };
+      mockResourcePut.mockResolvedValue(resource);
+
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "note.md",
+            type: "text/markdown",
+            data: Buffer.from("# Note"),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(mockUploadFile).not.toHaveBeenCalled();
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "test@test.com",
+        "/note.md",
+        "# Note",
+        "text/markdown",
+      );
+      expect(result).toEqual(resource);
+    });
+
+    it("rejects binary uploads when file storage is not configured", async () => {
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "photo.png",
+            type: "image/png",
+            data: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(503);
+      expect(result).toMatchObject({ storageSetupRequired: true });
+      expect(mockUploadFile).toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("stores binary uploads as provider URLs", async () => {
+      mockUploadFile.mockResolvedValue({
+        url: "https://cdn.example.test/photo.png",
+        provider: "test",
+      });
+      const resource = {
+        id: "img",
+        path: "/photo.png",
+        owner: "test@test.com",
+        content: "https://cdn.example.test/photo.png",
+        mimeType: "image/png",
+        size: 34,
+      };
+      mockResourcePut.mockResolvedValue(resource);
+
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "photo.png",
+            type: "image/png",
+            data: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "test@test.com",
+        "/photo.png",
+        "https://cdn.example.test/photo.png",
+        "image/png",
+      );
+      expect(result).toMatchObject({
+        id: "img",
+        url: "https://cdn.example.test/photo.png",
+        provider: "test",
+      });
+    });
+
     it("rejects unauthenticated shared uploads", async () => {
       vi.mocked(getSession).mockResolvedValue(null as any);
 

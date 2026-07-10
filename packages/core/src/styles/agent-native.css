@@ -41,6 +41,16 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
+:root {
+  --agent-native-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --agent-native-viewport-height: 100dvh;
+  }
+}
+
 /* Shared shell depth.
    Use these classes on app layouts that have a persistent left nav:
 
@@ -63,6 +73,8 @@
     var(--agent-native-raised-border);
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
+  height: var(--agent-native-viewport-height);
+  min-height: 0;
   background: var(--agent-native-lower-surface);
 }
 
@@ -89,16 +101,6 @@
       in srgb,
       hsl(var(--sidebar-background, var(--background))) 94%,
       black
-    );
-    --agent-native-raised-surface: color-mix(
-      in srgb,
-      hsl(var(--background)) 78%,
-      hsl(var(--muted)) 22%
-    );
-    --agent-native-card-surface: color-mix(
-      in srgb,
-      var(--agent-native-raised-surface) 88%,
-      hsl(var(--muted)) 12%
     );
   }
 }
@@ -167,43 +169,45 @@
   container: agent-native-main / inline-size;
 }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :where(header, div).border-b:first-child,
-.agent-layout-shell
-  .agent-layout-left-drawer
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell .agent-native-shell-topbar {
-  border-bottom-color: transparent !important;
-}
+@media (min-width: 768px) {
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :where(header, div).border-b:first-child,
+  .agent-layout-shell
+    .agent-layout-left-drawer
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell .agent-native-shell-topbar {
+    border-bottom-color: transparent !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b {
-  background-color: var(--agent-native-raised-surface) !important;
-}
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b {
+    background-color: var(--agent-native-raised-surface) !important;
+  }
 
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :first-child
-  > :where(header, div).border-b.h-12,
-.agent-layout-shell
-  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b.h-12 {
-  min-height: 4rem;
-  height: 4rem;
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :first-child
+    > :where(header, div).border-b.h-12,
+  .agent-layout-shell
+    :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+    > :where(header, div).border-b.h-12 {
+    min-height: 4rem;
+    height: 4rem;
+  }
 }
 
 .dark
@@ -511,6 +515,84 @@
   --ring: 215 12% 60%;
 }
 
+/* Settings sections: animate between closed and intrinsic open height. */
+.agent-native-settings-section-body {
+  display: flow-root;
+  height: auto;
+  overflow: hidden;
+  overflow: clip;
+  opacity: 1;
+  clip-path: inset(0);
+  interpolate-size: allow-keywords;
+  transition:
+    height 200ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 150ms ease,
+    clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.agent-native-settings-section-body[data-state="closed"] {
+  height: 0;
+  opacity: 0;
+  clip-path: inset(0 0 100% 0);
+  pointer-events: none;
+}
+
+@starting-style {
+  .agent-native-settings-section-body[data-state="open"] {
+    height: 0;
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+@supports not (interpolate-size: allow-keywords) {
+  .agent-native-settings-section-body {
+    height: auto;
+    max-height: 64rem;
+    transition:
+      max-height 200ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 150ms ease,
+      clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .agent-native-settings-section-body[data-state="closed"] {
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-native-settings-section-body {
+    transition: none;
+  }
+}
+
+/* Full settings page section bodies.
+   The framework's shared settings sections (LLM, App model defaults, Agent
+   limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting
+   cards, etc.) are authored dense for the compact agent sidebar. On the
+   full-width settings page they render inside polished shadcn-style cards
+   (PageSettingsSection), so bump the smallest fixed type up to a comfortable,
+   consistent reading size that matches the app-owned General/Team cards.
+   Scoped to `[data-agent-native-settings-page]` (only PageSettingsSection's
+   body) so app-owned tab content is never affected. The `.text-[…px]` classes
+   are Tailwind arbitrary values; the double-class specificity here wins. */
+[data-agent-native-settings-page] .text-\[10px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+[data-agent-native-settings-page] .text-\[11px\] {
+  font-size: 0.8125rem;
+  line-height: 1.15rem;
+}
+[data-agent-native-settings-page] .text-\[12px\] {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+[data-agent-native-settings-page] .text-\[13px\] {
+  font-size: 0.9375rem;
+  line-height: 1.4rem;
+}
+
 /* Composer toolbar: keep the model name + version readable on narrow
    chatfields. The bordered composer box is a size container; below 370px
    wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix
@@ -696,6 +778,14 @@
 }
 
 .agent-composer-setup-card {
+  width: 100%;
+}
+
+/* Plan-mode callout pill: lives inside .agent-composer-stack directly above
+   the composer. Matching .agent-composer-area's own width keeps the pill
+   visually attached to (and right-aligned with) the composer instead of the
+   full pane, whether the pane is a narrow sidebar or a wide centered page. */
+.agent-plan-mode-callout {
   width: 100%;
 }
 

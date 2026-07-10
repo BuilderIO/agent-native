@@ -1,15 +1,4 @@
 import { agentNativePath, appApiPath, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconExternalLink,
   IconCheck,
@@ -22,6 +11,17 @@ import {
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   openNotionOAuthUrl,
   useDisconnectNotion,

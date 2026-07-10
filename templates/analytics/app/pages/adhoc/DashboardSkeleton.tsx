@@ -1,6 +1,7 @@
-import { Card, CardContent, CardHeader } from "@agent-native/toolkit/ui/card";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { CSSProperties } from "react";
+
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DashboardSkeletonProps {
   columns?: number;

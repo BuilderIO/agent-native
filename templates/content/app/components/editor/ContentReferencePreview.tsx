@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconExternalLink, IconFileText } from "@tabler/icons-react";
 import { lazy, Suspense, useMemo } from "react";
 import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { useDocument, useDocuments } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 

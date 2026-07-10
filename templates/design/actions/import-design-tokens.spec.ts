@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
-const mockResolveAccess = vi.fn();
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockUpdate = vi.fn();
 const mockSet = vi.fn();
 const mockWhere = vi.fn();
+const designStore = vi.hoisted(() => ({
+  row: {
+    id: "design_1",
+    data: "{}",
+    updatedAt: "2026-07-09T00:00:00.000Z",
+  },
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: () => "agent-native://design/editor?designId=design_1",
@@ -14,19 +20,17 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
-  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ kind: "and", conditions })),
   eq: vi.fn(() => ({ kind: "eq" })),
+  isNull: vi.fn(() => ({ kind: "isNull" })),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({
-    select: mockSelect,
-    update: mockUpdate,
-  }),
-  schema: {
+vi.mock("../server/db/index.js", () => {
+  const schema = {
     designFiles: {
       designId: "designId",
       filename: "filename",
@@ -37,8 +41,46 @@ vi.mock("../server/db/index.js", () => ({
       data: "data",
       updatedAt: "updatedAt",
     },
-  },
-}));
+  };
+  const db = {
+    select: (...args: unknown[]) => {
+      mockSelect(...args);
+      return {
+        from: (table: unknown) => {
+          mockFrom(table);
+          return {
+            where: async (...whereArgs: unknown[]) => {
+              if (table === schema.designFiles) {
+                return mockWhere(...whereArgs);
+              }
+              return [{ ...designStore.row }];
+            },
+          };
+        },
+      };
+    },
+    update: (...args: unknown[]) => {
+      mockUpdate(...args);
+      return {
+        set: (values: { data: string; updatedAt: string }) => {
+          mockSet(values);
+          return {
+            where: async () => {
+              designStore.row = { ...designStore.row, ...values };
+            },
+          };
+        },
+      };
+    },
+  };
+  return {
+    getDb: () => ({
+      ...db,
+      transaction: <T>(callback: (tx: typeof db) => Promise<T>) => callback(db),
+    }),
+    schema,
+  };
+});
 
 import action from "./import-design-tokens.js";
 
@@ -46,28 +88,23 @@ describe("import-design-tokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAssertAccess.mockResolvedValue(undefined);
-    mockResolveAccess.mockResolvedValue({
-      role: "editor",
-      resource: {
-        id: "design_1",
-        data: JSON.stringify({
-          tweaks: [
-            {
-              id: "accent",
-              label: "Accent",
-              type: "color-swatch",
-              defaultValue: "#0ea5e9",
-              cssVar: "--color-accent",
-            },
-          ],
-          tweakSelections: {},
-        }),
-      },
-    });
-    mockSelect.mockReturnValue({ from: mockFrom });
-    mockFrom.mockReturnValue({ where: mockWhere });
-    mockUpdate.mockReturnValue({ set: mockSet });
-    mockSet.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+    mockWhere.mockResolvedValue([]);
+    designStore.row = {
+      id: "design_1",
+      data: JSON.stringify({
+        tweaks: [
+          {
+            id: "accent",
+            label: "Accent",
+            type: "color-swatch",
+            defaultValue: "#0ea5e9",
+            cssVar: "--color-accent",
+          },
+        ],
+        tweakSelections: {},
+      }),
+      updatedAt: "2026-07-09T00:00:00.000Z",
+    };
   });
 
   it("imports pasted CSS and design.md tokens into tweak selections", async () => {
@@ -112,9 +149,7 @@ Primary color: #f97316
       ]),
     );
 
-    const persisted = JSON.parse(
-      (mockSet.mock.calls[0]?.[0] as { data: string }).data,
-    ) as {
+    const persisted = JSON.parse(designStore.row.data) as {
       tweakSelections: Record<string, string>;
       tokenImportSources: Record<string, string>;
     };
@@ -214,9 +249,7 @@ Bad radius: 12px} body { color: red
       ]),
     );
 
-    const persisted = JSON.parse(
-      (mockSet.mock.calls[0]?.[0] as { data: string }).data,
-    ) as {
+    const persisted = JSON.parse(designStore.row.data) as {
       tweakSelections: Record<string, string>;
     };
     expect(persisted.tweakSelections["--color-safe"]).toBe("#123456");

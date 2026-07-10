@@ -251,14 +251,14 @@ describe("ShareButton", () => {
     });
 
     const trigger = container.querySelector(
-      'button[aria-label="Share"]',
+      'button[aria-label="Share (Private)"]',
     ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
     expect(trigger?.textContent).not.toContain("Share");
   });
 
-  it("renders the label trigger as text only for organization visibility", async () => {
+  it("renders the label trigger with the current visibility state", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: "org-1",
@@ -279,12 +279,13 @@ describe("ShareButton", () => {
       );
     });
 
-    const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Share",
-    );
+    const trigger = container.querySelector(
+      'button[aria-label="Share (Organization)"]',
+    ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.querySelector("svg")).toBeFalsy();
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeTruthy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
@@ -362,6 +363,73 @@ describe("ShareButton", () => {
     expect(text.indexOf("Public response link")).toBeLessThan(
       text.indexOf("People with editing access"),
     );
+  });
+
+  it("renders organization share names without exposing raw org ids", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "org",
+          principalId: "org-secret-id",
+          displayName: "Builder.io",
+          role: "editor",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Builder.io");
+    expect(text).not.toContain("org-secret-id");
+  });
+
+  it("uses safe labels for unresolved principal ids", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "org",
+          principalId: "org-secret-id",
+          role: "editor",
+        },
+        {
+          id: "share-2",
+          principalType: "user",
+          principalId: "not-an-email-id",
+          role: "viewer",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Organization");
+    expect(text).toContain("Unknown person");
+    expect(text).not.toContain("org-secret-id");
+    expect(text).not.toContain("not-an-email-id");
   });
 
   it("can hide copyable share links and the done button", async () => {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { scrubberPositionFromClientX } from "./scrubber-position";
+import {
+  scrubberFillPercent,
+  scrubberPositionFromClientX,
+} from "./scrubber-position";
 
 describe("scrubberPositionFromClientX", () => {
   const rect = { left: 100, width: 200 };
@@ -25,5 +28,17 @@ describe("scrubberPositionFromClientX", () => {
       ms: 10_000,
       x: 200,
     });
+  });
+});
+
+describe("scrubberFillPercent", () => {
+  it("returns a full bar when playback reaches the resolved duration", () => {
+    expect(scrubberFillPercent(10_000, 10_000)).toBe(100);
+  });
+
+  it("clamps underflow, overflow, and invalid durations", () => {
+    expect(scrubberFillPercent(-500, 10_000)).toBe(0);
+    expect(scrubberFillPercent(10_500, 10_000)).toBe(100);
+    expect(scrubberFillPercent(500, 0)).toBe(0);
   });
 });

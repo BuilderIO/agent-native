@@ -1,5 +1,4 @@
 import { useFormatters, useT } from "@agent-native/core/client";
-import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
 import {
   IconMessage,
   IconMoodSmile,
@@ -8,6 +7,8 @@ import {
   IconBell,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
+
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
 

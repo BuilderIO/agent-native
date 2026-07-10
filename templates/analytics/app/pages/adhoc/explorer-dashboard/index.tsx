@@ -13,38 +13,6 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   DndContext,
   DragOverlay,
   closestCenter,
@@ -70,16 +38,51 @@ import {
   IconEye,
   IconEyeOff,
   IconGripVertical,
+  IconHistory,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
 import {
   resourceCanEdit,
   resourceCanManage,
@@ -195,11 +198,20 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
     null,
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: dashboardId,
+    kind: "explorer",
+    title: dashboard?.name,
+    panelCount: dashboard?.charts.length,
+    canEdit,
+  });
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
@@ -608,8 +620,11 @@ export default function ExplorerDashboardPage() {
               {t("explorerDashboard.addChart")}
             </Button>
           ) : null}
-          {canEdit || canManage ? (
-            <DropdownMenu>
+          {dashboardId || canEdit || canManage ? (
+            <DropdownMenu
+              open={dashboardActionsOpen}
+              onOpenChange={setDashboardActionsOpen}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
@@ -628,10 +643,26 @@ export default function ExplorerDashboardPage() {
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="w-44">
+                {dashboardId ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDashboardActionsOpen(false);
+                      setHistoryOpen(true);
+                    }}
+                  >
+                    <IconHistory className="mr-2 h-3.5 w-3.5" />
+                    {t("dashboard.historyTitle")}
+                  </DropdownMenuItem>
+                ) : null}
+                {dashboardId && canEdit && !archivedAt ? (
+                  <DropdownMenuSeparator />
+                ) : null}
                 {canEdit && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       void handleArchive();
                     }}
                   >
@@ -646,6 +677,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       setConfirmDeleteOpen(true);
                     }}
                     className="text-destructive focus:text-destructive"
@@ -656,6 +688,14 @@ export default function ExplorerDashboardPage() {
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+          {dashboardId ? (
+            <DashboardHistoryPanel
+              dashboardId={dashboardId}
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              canRestore={canEdit && !archivedAt}
+            />
           ) : null}
           {canManage ? (
             <AlertDialog
@@ -757,6 +797,8 @@ export default function ExplorerDashboardPage() {
                     navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
+                  selectedForChat={selectedPanelId === chart.id}
+                  selectPanelForChat={selectPanelForChat}
                 />
               ))}
             </div>

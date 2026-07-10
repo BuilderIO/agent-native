@@ -296,7 +296,7 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
 
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
-  // (e.g. when the concurrent `@agent-native/core` tsgo --watch under
+  // (e.g. when the concurrent `@agent-native/core` tsc --watch under
   // dev:lazy:desktop rewrites bundled output). A single-instance lock would
   // make the relaunched instance race the still-dying one for the lock, lose,
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
@@ -1099,6 +1099,9 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       webviewTag: true,
       webSecurity: true,
+      additionalArguments: [
+        `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
+      ],
     },
   });
   installSentryWebContentsInstrumentation(win.webContents, {
@@ -1643,6 +1646,7 @@ let appIsQuitting = false;
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
   "clipboard-read",
+  "clipboard-sanitized-write",
   "display-capture",
   "fullscreen",
   "media",

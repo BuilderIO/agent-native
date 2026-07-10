@@ -3,26 +3,6 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -49,6 +29,27 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { imageUploadErrorMessage, uploadImageFile } from "../image-upload";
 import type { ContentImageOptions } from "./ImageNode";
@@ -512,6 +513,7 @@ export function ImageBlock({
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const altInputRef = useRef<HTMLInputElement>(null);
   const emptyBlockRef = useRef<HTMLDivElement>(null);
@@ -526,6 +528,10 @@ export function ImageBlock({
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
   const options = extension.options as ContentImageOptions;
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [src]);
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -978,17 +984,37 @@ export function ImageBlock({
         }}
         style={activeWidth ? { width: `${activeWidth}px` } : undefined}
       >
-        <img
-          src={src}
-          alt={alt || ""}
-          className="media-block__content"
-          draggable={false}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            openLightbox();
-          }}
-        />
+        {imageLoadFailed ? (
+          <div
+            className="media-block__broken"
+            role="img"
+            aria-label={alt || t("editor.media.imageBroken")}
+          >
+            <IconPhoto className="media-block__broken-icon" aria-hidden />
+            <div className="media-block__broken-copy">
+              <span className="media-block__broken-title">
+                {t("editor.media.imageBroken")}
+              </span>
+              {alt.trim() ? (
+                <span className="media-block__broken-alt">{alt}</span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <img
+            src={src}
+            alt={alt || ""}
+            className="media-block__content"
+            draggable={false}
+            onLoad={() => setImageLoadFailed(false)}
+            onError={() => setImageLoadFailed(true)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openLightbox();
+            }}
+          />
+        )}
 
         <input
           ref={fileInputRef}

@@ -1,15 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconMapPin,
@@ -23,6 +12,17 @@ import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { getEventDisplayColor } from "@/lib/event-colors";

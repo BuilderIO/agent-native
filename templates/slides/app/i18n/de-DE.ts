@@ -93,6 +93,8 @@ const messages = {
     googlePickerNeedsKeys:
       "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
+    imageUploadNeedsBuilder:
+      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
     sentToAgent: "An Agent gesendet",
     imageUploadGenericError:
       "Beim Hochladen dieses Bildes ist etwas schiefgelaufen.",
@@ -484,6 +486,8 @@ const messages = {
     backToDecks: "Volver a decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
+    imageUploadNeedsBuilder:
+      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",

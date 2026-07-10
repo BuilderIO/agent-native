@@ -1,13 +1,5 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
 import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
 import { useState } from "react";
@@ -23,6 +15,14 @@ import {
 } from "recharts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
 import messages from "@/i18n/en-US";

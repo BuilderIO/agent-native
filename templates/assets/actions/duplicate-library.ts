@@ -5,12 +5,14 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { normalizePresetReferences } from "../server/lib/preset-references.js";
+import { normalizePresetSkeletonSpec } from "../server/lib/preset-skeleton.js";
 import {
   serializeAsset,
   serializeGenerationPreset,
@@ -55,6 +57,35 @@ function remapJsonText(
   ids: Map<string, string>,
 ) {
   return stringifyJson(remapJsonValue(parseJson(text, {}), ids));
+}
+
+// Assets pinned by preset settings (reference board entries, skeleton plate/
+// mask/foreground) must be copied even when the general asset filter would
+// skip them — e.g. board subject photos upload as role "subject_reference".
+// Otherwise the duplicated preset keeps source-library asset ids and
+// generation in the copy fails its library-membership check.
+function pinnedPresetAssetIds(
+  presets: Array<{ settings: string | null }>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const preset of presets) {
+    const settings = parseJson<{
+      skeletonSpec?: unknown;
+      presetReferences?: unknown;
+    }>(preset.settings, {});
+    for (const entry of normalizePresetReferences(settings.presetReferences)) {
+      for (const assetId of entry.assetIds) ids.add(assetId);
+    }
+    const skeleton = normalizePresetSkeletonSpec(settings.skeletonSpec);
+    if (skeleton) {
+      ids.add(skeleton.background.assetId);
+      if (skeleton.mask) ids.add(skeleton.mask.assetId);
+      for (const layer of skeleton.foreground ?? []) {
+        if (typeof layer.source === "object") ids.add(layer.source.assetId);
+      }
+    }
+  }
+  return ids;
 }
 
 export default defineAction({
@@ -126,6 +157,23 @@ export default defineAction({
           ),
         ),
     ]);
+
+    const missingPinnedAssetIds = [...pinnedPresetAssetIds(presets)].filter(
+      (assetId) => !assets.some((asset) => asset.id === assetId),
+    );
+    if (missingPinnedAssetIds.length) {
+      const pinnedAssets = await db
+        .select()
+        .from(schema.assets)
+        .where(
+          and(
+            eq(schema.assets.libraryId, id),
+            inArray(schema.assets.id, missingPinnedAssetIds),
+            notInArray(schema.assets.status, ["archived", "failed"]),
+          ),
+        );
+      assets.push(...pinnedAssets);
+    }
 
     const collectionIds = new Map(
       collections.map((collection) => [collection.id, nanoid()]),

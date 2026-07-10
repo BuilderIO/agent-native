@@ -4,15 +4,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@agent-native/toolkit/ui/dialog";
-import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
 import {
   IconPuzzle,
   IconGripVertical,
@@ -22,6 +13,15 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { formatMs } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";

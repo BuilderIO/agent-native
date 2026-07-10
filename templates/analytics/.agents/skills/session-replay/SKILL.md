@@ -89,8 +89,26 @@ agent answers about browser recordings in the Analytics template.
 - The `/sessions/:recordingId` replay player has a Dev Tools toggle that opens
   a panel with Console and Network tabs: filter chips, search, an error-count
   badge, and playback-time highlighting.
-- Rows are Jump-to-seek: clicking one seeks the player to that moment. Extend
-  this panel instead of adding a separate debugging surface.
+- Rows expand inline under the selected line (Chrome-style). Expanding a row
+  does not seek; use Jump to to move the playhead. Extend this panel instead of
+  adding a separate debugging surface.
+
+## Playback Viewer
+
+- Wait for all replay chunks (`isComplete`) before constructing the rrweb
+  `Replayer`. Progressive chunk publishes should only update the loading bar;
+  rebuilding the player mid-load desyncs the scrubber and playhead.
+- Pass events to `Replayer` untouched (aside from stylesheet/script sanitization
+  that prevents blank frames from live CSS loads). Let rrweb own iframe sizing
+  via Meta / ViewportResize; use those dimensions only for CSS fit-to-stage of
+  the outer wrapper. Never rewrite Meta widths or force iframe dimensions —
+  that desyncs the FullSnapshot DOM and blanks the stage.
+- The event timeline soft-highlights the active marker, auto-scrolls it into
+  view (pausing briefly after manual scroll), and supports search. It appears
+  beside the player from ~880px content width upward.
+- Dev Tools height is capped so the replay stage never collapses into a ribbon
+  on short viewports; the scrubber playhead stays visually distinct from red
+  error marker dots.
 
 ## Debugging A User-Reported Bug
 
@@ -106,12 +124,17 @@ agent answers about browser recordings in the Analytics template.
 
 ## Capture Defaults
 
-- Replay is off unless enabled by config/env.
-- Consumers can enable replay directly with
+- Replay is on by default for signed-in hosted users when
+  `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` or `configureTracking({ key })` is
+  present. The default sample rate is 100% of eligible sessions.
+- Replay remains off when no first-party analytics key is configured, and it is
+  not auto-enabled on localhost/local dev. Consumers can still enable replay
+  directly with
   `configureTracking({ key, endpoint, sessionReplay: { enabled: true } })`.
+- Apps can opt out with `configureTracking({ sessionReplay: false })`.
 - Agent Native templates already call `configureTracking()` in their roots;
-  hosted template deployments can usually enable replay with Vite/Netlify env
-  vars on the recorded site.
+  hosted template deployments only need the normal Agent Native Analytics
+  Vite/Netlify env vars on the recorded site.
 - Inputs are masked by default. Page text is visible unless marked with
   `.an-mask` or `data-an-mask`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for

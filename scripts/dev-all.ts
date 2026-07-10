@@ -180,7 +180,7 @@ templatePorts.forEach(({ name, port }, i) => {
 // Core TypeScript watch
 names.push("core");
 commands.push(
-  "pnpm --filter @agent-native/core exec tsgo --watch --preserveWatchOutput",
+  "pnpm --filter @agent-native/core exec tsc --watch --preserveWatchOutput",
 );
 
 // Local Dev Frame

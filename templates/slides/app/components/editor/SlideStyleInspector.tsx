@@ -7,7 +7,6 @@ import {
   VisualScrubInput,
   VisualSegmentedControl,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
 import type { DesignSystemData } from "@shared/api";
 import {
   IconAlignCenter,
@@ -20,6 +19,8 @@ import {
   IconLetterCase,
   IconX,
 } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
 
 export interface SlideStyleSnapshot {
   selector: string;

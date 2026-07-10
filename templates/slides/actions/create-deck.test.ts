@@ -85,6 +85,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 import action from "./create-deck";

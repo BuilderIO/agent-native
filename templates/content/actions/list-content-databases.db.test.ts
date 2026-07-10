@@ -82,4 +82,88 @@ describe("list-content-databases", () => {
       });
     });
   });
+
+  it("excludes a database when its document id is passed (no source attached yet)", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-self",
+      databaseId: "db-self",
+      title: "Self",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-other",
+      databaseId: "db-other",
+      title: "Other",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-doc-self"],
+      });
+
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-self");
+      expect(result.databases.map((database) => database.databaseId)).toContain(
+        "db-other",
+      );
+    });
+  });
+
+  it("excludes databases whose local-table source chain points back to the configured database", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-root",
+      databaseId: "db-root",
+      title: "Root",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-child",
+      databaseId: "db-child",
+      title: "Child",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-grandchild",
+      databaseId: "db-grandchild",
+      title: "Grandchild",
+    });
+    const now = new Date().toISOString();
+    const db = getDb();
+    await db.insert(schema.contentDatabaseSources).values([
+      {
+        id: "src-child-root",
+        ownerEmail: OWNER,
+        databaseId: "db-child",
+        sourceType: "local-table",
+        sourceName: "Root",
+        sourceTable: "db-root",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "src-grandchild-child",
+        ownerEmail: OWNER,
+        databaseId: "db-grandchild",
+        sourceType: "local-table",
+        sourceName: "Child",
+        sourceTable: "db-child",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-root"],
+      });
+
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-root");
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-child");
+      expect(
+        result.databases.map((database) => database.databaseId),
+      ).not.toContain("db-grandchild");
+    });
+  });
 });

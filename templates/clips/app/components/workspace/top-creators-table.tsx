@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client";
-import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
+
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Table,
   TableBody,
@@ -7,7 +8,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@agent-native/toolkit/ui/table";
+} from "@/components/ui/table";
 
 export interface TopCreatorRow {
   email: string;

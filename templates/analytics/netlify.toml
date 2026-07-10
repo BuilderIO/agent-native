@@ -26,3 +26,6 @@ memory = "2gb"
 
 [functions.analytics-alert-sweep-background]
 timeout = 120
+
+[functions.uptime-monitor-sweep-background]
+timeout = 120

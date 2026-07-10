@@ -1,23 +1,6 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconPlus,
   IconCheck,
   IconSettings,
@@ -26,6 +9,23 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useApolloPerson } from "@/hooks/use-apollo";
 import {
   useIntegration,

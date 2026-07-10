@@ -2,24 +2,37 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useActionMutation,
   useActionQuery,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  IconAdjustments,
+  IconDeviceFloppy,
+  IconFileText,
+  IconGauge,
+  IconMessageCircle,
+  IconShieldCheck,
+  IconUsersGroup,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
+import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Progress } from "@agent-native/toolkit/ui/progress";
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -27,22 +40,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import {
-  IconAdjustments,
-  IconBuilding,
-  IconDeviceFloppy,
-  IconFileText,
-  IconGauge,
-  IconMessageCircle,
-  IconShieldCheck,
-} from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
-
-import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import {
   type BrainSettings,
   type SettingsResponse,
@@ -75,6 +76,7 @@ function sourcePolicyOptions(t: ReturnType<typeof useT>) {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -119,6 +121,42 @@ export default function SettingsRoute() {
     setSettings((current) => ({ ...current, [key]: value }));
   }
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "brain-identity",
+        label: t("settings.identityTitle"),
+        keywords: "identity company name assistant name",
+        hash: "identity",
+      },
+      {
+        id: "brain-behavior",
+        label: t("settings.assistantBehaviorTitle"),
+        keywords: "assistant behavior tone source policy instructions",
+        hash: "assistant-behavior",
+      },
+      {
+        id: "brain-publishing",
+        label: t("settings.publishingReviewTitle"),
+        keywords: "publishing review publish tier approval connector poll",
+        hash: "publishing-review",
+      },
+      {
+        id: "brain-safety",
+        label: t("settings.safetyEvidenceTitle"),
+        keywords: "safety evidence sanitize redact citations sources",
+        hash: "safety-evidence",
+      },
+      {
+        id: "brain-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+    ],
+    [t],
+  );
+
   return (
     <div className="min-h-full bg-background">
       <PageHeader
@@ -144,13 +182,15 @@ export default function SettingsRoute() {
 
       <SettingsTabsPage
         teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="brain-settings-general-grid grid gap-5">
             <main className="grid gap-5">
-              <Card>
+              <Card id="identity" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <IconBuilding className="size-4 text-primary" />
+                    <IconUsersGroup className="size-4 text-primary" />
                     {t("settings.identityTitle")}
                   </CardTitle>
                   <CardDescription>
@@ -175,7 +215,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="assistant-behavior" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconMessageCircle className="size-4 text-primary" />
@@ -233,7 +273,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="publishing-review" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconAdjustments className="size-4 text-primary" />
@@ -319,7 +359,7 @@ export default function SettingsRoute() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card id="safety-evidence" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconShieldCheck className="size-4 text-primary" />
@@ -404,7 +444,7 @@ export default function SettingsRoute() {
             </main>
 
             <aside className="grid content-start gap-5">
-              <Card>
+              <Card id="language" className="scroll-mt-4">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <IconAdjustments className="size-4 text-primary" />
@@ -417,23 +457,6 @@ export default function SettingsRoute() {
                 <CardContent className="space-y-1.5">
                   <Label>{t("settings.languageLabel")}</Label>
                   <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <IconAdjustments className="size-4 text-primary" />
-                    {t("settings.agentTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.agentDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" onClick={() => openAgentSettings()}>
-                    {t("settings.openAgentSettings")}
-                  </Button>
                 </CardContent>
               </Card>
 

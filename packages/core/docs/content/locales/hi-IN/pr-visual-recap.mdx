@@ -138,11 +138,11 @@ npx @agent-native/core@latest recap doctor
 
 बैकएंड से परे, दो रिपॉजिटरी वैरिएबल एजेंट को चलाने के तरीके को ट्यून करते हैं:
 
-- **`VISUAL_RECAP_MODEL`** मॉडल को CLI (`--model`) में पिन करता है - उदाहरण के लिए Codex के लिए `gpt-5.5`, या Claude मॉडल आईडी। CLI के अपने डिफ़ॉल्ट मॉडल का उपयोग करने के लिए इसे अनसेट छोड़ दें।
+- **`VISUAL_RECAP_MODEL`** मॉडल को CLI (`--model`) में पिन करता है - उदाहरण के लिए Codex के लिए `gpt-5.6-sol`, या Claude मॉडल आईडी। CLI के अपने डिफ़ॉल्ट मॉडल का उपयोग करने के लिए इसे अनसेट छोड़ दें।
 - **`VISUAL_RECAP_REASONING`** तर्क की गहराई निर्धारित करता है: `none`, `minimal`, `low`, `medium`, `high`, या `xhigh`। यह Codex बैकएंड पर लागू होता है; Claude का तर्क मॉडल-चालित है, इसलिए इस चर को वहां नजरअंदाज कर दिया गया है।
 - **`VISUAL_RECAP_SKILL_SOURCE`** त्वरित ताजगी को नियंत्रित करता है: `auto`/unset नवीनतम बंडल कौशल मार्गदर्शन का उपयोग करता है, जबकि `repo` प्रतिबद्ध रेपो-स्थानीय `visual-recap` कौशल फ़ोल्डर में पिन करता है।
 
-उदाहरण के लिए, Codex पर GPT-5.5 के साथ उच्च तर्क पर रिकैप चलाने के लिए, रिपॉजिटरी वेरिएबल `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5`, और `VISUAL_RECAP_REASONING=high` सेट करें।
+उदाहरण के लिए, Codex पर GPT-5.6 Sol के साथ उच्च तर्क पर रिकैप चलाने के लिए, रिपॉजिटरी वेरिएबल `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol`, और `VISUAL_RECAP_REASONING=high` सेट करें।
 
 ## रहस्य और चर
 
@@ -191,7 +191,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | गुप्त. इसके बजाय Codex के साथ रिकैप चलाने के लिए `VISUAL_RECAP_AGENT=codex` के साथ सेट करें।                                                                |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | परिवर्तनीय. कोडिंग-एजेंट बैकएंड (`claude` या `codex`) का चयन करता है।                                                                                       |
-| `VISUAL_RECAP_MODEL`     | प्रत्येक CLI का डिफ़ॉल्ट        | चर। मॉडल को पिन करें - उदा. Codex के लिए `gpt-5.5`, या Claude मॉडल आईडी। अनसेट CLI के स्वयं के डिफ़ॉल्ट का उपयोग करता है।                                   |
+| `VISUAL_RECAP_MODEL`     | प्रत्येक CLI का डिफ़ॉल्ट        | चर। मॉडल को पिन करें - उदा. Codex के लिए `gpt-5.6-sol`, या Claude मॉडल आईडी। अनसेट CLI के स्वयं के डिफ़ॉल्ट का उपयोग करता है।                               |
 | `VISUAL_RECAP_REASONING` | प्रत्येक मॉडल का डिफ़ॉल्ट       | परिवर्तनीय. तर्क की गहराई: `none`, `minimal`, `low`, `medium`, `high`, या `xhigh`। Codex बैकएंड पर लागू होता है।                                            |
 | `RECAP_CLI_VERSION`      | `latest`                        | चर। वर्कफ़्लो इंस्टॉल होने पर `@agent-native/core` CLI संस्करण को पिन करें - उदाहरण के लिए `1.5.0`. [Version pinning](#version-pinning-copy-variant) देखें. |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | गुप्त. केवल तभी जब प्लान्स ऐप को किसी भिन्न मूल पर स्वयं-होस्ट किया जाए।                                                                                    |

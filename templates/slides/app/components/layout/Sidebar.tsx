@@ -7,11 +7,6 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   IconStack2,
   IconPalette,
   IconSettings,
@@ -20,6 +15,11 @@ import {
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 const navItems = [

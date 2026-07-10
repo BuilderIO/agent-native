@@ -1,3 +1,12 @@
+---
+name: email-drafts
+description: >-
+  Create, edit, and send email drafts through compose-{id} application state,
+  manage-draft, and send-email. Use when composing, replying, forwarding,
+  attaching files, applying signatures/writing style, or checking open/click
+  tracking on sent mail.
+---
+
 # Email Drafts
 
 Create, edit, and manage email drafts. Each draft is stored as an application state entry keyed `compose-{id}`. The UI refreshes through the framework polling/query invalidation path and updates the compose panel automatically.
@@ -68,35 +77,32 @@ Before creating or rewriting a draft, read the user's drafting settings with `pn
 
 The compose panel opens automatically when any compose draft exists. When the last draft is deleted, the panel closes.
 
-## Creating a New Draft
+## Use the `manage-draft` action, not raw `writeAppState`
 
-Use the manage-draft script or write directly:
+`manage-draft` is the real action surface for compose drafts (`action`:
+`create` | `update` | `delete` | `delete-all`). Prefer it over hand-writing
+`compose-{id}` state directly — it does things a raw write will not:
+
+- **Sanitizes the id.** IDs must match `/^[a-zA-Z0-9_-]{1,64}$/`
+  (`sanitizeDraftId`); an invalid id on create silently falls back to a
+  timestamp-based id instead of failing.
+- **Appends the signature automatically on create** via
+  `appendSignatureToBody(body, signature)`, reading the configured signature
+  from `mail-settings`. This is idempotent (no-ops if the signature text is
+  already in the body) and signature-aware of quoted content — it inserts the
+  signature before any `— On ... wrote:` or `— Forwarded message —` block, not
+  after it. `update` does NOT re-append the signature — only `create` does, so
+  edit calls should not need to touch the signature themselves.
+- **Returns a `deepLink`** (via `link()`) that opens the exact draft in the
+  real Mail compose UI (`embedApp`/`mcpApp` resource with contact autocomplete,
+  attachments, and send controls) — surface this link when running outside the
+  first-party UI (e.g. from an MCP host).
 
 ```bash
 pnpm action manage-draft --action=create --to=jane@example.com --subject="Quick question" --body="Hi Jane,\n\nJust wanted to follow up on..."
-```
-
-Or from code:
-```ts
-import { writeAppState } from "@agent-native/core/application-state";
-await writeAppState("compose-draft1", {
-  id: "draft1",
-  to: "jane@example.com",
-  subject: "Quick question",
-  body: "Hi Jane,\n\nJust wanted to follow up on...",
-  mode: "compose",
-});
-```
-
-## Editing an Existing Draft
-
-Read the current draft, modify it, write it back:
-
-```ts
-import { readAppState, writeAppState } from "@agent-native/core/application-state";
-const draft = await readAppState("compose-draft1");
-draft.body = "Hi Jane,\n\nI refined the draft as requested...";
-await writeAppState("compose-draft1", draft);
+pnpm action manage-draft --action=update --id=draft1 --body="Hi Jane,\n\nI refined the draft as requested..."
+pnpm action manage-draft --action=delete --id=draft1
+pnpm action manage-draft --action=delete-all
 ```
 
 ## Listing All Drafts
@@ -111,16 +117,9 @@ import { listAppState } from "@agent-native/core/application-state";
 const drafts = await listAppState("compose-");
 ```
 
-## Closing a Draft
-
-```ts
-import { deleteAppState } from "@agent-native/core/application-state";
-await deleteAppState("compose-draft1");
-```
-
 ## Attaching Files
 
-The `send-email` action accepts an optional `attachments` array. Each entry must reference a file that was previously uploaded via the media-upload endpoint (`/api/media/upload`). Pass the server-side `filename` (the key returned by the upload endpoint, e.g. `abc123.pdf`), and optionally `originalName` (display name for the recipient) and `mimeType`. The attachment plumbing resolves the file from the upload store (falling back to `data/uploads/`) and includes it as a MIME multipart attachment in the outgoing Gmail message. Files are never sent speculatively — only attach what the user has explicitly provided and confirmed.
+The `send-email` action accepts an optional `attachments` array. Each entry must reference a file that was previously uploaded via the media-upload endpoint (`/api/media/upload`). Pass the server-side `filename` (the key returned by the upload endpoint, e.g. `abc123.pdf`), and optionally `originalName` (display name for the recipient) and `mimeType`. The attachment plumbing resolves the file from `data/uploads/` or from the configured file-storage URL recorded by the upload endpoint, then includes it as a MIME multipart attachment in the outgoing Gmail message. Do not store or paste attachment bytes, base64, or `data:` URLs in draft state/settings; files are never sent speculatively — only attach what the user has explicitly provided and confirmed.
 
 Example:
 ```json
@@ -134,7 +133,49 @@ Example:
 }
 ```
 
+Attachments are resolved eagerly, before Gmail is touched: if any referenced
+upload can't be read, `send-email` throws immediately (nothing is sent) rather
+than sending a partial message. If you see that error, the fix is re-uploading
+via the media endpoint, not retrying the same `filename`.
+
+## What Actually Happens on Send
+
+`send-email` requires explicit user intent to send — it is `needsApproval:
+true` and pauses for human approval before the real Gmail call happens. It
+branches on whether the user has a connected Google account:
+
+- **Connected:** resolves an access token (refreshing if the account's
+  `expiry_date` is within 60s), resolves reply threading (`inReplyTo` /
+  `References` headers) by fetching the original message metadata when
+  `replyToId` is set, resolves the sender display name via
+  `resolveGoogleSenderIdentity` (caching the result), builds the raw MIME
+  message, and calls the real Gmail send API.
+- **Not connected (no Google account):** synthesizes a fake sent message and
+  appends it to the user's `local-emails` setting so the UI still shows a
+  "Sent" item — this is a demo/fallback path, not a queued real send. Do not
+  tell the user the email left their real inbox in this mode.
+- **Open/click tracking:** if `mail-settings.tracking.opens` or `.clicks` is
+  enabled, `send-email` rewrites the outgoing body with a tracking pixel and
+  per-link click tokens before building the MIME message, and persists the
+  token map keyed by the real Gmail message id. `get-tracking --id=<messageId>`
+  reads back open count and per-link click stats for a previously sent
+  message; it returns `tracked: false` (not an error) for messages that were
+  sent before tracking was enabled or when tracking is off.
+- Multiple connected Google accounts: `send-email`'s optional `account` param
+  picks the sender; when replying, it also tries each connected account until
+  one can fetch the original message, and uses that account as the sender if
+  `account` wasn't explicit.
+
 ## Important Notes
+
+- The `id` field in the JSON MUST match the `{id}` in the key name (`compose-{id}`)
+- The UI debounces writes by 300ms — if the user is actively typing, your write will be visible after a brief moment
+- Always use valid JSON with proper escaping (especially newlines in body: use `\n`)
+- Multiple drafts can exist simultaneously — each appears as a tab in the compose panel
+- When the user asks you to "draft" or "compose" an email, write a compose entry — don't use the send API directly
+- When the user asks you to "edit" or "improve" a draft, list drafts first, then read and update the relevant one
+- **When called from the compose Generate button:** the context tells you which draft to update (e.g. `compose-abc123`). Always update THAT entry — do NOT create a new one with a different ID. Read, modify, and write back to the same key.
+- **When drafting from scratch (no compose window open):** create a new entry with any unique ID
 
 - The `id` field in the JSON MUST match the `{id}` in the key name (`compose-{id}`)
 - The UI debounces writes by 300ms — if the user is actively typing, your write will be visible after a brief moment

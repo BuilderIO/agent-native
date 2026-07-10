@@ -3,6 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { TemplateDocsLink } from "./template-docs";
 
@@ -223,9 +224,40 @@ function CliPopoverContent({ template }: { template: Template }) {
 }
 
 function TemplateLaunchButton({ template }: { template: Template }) {
-  const [showCli, setShowCli] = useState(false);
+  const [showCustomize, setShowCustomize] = useState(false);
+  const [customizeMode, setCustomizeMode] = useState<
+    "menu" | "editOnline" | "runLocally"
+  >("menu");
   const t = useT();
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
+
+  function handleCustomizeOpenChange(open: boolean) {
+    if (open) {
+      trackEvent("click customize it", {
+        template: template.slug,
+        location: "card",
+      });
+    } else {
+      setCustomizeMode("menu");
+    }
+    setShowCustomize(open);
+  }
+
+  function showEditOnline() {
+    trackEvent("click edit online", {
+      template: template.slug,
+      location: "card",
+    });
+    setCustomizeMode("editOnline");
+  }
+
+  function showRunLocally() {
+    trackEvent("click run locally", {
+      template: template.slug,
+      location: "card",
+    });
+    setCustomizeMode("runLocally");
+  }
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
@@ -261,19 +293,15 @@ function TemplateLaunchButton({ template }: { template: Template }) {
       )}
       <div className="flex gap-2">
         <Popover.Root
-          open={showCli}
-          onOpenChange={(open) => {
-            if (open)
-              trackEvent("click run locally", {
-                template: template.slug,
-                location: "card",
-              });
-            setShowCli(open);
-          }}
+          open={showCustomize}
+          onOpenChange={handleCustomizeOpenChange}
         >
           <Popover.Trigger asChild>
-            <button className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]">
-              {t("common.runLocally")}
+            <button
+              type="button"
+              className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              {t("common.customizeIt")}
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -281,9 +309,41 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               align="start"
               sideOffset={6}
               collisionPadding={16}
-              className="z-50 w-max max-w-[calc(100vw-32px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
+              className={
+                customizeMode === "runLocally"
+                  ? "z-50 w-max max-w-[calc(100vw-32px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
+                  : customizeMode === "editOnline"
+                    ? "z-50 w-[min(100vw-32px,360px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] p-4 shadow-lg"
+                    : "z-50 w-[min(100vw-32px,220px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] p-1 shadow-lg"
+              }
             >
-              <CliPopoverContent template={template} />
+              {customizeMode === "runLocally" ? (
+                <CliPopoverContent template={template} />
+              ) : customizeMode === "editOnline" ? (
+                <BuilderWaitlistContent
+                  location="card"
+                  template={template.slug}
+                  source="docs_template_card"
+                  useCase="docs_edit_online_waitlist"
+                />
+              ) : (
+                <div className="flex flex-col">
+                  <button
+                    type="button"
+                    onClick={showEditOnline}
+                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+                  >
+                    {t("common.editOnline")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={showRunLocally}
+                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+                  >
+                    {t("common.runLocally")}
+                  </button>
+                </div>
+              )}
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

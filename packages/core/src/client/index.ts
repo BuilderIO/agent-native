@@ -464,6 +464,10 @@ export {
 } from "./MultiTabAssistantChat.js";
 export { RunStuckBanner, type RunStuckBannerProps } from "./RunStuckBanner.js";
 export {
+  KeepTabOpenNotice,
+  type KeepTabOpenNoticeProps,
+} from "./KeepTabOpenNotice.js";
+export {
   useRunStuckDetection,
   useAbortRun,
   type RunStuckState,
@@ -635,18 +639,23 @@ export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
+  SecretsSection,
+  openBuilderConnectPopup,
+  useAgentSettingsTabs,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  withBuilderConnectTrackingParams,
+  type BuilderConnectFlow,
+  type BuilderConnectFlowOptions,
+  type BuilderConnectStartOptions,
+  type BuilderStatus,
+  type OpenBuilderConnectPopupOptions,
+  type SecretsSectionProps,
   type SettingsPanelProps,
+  type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./settings/index.js";
-export { useBuilderStatus } from "./settings/useBuilderStatus.js";
-export {
-  openBuilderConnectPopup,
-  useBuilderConnectFlow,
-  type BuilderConnectFlow,
-  type BuilderConnectFlowOptions,
-  type OpenBuilderConnectPopupOptions,
-} from "./settings/useBuilderStatus.js";
 // Deprecated — use AgentSidebar + AgentToggleButton instead
 export {
   ProductionAgentPanel,
@@ -725,8 +734,19 @@ export {
   setSentryUser,
   captureError,
   captureClientException,
+  // First-party, Sentry-style error capture (auto + manual API).
+  AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+  addErrorBreadcrumb,
+  captureException,
+  captureMessage,
+  isErrorCaptureInstalled,
+  type CaptureExceptionContext,
+  type CapturedExceptionEvent,
   type ClientCaptureContext,
   type ConfigureTrackingOptions,
+  type ErrorCaptureConfigOptions,
+  type ExceptionBreadcrumb,
+  type ExceptionLevel,
   type FirstTouchAttribution,
   type SessionReplayOptions,
   type SessionReplayStartResult,
@@ -778,6 +798,51 @@ export {
   type ResourceTreeProps,
   type ResourceEditorProps,
 } from "./resources/index.js";
+export {
+  HistoryTimeline,
+  VersionHistoryPanel,
+  useCreateResourceVersion,
+  useResourceHistory,
+  useResourceVersion,
+  useResourceVersions,
+  useRestoreResourceVersion,
+  type CreateResourceVersionInput,
+  type GetResourceVersionInput,
+  type GetResourceVersionResult,
+  type ListResourceHistoryResult,
+  type ListResourceVersionsResult,
+  type ResourceHistoryParams,
+  type ResourceVersionsParams,
+  type RestoreResourceVersionInput,
+  type RestoreResourceVersionResult,
+  type VersionHistoryPanelProps,
+} from "./history/index.js";
+export {
+  ReviewStatusBadge,
+  ReviewThreadPanel,
+  buildReviewThreads,
+  useConsumeReviewFeedback,
+  useCreateReviewComment,
+  useDeleteReviewComment,
+  useReplyReviewComment,
+  useResolveReviewThread,
+  useReviewComments,
+  useReviewFeedback,
+  useSetReviewStatus,
+  type ConsumeReviewFeedbackInput,
+  type CreateReviewCommentInput,
+  type DeleteReviewCommentInput,
+  type GetReviewFeedbackParams,
+  type GetReviewFeedbackResult,
+  type ListReviewCommentsParams,
+  type ListReviewCommentsResult,
+  type ReplyReviewCommentInput,
+  type ResolveReviewThreadInput,
+  type ReviewStatusBadgeProps,
+  type ReviewThread,
+  type ReviewThreadPanelProps,
+  type SetReviewStatusInput,
+} from "./review/index.js";
 export type {
   AppToFrameMessage,
   FrameToAppMessage,
@@ -787,10 +852,10 @@ export type {
 } from "./frame-protocol.js";
 export {
   CommandMenu,
-  useCommandMenuShortcut,
   openAgentSidebar,
   openAgentSettings,
   submitToAgent,
+  useCommandMenuShortcut,
   type CommandMenuProps,
   type CommandMenuDoc,
   type CommandDocsGroupProps,
@@ -798,6 +863,33 @@ export {
   type CommandItemProps,
   type CommandShortcutProps,
 } from "./CommandMenu.js";
+export {
+  buildOpenRouteLink,
+  buildOpenRoutePath,
+  buildResourceRoute,
+  buildSettingsRoute,
+  buildStandardAppRoute,
+  buildTeamRoute,
+  createStandardOpenPathResolver,
+  STANDARD_APP_ROUTES,
+  STANDARD_SETTINGS_TABS,
+  type BuildResourceRouteOptions,
+  type BuildStandardAppRouteOptions,
+  type NavigationLink,
+  type NavigationTarget,
+  type StandardAppRouteId,
+  type StandardOpenPathResolverOptions,
+  type StandardOpenPathRoute,
+  type StandardSettingsTabId,
+} from "../navigation/index.js";
+export {
+  BuilderConnectCard,
+  ProviderReadinessBadge,
+  SetupConnectionsPage,
+  type BuilderConnectCardProps,
+  type ProviderReadinessBadgeProps,
+  type SetupConnectionsPageProps,
+} from "./setup-connections/index.js";
 export {
   ChangelogDialog,
   ChangelogSettingsCard,
@@ -828,12 +920,16 @@ export {
   type DevOptionValue,
 } from "./dev-overlay/index.js";
 export {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
+  tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type KeepaliveActionCallRejectionReason,
+  type KeepaliveActionCallResult,
 } from "./use-action.js";
 export { createAgentNativeQueryClient } from "./create-query-client.js";
 export { AppProviders, type AppProvidersProps } from "./app-providers.js";

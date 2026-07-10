@@ -215,19 +215,21 @@ describe("buildRawEmail — attachments", () => {
     expect(await resolveComposeAttachments("not an array")).toEqual([]);
   });
 
-  it("resolveComposeAttachments skips entries without a filename", async () => {
-    expect(await resolveComposeAttachments([{ id: "x" }])).toEqual([]);
+  it("resolveComposeAttachments throws instead of silently dropping entries without a filename", async () => {
+    // A malformed entry must fail loudly (surfaced by callers as "One or more
+    // attachments could not be read") rather than being silently skipped,
+    // which would let an email send with fewer attachments than the user
+    // added with no indication anything was wrong.
+    await expect(resolveComposeAttachments([{ id: "x" }])).rejects.toThrow();
   });
 
-  it("resolveComposeAttachments skips path-traversal filenames", async () => {
-    // Should throw or skip — both paths (throw or skip) mean 0 resolved.
-    // The function skips entries with '/' or '..' in the filename check.
-    expect(
-      await resolveComposeAttachments([{ filename: "../etc/passwd" }]),
-    ).toEqual([]);
-    expect(
-      await resolveComposeAttachments([{ filename: "sub/file.pdf" }]),
-    ).toEqual([]);
+  it("resolveComposeAttachments throws on path-traversal filenames", async () => {
+    await expect(
+      resolveComposeAttachments([{ filename: "../etc/passwd" }]),
+    ).rejects.toThrow();
+    await expect(
+      resolveComposeAttachments([{ filename: "sub/file.pdf" }]),
+    ).rejects.toThrow();
   });
 
   it("resolveComposeAttachments can hydrate Gmail-backed draft attachments", async () => {

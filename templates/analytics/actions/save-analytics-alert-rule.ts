@@ -57,6 +57,20 @@ export default defineAction({
       .array(z.string().email())
       .optional()
       .describe("Email recipients passed to the generic email channel."),
+    slackWebhookUrl: z
+      .string()
+      .optional()
+      .nullable()
+      .describe(
+        "Optional Slack incoming webhook URL for this alert rule. Overrides NOTIFICATIONS_SLACK_WEBHOOK_URL when set.",
+      ),
+    webhookUrl: z
+      .string()
+      .optional()
+      .nullable()
+      .describe(
+        "Optional generic webhook URL for this alert rule. Overrides NOTIFICATIONS_WEBHOOK_URL when set.",
+      ),
     enabled: z.boolean().optional(),
   }),
   http: { method: "POST" },

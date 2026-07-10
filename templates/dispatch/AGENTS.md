@@ -8,6 +8,10 @@ specific essentials.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
   vault, integrations, resource grants, messaging, routing, and approvals.

@@ -60,6 +60,99 @@ export const workingLocationTypeInput = z
   .enum(["homeOffice", "officeLocation", "customLocation"])
   .optional();
 
+export const attendeeObjectInput = z.object({
+  email: z.string(),
+  displayName: z.string().optional(),
+  optional: cliBoolean.optional(),
+  comment: z.string().optional(),
+  responseStatus: z
+    .enum(["accepted", "declined", "tentative", "needsAction"])
+    .optional(),
+  organizer: cliBoolean.optional(),
+  self: cliBoolean.optional(),
+});
+
+export const attendeesInput = z.union([
+  z.array(attendeeObjectInput),
+  z.string(),
+]);
+
+export type NormalizedAttendee = {
+  email: string;
+  displayName?: string;
+  optional?: boolean;
+  comment?: string;
+  responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  organizer?: boolean;
+  self?: boolean;
+};
+
+export function normalizeAttendees(
+  input: z.infer<typeof attendeesInput> | undefined,
+): NormalizedAttendee[] | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input === "string") {
+    const emails = input
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s.includes("@"));
+    if (emails.length === 0) return [];
+    return emails.map((email) => ({ email }));
+  }
+  return input
+    .filter((a) => a.email && a.email.includes("@"))
+    .map((a) => ({
+      email: a.email,
+      ...(a.displayName ? { displayName: a.displayName } : {}),
+      ...(a.optional === true ? { optional: true } : {}),
+      ...(a.comment ? { comment: a.comment } : {}),
+      ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
+      ...(a.organizer === true ? { organizer: true } : {}),
+      ...(a.self === true ? { self: true } : {}),
+    }));
+}
+
+/**
+ * Google Calendar's UI always lists the organizer in Guests when inviting
+ * others. The insert API does not — unless we include the organizer/self
+ * email in `attendees`. Call this when creating/publishing an event that
+ * already has guests so AN matches GCal.
+ */
+export function ensureOrganizerInAttendees(
+  attendees: NormalizedAttendee[] | undefined,
+  organizerEmail: string,
+): NormalizedAttendee[] | undefined {
+  if (!attendees || attendees.length === 0) return attendees;
+  const organizer = organizerEmail.trim().toLowerCase();
+  if (!organizer.includes("@")) return attendees;
+
+  const existing = attendees.find(
+    (attendee) => attendee.email.trim().toLowerCase() === organizer,
+  );
+  if (existing) {
+    return attendees.map((attendee) =>
+      attendee.email.trim().toLowerCase() === organizer
+        ? {
+            ...attendee,
+            organizer: true,
+            self: true,
+            responseStatus: attendee.responseStatus ?? "accepted",
+          }
+        : attendee,
+    );
+  }
+
+  return [
+    {
+      email: organizerEmail.trim(),
+      organizer: true,
+      self: true,
+      responseStatus: "accepted",
+    },
+    ...attendees,
+  ];
+}
+
 export function requireActionUserEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");

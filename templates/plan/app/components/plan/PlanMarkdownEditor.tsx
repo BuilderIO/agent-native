@@ -87,7 +87,11 @@ export function PlanMarkdownEditor({
       : null;
   const collabEnabled = !!(editable && planId && blockId && collabUser);
   const docId = collabEnabled ? `plan:${planId}:${blockId}` : null;
-  const { ydoc, awareness } = useCollaborativeDoc({
+  const {
+    ydoc,
+    awareness,
+    isSynced: collabSynced,
+  } = useCollaborativeDoc({
     docId,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
@@ -173,6 +177,7 @@ export function PlanMarkdownEditor({
       ariaLabel={ariaLabel}
       interactive={editable}
       ydoc={collabEnabled ? ydoc : null}
+      collabSynced={collabEnabled ? collabSynced : true}
       awareness={collabEnabled ? awareness : null}
       user={collabEnabled ? collabUser : null}
     />

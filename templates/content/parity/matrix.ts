@@ -280,9 +280,11 @@ export const parityMatrix: ParityRow[] = [
       "configure-document-property",
       "delete-document-property",
       "duplicate-document-property",
+      "get-content-database-personal-view",
       "list-document-properties",
       "reorder-document-property",
       "set-document-property",
+      "update-content-database-personal-view",
       "update-content-database-view",
     ],
     exception: null,
@@ -357,6 +359,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "review-content-database-source-change-set",
       "set-content-database-source-write-mode",
+      "stage-builder-source-bulk-update",
       "stage-builder-revision",
       "validate-builder-source-execution",
     ],
@@ -368,6 +371,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],
   },
@@ -454,18 +458,22 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "local-files.import-export-mounted-folder",
     surface: "local-files",
-    label: "Import, check, export, and push local folder source files",
+    label: "Import, check, export, push, and remove local folder source files",
     uiEntrypoints: [
       "app/routes/_app.local-files.tsx",
       "actions/import-content-source.ts",
       "actions/export-content-source.ts",
     ],
     durableEffect:
-      "Local Markdown/MDX source files are imported into Content documents, and editable Content documents are exported back to source-friendly files.",
+      "Local Markdown/MDX source files are imported into Content documents, editable Content documents are exported back to source-friendly files, and imported source entries can be removed without deleting files on disk.",
     uiImplementation:
       "UI reads/writes browser or Desktop folder handles around import/export actions.",
     status: "action-backed",
-    actions: ["export-content-source", "import-content-source"],
+    actions: [
+      "export-content-source",
+      "import-content-source",
+      "remove-local-file-source",
+    ],
     exception: null,
     reliabilityRisk: "none",
     spinePriority: "P0",

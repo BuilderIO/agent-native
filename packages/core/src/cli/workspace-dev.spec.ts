@@ -7,6 +7,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const sentryMock = vi.hoisted(() => ({
+  captureException: vi.fn(),
+}));
+
+vi.mock("@sentry/node", () => sentryMock);
+
 import {
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
@@ -24,6 +30,7 @@ let handle: WorkspaceDevHandle | undefined;
 afterEach(() => {
   handle?.shutdown();
   handle = undefined;
+  sentryMock.captureException.mockClear();
   if (tmpDir) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = undefined;
@@ -465,6 +472,48 @@ describe("workspace dev startup", () => {
 
     await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
+  });
+
+  it("does not report permission-denied app discovery syncs to Sentry", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const appsDir = path.join(tmpDir, "apps");
+    const originalReaddirSync = fs.readdirSync.bind(fs);
+    const permissionError = Object.assign(
+      new Error("EPERM: operation not permitted, scandir"),
+      {
+        code: "EPERM",
+        errno: -1,
+        path: appsDir,
+        syscall: "scandir",
+      },
+    );
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readdirSpy = vi.spyOn(fs, "readdirSync").mockImplementation(((
+      dir: fs.PathLike,
+      options?: unknown,
+    ) => {
+      if (dir === appsDir) throw permissionError;
+      return originalReaddirSync(dir, options as never) as unknown;
+    }) as typeof fs.readdirSync);
+
+    try {
+      await fetch(`${url}/_workspace/apps`);
+      await fetch(`${url}/_workspace/apps`);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(sentryMock.captureException).not.toHaveBeenCalled();
+    } finally {
+      readdirSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 
   it("marks a cold app ready while serving the loading page", async () => {

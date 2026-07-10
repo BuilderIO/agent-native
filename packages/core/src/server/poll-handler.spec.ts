@@ -10,6 +10,7 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
+  isPostgres: () => false,
 }));
 
 // Stub auth so the handler doesn't try to read a real session cookie.
@@ -22,11 +23,360 @@ describe("poll handler", () => {
     vi.resetModules();
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
+    process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE = "1";
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
     mockExecute.mockReset();
   });
 
   afterEach(() => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
     vi.useRealTimers();
+  });
+
+  it("returns durable sync events without running the legacy watermark scan", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "create-project",
+      owner: "test@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          const since = Number(query.args?.[0]) || 0;
+          return {
+            rows:
+              durableEvent.version > since
+                ? [
+                    {
+                      version: durableEvent.version,
+                      event_json: JSON.stringify(durableEvent),
+                    },
+                  ]
+                : [],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result).toEqual({
+      version: 2_000,
+      events: [expect.objectContaining(durableEvent)],
+    });
+    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("does not advance past an unread durable event page when memory is ahead", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableRows = Array.from({ length: 1000 }, (_, index) => {
+      const version = 1_001 + index;
+      return {
+        version,
+        event_json: JSON.stringify({
+          version,
+          source: "action",
+          type: "change",
+          key: `action-${version}`,
+          owner: "test@example.com",
+        }),
+      };
+    });
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: durableRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(2_000);
+    expect(result.events).toHaveLength(1000);
+    expect(result.events.at(-1)).toMatchObject({ version: 2_000 });
+  });
+
+  it("does not skip same-version durable events at a page boundary", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const durableRows = [
+      ...Array.from({ length: 999 }, (_, index) => {
+        const version = 1_001 + index;
+        return {
+          version,
+          event_json: JSON.stringify({
+            version,
+            source: "action",
+            type: "change",
+            key: `action-${version}`,
+            owner: "test@example.com",
+          }),
+        };
+      }),
+      {
+        version: 2_000,
+        event_json: JSON.stringify({
+          version: 2_000,
+          source: "settings",
+          type: "change",
+          key: "first-boundary",
+          owner: "test@example.com",
+        }),
+      },
+      {
+        version: 2_000,
+        event_json: JSON.stringify({
+          version: 2_000,
+          source: "settings",
+          type: "change",
+          key: "second-boundary",
+          owner: "test@example.com",
+        }),
+      },
+    ];
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return { rows: durableRows };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(1_999);
+    expect(result.events).toHaveLength(999);
+    expect(result.events.at(-1)).toMatchObject({ version: 1_999 });
+    expect(result.events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "first-boundary" }),
+      ]),
+    );
+  });
+
+  it("does not advance past a durable event waiting on access resolution", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const pendingEvent = {
+      version: 2_000,
+      source: "collab",
+      type: "change",
+      resourceType: "document",
+      resourceId: "doc-1",
+      owner: "someone@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 10_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              { version: 2_000, event_json: JSON.stringify(pendingEvent) },
+              {
+                version: 3_000,
+                event_json: JSON.stringify({
+                  version: 3_000,
+                  source: "action",
+                  type: "change",
+                  owner: "test@example.com",
+                }),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result).toEqual({ version: 1_999, events: [] });
+  });
+
+  it("preserves distinct durable events that share the same version", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const firstEvent = {
+      version: 2_000,
+      source: "settings",
+      type: "change",
+      key: "theme",
+    };
+    const secondEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "update-dashboard",
+      owner: "test@example.com",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              { version: 2_000, event_json: JSON.stringify(firstEvent) },
+              { version: 2_000, event_json: JSON.stringify(secondEvent) },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const result = await handler({ query: { since: "1000" } });
+
+    expect(result.version).toBe(2_000);
+    expect(result.events).toEqual([
+      expect.objectContaining(firstEvent),
+      expect.objectContaining(secondEvent),
+    ]);
   });
 
   it("emits screen-refresh events when the refresh marker changes", async () => {

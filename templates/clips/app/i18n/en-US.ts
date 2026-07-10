@@ -199,6 +199,11 @@ const messages = {
     edit: "Edit",
     aiTools: "AI tools",
     enhanceRecording: "Enhance this recording",
+    includeFullVideo: "Include full video",
+    includeFullVideoDescription:
+      "When on, AI tools watch the recording (Gemini only) for on-screen context — not just the audio transcript. Also applies to default title and description generation. Requires a Gemini model via Builder or GEMINI_API_KEY.",
+    includeFullVideoOn: "AI tools will use the full video (Gemini)",
+    includeFullVideoOff: "AI tools will use the transcript only",
     regenerateTitle: "Regenerate title",
     regenerateDescription: "Regenerate description",
     autoChapters: "Auto chapters",
@@ -304,7 +309,7 @@ const messages = {
     unassigned: "Unassigned",
     them: "Them",
     me: "Me",
-    regeneratingNotes: "Regenerating notes — your own notes are kept",
+    regeneratingNotes: "Regenerating summary",
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",
@@ -312,8 +317,8 @@ const messages = {
     couldNotCopyTranscript: "Couldn't copy transcript",
     allMeetings: "All meetings",
     live: "Live",
-    generatingNotesInline: "Generating notes…",
-    regenerateNotes: "Regenerate notes",
+    generatingNotesInline: "Generating summary…",
+    regenerateNotes: "Regenerate summary",
     share: "Share",
     meetingOptions: "Meeting options",
     removeMeeting: "Remove meeting",
@@ -324,14 +329,15 @@ const messages = {
     removing: "Removing...",
     remove: "Remove",
     desktopHint:
-      "Record live notes for this meeting from the Clips desktop app — the transcript and AI notes will appear here automatically.",
+      "To start notes, open Clips Desktop from the menu bar and choose Start Meeting Notes, or click Start notes when the reminder appears. Clips captures mic + system audio and writes the transcript here.",
     getDesktopApp: "Get desktop app",
-    generateNotesFailed: "Couldn't generate notes. Try again.",
+    generateNotesFailed: "Couldn't generate summary. Try again.",
     attendee_one: "{{count}} attendee",
     attendee_other: "{{count}} attendees",
     joinCall: "Join call",
     myNotes: "My notes",
     aiNotes: "AI notes",
+    summary: "Summary",
     actionItems: "Action items",
     working: "Working…",
     noActionItems:
@@ -340,6 +346,13 @@ const messages = {
     segments: "{{count}} segments",
     copyTranscript: "Copy transcript",
     copyFullTranscript: "Copy full transcript",
+    timeRemaining_one: "{{count}} min left",
+    timeRemaining_other: "{{count}} min left",
+    endMeeting: "End meeting",
+    endThisMeeting: "End this meeting?",
+    endMeetingDescription:
+      "This stops recording and transcription for this meeting. You can still generate notes from what was captured so far.",
+    couldNotEndMeeting: "Couldn't end meeting",
   },
   transcriptPanel: {
     transcribing: "Transcribing…",
@@ -484,9 +497,15 @@ const messages = {
     quickPrompts: "Quick prompts",
     whatDidIMiss: "What did I miss?",
     whatDidIMissPrompt: "What did I miss?",
+    suggestQuestions: "Suggest questions for me to ask",
+    suggestQuestionsPrompt:
+      "Suggest a few good questions I could ask next in this meeting, based on what's been discussed so far.",
     summarizeLastFive: "Summarize the last 5 minutes",
     summarizeLastFivePrompt:
       "Summarize the last 5 minutes of this meeting in 3-5 bullets.",
+    makeMeSoundSmart: "Make me sound smart",
+    makeMeSoundSmartPrompt:
+      "Give me a sharp, insightful comment or question I could add right now, based on this meeting so far.",
     actionItemsForMe: "Action items for me",
     actionItemsForMePrompt:
       "List the action items from this meeting that are assigned to me. Use checkbox bullets.",
@@ -761,6 +780,9 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     anonymous: "Anonymous",
     anon: "Anon",
     moreViewers: "+{{count}} more",
+    viewedBy: "Viewed by",
+    someone: "Someone",
+    noViewsYet: "No views yet.",
   },
   libraryGrid: {
     spaceRoot: "Space root",
@@ -881,7 +903,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     unavailable: "This meeting is private or no longer available.",
     tryClips: "Try Clips",
     attendees: "{{count}} attendees",
-    noAiNotes: "AI notes haven't been generated yet for this meeting.",
+    noAiNotes: "A summary hasn't been generated yet for this meeting.",
     summary: "Summary",
     keyPoints: "Key points",
     actionItems: "Action items",
@@ -919,6 +941,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     noVideo: "No video available",
     thanks: "Thanks for watching",
     playClip: "Play clip",
+    unsupportedFormat:
+      "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -973,7 +997,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     inHours: "in {{count}} hr",
     join: "Join",
     openNotes: "Open notes",
-    open: "Open",
+    open: "Open notes",
+    startFromDesktopNow:
+      "Start live notes from the desktop reminder or menu bar.",
+    startFromDesktopLater:
+      "Clips Desktop will show Start notes when it is time.",
   },
   transcriptBubbles: {
     listening: "Listening…",
@@ -982,6 +1010,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "The live transcript will appear here once notes start.",
     me: "Me",
     them: "Them",
+    searchTranscript: "Search transcript",
+    searchPlaceholder: "Search transcript…",
+    searchMatchCount: "{{current}} of {{total}}",
+    searchNoMatches: "No matches",
+    searchPrevMatch: "Previous match",
+    searchNextMatch: "Next match",
+    searchClose: "Close search",
   },
   editorLayout: {
     trimmed: "Trimmed",
@@ -1250,6 +1285,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     browserDictation: "Browser dictation",
     browserDictationDescription:
       "Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.",
+    browserDictationDescriptionDesktop:
+      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.",
+    quickNoteTitle: "Quick dictation note",
+    quickNoteHint:
+      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.",
     desktopShortcuts: "Desktop shortcuts",
     desktopShortcutsDescriptionSuffix: ", in the desktop app.",
     holdFn: "Hold Fn",
@@ -1281,6 +1321,18 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.",
     loadFailed: "Couldn't load dictations.",
     noFilterMatches: "No dictations matching this filter.",
+    dictionaryTitle: "Dictionary",
+    dictionaryDescription:
+      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.",
+    dictionaryTermPlaceholder: "Term",
+    dictionaryReplacementPlaceholder: "Replacement (optional)",
+    dictionaryAdd: "Add",
+    dictionaryLoading: "Loading dictionary...",
+    dictionaryEmpty: "No learned terms yet.",
+    dictionaryUsesCount: "Used {{count}}x",
+    dictionaryRemove: "Remove",
+    vocabularyAddFailed: "Couldn't add term",
+    vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Split at playhead (S)",
@@ -1375,23 +1427,37 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
     desktopReminder:
-      "Get a desktop reminder when meetings start so recorded notes land in this history automatically.",
+      "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",
-    requiredForReminders: "Required for meeting reminders and transcription.",
+    requiredForReminders:
+      "Desktop captures mic + system audio for meeting transcription.",
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
-    intro: "Upcoming calendar meetings and your recorded notes.",
+    intro:
+      "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
     searchPlaceholder: "Search meetings...",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:
-      "Upcoming calendar meetings show up here, and finished recordings land here once you take notes.",
+      "Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.",
     noMeetingsMatch: 'No meetings match "{{query}}"',
     refreshing: "Refreshing…",
+    howToTriggerTitle: "How to trigger meeting notes",
+    howToTriggerDescription:
+      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.",
+    guideCalendarTitle: "Connect Google Calendar",
+    guideCalendarDescription:
+      "Meetings are pulled from your calendar so Clips knows when to remind you.",
+    guideDesktopTitle: "Keep Clips Desktop open",
+    guideDesktopDescription:
+      "Desktop capture is required for mic plus system-audio transcription.",
+    guideStartTitle: "Click Start notes",
+    guideStartDescription:
+      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
   },
 };
 

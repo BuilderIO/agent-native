@@ -22,9 +22,10 @@ import {
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
+  getLastTerminalRunEvent,
+  resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
-  STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
@@ -268,6 +269,12 @@ export interface StartRunOptions {
    * and to disabled otherwise (local dev stays unbounded).
    */
   noProgressTimeoutMs?: number;
+  /**
+   * Lifecycle metadata persisted to `agent_runs.dispatch_mode` and surfaced to
+   * clients through `/runs/active`. This does not change run-manager behavior;
+   * callers use it to describe who owns continuation at hosted chunk boundaries.
+   */
+  dispatchMode?: "foreground" | "foreground-self-chain";
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -488,11 +495,16 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertRunPromise = insertRun(runId, threadId, options?.turnId).catch(
-    (error) => {
-      captureRunPersistenceError(error, "insert-run");
-    },
-  );
+  const insertOptions = options?.dispatchMode
+    ? { dispatchMode: options.dispatchMode }
+    : undefined;
+  const insertRunPromise = (
+    insertOptions
+      ? insertRun(runId, threadId, options?.turnId, insertOptions)
+      : insertRun(runId, threadId, options?.turnId)
+  ).catch((error) => {
+    captureRunPersistenceError(error, "insert-run");
+  });
 
   // Per-run event persistence chain: events are chained so SQL inserts commit
   // in seq order. Without this, a fast seq=5 commit before a slow seq=4 means
@@ -675,10 +687,46 @@ export function startRun(
 
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
   // producer (process crash, HMR restart, isolate eviction) quickly and
-  // reap the row. Paired with RUN_STALE_MS (6s) — 4x the interval to
+  // reap the row. Paired with RUN_STALE_MS (15s) — 10x the interval to
   // tolerate transient DB slowness without false positives.
+  let consecutiveHeartbeatFailures = 0;
+  // Single-flight the heartbeat write. The timer fires every 1.5s but a write
+  // can take up to the DB op timeout (~8s) when the Neon pooler is saturated.
+  // Firing a fresh write each tick regardless piled up ~5 concurrent writes
+  // under contention, each holding a pooler connection — ADDING to the exact
+  // connection-cap exhaustion that starves the heartbeat and false-reaps the
+  // run as stale. Skip a tick's write while one is still outstanding so a run
+  // holds at most one heartbeat connection. The abort/backstop checks below
+  // still run every tick (they don't touch the DB on the hot path).
+  let heartbeatInFlight = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
-    updateRunHeartbeat(runId).catch(() => {});
+    if (!heartbeatInFlight) {
+      heartbeatInFlight = true;
+      updateRunHeartbeat(runId)
+        .then(() => {
+          consecutiveHeartbeatFailures = 0;
+        })
+        .catch((error) => {
+          consecutiveHeartbeatFailures += 1;
+          // Swallow routine single-tick blips; escalate once failures approach
+          // the stale window so false-positive stale_run from silent write
+          // failures is diagnosable.
+          if (consecutiveHeartbeatFailures >= 3) {
+            captureError(error, {
+              route: "/_agent-native/agent-chat",
+              tags: {
+                source: "agent-run-manager",
+                phase: "heartbeat",
+                consecutiveFailures: String(consecutiveHeartbeatFailures),
+              },
+              extra: { runId, threadId },
+            });
+          }
+        })
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    }
     checkSqlAbort();
     checkNoProgressBackstop();
   }, 1500);
@@ -1276,24 +1324,29 @@ function subscribeFromSQL(
                   return;
                 }
               } else if (run?.status === "errored") {
-                // The run row was flipped to `errored` but no terminal event
-                // was ever persisted — almost always means a reaper's silent
-                // `appendTerminalRunEvent(...).catch(() => {})` swallowed a
-                // transient DB error, so the user-facing situation is the
-                // same as a stale-run reap. Send the friendly event AND try
-                // to persist it so future reconnects replay it from SQL
-                // rather than regenerating it (the user used to see a bare
-                // "run_terminal_event_missing" debug string here).
-                await ensureTerminalRunEvent(
-                  runId,
-                  STALE_RUN_ERROR_EVENT,
-                ).catch(() => {});
+                // The run row is terminal but this subscriber's cursor is
+                // already past (or never saw) the terminal event. Prefer the
+                // REAL last terminal event / row error_detail over inventing
+                // a stale_run card — slides prod showed Connection error.
+                // rows being mislabeled as stale_run on reconnect because
+                // this path always synthesized STALE_RUN_ERROR_EVENT.
+                const existing = await getLastTerminalRunEvent(runId).catch(
+                  () => null,
+                );
+                const resolved = existing
+                  ? { event: existing.event, shouldPersist: false }
+                  : resolveErroredRunTerminalEvent(run);
+                if (resolved.shouldPersist) {
+                  await ensureTerminalRunEvent(runId, resolved.event).catch(
+                    () => {},
+                  );
+                }
                 try {
                   controller.enqueue(
                     encoder.encode(
                       `data: ${JSON.stringify({
-                        ...STALE_RUN_ERROR_EVENT,
-                        seq: lastSeq,
+                        ...resolved.event,
+                        seq: existing?.seq ?? lastSeq,
                       })}\n\n`,
                     ),
                   );
@@ -1375,7 +1428,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   status: string;
   heartbeatAt: number;
   lastProgressAt: number | null;
-  /** How the run was dispatched (NULL/foreground, background, background-processing). */
+  /** How the run was dispatched/continued (foreground, foreground-self-chain, background...). */
   dispatchMode?: string | null;
   /** Compact terminal classification, e.g. done, run_timeout, stale_run. */
   terminalReason?: string | null;

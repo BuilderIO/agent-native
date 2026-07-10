@@ -27,7 +27,18 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
-const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
+const REACT_ROUTER_BUILD_DEPENDENCIES = [
+  "@react-router/dev",
+  "@react-router/fs-routes",
+  "react-router",
+  "vite",
+] as const;
+const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@typescript/*"',
+  '"@sentry/*"',
+  "typescript",
+  "typescript-7",
+];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -1045,6 +1056,7 @@ function postProcessStandalone(
       // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+      ensureReactRouterBuildDependencies(pkg);
 
       const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
       if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
@@ -1093,7 +1105,7 @@ function postProcessStandalone(
     updated = mergeWorkspaceYamlListItems(
       updated,
       "minimumReleaseAgeExclude",
-      SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES,
+      MINIMUM_RELEASE_AGE_EXCLUDES,
     );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
@@ -1103,6 +1115,34 @@ function postProcessStandalone(
   fixStandaloneTsconfig(targetDir, templateName);
 
   setupAgentSymlinks(targetDir);
+}
+
+function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
+  const allDeps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+  if (
+    !allDeps["@react-router/dev"] &&
+    !allDeps["react-router"] &&
+    !allDeps["@react-router/fs-routes"]
+  ) {
+    return;
+  }
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  for (const key of REACT_ROUTER_BUILD_DEPENDENCIES) {
+    const existing =
+      pkg.dependencies[key] ??
+      pkg.devDependencies?.[key] ??
+      pkg.peerDependencies?.[key];
+    if (!existing) continue;
+    pkg.dependencies[key] =
+      STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key] ?? existing;
+    delete pkg.devDependencies?.[key];
+    delete pkg.peerDependencies?.[key];
+  }
 }
 
 function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
@@ -1124,7 +1164,7 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
       paths["@shared/*"] ??= ["./shared/*"];
     }
     // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
-    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
     // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
     // so never emit baseUrl into scaffolds.
     delete tsconfig.compilerOptions.baseUrl;

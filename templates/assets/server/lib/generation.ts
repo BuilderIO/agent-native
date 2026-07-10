@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
@@ -5,6 +7,7 @@ import {
   resolveSecret,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
+import sharp from "sharp";
 
 import type {
   AspectRatio,
@@ -13,6 +16,7 @@ import type {
   ImageModel,
   ImageQualityTier,
   ImageSize,
+  PresetReferenceRole,
   StyleStrength,
   StyleBrief,
 } from "../../shared/api.js";
@@ -26,7 +30,13 @@ export interface ReferenceForGeneration {
   category?: string;
   mimeType: string;
   data: string;
-  selectionReason?: "subject" | "source" | "anchor" | "scored" | "explicit";
+  selectionReason?:
+    | "subject"
+    | "source"
+    | "anchor"
+    | "scored"
+    | "explicit"
+    | `preset-ref:${string}`;
 }
 
 // Keep automatic reference context compact for Gemini. Explicit
@@ -41,8 +51,10 @@ export interface GenerateProviderInput {
   compiledPrompt: string;
   references: ReferenceForGeneration[];
   model: ImageModel;
+  mode?: "generate" | "edit";
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
+  background?: "transparent" | "opaque" | "auto";
   groundingMode: "auto" | "off" | "google-search";
   intent?: GenerationIntent;
   styleStrength?: StyleStrength;
@@ -51,6 +63,7 @@ export interface GenerateProviderInput {
   collectionId?: string | null;
   source?: "chat" | "ui" | "a2a";
   callerAppId?: string;
+  hasBoardReferences?: boolean;
 }
 
 export interface GenerateProviderOutput {
@@ -77,6 +90,42 @@ const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
   process.env.NODE_ENV === "test" ? 6 : 40;
 const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 6000;
+// Slow image models (e.g. gpt-image-*) return the finished image synchronously
+// but can take several minutes end-to-end (generate + encode the large PNG +
+// transfer). The old 90s window was tuned for Gemini and aborted these mid-
+// response, so the request just needs a longer budget rather than the poll-and-
+// replay fallback. Override per deployment with ASSETS_IMAGE_GENERATION_TIMEOUT_MS.
+const IMAGE_GENERATION_REQUEST_TIMEOUT_MS =
+  Number(process.env.ASSETS_IMAGE_GENERATION_TIMEOUT_MS) || 300_000;
+
+// Lightweight structured logging for the image-generation providers. Slow
+// models (e.g. gpt-image-*) can exceed the 90s per-request abort window and get
+// converted into an in-flight poll, so these logs make the provider, model,
+// elapsed time, and abort/poll outcome visible when a generation "completes on
+// the provider but times out in the app". Silenced under NODE_ENV=test.
+function logGeneration(
+  event: string,
+  fields: Record<string, unknown> = {},
+): void {
+  if (process.env.NODE_ENV === "test") return;
+  const parts = Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
+    .join(" ");
+  console.info(`[assets] image-gen ${event}${parts ? ` ${parts}` : ""}`);
+}
+
+function formatLogValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
 
 export async function getGeminiApiKey(): Promise<string> {
   const key = await resolveSecret("GEMINI_API_KEY");
@@ -232,6 +281,59 @@ export async function generateWithBuilderImageApi(
   }
 
   const baseUrl = getBuilderImageGenerationBaseUrl().replace(/\/$/, "");
+  const requestModel = toBuilderImageModel(input.model);
+  const startedAt = Date.now();
+  const requestBody = {
+    idempotencyKey: input.runId,
+    prompt: input.compiledPrompt,
+    model: requestModel,
+    ...(input.mode ? { mode: input.mode } : {}),
+    count: 1,
+    aspectRatio: toBuilderAspectRatio(input.aspectRatio),
+    size: toBuilderImageSize(input.imageSize),
+    outputFormat: "png",
+    ...(input.background ? { background: input.background } : {}),
+    references: input.references.map((ref) => ({
+      id: ref.id,
+      role: toBuilderReferenceRole(ref.role),
+      mimeType: ref.mimeType,
+      data: ref.data,
+      name: ref.category,
+    })),
+    source: {
+      appId: "assets",
+      feature: "generate-image",
+      resourceId: input.libraryId,
+    },
+    metadata: {
+      collectionId: input.collectionId ?? undefined,
+      callerAppId: input.callerAppId,
+      source: input.source,
+      groundingMode: input.groundingMode,
+      intent: input.intent,
+    },
+  };
+  logGeneration("builder.request", {
+    model: requestModel,
+    mode: input.mode,
+    requestedModel: input.model,
+    host: safeUrlHost(baseUrl),
+    aspectRatio: toBuilderAspectRatio(input.aspectRatio),
+    size: toBuilderImageSize(input.imageSize),
+    references: input.references.length,
+    referenceRoles: input.references
+      .map((ref) => `${ref.id}:${toBuilderReferenceRole(ref.role)}`)
+      .join(","),
+    runId: input.runId,
+  });
+  if (
+    input.mode === "edit" ||
+    process.env.ASSETS_IMAGE_GENERATION_DEBUG_PAYLOAD
+  ) {
+    logGeneration("builder.request_payload", {
+      payload: await sanitizedBuilderRequestPayload(requestBody),
+    });
+  }
   const response = await fetch(`${baseUrl}/generations`, {
     method: "POST",
     headers: {
@@ -239,40 +341,24 @@ export async function generateWithBuilderImageApi(
       "x-builder-api-key": builderCredentials.publicKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      idempotencyKey: input.runId,
-      prompt: input.compiledPrompt,
-      model: toBuilderImageModel(input.model),
-      count: 1,
-      aspectRatio: toBuilderAspectRatio(input.aspectRatio),
-      size: toBuilderImageSize(input.imageSize),
-      outputFormat: "png",
-      references: input.references.map((ref) => ({
-        id: ref.id,
-        role: toBuilderReferenceRole(ref.role),
-        mimeType: ref.mimeType,
-        data: ref.data,
-        name: ref.category,
-      })),
-      source: {
-        appId: "assets",
-        feature: "generate-image",
-        resourceId: input.libraryId,
-      },
-      metadata: {
-        collectionId: input.collectionId ?? undefined,
-        callerAppId: input.callerAppId,
-        source: input.source,
-        groundingMode: input.groundingMode,
-        intent: input.intent,
-      },
-    }),
-    signal: AbortSignal.timeout(90_000),
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
   }).catch((err) => {
-    if ((err as Error)?.name === "AbortError") {
-      // The socket aborted, but the service keeps generating under this
-      // idempotency key. Flag it so the retry loop polls the key instead of
-      // starting a fresh (double-charged) generation.
+    // `AbortSignal.timeout()` rejects with a `TimeoutError` DOMException, while a
+    // manual `AbortController.abort()` rejects with `AbortError` — treat both as
+    // "socket gave up, but the service keeps generating under this idempotency
+    // key". Flag it so the retry loop polls the key instead of starting a fresh
+    // (double-charged) generation. Matching only "AbortError" silently let the
+    // per-request timeout escape as a hard failure for slow models.
+    const name = (err as Error)?.name;
+    if (name === "AbortError" || name === "TimeoutError") {
+      logGeneration("builder.abort", {
+        model: requestModel,
+        elapsedMs: Date.now() - startedAt,
+        timeoutMs: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
+        runId: input.runId,
+        note: "socket aborted at client timeout; provider may still be running under this idempotency key",
+      });
       throw new BuilderImageGenerationError(
         "Builder-managed image generation timed out.",
         504,
@@ -280,7 +366,21 @@ export async function generateWithBuilderImageApi(
         "client_timeout",
       );
     }
+    logGeneration("builder.fetch_error", {
+      model: requestModel,
+      elapsedMs: Date.now() - startedAt,
+      name: (err as Error)?.name,
+      runId: input.runId,
+    });
     throw err;
+  });
+
+  logGeneration("builder.response", {
+    model: requestModel,
+    status: response.status,
+    ok: response.ok,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
   });
 
   if (!response.ok) {
@@ -315,6 +415,14 @@ export async function generateWithBuilderImageApi(
     );
   }
 
+  logGeneration("builder.success", {
+    requestedModel: input.model,
+    providerModel: body.model.publicId || input.model,
+    provider: body.model.provider,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
+  });
+
   return {
     image: Buffer.from(await imageResponse.arrayBuffer()),
     mimeType:
@@ -327,6 +435,125 @@ export async function generateWithBuilderImageApi(
     providerGenerationId: body.id,
     creditsCharged: body.creditsCharged,
   };
+}
+
+function safeUrlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "invalid-url";
+  }
+}
+
+async function sanitizedBuilderRequestPayload(input: {
+  idempotencyKey?: string;
+  prompt: string;
+  model: string;
+  mode?: string;
+  count: number;
+  aspectRatio: string;
+  size: string;
+  outputFormat: string;
+  background?: string;
+  references: Array<{
+    id: string;
+    role: string;
+    mimeType: string;
+    data: string;
+    name?: string;
+  }>;
+  source: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  return {
+    ...input,
+    promptChars: input.prompt.length,
+    references: await Promise.all(
+      input.references.map(async (reference) => ({
+        id: reference.id,
+        role: reference.role,
+        mimeType: reference.mimeType,
+        name: reference.name,
+        data: await referenceDataDebugSummary(reference.data),
+      })),
+    ),
+  };
+}
+
+async function referenceDataDebugSummary(data: string): Promise<
+  | {
+      omitted: true;
+      bytes: number;
+      sha256: string;
+      width?: number;
+      height?: number;
+      channels?: number;
+      hasAlpha?: boolean;
+      alpha?: {
+        min: number;
+        max: number;
+        transparent: number;
+        opaque: number;
+        partial: number;
+      };
+    }
+  | { omitted: true; error: string; chars: number }
+> {
+  try {
+    const buffer = decodeReferenceData(data);
+    const metadata = await sharp(buffer, { failOn: "none" }).metadata();
+    const alpha = metadata.hasAlpha
+      ? await alphaDebugSummary(buffer).catch(() => undefined)
+      : undefined;
+    return {
+      omitted: true,
+      bytes: buffer.byteLength,
+      sha256: createHash("sha256").update(buffer).digest("hex").slice(0, 16),
+      width: metadata.width,
+      height: metadata.height,
+      channels: metadata.channels,
+      hasAlpha: metadata.hasAlpha,
+      alpha,
+    };
+  } catch (err) {
+    return {
+      omitted: true,
+      error: err instanceof Error ? err.message : "Unable to inspect reference",
+      chars: data.length,
+    };
+  }
+}
+
+function decodeReferenceData(data: string): Buffer {
+  const base64 = data.includes(",") ? data.split(",").pop()! : data;
+  return Buffer.from(base64, "base64");
+}
+
+async function alphaDebugSummary(data: Buffer): Promise<{
+  min: number;
+  max: number;
+  transparent: number;
+  opaque: number;
+  partial: number;
+}> {
+  const alpha = await sharp(data, { failOn: "none" })
+    .ensureAlpha()
+    .extractChannel("alpha")
+    .raw()
+    .toBuffer();
+  let min = 255;
+  let max = 0;
+  let transparent = 0;
+  let opaque = 0;
+  let partial = 0;
+  for (const value of alpha) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+    if (value === 0) transparent += 1;
+    else if (value === 255) opaque += 1;
+    else partial += 1;
+  }
+  return { min, max, transparent, opaque, partial };
 }
 
 async function generateWithRetryingBuilderImageApi(
@@ -344,6 +571,13 @@ async function generateWithRetryingBuilderImageApi(
       // until it resolves or we exhaust the polling budget.
       if (isInFlightImageGenerationError(err)) {
         if (inFlightPolls >= MANAGED_PROVIDER_INFLIGHT_MAX_POLLS) {
+          logGeneration("builder.poll_exhausted", {
+            model: input.model,
+            polls: inFlightPolls,
+            maxPolls: MANAGED_PROVIDER_INFLIGHT_MAX_POLLS,
+            runId: input.runId,
+            note: "provider never returned a completed result under this idempotency key within the wait budget",
+          });
           throw new BuilderImageGenerationError(
             "Builder-managed image generation is still running after the wait budget. It may finish shortly — try again to pick up the result.",
             504,
@@ -352,6 +586,16 @@ async function generateWithRetryingBuilderImageApi(
           );
         }
         inFlightPolls += 1;
+        logGeneration("builder.poll", {
+          model: input.model,
+          poll: inFlightPolls,
+          maxPolls: MANAGED_PROVIDER_INFLIGHT_MAX_POLLS,
+          code:
+            err instanceof BuilderImageGenerationError ? err.code : undefined,
+          status:
+            err instanceof BuilderImageGenerationError ? err.status : undefined,
+          runId: input.runId,
+        });
         await generationPollDelay();
         continue;
       }
@@ -361,6 +605,13 @@ async function generateWithRetryingBuilderImageApi(
         transientAttempts < MANAGED_PROVIDER_MAX_ATTEMPTS - 1
       ) {
         transientAttempts += 1;
+        logGeneration("builder.transient_retry", {
+          model: input.model,
+          attempt: transientAttempts,
+          status:
+            err instanceof BuilderImageGenerationError ? err.status : undefined,
+          runId: input.runId,
+        });
         await generationRetryDelay(transientAttempts);
         continue;
       }
@@ -372,6 +623,14 @@ async function generateWithRetryingBuilderImageApi(
 export async function generateWithManagedImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  logGeneration("dispatch", {
+    model: input.model,
+    mode: input.mode,
+    intent: input.intent,
+    background: input.background,
+    builderEnabled: isBuilderImageGenerationEnabled(),
+    runId: input.runId,
+  });
   if (!isBuilderImageGenerationEnabled()) {
     if (await isManualImageGenerationConfigured()) {
       return generateWithManualImageProvider(input);
@@ -391,11 +650,22 @@ export async function generateWithManagedImageProvider(
     const shouldFallback =
       err instanceof BuilderImageGenerationError &&
       [401, 402, 403, 429, 503, 504].includes(err.status ?? 0);
-    if (shouldFallback && (await isManualImageGenerationConfigured())) {
+    if (
+      shouldFallback &&
+      input.mode !== "edit" &&
+      !(input.hasBoardReferences && input.model.startsWith("gpt-")) &&
+      (await isManualImageGenerationConfigured())
+    ) {
+      logGeneration("builder.fallback_to_manual", {
+        model: input.model,
+        status:
+          err instanceof BuilderImageGenerationError ? err.status : undefined,
+        runId: input.runId,
+      });
       return generateWithManualImageProvider(input);
     }
     if (shouldFallback && err instanceof BuilderImageGenerationError) {
-      throw createBuilderImageGenerationFallbackError(err);
+      throw createBuilderImageGenerationFallbackError(err, input);
     }
     throw err;
   }
@@ -403,12 +673,15 @@ export async function generateWithManagedImageProvider(
 
 function createBuilderImageGenerationFallbackError(
   err: BuilderImageGenerationError,
+  input?: GenerateProviderInput,
 ): Error {
-  const message = builderImageGenerationFallbackMessage(err);
+  const message = builderImageGenerationFallbackMessage(err, input);
   if ([401, 402, 403].includes(err.status ?? 0)) {
     return new FeatureNotConfiguredError({
       requiredCredential:
-        err.status === 401 ? "BUILDER_PRIVATE_KEY" : "GEMINI_API_KEY",
+        input?.mode === "edit" || err.status === 401
+          ? "BUILDER_PRIVATE_KEY"
+          : "GEMINI_API_KEY",
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message,
@@ -419,8 +692,26 @@ function createBuilderImageGenerationFallbackError(
 
 function builderImageGenerationFallbackMessage(
   err: BuilderImageGenerationError,
+  input?: GenerateProviderInput,
 ): string {
   const detail = err.detail ? `: ${err.detail}` : ".";
+  if (input?.mode === "edit") {
+    switch (err.status) {
+      case 401:
+        return `Masked skeleton inpainting needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      case 402:
+        return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Masked skeleton inpainting cannot use manual OpenAI or Gemini fallback because it must pass an image-edit mask.`;
+      case 403:
+        return `Builder.io is connected, but this Builder space does not have access to managed image generation${detail} Ask a space admin to enable access or reconnect to a different Builder space; manual fallback cannot pass image-edit masks.`;
+      case 429:
+        return `Builder-managed masked inpainting is rate limited right now${detail} Retry shortly; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      case 503:
+      case 504:
+        return `Builder-managed masked inpainting is temporarily unavailable${detail} Retry shortly; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+      default:
+        return `Builder-managed masked inpainting failed${detail} Retry with Builder-managed image generation; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+    }
+  }
   switch (err.status) {
     case 401:
       return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;
@@ -648,8 +939,38 @@ export function sanitizeStyleBrief(value: Record<string, unknown>): StyleBrief {
 async function generateWithManualImageProvider(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  if (input.mode === "edit") {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "Mask inpainting runs need Builder-managed image generation because the manual fallback cannot pass the image-edit mask.",
+    });
+  }
+  // Board-reference runs on gpt-* models must not reroute into the Gemini
+  // fallback: Gemini rejects GPT model ids, which would surface a cryptic
+  // provider error instead of this setup guidance.
+  if (input.hasBoardReferences && input.model.startsWith("gpt-")) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
+  }
   if (await isGeminiImageGenerationConfigured()) {
     return generateWithGemini(input);
+  }
+  if (input.hasBoardReferences) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
     throw new FeatureNotConfiguredError({
@@ -666,6 +987,23 @@ async function generateWithManualImageProvider(
 export async function generateWithOpenAI(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  if (input.hasBoardReferences) {
+    throw new FeatureNotConfiguredError({
+      requiredCredential: "BUILDER_PRIVATE_KEY or GEMINI_API_KEY",
+      builderConnectUrl: "/_agent-native/builder/connect",
+      byokDocsUrl: "https://aistudio.google.com/apikey",
+      message:
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+    });
+  }
+  const startedAt = Date.now();
+  const model = openAIImageModelForInput(input.model);
+  logGeneration("openai.request", {
+    model,
+    requestedModel: input.model,
+    size: toOpenAIImageSize(input.aspectRatio),
+    runId: input.runId,
+  });
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST",
     headers: {
@@ -673,14 +1011,30 @@ export async function generateWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-image-2",
+      model,
       prompt: buildOpenAIImagePrompt(input),
       n: 1,
       size: toOpenAIImageSize(input.aspectRatio),
       quality: "medium",
       output_format: "png",
+      ...(input.background ? { background: input.background } : {}),
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS),
+  }).catch((err) => {
+    logGeneration("openai.fetch_error", {
+      elapsedMs: Date.now() - startedAt,
+      name: (err as Error)?.name,
+      timeoutMs: IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
+      runId: input.runId,
+    });
+    throw err;
+  });
+
+  logGeneration("openai.response", {
+    status: response.status,
+    ok: response.ok,
+    elapsedMs: Date.now() - startedAt,
+    runId: input.runId,
   });
 
   const body = (await response.json().catch(() => ({}))) as {
@@ -697,7 +1051,7 @@ export async function generateWithOpenAI(
     return {
       image: Buffer.from(output.b64_json, "base64"),
       mimeType: "image/png",
-      model: "gpt-image-2",
+      model,
       provider: "openai",
     };
   }
@@ -714,12 +1068,20 @@ export async function generateWithOpenAI(
       image: Buffer.from(await imageResponse.arrayBuffer()),
       mimeType:
         imageResponse.headers.get("content-type")?.split(";")[0] || "image/png",
-      model: "gpt-image-2",
+      model,
       provider: "openai",
       sourceUrl: output.url,
     };
   }
   throw new Error("OpenAI returned no image data.");
+}
+
+function openAIImageModelForInput(
+  model: ImageModel,
+): "gpt-image-1" | "gpt-image-2" {
+  return model === "gpt-image-1" || model === "gpt-image-2"
+    ? model
+    : "gpt-image-2";
 }
 
 function buildOpenAIImagePrompt(input: GenerateProviderInput): string {
@@ -856,8 +1218,11 @@ function toBuilderReferenceRole(role: string) {
       return "logo";
     case "product_reference":
       return "product";
+    case "background_reference":
     case "diagram_reference":
       return "composition";
+    case "mask":
+      return "mask";
     case "subject_reference":
     case "edit_target":
       return "source";
@@ -877,11 +1242,20 @@ export function compilePrompt(input: {
   textPlacement?: string | null;
   referenceCount: number;
   includeLogo: boolean;
+  skeletonContentMode?: "cutout" | "fill" | null;
+  hasBackgroundPlate?: boolean;
+  skeletonInpaint?: boolean;
   aspectRatio?: AspectRatio;
   imageSize?: ImageSize;
   category?: ImageCategory;
   intent?: GenerationIntent;
   styleStrength?: StyleStrength;
+  referenceBoard?: Array<{
+    label: string;
+    role: PresetReferenceRole;
+    count: number;
+    description?: string;
+  }>;
 }): string {
   const style = input.styleBrief;
   const intent = input.intent ?? "generate";
@@ -898,6 +1272,16 @@ export function compilePrompt(input: {
     : "Do not render headlines, body text, UI labels, or prompt wording inside the image unless the user explicitly asks for exact visible text.";
   const logoInstruction = input.includeLogo
     ? "\nLeave a clean uncluttered area in the upper-right for the real brand logo; do not draw or approximate the logo yourself."
+    : "";
+  const cutoutInstruction =
+    input.skeletonContentMode === "cutout" && !input.skeletonInpaint
+      ? "\nCutout mode: generate the subject in isolation on an empty transparent background; no scenery, no baked-in ground plane, no environment, and no baked-in shadow."
+      : "";
+  const backgroundPlateInstruction = input.hasBackgroundPlate
+    ? "\nA background plate is attached as a composition reference. It is the FIXED brand layout your output will be composited onto — it already contains the logo, framing, and all fixed text/headlines. Render ONLY the subject, isolated on a transparent background. Do NOT draw, repeat, restyle, or overlap the plate's logo, headline, body text, CTA, or framing. Keep the subject within the plate's open/empty area and leave the occupied regions clear."
+    : "";
+  const skeletonInpaintInstruction = input.skeletonInpaint
+    ? "\nSkeleton inpaint mode: the attached background plate is the fixed final image, and its transparent/open region is the only editable area. Render ONLY the requested foreground content inside that editable region. If the request asks for exact text, CTA, linework, or graphic elements, render those elements only within the editable region. Match the surrounding plate's lighting, perspective, scale, and contact geometry. Do NOT alter, redraw, repeat, restyle, or overlap the plate's existing logo, text, framing, borders, or other brand chrome in the opaque/preserved regions; the plate already contains them. Return the finished plate with the opaque regions preserved."
     : "";
   const diagramInstruction =
     input.category === "diagram"
@@ -916,8 +1300,9 @@ export function compilePrompt(input: {
       : intent === "restyle"
         ? `The first attached image is the subject to preserve. Keep its identity, pose, composition, and framing. Treat the remaining attached images as style evidence for the brand library. Apply the library look with ${input.styleStrength ?? "balanced"} strength.`
         : input.referenceCount > 0
-          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source references must not override the library style brief or custom instructions.`
+          ? `Use the ${input.referenceCount} attached reference image${input.referenceCount === 1 ? "" : "s"} as visual evidence. Treat them by role: style references define visual language, logo/product references define accurate brand/product appearance, background references define fixed composition plates/layout only, mask references define editable regions only, subject/source references provide content or composition only, and prior candidates define continuity. Subject/source/background/mask references must not override the library style brief or custom instructions.`
           : "No reference images are attached for this run. Use the style brief and custom instructions as the source of truth.";
+  const referenceBoardBlock = formatReferenceBoardBlock(input.referenceBoard);
 
   if (intent === "edit") {
     const editTypographyInstruction =
@@ -931,6 +1316,7 @@ export function compilePrompt(input: {
     return `Edit the attached image for the "${input.libraryTitle}" asset library.
 
 ${referenceInstruction}
+${referenceBoardBlock}
 ${editTypographyInstruction}
 
 Make only this change:
@@ -943,6 +1329,7 @@ ${editConstraint}`;
   return `Create a brand-consistent image for the "${input.libraryTitle}" asset library.
 
 ${referenceInstruction}
+${referenceBoardBlock}
 
 Style brief:
 ${style.description || "Infer the style from the references."}${palette}
@@ -953,12 +1340,45 @@ ${style.texture ? `\nTexture/material treatment: ${style.texture}.` : ""}
 ${style.composition ? `\nComposition: ${style.composition}.` : ""}
 ${style.lighting ? `\nLighting: ${style.lighting}.` : ""}
 ${typographyBlock ? `\n${typographyBlock}` : ""}${frameInstruction}
-${doNot}${logoInstruction}${diagramInstruction}${customInstructions}
+${doNot}${logoInstruction}${cutoutInstruction}${backgroundPlateInstruction}${skeletonInpaintInstruction}${diagramInstruction}${customInstructions}
 
 ${textInstruction}
 
 User request:
 ${input.prompt}`;
+}
+
+function formatReferenceBoardBlock(
+  entries?: Array<{
+    label: string;
+    role: PresetReferenceRole;
+    count: number;
+    description?: string;
+  }>,
+): string {
+  const visibleEntries = (entries ?? []).filter((entry) => entry.count > 0);
+  if (!visibleEntries.length) return "";
+  const lines = visibleEntries.map((entry) => {
+    const description =
+      entry.description?.trim() || presetReferenceRoleDefault(entry.role);
+    return `- "${entry.label}" (${entry.count} image(s), role: ${entry.role}): ${description}`;
+  });
+  return `\nPreset reference board attached to this run:\n${lines.join("\n")}`;
+}
+
+function presetReferenceRoleDefault(role: PresetReferenceRole): string {
+  switch (role) {
+    case "subject":
+      return "This is the actual person/object for this piece. Render them faithfully and recognizably; do not replace them with a generic subject.";
+    case "style":
+      return "Match this visual style; do not copy its content.";
+    case "product":
+      return "Reproduce this product accurately; do not invent variants.";
+    case "background":
+      return "Use as fixed backdrop/setting context only; do not treat it as a subject.";
+    case "composition":
+      return "Imitate this image's layout, arrangement, and framing; do not copy its content or style.";
+  }
 }
 
 function hasEmbeddedText(value?: string | null): boolean {
@@ -1011,6 +1431,7 @@ export async function selectReferences(input: {
   collectionId?: string | null;
   categories?: ImageCategory[];
   referenceAssetIds?: string[];
+  excludeAssetIds?: string[];
   sourceAssetId?: string;
   subjectAssetId?: string;
   intent?: GenerationIntent;
@@ -1018,6 +1439,7 @@ export async function selectReferences(input: {
 }): Promise<ReferenceForGeneration[]> {
   const db = getDb();
   const requestedExplicitIds = new Set(input.referenceAssetIds ?? []);
+  const excludedAssetIds = new Set(input.excludeAssetIds ?? []);
   let explicitIds = [...requestedExplicitIds];
   if (explicitIds.length) {
     explicitIds = [
@@ -1046,7 +1468,8 @@ export async function selectReferences(input: {
           asset != null &&
           asset.mimeType.startsWith("image/") &&
           asset.status !== "archived" &&
-          asset.status !== "failed",
+          asset.status !== "failed" &&
+          !excludedAssetIds.has(asset.id),
       );
     const explicitRefs = await loadReferenceData(
       explicitAssets,
@@ -1081,6 +1504,7 @@ export async function selectReferences(input: {
       libraryId: input.libraryId,
       collectionId: input.collectionId,
       categories: input.categories,
+      excludeAssetIds: input.excludeAssetIds,
       intent: input.intent,
       limit: styleLimit,
     });
@@ -1107,12 +1531,16 @@ export async function selectReferences(input: {
     ? settings.canonicalStyleAssetIds.filter((id) => typeof id === "string")
     : [];
   const candidates = rows
-    .filter(
-      (asset) =>
+    .filter((asset) => {
+      const metadata = parseJson<{ category?: string }>(asset.metadata, {});
+      return (
         asset.mimeType.startsWith("image/") &&
         asset.status !== "archived" &&
-        asset.status !== "failed",
-    )
+        asset.status !== "failed" &&
+        metadata.category !== "skeleton" &&
+        !excludedAssetIds.has(asset.id)
+      );
+    })
     .map((asset) => {
       const metadata = parseJson<{
         category?: string;
@@ -1221,7 +1649,7 @@ export function compareReferenceCandidates(
   );
 }
 
-async function loadReferenceData(
+export async function loadReferenceData(
   selected: Array<{
     id: string;
     role: string;

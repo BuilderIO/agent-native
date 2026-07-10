@@ -251,15 +251,22 @@ export default defineAction({
     const busyByKey = new Map<string, FindTimeBusyBlock>();
     const errors: Array<{ email: string; error: string }> = [];
 
-    if (googleConnected) {
-      const freeBusy = await googleCalendar.getFreeBusy(
-        range.from,
-        range.to,
-        participantEmails,
-        ownerEmail,
-        timezone,
-        organizerEmail,
-      );
+    const [freeBusyOutcome, eventsOutcome] = await Promise.allSettled([
+      googleConnected
+        ? googleCalendar.getFreeBusy(
+            range.from,
+            range.to,
+            participantEmails,
+            ownerEmail,
+            timezone,
+            organizerEmail,
+          )
+        : Promise.resolve(null),
+      listCalendarEvents({ from: range.from, to: range.to }),
+    ]);
+
+    if (freeBusyOutcome.status === "fulfilled" && freeBusyOutcome.value) {
+      const freeBusy = freeBusyOutcome.value;
       errors.push(...freeBusy.errors);
       for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
         for (const busy of calendar.busy) {
@@ -276,13 +283,17 @@ export default defineAction({
           );
         }
       }
+    } else if (freeBusyOutcome.status === "rejected") {
+      errors.push({
+        email: organizerEmail,
+        error:
+          freeBusyOutcome.reason?.message ||
+          "Unable to load free/busy availability",
+      });
     }
 
-    try {
-      const eventResult = await listCalendarEvents({
-        from: range.from,
-        to: range.to,
-      });
+    if (eventsOutcome.status === "fulfilled") {
+      const eventResult = eventsOutcome.value;
       errors.push(...eventResult.errors);
       addCalendarEventBusyBlocks(
         busyByKey,
@@ -292,10 +303,12 @@ export default defineAction({
         args.ignoreStart,
         args.ignoreEnd,
       );
-    } catch (error: any) {
+    } else {
       errors.push({
         email: organizerEmail,
-        error: error?.message || "Unable to load local calendar conflicts",
+        error:
+          eventsOutcome.reason?.message ||
+          "Unable to load local calendar conflicts",
       });
     }
 

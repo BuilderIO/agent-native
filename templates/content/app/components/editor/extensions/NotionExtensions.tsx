@@ -893,6 +893,13 @@ export const NotionBlockAtom = Node.create({
       tagName: { default: "unknown" },
       attrsJson: { default: "{}" },
       label: { default: "" },
+      // Verbatim source for unrecognized raw containers (e.g. <meeting-notes>)
+      // preserved by parseRawContainer. Must survive editor load/save so the
+      // real content isn't replaced by the tagName summary on the next save.
+      // Kept out of the rendered DOM (see renderHTML) since the NodeView
+      // renders from label/tagName; parseHTML restores it from data-raw for
+      // the rare case content is round-tripped through HTML (e.g. paste).
+      __raw: { default: "" },
     };
   },
 
@@ -917,6 +924,7 @@ export const NotionBlockAtom = Node.create({
             tagName: node.getAttribute("data-tag-name") || "unknown",
             attrsJson: node.getAttribute("data-attrs-json") || "{}",
             label: node.getAttribute("data-label") || "",
+            __raw: node.getAttribute("data-raw") || "",
           };
         },
       },
@@ -931,6 +939,7 @@ export const NotionBlockAtom = Node.create({
         "data-tag-name": HTMLAttributes.tagName,
         "data-attrs-json": HTMLAttributes.attrsJson,
         "data-label": HTMLAttributes.label || "",
+        "data-raw": HTMLAttributes.__raw || "",
       }),
       HTMLAttributes.label || humanizeTag(HTMLAttributes.tagName || "block"),
     ];

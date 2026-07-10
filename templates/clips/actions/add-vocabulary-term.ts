@@ -56,7 +56,9 @@ export default defineAction({
     const db = getDb();
     const term = args.term.trim();
     const replacement = args.replacement.trim();
-    if (!term || !replacement || term === replacement) {
+    // term === replacement is allowed: a standalone term (manual add) still
+    // biases the recognizer's contextualStrings toward that spelling.
+    if (!term || !replacement) {
       return { id: null, skipped: true };
     }
     const now = new Date().toISOString();

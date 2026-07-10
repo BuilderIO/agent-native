@@ -439,7 +439,8 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
     process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type(text);
-  await page.keyboard.press("Enter");
+  // Figma text editing: Enter inserts a line break; Escape exits and commits.
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
 }
 
@@ -491,6 +492,15 @@ async function insertTextByDrag(
 
 function countOccurrences(content: string, text: string): number {
   return content.split(text).length - 1;
+}
+
+async function confirmScreenDeletion(page: Page): Promise<void> {
+  const dialog = page.getByRole("alertdialog", {
+    name: "Delete this screen?",
+  });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 async function pressPrimaryShortcut(
@@ -698,6 +708,47 @@ test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
   );
 });
 
+test("Hand and Scale shortcuts project the active move-group tool", async ({
+  page,
+}) => {
+  await page.keyboard.press("h");
+  await expect(toolButton(page, "Hand")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolButton(page, "Move")).toHaveCount(0);
+
+  // The primary button shows Hand, so clicking it must keep Hand selected.
+  await toolButton(page, "Hand").click();
+  await expect(toolButton(page, "Hand")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.getByRole("button", { name: "Hand options" }).click();
+  await expect(
+    page.getByRole("menuitem").filter({ hasText: "Hand" }),
+  ).toHaveText(/HandH$/);
+  await expect(
+    page.getByRole("menuitem").filter({ hasText: "Scale" }),
+  ).toHaveText(/ScaleK$/);
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("k");
+  await expect(toolButton(page, "Scale")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolButton(page, "Hand")).toHaveCount(0);
+
+  // The primary button shows Scale, so clicking it must keep Scale selected.
+  await toolButton(page, "Scale").click();
+  await expect(toolButton(page, "Scale")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
 async function textEditingCount(page: Page): Promise<number> {
   return page
     .locator("iframe[data-design-preview-iframe]")
@@ -715,11 +766,43 @@ async function textEditingCount(page: Page): Promise<number> {
 }
 
 async function dblClickText(page: Page, text: string): Promise<void> {
+  // Overview -> focused mode replaces the board iframe with the focused
+  // DesignCanvas iframe. The outgoing and incoming frames briefly share the
+  // same bounds, so geometry/visibility alone can report ready while a click
+  // would still land in the outgoing document. Require the same iframe DOM
+  // instance to remain mounted across the transition before interacting.
+  let stableIframeToken: string | null = null;
+  let stableSince = 0;
+  await expect
+    .poll(
+      async () => {
+        const iframe = page
+          .locator("iframe[data-design-preview-iframe]")
+          .last();
+        const token = await iframe.evaluate((element) => {
+          const frame = element as HTMLIFrameElement & {
+            __canvasToolsE2EInstance?: string;
+          };
+          frame.__canvasToolsE2EInstance ??= crypto.randomUUID();
+          return frame.__canvasToolsE2EInstance;
+        });
+        if (token !== stableIframeToken) {
+          stableIframeToken = token;
+          stableSince = Date.now();
+        }
+        return Date.now() - stableSince;
+      },
+      { timeout: 5_000, intervals: [50] },
+    )
+    .toBeGreaterThanOrEqual(250);
+
   const target = designFrame(page).getByText(text).first();
   await target.waitFor({ state: "visible", timeout: 10_000 });
-  const box = await target.boundingBox();
-  if (!box) throw new Error(`no bounding box for text: ${text}`);
-  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+  // The full-view transition is still settling when its iframe first crosses
+  // the helper's width threshold. Let Playwright resolve the live hit point at
+  // dispatch time; a cached box can move between measurement and dblclick.
+  // `force` is intentional because the editor shield owns the real hit target.
+  await target.dblclick({ force: true });
 }
 
 test("double-click existing text starts inline editing and stays open (overview)", async ({
@@ -746,7 +829,7 @@ test("double-click existing text starts inline editing and stays open (overview)
   const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAll);
   await page.keyboard.type("Edited Inline");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
   await expect
     .poll(
       async () =>
@@ -1048,12 +1131,18 @@ test("dragging a rectangle between screens moves it across files", async ({
     });
 });
 
-test("frame insertion creates a new screen and can return to Home", async ({
+test("frame insertion inside a screen creates a nested frame", async ({
   page,
 }) => {
   const card = await homeScreenCard(page);
   const cardBox = await card.boundingBox();
   if (!cardBox) throw new Error("no home screen card box");
+  const screenCountBefore = htmlScreenFiles(await designFiles(page)).length;
+  const nestedFrameCountBefore = await primitiveCount(
+    page,
+    "index.html",
+    "frame",
+  );
 
   await toolButton(page, "Frame").click();
   await expect(toolButton(page, "Frame")).toHaveAttribute(
@@ -1077,7 +1166,15 @@ test("frame insertion creates a new screen and can return to Home", async ({
     "aria-pressed",
     "true",
   );
-  await expect(selectedLayerRow(page)).toContainText("Screen 2");
+  await expect(selectedLayerRow(page)).toContainText("Frame");
+  await expect
+    .poll(() => primitiveCount(page, "index.html", "frame"), {
+      timeout: 20_000,
+    })
+    .toBe(nestedFrameCountBefore + 1);
+  expect(htmlScreenFiles(await designFiles(page))).toHaveLength(
+    screenCountBefore,
+  );
   await restoreHome(page);
 });
 
@@ -1276,6 +1373,59 @@ test("primary undo removes active pen segments without undoing committed vectors
   );
   expect(vectorsAfterClearingPath).toHaveLength(1);
   expect(vectorsAfterClearingPath[0]?.d).toBe(committedVector.d);
+});
+
+test("focused-screen pen authors Bezier paths and undoes active segments", async ({
+  page,
+}) => {
+  await enterDirectMode(page);
+  await toolButton(page, "Pen").click();
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+
+  const overlay = page.locator(
+    '[data-design-canvas-creation-overlay][data-creation-tool="pen"]',
+  );
+  await expect(overlay).toBeVisible();
+  const box = await overlay.boundingBox();
+  if (!box) throw new Error("no focused-screen creation overlay box");
+
+  const drawSmoothAnchor = async (
+    anchor: { x: number; y: number },
+    handleDelta: { x: number; y: number },
+  ) => {
+    await page.mouse.move(anchor.x, anchor.y);
+    await page.mouse.down();
+    await page.mouse.move(anchor.x + handleDelta.x, anchor.y + handleDelta.y, {
+      steps: 8,
+    });
+    await page.mouse.up();
+  };
+
+  await drawSmoothAnchor(
+    { x: box.x + box.width * 0.3, y: box.y + box.height * 0.34 },
+    { x: 70, y: -38 },
+  );
+  await drawSmoothAnchor(
+    { x: box.x + box.width * 0.62, y: box.y + box.height * 0.58 },
+    { x: -62, y: 44 },
+  );
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(2);
+  await expect(page.locator("[data-pen-handle]")).toHaveCount(4);
+
+  const undoShortcut = process.platform === "darwin" ? "Meta+Z" : "Control+Z";
+  await page.keyboard.press(undoShortcut);
+  await expect(page.locator("[data-pen-anchor]")).toHaveCount(1);
+  expect(await vectorPrimitiveSummaries(page, "index.html")).toHaveLength(0);
+
+  await drawSmoothAnchor(
+    { x: box.x + box.width * 0.68, y: box.y + box.height * 0.56 },
+    { x: -55, y: 48 },
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
+  await expect(toolButton(page, "Pen")).toHaveAttribute("aria-pressed", "true");
+  await expect(selectedLayerRow(page)).toContainText("Vector");
+  await waitForVectorPrimitive(page, "index.html", /\bC\b/);
 });
 
 test("pen Bezier vector stays visible and persists through reload", async ({
@@ -1659,6 +1809,7 @@ test("overview undo skips deleted screen content history", async ({ page }) => {
   if (!aboutBox) throw new Error("no about shell box");
   await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
   await page.keyboard.press("Delete");
+  await confirmScreenDeletion(page);
   await expect
     .poll(
       async () =>
@@ -1733,6 +1884,7 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   if (!aboutBox) throw new Error("no about shell box");
   await page.mouse.click(aboutBox.x + aboutBox.width * 0.3, aboutBox.y + 12);
   await page.keyboard.press("Delete");
+  await confirmScreenDeletion(page);
 
   await expect
     .poll(

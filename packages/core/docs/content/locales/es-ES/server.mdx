@@ -129,6 +129,41 @@ Si tanto el UI como el agente necesitan hacer algo, defina una acción en lugar 
 
 Utilice rutas `/api/*` personalizadas solo cuando necesite un protocolo en forma de ruta o un comportamiento binario/de transmisión. Ver [Actions](/docs/actions).
 
+### Aplicaciones solo API {#api-only-apps}
+
+No necesita un servidor Express solo porque la aplicación sea solo API. Una aplicación Agent Native ya incluye un servidor Nitro/H3, y `defineAction()` es la superficie API predeterminada. Defina las operaciones en `actions/`; el marco monta cada action en `/_agent-native/actions/<name>` con validación de esquema y contexto de solicitud.
+
+Use la opción `http` de la action para dar forma al acceso HTTP directo: las actions son `POST` de forma predeterminada, `http: { method: "GET" | "PUT" | "DELETE" }` cambia el verbo, y `http: false` deja una action fuera de HTTP. Use `server/routes/api/*` solo para necesidades con forma de ruta o protocolo: cargas de archivos, streaming/SSE, webhooks, devoluciones de llamada OAuth, páginas públicas o una forma REST externa que no pueda representarse limpiamente como una action. No cree rutas `/api/*` que principalmente envuelvan o reexporten actions.
+
+Para un endpoint de estado de solo lectura, manténgalo como una action:
+
+```ts
+// actions/get-status.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Llámela directamente por HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+Para `POST` y otras actions de escritura, envíe un cuerpo JSON al mismo path de la action.
+
 ## Completación de texto de una sola vez {#complete-text}
 
 La mayor parte del trabajo de IA debe realizarse a través del chat del agente para que los usuarios puedan verlo, dirigirlo y auditarlo

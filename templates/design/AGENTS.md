@@ -9,6 +9,10 @@ patterns live in `.agents/skills/`.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
@@ -30,8 +34,9 @@ patterns live in `.agents/skills/`.
   screens, linked design systems, tokens, and component language before
   inventing a new direction. Use realistic content/copy and one signature choice
   per direction; avoid lorem ipsum, generic SaaS filler, and decorative
-  placeholders. Include expected responsive/accessibility states and visually
-  inspect the result before calling it ready.
+  placeholders. Include expected responsive/accessibility states, run
+  `run-design-audit`, and call `take-design-screenshot` on each changed screen
+  before calling it ready — see the `design-generation` skill's Phase 5.
 - For editable reusable building blocks inside Design, use
   `list-design-native-assets` first, then `insert-design-native-asset` with the
   chosen kind. These are Design-native HTML primitives/components, not external
@@ -245,6 +250,15 @@ patterns live in `.agents/skills/`.
   the latest localhost connection or a specific `connectionId`. Pass `routes`
   with `path`/`url` when visualizing a flow; pass `paths` for a concise route
   list. Then call `navigate --view editor --designId <id> --editorView overview`.
+- `write-local-file`: writes/patches a local file through the bridge, but only
+  when a user-approved write-consent grant exists. Granting is human-only
+  (`grant-localhost-write-consent` is hidden from agents), so you cannot approve
+  it yourself.
+- `request-localhost-write-consent`: call this when `write-local-file` fails
+  with "no write-consent grant". It opens the write-consent dialog in the
+  editor (or reports `alreadyGranted`). Tell the user to click "Allow writes",
+  then retry `write-local-file`. Do not keep retrying blindly — the write stays
+  blocked until the user approves.
 
 ## Review, Breakpoints, Screen States & Components
 
@@ -258,8 +272,10 @@ patterns live in `.agents/skills/`.
   skill's Phase 5 for when to run these.
 - **Breakpoints**: `add-breakpoint`, `remove-breakpoint`, and
   `set-active-breakpoint` manage the design's device-width frame set and which
-  frame new edits target. See the `design-generation` skill's "Breakpoints &
-  screen states" section.
+  frame new edits target. Breakpoint frames are one document with a
+  Framer-style cascade (base = widest frame; narrower-frame edits persist as
+  width-scoped overrides via `apply-visual-edit` + `activeFrameWidthPx`).
+  Read the `responsive-breakpoints` skill before responsive edits.
 - **Design states**: `create-design-state`, `apply-design-state`,
   `capture-design-state`, `list-design-states`, and `delete-design-state`
   manage named DOM/Alpine states (Loading/Empty/Error), static data fixtures,
@@ -337,9 +353,14 @@ and requires Builder connected. See `full-app-build` skill for the full flow.
 Read the relevant skill before deeper work:
 
 - `design-generation` for creating/editing prototype HTML and variant flows.
+- `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
+  cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
 - `full-app-build` for flag-gated fusion-backed full app building.
+- `shader-fills` for code-backed GLSL shader fills/effects (editable source
+  in screen HTML, uniform knobs, preset library, and the picker's "Create a
+  custom shader fill." prompt).
 - `frontend-design` and `shadcn-ui` for app UI changes.
 - `actions`, `delegate-to-agent`, `security`, and `self-modifying-code` for
   framework patterns.

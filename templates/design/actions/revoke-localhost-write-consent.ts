@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,6 +25,7 @@ export default defineAction({
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId() ?? null;
 
     const db = getDb();
 
@@ -33,6 +37,9 @@ export default defineAction({
       eq(schema.designLocalhostWriteGrants.designId, designId),
       eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
       eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+      orgId
+        ? eq(schema.designLocalhostWriteGrants.orgId, orgId)
+        : isNull(schema.designLocalhostWriteGrants.orgId),
     );
 
     const [grant] = await db

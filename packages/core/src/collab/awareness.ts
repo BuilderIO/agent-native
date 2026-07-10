@@ -24,6 +24,7 @@ import {
 } from "./awareness-store.js";
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds
+const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 
 export interface AwarenessEntry {
   clientId: number;
@@ -106,6 +107,53 @@ export function emitAwarenessChange(
 
 // docId → Map<clientId, AwarenessEntry>
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
+// docId + clientId -> clearedAt. Prevents a stale SQL mirror from resurrecting
+// a participant after an explicit leave/delete raced with the next poll.
+const _awarenessClearTombstones = new Map<string, number>();
+
+function awarenessKey(docId: string, clientId: number): string {
+  return `${docId}\0${clientId}`;
+}
+
+function pruneAwarenessClearTombstones(now: number): void {
+  for (const [key, clearedAt] of _awarenessClearTombstones) {
+    if (now - clearedAt > CLEAR_TOMBSTONE_TTL) {
+      _awarenessClearTombstones.delete(key);
+    }
+  }
+}
+
+export function rememberAwarenessClear(
+  docId: string,
+  clientId: number,
+  clearedAt: number = Date.now(),
+): void {
+  pruneAwarenessClearTombstones(clearedAt);
+  const key = awarenessKey(docId, clientId);
+  const prev = _awarenessClearTombstones.get(key);
+  if (prev == null || clearedAt > prev) {
+    _awarenessClearTombstones.set(key, clearedAt);
+  }
+}
+
+export function forgetAwarenessClear(docId: string, clientId: number): void {
+  _awarenessClearTombstones.delete(awarenessKey(docId, clientId));
+}
+
+function isBlockedByAwarenessClear(
+  docId: string,
+  clientId: number,
+  lastSeen: number,
+  now: number,
+): boolean {
+  pruneAwarenessClearTombstones(now);
+  const key = awarenessKey(docId, clientId);
+  const clearedAt = _awarenessClearTombstones.get(key);
+  if (clearedAt == null) return false;
+  if (lastSeen <= clearedAt) return true;
+  _awarenessClearTombstones.delete(key);
+  return false;
+}
 
 export function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
   let map = _awarenessMap.get(docId);
@@ -143,8 +191,13 @@ async function mergeStoredAwareness(
   docId: string,
   map: Map<number, AwarenessEntry>,
 ): Promise<void> {
-  const rows = await loadAwarenessRows(docId);
+  const now = Date.now();
+  const rows = await loadAwarenessRows(docId, now);
   for (const row of rows) {
+    if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
+      void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
+      continue;
+    }
     const existing = map.get(row.clientId);
     if (!existing || row.lastSeen > existing.lastSeen) {
       map.set(row.clientId, row);
@@ -187,10 +240,13 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const map = getDocAwareness(docId);
 
   if (state === null) {
+    const clearedAt = Date.now();
     map.delete(clientId);
+    rememberAwarenessClear(docId, clientId, clearedAt);
     // Best-effort cross-instance removal (never blocks the response).
-    void deleteAwarenessRow(docId, clientId);
+    void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
+    forgetAwarenessClear(docId, clientId);
     // Store this client's state
     const entry = { clientId, state, lastSeen: Date.now() };
     map.set(clientId, entry);

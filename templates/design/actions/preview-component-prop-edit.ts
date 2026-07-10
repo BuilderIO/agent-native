@@ -37,7 +37,7 @@ import {
   componentNodeIdMatches,
   extractProps,
 } from "../shared/component-model.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -230,19 +230,9 @@ export default defineAction({
       nodeId,
     });
 
-    const sourceType =
-      normalizeDesignSourceType(
-        (() => {
-          try {
-            const d = JSON.parse(
-              (access.resource as { data?: string }).data ?? "{}",
-            ) as Record<string, unknown>;
-            return d.sourceType ?? "inline";
-          } catch {
-            return "inline";
-          }
-        })(),
-      ) ?? "inline";
+    const sourceType = designSourceTypeFromData(
+      (access.resource as { data?: unknown }).data,
+    );
 
     return {
       designId,

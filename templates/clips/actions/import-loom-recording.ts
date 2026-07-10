@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
@@ -295,7 +296,8 @@ export default defineAction({
       filename: `${id}.mp4`,
       mimeType: media.mimeType,
       ownerEmail,
-      skipCompressionWait: true,
+      stableUrl: true,
+      recordAsset: false,
     });
 
     const recordingValues = buildRecordingValues(media.sizeBytes);
@@ -331,6 +333,22 @@ export default defineAction({
         createdAt: now,
       });
     }
+
+    void queueBuilderMediaCompression({
+      recordingId: id,
+      ownerEmail,
+      videoUrl,
+      mimeType: media.mimeType,
+      providerId: upload.provider,
+      assetDbId: upload.id,
+      sourceSizeBytes: media.sizeBytes,
+    }).catch((err) => {
+      console.warn("[clips] Loom media compression queue failed", {
+        recordingId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
     try {
       transcript = await fetchLoomTranscript({ shareUrl, durationMs });

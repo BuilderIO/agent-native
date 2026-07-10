@@ -15,8 +15,6 @@ describe("buildChatModelGroups", () => {
             "claude-sonnet-5",
             "gpt-5-5",
             "gemini-3-1-pro",
-            "grok-code-fast",
-            "qwen3-coder",
           ],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         },
@@ -42,12 +40,7 @@ describe("buildChatModelGroups", () => {
         models: ["gemini-3-1-pro"],
         configured: true,
       },
-      {
-        engine: "builder",
-        label: "More",
-        models: ["auto", "grok-code-fast", "qwen3-coder"],
-        configured: true,
-      },
+      { engine: "builder", label: "More", models: ["auto"], configured: true },
     ]);
   });
 
@@ -142,7 +135,7 @@ describe("buildChatModelGroups", () => {
     });
   });
 
-  it("keeps the current engine visible without marking missing credentials configured", () => {
+  it("keeps the current engine visible without re-adding unsupported current models", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:anthropic",
       currentModel: "claude-fable-5",
@@ -160,7 +153,31 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:anthropic",
         label: "Claude",
-        models: ["claude-fable-5", "claude-sonnet-5"],
+        models: ["claude-sonnet-5"],
+        configured: false,
+      },
+    ]);
+  });
+
+  it("keeps custom current models visible for engines without a curated model list", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "custom",
+      currentModel: "custom/provider-model",
+      engines: [
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: [],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "custom",
+        label: "Custom",
+        models: ["custom/provider-model"],
         configured: false,
       },
     ]);

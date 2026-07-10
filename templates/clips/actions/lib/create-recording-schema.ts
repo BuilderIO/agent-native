@@ -74,6 +74,12 @@ export const createRecordingSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Opt in to the resumable streaming upload path. Only send this when the caller can produce 256 KiB-aligned chunks (GCS requirement). Defaults to false — callers that omit this always get the buffered path.",
+      "Request the resumable streaming upload path. Deployments must also set CLIPS_ENABLE_STREAMING_UPLOAD; otherwise recordings use the buffered fallback.",
+    ),
+  streamingUploadClient: z
+    .enum(["desktop-native"])
+    .optional()
+    .describe(
+      "Optional client implementation marker for diagnostics and compatibility decisions.",
     ),
 });

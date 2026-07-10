@@ -128,6 +128,10 @@ index the growing tables first.
   demand.
 - Don't store **unbounded blobs inline** in a row that a list/load pulls.
   Reference large content separately so opening the parent stays cheap.
+- Never inline binary payloads in columns a list, poll, or `view-screen` summary
+  reads. Images, PDFs, audio/video, archives, screenshots, and base64
+  attachments belong in file/blob storage; SQL rows should hold URLs, asset ids,
+  storage keys, or opaque blob refs.
 - **Virtualize** very long rendered lists on the client so off-screen rows aren't
   parsed/rendered every update.
 

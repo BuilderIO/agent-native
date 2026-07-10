@@ -1,6 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
 import {
   IconLink,
   IconRefresh,
@@ -14,6 +12,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   useDisconnectNotion,
   useDocumentSyncStatus,

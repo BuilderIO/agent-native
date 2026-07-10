@@ -8,6 +8,10 @@ export {
   type DistributionAxis,
 } from "./AlignmentMatrix";
 export {
+  BreakpointOverrideIndicator,
+  type BreakpointOverrideIndicatorProps,
+} from "./BreakpointOverrideIndicator";
+export {
   AutoLayoutMatrix,
   type AutoLayoutDirection,
   type AutoLayoutMatrixLabels,
@@ -38,8 +42,10 @@ export {
   type ExportSettingsValue,
 } from "./ExportSettingsPanel";
 export {
+  beginEyedropperPick,
   DesignColorPicker,
   endPointerGesture,
+  hasEyeDropperSupport,
   POINTER_GESTURE_IDLE,
   startPointerGesture,
   type DesignColorMode,
@@ -54,6 +60,13 @@ export {
   type DesignPaintType,
   type PointerGestureState,
 } from "./DesignColorPicker";
+export {
+  allFrameSizePresets,
+  FRAME_SIZE_PRESET_CATEGORIES,
+  type FrameSizePreset,
+  type FrameSizePresetCategory,
+  type FrameSizePresetCategoryKey,
+} from "./frame-size-presets";
 export {
   GradientEditor,
   defaultGradient,
@@ -73,6 +86,19 @@ export {
   type ImageFillValue,
   type ImageFitMode,
 } from "./ImageFillControls";
+export {
+  InteractionStateOverrideIndicator,
+  InteractionStatePanel,
+  type ActiveInteractionState,
+  type InteractionState,
+  type InteractionStatePanelProps,
+} from "./InteractionStatePanel";
+export {
+  MotionKeyframeDiamond,
+  motionPropertyHasKeyframe,
+  type MotionKeyframeCssProperty,
+  type MotionKeyframeDiamondProps,
+} from "./MotionKeyframeDiamond";
 export {
   ShaderFillsPanel,
   descriptorFromPreset,

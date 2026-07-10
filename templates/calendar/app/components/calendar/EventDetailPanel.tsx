@@ -1,11 +1,5 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TooltipProvider,
-} from "@agent-native/toolkit/ui/tooltip";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
@@ -19,7 +13,7 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
@@ -30,9 +24,38 @@ import {
 } from "@/components/calendar/EventDescription";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
 import { useCalendarContext } from "@/components/layout/AppLayout";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { cn } from "@/lib/utils";
+
+function buildEventDetailSlotContext(event: CalendarEvent) {
+  return {
+    eventId: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    startTimeZone: event.startTimeZone,
+    endTimeZone: event.endTimeZone,
+    location: event.location,
+    accountEmail: event.accountEmail,
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      email: attendee.email,
+      displayName: attendee.displayName,
+      responseStatus: attendee.responseStatus,
+      organizer: attendee.organizer,
+      optional: attendee.optional,
+      timeZone: attendee.timeZone,
+      self: attendee.self,
+    })),
+  };
+}
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -105,6 +128,10 @@ export function EventDetailPanel({
   const lastSavedDescriptionRef = useRef(event?.description || "");
   const meetingLink = event ? extractMeetingLink(event) : null;
   const ownerLabel = event?.ownerName || event?.overlayEmail;
+  const eventDetailSlotContext = useMemo(
+    () => (event ? buildEventDetailSlotContext(event) : null),
+    [event],
+  );
 
   // Reset editing state when event changes
   useEffect(() => {
@@ -184,6 +211,41 @@ export function EventDetailPanel({
       );
     })();
   }, [event, promptGuestNotification, updateEvent]);
+
+  const handleToggleAttendeeOptional = useCallback(
+    (email: string, optional: boolean) => {
+      if (!event || updateEvent.isPending) return;
+      const existing = event.attendees || [];
+      const key = email.trim().toLowerCase();
+      if (!existing.some((attendee) => attendee.email.toLowerCase() === key)) {
+        return;
+      }
+      const attendees = existing.map((attendee) =>
+        attendee.email.toLowerCase() === key
+          ? {
+              ...attendee,
+              optional: optional ? true : undefined,
+            }
+          : attendee,
+      );
+      void (async () => {
+        const updates = { attendees };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) return;
+        updateEvent.mutate({
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
+      })();
+    },
+    [event, promptGuestNotification, updateEvent],
+  );
 
   return (
     <TooltipProvider>
@@ -414,12 +476,24 @@ export function EventDetailPanel({
 
                 {/* Attendees */}
                 {event.attendees && event.attendees.length > 0 && (
-                  <EventAttendeesSection event={event} />
+                  <EventAttendeesSection
+                    event={event}
+                    canEditOptional={!isOverlay}
+                    onToggleOptional={handleToggleAttendeeOptional}
+                  />
                 )}
 
                 {/* Research Meeting */}
                 {event.attendees && event.attendees.length > 0 && (
                   <ResearchMeetingButton event={event} />
+                )}
+
+                {eventDetailSlotContext && (
+                  <ExtensionSlot
+                    id="calendar.event-detail.bottom"
+                    context={eventDetailSlotContext}
+                    showEmptyAffordance
+                  />
                 )}
               </div>
 

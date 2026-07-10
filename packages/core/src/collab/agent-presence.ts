@@ -21,7 +21,9 @@ import { AGENT_CLIENT_ID, DEFAULT_AGENT_IDENTITY } from "./agent-identity.js";
 import { deleteAwarenessRow, upsertAwarenessRow } from "./awareness-store.js";
 import {
   emitAwarenessChange,
+  forgetAwarenessClear,
   getDocAwareness,
+  rememberAwarenessClear,
   type AwarenessEntry,
 } from "./awareness.js";
 import { appendRecentEdit, type RecentEdit } from "./recent-edits.js";
@@ -49,11 +51,13 @@ function cancelLinger(docId: string): void {
 
 function removeAgentPresence(docId: string): void {
   cancelLinger(docId);
+  const clearedAt = Date.now();
+  rememberAwarenessClear(docId, AGENT_CLIENT_ID, clearedAt);
   const map = getDocAwareness(docId);
   map.delete(AGENT_CLIENT_ID);
   emitAwarenessChange(docId, currentAwarenessStates(map));
   // Cross-instance removal (serverless) — best-effort, never blocks.
-  void deleteAwarenessRow(docId, AGENT_CLIENT_ID);
+  void deleteAwarenessRow(docId, AGENT_CLIENT_ID, clearedAt);
 
   const interval = _heartbeats.get(docId);
   if (interval) {
@@ -133,6 +137,7 @@ function readAgentState(docId: string): Record<string, unknown> {
 }
 
 function writeAgentState(docId: string, state: Record<string, unknown>): void {
+  forgetAwarenessClear(docId, AGENT_CLIENT_ID);
   const entry: AwarenessEntry = {
     clientId: AGENT_CLIENT_ID,
     state: JSON.stringify(state),

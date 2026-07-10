@@ -1,5 +1,8 @@
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import { IconArrowBackUp } from "@tabler/icons-react";
+import { type ReactNode, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -7,16 +10,13 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import { IconArrowBackUp } from "@tabler/icons-react";
-import { type ReactNode, useState } from "react";
-
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -40,12 +40,19 @@ import {
   IconSizingRemove,
   IconSizingVariable,
 } from "./design-icons";
-import { ScrubInput } from "./ScrubInput";
+import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
 export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
+
+/** Round to one decimal place — matches the `precision={1}` ScrubInput fields
+ * advertise (e.g. X/Y position, stroke weight) so W/H commit sub-pixel values
+ * like Figma instead of silently flooring to whole pixels. */
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
 
 /**
  * The active flow option. "normal" represents block / normal-flow layout for
@@ -146,8 +153,19 @@ export interface AutoLayoutMatrixProps {
   onDirectionChange: (direction: AutoLayoutDirection) => void;
   onWrapChange: (wrap: AutoLayoutWrap) => void;
   onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
-  onGapChange: (gap: number) => void;
-  onPaddingChange: (padding: AutoLayoutPadding) => void;
+  /**
+   * `meta` forwards the originating ScrubInput's gesture metadata
+   * (phase "preview" per drag tick / "commit" on release) so consumers can
+   * route preview ticks to the live style fast path and only persist on
+   * commit — same contract as `onChildSizeChange`. Dropping it forces every
+   * scrub tick down the slow full-persist path (B5-14: padding scrubs showed
+   * nothing until reselect).
+   */
+  onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
+  onPaddingChange: (
+    padding: AutoLayoutPadding,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
   onClipContentChange?: (clipContent: boolean) => void;
   onDistribute?: (axis: DistributionAxis) => void;
@@ -160,8 +178,14 @@ export interface AutoLayoutMatrixProps {
    * Invoked when the user directly edits the resolved size (scrub or type) in
    * fixed-sizing mode. `value` is the new size in CSS pixels. Optional —
    * when omitted the resolved-size display is read-only (mode-picker only).
+   * `meta` forwards the originating ScrubInput's gesture-coalescing metadata
+   * (see `SizingFieldProps.onSizeChange`).
    */
-  onChildSizeChange?: (axis: AutoLayoutSizingAxis, value: number) => void;
+  onChildSizeChange?: (
+    axis: AutoLayoutSizingAxis,
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
   /**
    * Set or clear a min/max constraint on an axis. `value === null` clears it.
    * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
@@ -171,6 +195,8 @@ export interface AutoLayoutMatrixProps {
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
+    /** Scrub gesture meta — see onPaddingChange. Absent for remove (null). */
+    meta?: ScrubInputChangeMeta,
   ) => void;
   /**
    * Invoked when the user picks "Apply variable…". Optional — when omitted the
@@ -403,7 +429,7 @@ export function AutoLayoutMatrix({
               onChange={(next) => onChildSizingChange("horizontal", next)}
               onSizeChange={
                 onChildSizeChange
-                  ? (px) => onChildSizeChange("horizontal", px)
+                  ? (px, meta) => onChildSizeChange("horizontal", px, meta)
                   : undefined
               }
               onMinMaxChange={onChildMinMaxChange}
@@ -425,7 +451,7 @@ export function AutoLayoutMatrix({
               onChange={(next) => onChildSizingChange("vertical", next)}
               onSizeChange={
                 onChildSizeChange
-                  ? (px) => onChildSizeChange("vertical", px)
+                  ? (px, meta) => onChildSizeChange("vertical", px, meta)
                   : undefined
               }
               onMinMaxChange={onChildMinMaxChange}
@@ -500,13 +526,16 @@ export function AutoLayoutMatrix({
                   icon={IconPaddingHorizontal}
                   ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
                   value={horizontalPaddingValue}
-                  onChange={(next) =>
-                    onPaddingChange({
-                      top: value.padding.top,
-                      bottom: value.padding.bottom,
-                      left: next,
-                      right: next,
-                    })
+                  onChange={(next, meta) =>
+                    onPaddingChange(
+                      {
+                        top: value.padding.top,
+                        bottom: value.padding.bottom,
+                        left: next,
+                        right: next,
+                      },
+                      meta,
+                    )
                   }
                   disabled={disabled}
                 />
@@ -514,13 +543,16 @@ export function AutoLayoutMatrix({
                   icon={IconPaddingVertical}
                   ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
                   value={verticalPaddingValue}
-                  onChange={(next) =>
-                    onPaddingChange({
-                      top: next,
-                      bottom: next,
-                      left: value.padding.left,
-                      right: value.padding.right,
-                    })
+                  onChange={(next, meta) =>
+                    onPaddingChange(
+                      {
+                        top: next,
+                        bottom: next,
+                        left: value.padding.left,
+                        right: value.padding.right,
+                      },
+                      meta,
+                    )
                   }
                   disabled={disabled}
                 />
@@ -540,8 +572,8 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingTopMini}
                     ariaLabel={copy.paddingTop}
                     value={value.padding.top}
-                    onChange={(next) =>
-                      onPaddingChange({ ...value.padding, top: next })
+                    onChange={(next, meta) =>
+                      onPaddingChange({ ...value.padding, top: next }, meta)
                     }
                     disabled={disabled}
                   />
@@ -549,8 +581,8 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingRightMini}
                     ariaLabel={copy.paddingRight}
                     value={value.padding.right}
-                    onChange={(next) =>
-                      onPaddingChange({ ...value.padding, right: next })
+                    onChange={(next, meta) =>
+                      onPaddingChange({ ...value.padding, right: next }, meta)
                     }
                     disabled={disabled}
                   />
@@ -558,8 +590,8 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingBottomMini}
                     ariaLabel={copy.paddingBottom}
                     value={value.padding.bottom}
-                    onChange={(next) =>
-                      onPaddingChange({ ...value.padding, bottom: next })
+                    onChange={(next, meta) =>
+                      onPaddingChange({ ...value.padding, bottom: next }, meta)
                     }
                     disabled={disabled}
                   />
@@ -567,8 +599,8 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingLeftMini}
                     ariaLabel={copy.paddingLeft}
                     value={value.padding.left}
-                    onChange={(next) =>
-                      onPaddingChange({ ...value.padding, left: next })
+                    onChange={(next, meta) =>
+                      onPaddingChange({ ...value.padding, left: next }, meta)
                     }
                     disabled={disabled}
                   />
@@ -894,7 +926,8 @@ function GapField({
   gapMode = "fixed",
 }: {
   value: number;
-  onGapChange: (gap: number) => void;
+  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onGapChange. */
+  onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
   label: string;
@@ -917,7 +950,7 @@ function GapField({
           tooltipLabel={label}
           icon={IconGap}
           value={value}
-          onChange={(next) => onGapChange(next)}
+          onChange={(next, meta) => onGapChange(next, meta)}
           unit="px"
           min={0}
           step={1}
@@ -1016,7 +1049,8 @@ function PaddingField({
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
   value: number;
-  onChange: (value: number) => void;
+  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onPaddingChange. */
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   disabled: boolean;
 }) {
   return (
@@ -1032,7 +1066,7 @@ function PaddingField({
         tooltipLabel={ariaLabel}
         icon={Icon}
         value={value}
-        onChange={(next) => onChange(next)}
+        onChange={(next, meta) => onChange(next, meta)}
         unit="px"
         min={0}
         step={1}
@@ -1109,12 +1143,22 @@ export interface SizingFieldProps {
    * Invoked when the user directly scrubs or types a new pixel value while in
    * "fixed" sizing mode. When omitted the numeric display is read-only and the
    * entire trigger is a mode-picker dropdown (legacy behaviour).
+   *
+   * `meta` mirrors the same `ScrubInputChangeMeta` the X/Y position fields
+   * already forward to `onStyleChange` (see `ScrubStyleInput` in
+   * EditPanel.tsx) — in particular `meta.phase`, which lets the caller
+   * coalesce a whole scrub-drag gesture (many "preview" ticks + one final
+   * "commit") into a single undo step instead of one per tick. Callers that
+   * ignore the second argument keep today's every-tick-commits behavior.
    */
-  onSizeChange?: (px: number) => void;
+  onSizeChange?: (px: number, meta?: ScrubInputChangeMeta) => void;
   onMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
+    /** Scrub gesture meta — same contract as onSizeChange. Absent for
+     * remove (null) and the discrete add-constraint seed. */
+    meta?: ScrubInputChangeMeta,
   ) => void;
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
 }
@@ -1263,13 +1307,15 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
-              onChange={(next) => onSizeChange!(Math.max(0, Math.round(next)))}
+              value={mixed ? 0 : roundToOneDecimal(resolvedSize ?? 0)}
+              onChange={(next, meta) =>
+                onSizeChange!(Math.max(0, roundToOneDecimal(next)), meta)
+              }
               mixed={mixed}
               unit="px"
               min={0}
               step={1}
-              precision={0}
+              precision={1}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
               labelClassName="h-7 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
@@ -1358,7 +1404,9 @@ export function SizingField({
           value={minValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
-          onChange={(next) => onMinMaxChange?.(sizingAxis, "min", next)}
+          onChange={(next, meta) =>
+            onMinMaxChange?.(sizingAxis, "min", next, meta)
+          }
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "min", null);
           }}
@@ -1370,7 +1418,9 @@ export function SizingField({
           value={maxValue ?? 0}
           disabled={disabled}
           removeLabel={labels.removeConstraint}
-          onChange={(next) => onMinMaxChange?.(sizingAxis, "max", next)}
+          onChange={(next, meta) =>
+            onMinMaxChange?.(sizingAxis, "max", next, meta)
+          }
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "max", null);
           }}
@@ -1424,7 +1474,8 @@ function ConstraintSubRow({
   value: number;
   disabled: boolean;
   removeLabel: string;
-  onChange: (value: number) => void;
+  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onChildMinMaxChange. */
+  onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   onRemove: () => void;
 }) {
   return (
@@ -1438,7 +1489,7 @@ function ConstraintSubRow({
         label={label}
         ariaLabel={label}
         value={value}
-        onChange={(next) => onChange(Math.max(0, Math.round(next)))}
+        onChange={(next, meta) => onChange(Math.max(0, Math.round(next)), meta)}
         unit="px"
         min={0}
         step={1}

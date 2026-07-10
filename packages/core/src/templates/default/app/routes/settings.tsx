@@ -1,6 +1,7 @@
 import {
   LanguagePicker,
-  openAgentSettings,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
   useT,
 } from "@agent-native/core/client";
 import { Link } from "react-router";
@@ -11,10 +12,11 @@ export function meta() {
 
 export default function SettingsPage() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
 
   return (
     <main className="min-h-screen bg-background px-6 py-10">
-      <div className="mx-auto w-full max-w-2xl space-y-6">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="space-y-2">
           <Link
             to="/"
@@ -30,37 +32,24 @@ export default function SettingsPage() {
           </p>
         </div>
 
-        <section className="rounded-lg border border-border/50 bg-card px-4 py-4">
-          <div className="space-y-1">
-            <h2 className="text-[15px] font-semibold text-foreground">
-              {t("settings.languageTitle")}
-            </h2>
-            <p className="text-[13px] leading-relaxed text-muted-foreground">
-              {t("settings.languageDescription")}
-            </p>
-          </div>
-          <div className="mt-4 max-w-xs">
-            <LanguagePicker label={t("settings.languageLabel")} />
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-border/50 bg-card px-4 py-4">
-          <div className="space-y-1">
-            <h2 className="text-[15px] font-semibold text-foreground">
-              {t("settings.agentTitle")}
-            </h2>
-            <p className="text-[13px] leading-relaxed text-muted-foreground">
-              {t("settings.agentDescription")}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="mt-4 rounded-md border border-border bg-background px-3 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-accent/50"
-            onClick={() => openAgentSettings()}
-          >
-            {t("settings.openAgentSettings")}
-          </button>
-        </section>
+        <SettingsTabsPage
+          extraTabs={agentSettingsTabs}
+          general={
+            <section className="mx-auto w-full max-w-2xl rounded-lg border border-border/50 bg-card px-4 py-4">
+              <div className="space-y-1">
+                <h2 className="text-[15px] font-semibold text-foreground">
+                  {t("settings.languageTitle")}
+                </h2>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {t("settings.languageDescription")}
+                </p>
+              </div>
+              <div className="mt-4 max-w-xs">
+                <LanguagePicker label={t("settings.languageLabel")} />
+              </div>
+            </section>
+          }
+        />
       </div>
     </main>
   );

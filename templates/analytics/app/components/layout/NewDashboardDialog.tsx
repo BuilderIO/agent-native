@@ -3,13 +3,14 @@ import {
   PromptComposer,
   useT,
 } from "@agent-native/core/client";
+import { IconPlus } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { IconPlus } from "@tabler/icons-react";
-import { useState } from "react";
+} from "@/components/ui/popover";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +

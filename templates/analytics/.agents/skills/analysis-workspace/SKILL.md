@@ -39,18 +39,26 @@ window, then read them back selectively for synthesis.
   durable files outside `scratch/` only when the user wants to keep them.
 - **run-code aggregation**: call `workspaceRead` / `workspaceWrite` inside a
   `run-code` block to load and process data that's too large to print as output.
+- **Long compute**: for aggregation scripts that could exceed ~30 s (big
+  cross-source joins, multi-page provider sweeps), run `run-code` with
+  `background: true`. It returns `{ executionId, status: "queued" }`
+  immediately and executes durably out-of-band (default 10 min budget),
+  surviving the hosted run timeout. Continue other work, then poll with
+  `run-code` `{ executionId }` for the persisted result. On `failed`/
+  `timed_out`, chunk the work or persist intermediate progress with
+  `workspaceWrite` and re-run.
 
 ## Workspace File Helpers
 
 Inside `run-code`, use the workspace helper functions:
 
-| Helper | Use |
-|--------|-----|
-| `workspaceWrite(path, content, contentType?)` | Create or overwrite a file |
-| `workspaceAppend(path, content)` | Append text to a file |
-| `workspaceRead(path, opts?)` | Read content, with optional paging |
-| `workspaceReadMeta(path, opts?)` | Read content plus metadata/truncation info |
-| `workspaceList(prefix?)` | List files under a prefix |
+| Helper                                        | Use                                        |
+| --------------------------------------------- | ------------------------------------------ |
+| `workspaceWrite(path, content, contentType?)` | Create or overwrite a file                 |
+| `workspaceAppend(path, content)`              | Append text to a file                      |
+| `workspaceRead(path, opts?)`                  | Read content, with optional paging         |
+| `workspaceReadMeta(path, opts?)`              | Read content plus metadata/truncation info |
+| `workspaceList(prefix?)`                      | List files under a prefix                  |
 
 - `read` supports `{ offset, maxChars }` for paging large files.
 - `list` supports a prefix filter, e.g. `workspaceList("scratch/q2/")`.
@@ -70,7 +78,7 @@ For large fan-outs (account deep dives, Gong call reviews, deal cohorts):
    await workspaceWrite(
      "scratch/analysis/q2-churn/acme-corp.md",
      "## Acme Corp\n\n**ARR**: $120k\n**Risk signals**: ...",
-     "text/markdown"
+     "text/markdown",
    );
    ```
 4. **Synthesize**: after all items are processed, list files and read each memo:
@@ -123,8 +131,11 @@ provider-api-request
 Returns: `{ savedToFile: true, savedTo, status, bytes, contentType, preview }`.
 
 Then use `run-code` to process the saved file:
+
 ```javascript
-const raw = await workspaceRead("scratch/analysis/provider-records-2026-q2.json");
+const raw = await workspaceRead(
+  "scratch/analysis/provider-records-2026-q2.json",
+);
 const records = JSON.parse(raw);
 // … aggregate, filter, join …
 ```
@@ -149,6 +160,7 @@ provider-api-request
 ```
 
 Common cursor paths:
+
 - HubSpot: `paging.next.after` / `after`
 - Gong: `records.cursor` / `cursor`
 - Pylon: `nextCursor` / `cursor`
@@ -175,7 +187,7 @@ for (const deal of deals) {
 await workspaceWrite(
   "scratch/analysis/deals-by-stage.json",
   JSON.stringify(byStage, null, 2),
-  "application/json"
+  "application/json",
 );
 console.log(JSON.stringify(byStage, null, 2));
 ```

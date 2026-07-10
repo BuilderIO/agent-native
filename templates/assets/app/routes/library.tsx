@@ -23,37 +23,6 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogClose,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@agent-native/toolkit/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   IconArrowUpRight,
   IconCheck,
@@ -79,7 +48,38 @@ import { toast } from "sonner";
 
 import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   sortLibrariesByUsage,
   type ImageLibrarySummary,
@@ -89,9 +89,11 @@ import { cn } from "@/lib/utils";
 
 import type {
   AssetVariantState,
+  ImageModel,
   ImageQualityTier,
   StyleStrength,
 } from "../../shared/api";
+import { MODEL_ASPECT_RATIOS } from "../../shared/api";
 import {
   DEFAULT_LIBRARY_PRESETS,
   LibraryPreset,
@@ -2053,6 +2055,37 @@ export function AssetPickerSurface() {
   const [visibleCandidateRunIds, setVisibleCandidateRunIds] = useState<
     string[]
   >(() => hostConfig.candidateRunIds ?? []);
+  // The picker generates with the composer's default image model
+  // (`imageGenerationModel`); it does not pick a model itself. Read that default
+  // so the aspect-ratio choices can be constrained for models that only support
+  // a subset (e.g. gpt-image-2 → 1:1 / 2:3 / 3:2). Read-once is enough here: the
+  // embedded picker has no image-model control of its own.
+  const [imageModelDefault, setImageModelDefault] = useState<ImageModel | null>(
+    null,
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void readClientAppState<{ model?: string }>("imageGenerationModel")
+      .then((state) => {
+        if (!cancelled && state?.model) {
+          setImageModelDefault(state.model as ImageModel);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Only override the picker's curated ratio list when the selected image model
+  // actually restricts ratios; otherwise keep the full curated set. Video mode
+  // is unaffected by the image model.
+  const ratioOptions = useMemo<readonly string[]>(() => {
+    if (mediaType !== "image") return ASPECT_RATIOS;
+    return (
+      (imageModelDefault && MODEL_ASPECT_RATIOS[imageModelDefault]) ??
+      ASPECT_RATIOS
+    );
+  }, [imageModelDefault, mediaType]);
 
   useEffect(() => {
     setHostConfig((current) => ({ ...current, ...urlHostConfig }));
@@ -2072,6 +2105,15 @@ export function AssetPickerSurface() {
     // since the component stays mounted across search-param changes.
     setAssetTab(urlAssetTab ?? "all");
   }, [urlAssetTab]);
+
+  useEffect(() => {
+    // If the current ratio isn't valid for the selected model (e.g. a 16:9
+    // default while gpt-image-2 is active), snap to the first supported ratio so
+    // the picker can't submit an unsupported pairing.
+    if (!ratioOptions.includes(aspectRatio)) {
+      setAspectRatio(ratioOptions[0]);
+    }
+  }, [ratioOptions, aspectRatio]);
 
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
@@ -2781,7 +2823,7 @@ export function AssetPickerSurface() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {ASPECT_RATIOS.map((ratio) => (
+                        {ratioOptions.map((ratio) => (
                           <SelectItem key={ratio} value={ratio}>
                             {ratio}
                           </SelectItem>

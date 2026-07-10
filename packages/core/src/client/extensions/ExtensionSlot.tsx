@@ -266,6 +266,13 @@ function describeSlot(
     };
   }
 
+  if (slotId === "calendar.event-detail.bottom") {
+    return {
+      title: t("extensions.eventDetailWidget"),
+      description: t("extensions.eventDetailDescription"),
+    };
+  }
+
   return {
     title: t("extensions.addWidgetHere"),
     description: slotId,

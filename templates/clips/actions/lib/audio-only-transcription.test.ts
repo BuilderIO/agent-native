@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AudioOnlyExtractionError,
+  audioExtractionTimeoutMs,
   audioExtensionForMimeType,
   assertAudioHasAudibleSignal,
   isAudioMimeType,
@@ -30,6 +31,10 @@ function silentWav(durationSeconds = 0.25): Uint8Array {
 }
 
 describe("audio-only transcription media", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("passes audio blobs through without extraction", async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], {
       type: "audio/webm;codecs=opus",
@@ -101,6 +106,27 @@ describe("audio-only transcription media", () => {
     expect(Array.from(media.audioBytes)).toEqual([4, 5, 6]);
   });
 
+  it("falls back to original media when ffmpeg extraction times out", async () => {
+    const blob = new Blob([new Uint8Array([4, 5, 6])], { type: "video/webm" });
+
+    const media = await prepareAudioOnlyTranscriptionMedia({
+      blob,
+      recordingId: "rec-ffmpeg-timeout",
+      extractor: async () => {
+        throw new AudioOnlyExtractionError(
+          "TIMEOUT",
+          "ffmpeg timed out extracting audio for transcription.",
+        );
+      },
+    });
+
+    expect(media.source).toBe("raw-media-fallback");
+    expect(media.mimeType).toBe("video/webm");
+    expect(media.filename).toBe("rec-ffmpeg-timeout.webm");
+    expect(Array.from(media.audioBytes)).toEqual([4, 5, 6]);
+    await expect(assertAudioHasAudibleSignal(media)).resolves.toBeUndefined();
+  });
+
   it("preserves no-audio extraction errors", async () => {
     const blob = new Blob([new Uint8Array([9])], { type: "video/webm" });
 
@@ -140,5 +166,13 @@ describe("audio-only transcription media", () => {
     expect(isAudioMimeType("video/webm")).toBe(false);
     expect(audioExtensionForMimeType("audio/mp4")).toBe("m4a");
     expect(audioExtensionForMimeType("audio/mpeg")).toBe("mp3");
+  });
+
+  it("scales ffmpeg extraction timeout with media size", () => {
+    expect(audioExtractionTimeoutMs(1)).toBe(35_000);
+    expect(audioExtractionTimeoutMs(200 * 1024 * 1024)).toBe(65_000);
+
+    vi.stubEnv("CLIPS_AUDIO_EXTRACTION_TIMEOUT_MS", "120000");
+    expect(audioExtractionTimeoutMs(1)).toBe(90_000);
   });
 });

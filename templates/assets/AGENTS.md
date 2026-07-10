@@ -10,6 +10,10 @@ Detailed library, generation, image, embed, and engine rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for asset lifecycle, generation, library organization, uploads,
   embeds, notifications, progress, sharing, and collaboration. Do not bypass
@@ -20,6 +24,8 @@ Detailed library, generation, image, embed, and engine rules live in
 - Use the configured generation/engine path for image and asset work. Do not add
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
+- Ingest external brand or blog imagery with `import-asset-from-url`, then pin
+  the returned asset to preset reference boards or set it as the canonical logo.
 - Use `view-screen` when the active library, selected asset, picker, generation,
   or embed target is unclear. The human Library surface is `/library` for
   cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
@@ -43,10 +49,11 @@ prompt, aspectRatio }`.
   `brand-kit` references to `libraryId`, `preset` references to `presetId`, and
   `media-type` references to choosing image (`generate-image` /
   `generate-image-batch`) or video (`generate-video`) generation. The current
-  library view auto-tags its brand kit as a visible removable chip when the
-  composer is empty. The image model is the only remaining composer-side
-  default; the image-model picker writes `imageGenerationModel`, which image
-  generation actions may use when `model` is omitted.
+  library view auto-tags its brand kit as a visible removable chip, and the
+  generation preset editor auto-tags both its brand kit and preset. The image
+  model is the only remaining composer-side default; the image-model picker
+  writes `imageGenerationModel`, which image generation actions may use when
+  `model` is omitted.
 - When a `preset` is tagged, the server embeds that preset's aesthetics and
   creative philosophy (brand style brief, prompt template, text/logo policy,
   output format) into your message inside a `<tagged-generation-presets>` block.
@@ -54,6 +61,17 @@ prompt, aspectRatio }`.
   composition, mood, lighting, and subject — then pass the `presetId` to
   `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
   apply automatically. Do not restate those as ad-hoc args.
+- Image requests without a tagged preset are preset-first: the user may not know
+  presets exist. Call `list-generation-presets` for the library before
+  generating and compare the request against each preset's title, description,
+  and category. If one matches the use case (e.g. "livestream poster" -> a
+  Livestream Announcement preset), generate with its `presetId` instead of
+  ad-hoc settings. Only generate presetless when nothing plausibly matches.
+- Presets may declare a reference board with fixed or variable named entries
+  such as a host, guest speaker, product, backdrop, or style. Fixed entries
+  attach automatically; collect images for required variable entries and pass
+  them via `presetReferenceFills` on `generate-image` /
+  `generate-image-batch`. See the `image-generation` skill for fill semantics.
 - For exact visible copy inside a generated image, pass `embeddedText` and
   optional `textPlacement` to `generate-image` or each `generate-image-batch`
   slot. Keep the general `prompt` for creative direction; the structured text
@@ -66,6 +84,24 @@ prompt, aspectRatio }`.
   model never draws the logo itself. Pass `includeLogo` on a generate call only
   to override the preset for that one run; otherwise omit it. See the
   `logo-composite` skill.
+- Preset skeletons live in `settings.skeletonSpec` on generation presets and
+  are edited from `/brand-kits/:libraryId/presets/:presetId`. They composite a
+  generated subject onto an uploaded brand background image and optional
+  foreground layers. When the resolved skeleton model is `gpt-image-2`, the
+  action uses managed mask inpainting: the uploaded plate is the edit source,
+  an optional same-size mask asset controls the editable area, and the plate's
+  alpha channel is used as the fallback mask when no manual mask is set. Opaque
+  mask pixels are sent as preserved regions, transparent mask pixels are
+  editable, and no local compositing runs. Other `cutout` skeletons force
+  `gpt-image-1`, request
+  transparent output through the managed Builder image provider, attach the
+  plate as a composition/background reference for layout awareness, clamp only
+  the provider subject ratio to a supported `gpt-image-1` ratio, and keep the
+  final skeleton canvas at the preset's requested ratio. See the
+  `logo-composite` skill.
+- Humans can edit an existing generation preset from
+  `/brand-kits/:libraryId/presets/:presetId`. Use `navigate` with
+  `{ view: "preset", libraryId, presetId }` when sending a user to that editor.
 - `asset-variants` is the shared live generation tray state. New image
   candidates should appear there through `generate-image` or
   `generate-image-batch`; do not invent page-local progress surfaces.

@@ -53,7 +53,9 @@ describe("indexDesignSystemWithBuilder", () => {
       {
         name: "file",
         filename: "brand.fig",
-        data: Buffer.from("fig-kiwi\0\0\0\0"),
+        data: Buffer.from([
+          0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
+        ]),
       },
     ]);
     mockStartBuilderDesignSystemIndex.mockResolvedValue({
@@ -110,7 +112,9 @@ describe("indexDesignSystemWithBuilder", () => {
   });
 
   it("passes uploaded fig bytes to Builder indexing", async () => {
-    const data = Buffer.from("fig-kiwi\0\0\0\0");
+    const data = Buffer.from([
+      0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
+    ]);
     mockReadMultipartFormData.mockResolvedValue([
       { name: "fig", filename: "brand.fig", data },
     ]);

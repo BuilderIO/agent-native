@@ -31,9 +31,9 @@ import {
 } from "../../shared/pen-path";
 import {
   createPrimitiveInsertFromSpec,
-  getSingleScreenCreationTool,
   parsePenPathFromSerializedD,
-} from "./DesignEditor";
+} from "./design-editor/canvas-primitives";
+import { getSingleScreenCreationTool } from "./design-editor/tool-state";
 
 describe("getSingleScreenCreationTool", () => {
   it("returns null in overview mode regardless of tool", () => {
@@ -66,7 +66,7 @@ describe("getSingleScreenCreationTool", () => {
     ).toBe("rectangle");
   });
 
-  it.each(["ellipse", "line", "arrow", "text", "pen"] as const)(
+  it.each(["ellipse", "line", "arrow", "text", "pen", "frame"] as const)(
     "maps %s to itself",
     (tool) => {
       expect(
@@ -81,7 +81,6 @@ describe("getSingleScreenCreationTool", () => {
 
   it.each([
     "move",
-    "frame",
     "polygon",
     "star",
     "hand",
@@ -103,6 +102,23 @@ describe("getSingleScreenCreationTool", () => {
 });
 
 describe("createPrimitiveInsertFromSpec", () => {
+  it("builds a bare frame insert from a frame-tool gesture (F/A in a focused screen)", () => {
+    const result = createPrimitiveInsertFromSpec(
+      {
+        tool: "frame",
+        rect: { x: 10, y: 20, width: 200, height: 150 },
+        fromClick: false,
+      },
+      "node-frame-1",
+    );
+    expect(result).toEqual({
+      kind: "frame",
+      nodeId: "node-frame-1",
+      geometry: { x: 10, y: 20, width: 200, height: 150 },
+      autoSize: undefined,
+    });
+  });
+
   it("builds rectangle geometry from a click (default size)", () => {
     const result = createPrimitiveInsertFromSpec(
       {
@@ -174,25 +190,45 @@ describe("createPrimitiveInsertFromSpec", () => {
     ).toBeNull();
   });
 
-  it("builds a minimal 2-node open pen path from a single click point", () => {
+  it("preserves the complete multi-anchor Bezier path from focused-screen authoring", () => {
+    const penPath: PenPath = {
+      nodes: [
+        createSmoothNode({ x: 30, y: 30 }, { x: 55, y: 10 }),
+        createSmoothNode({ x: 150, y: 90 }, { x: 125, y: 110 }),
+      ],
+      closed: false,
+    };
     const result = createPrimitiveInsertFromSpec(
-      { tool: "pen", points: [{ x: 30, y: 30 }], fromClick: true },
+      {
+        tool: "pen",
+        points: penPath.nodes.map((node) => node.point),
+        penPath,
+        fromClick: false,
+      },
       "node-pen",
     );
     expect(result?.kind).toBe("path");
     expect(result?.nodeId).toBe("node-pen");
     expect(result?.points).toEqual([
       { x: 30, y: 30 },
-      { x: 150, y: 30 },
+      { x: 150, y: 90 },
     ]);
-    expect(result?.pathData).toBe("M 30 30 L 150 30");
-    expect(result?.geometry).toEqual({ x: 30, y: 30, width: 120, height: 12 });
+    expect(result?.pathData).toBe(serializePenPath(penPath));
+    expect(result?.pathData).toContain(" C ");
   });
 
-  it("returns null for pen with no start point", () => {
+  it("does not fabricate a path until focused-screen pen authoring has two anchors", () => {
     expect(
       createPrimitiveInsertFromSpec(
-        { tool: "pen", points: [], fromClick: true },
+        {
+          tool: "pen",
+          points: [{ x: 0, y: 0 }],
+          penPath: {
+            nodes: [createCornerNode({ x: 0, y: 0 })],
+            closed: false,
+          },
+          fromClick: true,
+        },
         "node-pen-empty",
       ),
     ).toBeNull();

@@ -37,6 +37,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => ({

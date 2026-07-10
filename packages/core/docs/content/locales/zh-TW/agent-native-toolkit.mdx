@@ -1,61 +1,112 @@
 ---
-title: "Agent-Native 工具包"
-description: "用於協作、設定、分享、導覽、線上狀態、歷史、配置和 Agent UX 的可重用套件。"
+title: "Toolkits"
+description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
 ---
 
-# Agent-Native 工具包
+<!-- i18n-docs-ignore -->
 
-Agent-Native 應用程式不應重複建置 workspace 的通用能力。應用程式負責自己的領域模型、
-領域 actions 和產品視圖。Framework 與 `@agent-native/toolkit` 負責每個應用程式都應繼承的
-可重用產品表面：協作、分享、設定、導覽、組織、配置、Agent UX、歷史和營運可見性。
+# Toolkits
 
-使用者應該只學會一種分享方式、一種連接金鑰的方式、一種看到 Agent 一起編輯的方式、一個設定入口，
-以及一種理解變更的方式。
+Toolkits are reusable, battle-tested building blocks for high-quality agentic
+applications. They turn the hard product work that repeats across apps into
+standard surfaces: realtime collaboration between humans and agents, sharing
+with humans and agents, settings, teams, setup, resources, history, review, and
+observability.
 
-## 工具包契約 {#toolkit-contract}
+Each kit packages the UI patterns, action contracts, app-state expectations,
+access boundaries, and agent-visible behavior that users expect to work
+consistently. Apps still own their domain model and visual identity; toolkits
+make the common product systems feel complete from the first version instead of
+being rebuilt in slightly different ways every time.
 
-當行為符合以下條件時，應移到 toolkit：
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
 
-- **Workspace 層級** - 使用者期待所有應用程式都一致。
-- **Agent 可見** - Agent 需要透過 actions、instructions 或 application state 使用同一能力。
-- **受治理** - 權限、audit、secrets、組織政策、billing 或分享規則會參與。
-- **重複出現** - 兩個應用程式已經建了相似 UI 或邏輯。
-- **非領域專屬** - 應用程式提供 resource 名稱與 actions，但互動模式是通用的。
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
 
-如果行為綁定領域模型、專屬 workflow 或應用程式自己的心智模型，就保持 app-local。
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Runtime</span><br />
+    actions, SQL, auth, app state, access checks, realtime transport
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkits</span><br />
+    collaboration, sharing, setup, review, history, observability
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Apps</span><br />
+    domain schema, routes, actions, branding, specialized workflows
+  </div>
+</div>
+```
 
-## 可重用套件 {#reusable-kits}
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
 
-- **Settings kit** - account、workspace、AI models、LLM keys、connections、secrets、
-  usage、notifications、changelog 和 app preferences 的標準 tabs。持久設定放在 Settings；
-  Agent sidebar 只保留情境 quick controls 與 deep links。
-- **Collaboration kit** - real-time editing、Yjs docs、presence、agent presence、live
-  cursors、remote selections、recent edit highlights 和 shared undo/redo。請參閱
-  [Real-Time Collaboration](/docs/real-time-collaboration)。
-- **Sharing kit** - 用一個隱私與權限模型處理 private、workspace、org、public link、invites、
-  roles、expirations 和 agent-readable access。請參閱 [Sharing & Privacy](/docs/sharing)。
-- **Navigation and command kit** - app shell、nav、breadcrumbs、app switcher、command
-  palette、recents、pinned resources 和 search。
-- **Organization kit** - folders、tags、favorites、archive、trash、ownership、membership
-  和 common metadata。
-- **Setup and connections kit** - API keys、OAuth、connections、model readiness、
-  missing secrets 和 declarative onboarding。請參閱
-  [Workspace Connections](/docs/workspace-connections)。
-- **Agent UX kit** - sidebar、composer、staged context、mentions、voice、human approval、
-  generative UI、progress 和 Agent-visible state。
-- **History and recovery kit** - audit log、activity feed、version history、checkpoints、
-  undo、redo、restore 和 proof-of-done。請參閱 [Audit Log](/docs/audit-log)。
-- **Comments and review kit** - anchored comments、pins、mentions、review requests、
-  resolved threads 和 Agent follow-up tasks。
-- **Workflow and observability kit** - notifications、approvals、background runs、
-  recurring jobs、traces、evals、feedback 和 run timelines。請參閱
-  [Observability](/docs/observability)。
+</Diagram>
 
-## 實作順序 {#implementation-order}
+## The Kits {#the-kits}
 
-1. 將持久設定合併到標準 Settings tabs。
-2. 用共享 adapters 統一 collaboration、presence、agent presence、undo/redo 和 real-time editing。
-3. 將 navigation、commands、recents、favorites、folders、tags、archive 和 trash 移入共享 primitives。
-4. 讓所有可分享 resource 註冊到同一 permissions 和 agent-readable access 模型。
-5. 為每個 collaborative resource 提供一致的 activity、comments、review、restore 和 audit 體驗。
-6. 統一 notifications、approvals、run status、traces、evals 和 feedback。
+| Kit                                                      | Use it for                                                                                                  |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
+| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
+| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
+| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
+| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
+| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
+| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
+| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+
+## Implementation Boundary {#implementation-boundary}
+
+Kits are product surfaces first. Some pieces are runtime-backed
+(`@agent-native/core`), some are presentation primitives
+(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
+Use the package path that owns the needed behavior, but design the user-facing
+settings, collaboration, sharing, team, review, and setup experiences as one
+coherent kit instead of exposing package boundaries in the app.
+
+## Foundation Pieces {#foundation-pieces}
+
+- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
+  `@agent-native/toolkit/ui/*`.
+- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
+  through local `@/components/*` adapters.
+- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
+  toasts, and small app-shell helpers.
+- [Component API](/docs/components) remains the lower-level reference for the
+  public React exports.
+
+## Design Rule {#design-rule}
+
+Use a toolkit when the behavior repeats across apps and users expect it to feel
+standard: sharing, settings, teams, comments, history, and agent progress should
+not be slightly different in every template. Keep domain-specific data,
+workflows, labels, and visual styling in the app.

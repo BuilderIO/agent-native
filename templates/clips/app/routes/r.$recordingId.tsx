@@ -10,32 +10,11 @@ import {
   useChangeVersions,
   useT,
 } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@agent-native/toolkit/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -76,6 +55,24 @@ import {
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -86,6 +83,8 @@ import { cn } from "@/lib/utils";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -248,6 +247,7 @@ export default function RecordingPage() {
     [recordingId],
   );
   const lastPlayerStateWriteRef = useRef(0);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
 
   useEffect(() => {
     if (
@@ -284,7 +284,30 @@ export default function RecordingPage() {
         // Poll while the recording is still being assembled / transcoded so
         // the page auto-upgrades from "Processing" to the real player the
         // moment the server flips status to 'ready' and writes videoUrl.
-        if (rec.status !== "ready" || !rec.videoUrl) return 1000;
+        if (rec.status !== "ready" || !rec.videoUrl) {
+          readyMediaPollRef.current = null;
+          return 1000;
+        }
+        // Fresh streaming uploads can become `ready` before the background
+        // seekable/faststart repair swaps in the final player URL. Keep polling
+        // briefly so the first post-recording page catches that URL update
+        // without requiring a manual refresh.
+        const mediaKey = [
+          rec.id,
+          rec.videoUrl,
+          rec.durationMs ?? "",
+          rec.videoSizeBytes ?? "",
+        ].join(":");
+        const now = Date.now();
+        if (readyMediaPollRef.current?.key !== mediaKey) {
+          readyMediaPollRef.current = {
+            key: mediaKey,
+            until: now + READY_MEDIA_SETTLE_POLL_MS,
+          };
+        }
+        if (now < readyMediaPollRef.current.until) {
+          return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+        }
         // Also keep polling while a transcript is pending so "Transcribing…"
         // auto-flips to the ready transcript (or to the failure card).
         if (data?.transcript?.status === "pending") return 3000;
@@ -517,6 +540,37 @@ export default function RecordingPage() {
     },
     onError: handleAiError,
   });
+  const aiPrefsQ = useActionQuery<{ includeFullVideoInAi?: boolean }>(
+    "get-clips-ai-prefs" as any,
+    undefined,
+    { retry: false },
+  );
+  const updateAiPrefs = useActionMutation("update-clips-ai-prefs" as any, {
+    onError: handleAiError,
+  });
+  const [includeFullVideoOverride, setIncludeFullVideoOverride] = useState<
+    boolean | null
+  >(null);
+  const includeFullVideoInAi =
+    includeFullVideoOverride ?? aiPrefsQ.data?.includeFullVideoInAi === true;
+  function handleIncludeFullVideoChange(checked: boolean) {
+    setIncludeFullVideoOverride(checked);
+    updateAiPrefs.mutate({ includeFullVideoInAi: checked } as any, {
+      onSuccess: () => {
+        void aiPrefsQ.refetch().finally(() => {
+          setIncludeFullVideoOverride(null);
+        });
+        toast.success(
+          checked
+            ? t("recordingPage.includeFullVideoOn")
+            : t("recordingPage.includeFullVideoOff"),
+        );
+      },
+      onError: () => {
+        setIncludeFullVideoOverride(null);
+      },
+    });
+  }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
     setEditing(false);
@@ -640,6 +694,8 @@ export default function RecordingPage() {
     const rawFailureReason =
       ((recording as any).failureReason as string | null | undefined) ?? null;
     const waitingForStorage = isStorageSetupFailureReason(rawFailureReason);
+    const storedButUnservableFailure =
+      isStoredButUnservableFinalizeError(rawFailureReason);
     const loomStorageSetupFailure = waitingForStorage && isLoomRecording;
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
@@ -651,13 +707,16 @@ export default function RecordingPage() {
     const isFailure =
       explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
     const displayReason = explicitFailure
-      ? (rawFailureReason ?? t("recordingPage.retryLibrary"))
+      ? storedButUnservableFailure
+        ? t("recordingPage.clipDataPreserved")
+        : (rawFailureReason ?? t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
           ? t("recordingPage.processingStuck", { status: recording.status })
           : t("recordingPage.uploadingAssembling");
     const storageSetupFailure = waitingForStorage;
+    const canRetryFinalize = storageSetupFailure || storedButUnservableFailure;
     const label = storageSetupFailure
       ? loomStorageSetupFailure
         ? t("recordingPage.connectStorageImportLoom")
@@ -749,7 +808,7 @@ export default function RecordingPage() {
         <div className="flex items-center gap-2">
           <Button
             onClick={() => {
-              if (storageSetupFailure) {
+              if (canRetryFinalize) {
                 void retryFinalizeAfterStorage();
                 return;
               }
@@ -760,7 +819,7 @@ export default function RecordingPage() {
             size="sm"
             disabled={retryingFinalize}
           >
-            {storageSetupFailure
+            {canRetryFinalize
               ? loomStorageSetupFailure
                 ? t("recordingPage.retryImport")
                 : t("recordingPage.retryUpload")
@@ -997,10 +1056,20 @@ export default function RecordingPage() {
                   <IconChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel>
                   {t("recordingPage.enhanceRecording")}
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={includeFullVideoInAi}
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onCheckedChange={handleIncludeFullVideoChange}
+                  onSelect={(event) => event.preventDefault()}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                >
+                  {t("recordingPage.includeFullVideo")}
+                </DropdownMenuCheckboxItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={regenerateTitle.isPending}
@@ -1027,6 +1096,7 @@ export default function RecordingPage() {
                   onSelect={() =>
                     regenerateChapters.mutate({
                       recordingId: recording.id,
+                      openInChat: true,
                     } as any)
                   }
                 >
@@ -1143,6 +1213,7 @@ export default function RecordingPage() {
                   ref={playerRef}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
+                  videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
                   editsJson={recording.editsJson}

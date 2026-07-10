@@ -136,6 +136,12 @@ export function mergeAttendeeLists(
       email,
       displayName: attendee.displayName ?? current?.displayName,
       photoUrl: attendee.photoUrl ?? current?.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : attendee.optional === false
+            ? undefined
+            : current?.optional,
     });
   }
 

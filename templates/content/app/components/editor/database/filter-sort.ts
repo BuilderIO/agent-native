@@ -53,13 +53,12 @@ export function applyDatabaseView(
   const activeFilters = filters.filter(isActiveFilter);
   const filtered = activeFilters.length
     ? searched.filter((item) =>
-        filterMode === "or"
-          ? activeFilters.some((filter) =>
-              databaseItemMatchesFilter(item, properties, filter),
-            )
-          : activeFilters.every((filter) =>
-              databaseItemMatchesFilter(item, properties, filter),
-            ),
+        databaseItemMatchesFilterTree(
+          item,
+          properties,
+          activeFilters,
+          filterMode,
+        ),
       )
     : searched;
 
@@ -77,6 +76,53 @@ export function applyDatabaseView(
     }
     return 0;
   });
+}
+
+function databaseItemMatchesFilterTree(
+  item: ContentDatabaseItem,
+  properties: DocumentProperty[],
+  filters: DatabaseFilter[],
+  filterMode: DatabaseFilterMode,
+) {
+  const rootFilters = filters.filter((filter) => !filter.parentFilterGroupId);
+  const nestedGroups = nestedDatabaseFilterGroups(filters);
+  const matches = [
+    ...rootFilters.map((filter) =>
+      databaseItemMatchesFilter(item, properties, filter),
+    ),
+    ...nestedGroups.map((group) =>
+      combineDatabaseFilterMatches(
+        group.map((filter) =>
+          databaseItemMatchesFilter(item, properties, filter),
+        ),
+        filterMode,
+      ),
+    ),
+  ];
+
+  return combineDatabaseFilterMatches(matches, filterMode);
+}
+
+function nestedDatabaseFilterGroups(filters: DatabaseFilter[]) {
+  const groups = new Map<string, DatabaseFilter[]>();
+  for (const filter of filters) {
+    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
+    groups.set(filter.filterGroupId, [
+      ...(groups.get(filter.filterGroupId) ?? []),
+      filter,
+    ]);
+  }
+  return [...groups.values()].filter((group) => group.length > 0);
+}
+
+function combineDatabaseFilterMatches(
+  matches: boolean[],
+  filterMode: DatabaseFilterMode,
+) {
+  if (matches.length === 0) return true;
+  return filterMode === "or"
+    ? matches.some((matched) => matched)
+    : matches.every((matched) => matched);
 }
 
 export function defaultDatabaseSort(): DatabaseSort {
@@ -284,15 +330,27 @@ function databaseFilterDefaultValueForNewItem(
   if (filter.operator === "is_unchecked") {
     return property.definition.type === "checkbox" ? false : undefined;
   }
+  if (property.definition.type === "multi_select") {
+    if (filter.operator !== "equals" && filter.operator !== "contains") {
+      return undefined;
+    }
+    const values = databaseFilterSelectedValues(filter.value);
+    if (values.length === 0) return undefined;
+    return values.map(
+      (value) =>
+        databasePropertyOptionIdForFilterValue(property, value) ?? value,
+    );
+  }
+  if (property.definition.type === "person" && filter.operator === "contains") {
+    const values = databaseFilterSelectedValues(filter.value);
+    return values.length > 0 ? values : undefined;
+  }
   if (filter.operator !== "equals") return undefined;
 
   const value = filter.value.trim();
   if (!value) return undefined;
 
   const optionValue = databasePropertyOptionIdForFilterValue(property, value);
-  if (property.definition.type === "multi_select") {
-    return [optionValue ?? value];
-  }
   if (
     property.definition.type === "select" ||
     property.definition.type === "status"
@@ -320,6 +378,47 @@ function databasePropertyOptionIdForFilterValue(
   )?.id;
 }
 
+function databaseFilterSelectedValues(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [trimmed];
+    return [
+      ...new Set(
+        parsed
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    ];
+  } catch {
+    return [trimmed];
+  }
+}
+
+function databaseFilterDateRangeValues(value: string): [string, string] {
+  const trimmed = value.trim();
+  if (!trimmed) return ["", ""];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [trimmed, ""];
+    const start = typeof parsed[0] === "string" ? parsed[0].trim() : "";
+    const end = typeof parsed[1] === "string" ? parsed[1].trim() : "";
+    return [start, end];
+  } catch {
+    return [trimmed, ""];
+  }
+}
+
+function databaseFilterDateRangeValue(value: string): [number, number] | null {
+  const [startValue, endValue] = databaseFilterDateRangeValues(value);
+  const start = new Date(startValue).getTime();
+  const end = new Date(endValue).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return start <= end ? [start, end] : [end, start];
+}
+
 function databaseItemMatchesFilter(
   item: ContentDatabaseItem,
   properties: DocumentProperty[],
@@ -343,10 +442,20 @@ function databaseItemMatchesFilter(
       : current < target;
   }
 
-  if (filter.operator === "before" || filter.operator === "after") {
+  if (
+    filter.operator === "before" ||
+    filter.operator === "after" ||
+    filter.operator === "between"
+  ) {
     const current = propertyDateValue(property);
+    if (!Number.isFinite(current)) return false;
+    if (filter.operator === "between") {
+      const range = databaseFilterDateRangeValue(filter.value);
+      if (!range) return false;
+      return current >= range[0] && current <= range[1];
+    }
     const target = new Date(filter.value.trim()).getTime();
-    if (!Number.isFinite(current) || !Number.isFinite(target)) return false;
+    if (!Number.isFinite(target)) return false;
     return filter.operator === "before" ? current < target : current > target;
   }
 
@@ -355,8 +464,31 @@ function databaseItemMatchesFilter(
     properties,
     filter.key,
   ).map((candidate) => candidate.trim().toLowerCase());
+  const selectedFilterValues = databaseFilterSelectedValues(filter.value).map(
+    (candidate) => candidate.trim().toLowerCase(),
+  );
   const normalizedValue = value.trim().toLowerCase();
-  const normalizedFilter = filter.value.trim().toLowerCase();
+  const normalizedFilter = selectedFilterValues[0] ?? "";
+  const usesDiscreteValues =
+    property?.definition.type === "select" ||
+    property?.definition.type === "status" ||
+    property?.definition.type === "multi_select" ||
+    property?.definition.type === "person";
+
+  if (
+    usesDiscreteValues &&
+    (filter.operator === "equals" || filter.operator === "contains")
+  ) {
+    return selectedFilterValues.some((filterValue) =>
+      candidateValues.includes(filterValue),
+    );
+  }
+  if (usesDiscreteValues && filter.operator === "does_not_equal") {
+    return selectedFilterValues.every(
+      (filterValue) => !candidateValues.includes(filterValue),
+    );
+  }
+
   if (filter.operator === "equals") {
     return candidateValues.includes(normalizedFilter);
   }
@@ -529,9 +661,66 @@ export function propertyNumberValue(
 export function databaseFilterOptionChoices(
   key: string,
   properties: DocumentProperty[],
+  items: ContentDatabaseItem[] = [],
 ) {
-  const property = databaseFilterOptionPropertyForKey(key, properties);
-  return property?.definition.options.options ?? [];
+  const property = databaseFilterPropertyForKey(key, properties);
+  if (property?.definition.type === "person") {
+    return databaseFilterPersonChoices(property.definition.id, items);
+  }
+  const optionProperty = databaseFilterOptionPropertyForKey(key, properties);
+  return optionProperty?.definition.options.options ?? [];
+}
+
+function databaseFilterPersonChoices(
+  propertyId: string,
+  items: ContentDatabaseItem[],
+) {
+  const people = new Map<string, string>();
+  for (const item of items) {
+    const property = item.properties.find(
+      (candidate) => candidate.definition.id === propertyId,
+    );
+    for (const person of databasePersonItems(property?.value ?? null)) {
+      const key = person.trim().toLowerCase();
+      if (!people.has(key)) people.set(key, person);
+    }
+  }
+  return Array.from(people.values()).map((person) => ({
+    id: person,
+    name: databasePersonLabel(person),
+    color: "gray" as const,
+  }));
+}
+
+function databasePersonItems(value: DocumentProperty["value"]) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\n,]+/)
+      : [];
+  const seen = new Set<string>();
+  return rawItems
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item) return false;
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function databasePersonLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "Empty";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)
+    ? trimmed
+        .split("@")[0]
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ")
+    : trimmed;
 }
 
 export function databaseFilterOptionPropertyForKey(
@@ -543,7 +732,8 @@ export function databaseFilterOptionPropertyForKey(
   if (
     property.definition.type !== "select" &&
     property.definition.type !== "status" &&
-    property.definition.type !== "multi_select"
+    property.definition.type !== "multi_select" &&
+    property.definition.type !== "person"
   ) {
     return null;
   }
@@ -554,6 +744,11 @@ function databaseFilterValueLabel(
   filter: DatabaseFilter,
   properties: DocumentProperty[],
 ) {
+  if (filter.operator === "between") {
+    const [start, end] = databaseFilterDateRangeValues(filter.value);
+    if (start && end) return `${start} to ${end}`;
+    return start || end || "Choose dates";
+  }
   const option = databaseFilterOptionChoices(filter.key, properties).find(
     (candidate) =>
       candidate.id === filter.value || candidate.name === filter.value,
@@ -593,6 +788,7 @@ export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
   less_than: "Less than",
   before: "Before",
   after: "After",
+  between: "Between",
   is_checked: "Checked",
   is_unchecked: "Unchecked",
   is_empty: "Is empty",
@@ -609,8 +805,13 @@ export function filterOperatorsForKey(
     return ["is_checked", "is_unchecked"];
   }
 
-  if (type === "select" || type === "status" || type === "multi_select") {
-    return ["equals", "does_not_equal", "is_empty", "is_not_empty"];
+  if (
+    type === "select" ||
+    type === "status" ||
+    type === "multi_select" ||
+    type === "person"
+  ) {
+    return ["contains", "does_not_equal", "is_empty", "is_not_empty"];
   }
 
   if (type === "number") {
@@ -634,6 +835,7 @@ export function filterOperatorsForKey(
       "does_not_equal",
       "before",
       "after",
+      "between",
       "is_empty",
       "is_not_empty",
     ];

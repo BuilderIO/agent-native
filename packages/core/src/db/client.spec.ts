@@ -98,11 +98,29 @@ describe("db/client dialect detection", () => {
     expect(neonPoolMax()).toBe(2);
   });
 
-  it("uses the background Neon pool when the verified process-run marker expects a background function", async () => {
+  it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
+    // The marker records which URL the foreground TARGETED, not where the
+    // request landed. A misrouted worker on the ~60s sync function must NOT
+    // take the 8-connection background pool (it runs as one of many warm
+    // instances and would exhaust the Neon pooler → connection terminated →
+    // failed heartbeat → stale_run). Only proof-of-landing unlocks the big pool.
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
     ).__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(2);
+  });
+
+  it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 
     const { neonPoolMax, isBackgroundFunctionPoolContext } =
       await import("./client.js");

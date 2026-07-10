@@ -1,5 +1,4 @@
 import {
-  IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
   IconCode,
@@ -52,6 +51,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -83,6 +83,9 @@ const THEME_CSS_VARS = [
   "--sidebar-border",
   "--sidebar-ring",
 ];
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);
@@ -260,6 +263,40 @@ function compactDiffLines(
     i = end;
   }
   return result;
+}
+
+function ExtensionUnavailableState({ status }: { status?: number }) {
+  const sessionExpired = status === 401;
+  const accessDenied = status === 403;
+  const unavailable = status === 404;
+  const title = sessionExpired
+    ? "Session expired"
+    : accessDenied
+      ? "Extension is not shared"
+      : unavailable
+        ? "Extension is unavailable"
+        : "Extension not found";
+  const message = sessionExpired
+    ? "Sign in again to view this extension."
+    : accessDenied
+      ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
+      : "This extension may not be shared with you, may have been deleted, or is not available to your account.";
+  return (
+    <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 p-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 text-center shadow-sm">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {message}
+        </p>
+        <Link
+          to="/extensions"
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          Back to extensions
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function diffLineClass(line: CompactDiffLine): string {
@@ -1072,6 +1109,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const {
     data: extension,
     error: extensionError,
+    failureReason: extensionFailureReason,
     isFetching,
     isLoading,
   } = useQuery<Extension>({
@@ -1080,6 +1118,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
+      if (res.status === 401) {
+        throw extensionLoadError(401, "Session expired");
+      }
       if (res.status === 404) {
         throw extensionLoadError(404, "Extension not found");
       }
@@ -1093,6 +1134,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     },
     retry: shouldRetryExtensionLoad,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    refetchOnMount: "always",
   });
 
   toolRef.current = extension ?? null;
@@ -1131,6 +1173,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark);
   }, [extension, isDark]);
+  const unavailableStatus = extensionLoadErrorStatus(
+    extensionError ?? extensionFailureReason,
+  );
+  const latestFetchDenied =
+    unavailableStatus === 401 ||
+    unavailableStatus === 403 ||
+    unavailableStatus === 404;
 
   useEffect(() => {
     setIframeReady(false);
@@ -1188,13 +1237,8 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     );
   }
 
-  if (!extension) {
-    const status = extensionLoadErrorStatus(extensionError);
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {status === 403 ? "Extension access denied" : "Extension not found"}
-      </div>
-    );
+  if (latestFetchDenied || !extension) {
+    return <ExtensionUnavailableState status={unavailableStatus} />;
   }
 
   const isLocalExtension = extension.source?.mode === "local-files";
@@ -1204,19 +1248,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       <div className="flex h-full w-full flex-col">
         <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/"
-                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  aria-label="Back to app"
-                >
-                  <IconArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Back to app</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>Back to app</TooltipContent>
-            </Tooltip>
             <nav
               aria-label="Extension breadcrumb"
               className="group/name flex min-w-0 items-center gap-1 text-sm"
@@ -1348,7 +1379,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             src={iframeSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
-            sandbox="allow-scripts allow-forms"
+            sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}
             style={{
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",

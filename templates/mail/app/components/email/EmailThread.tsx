@@ -1,10 +1,4 @@
 import { appApiPath, useT } from "@agent-native/core/client";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -40,6 +34,12 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useComposeState } from "@/hooks/use-compose-state";
 import {
@@ -1532,7 +1532,7 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1583,7 +1583,7 @@ function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-4 py-4">
+    <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-4 py-4">
       <div className="flex items-start gap-3">
         <Skeleton className="h-9 w-9 rounded-full shrink-0" />
         <div className="flex-1 space-y-3">
@@ -1719,7 +1719,7 @@ const ExpandedMessageCard = forwardRef<
       ref={ref}
       onClick={onFocus}
       className={cn(
-        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden cursor-pointer",
+        "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
         isFocused
           ? "ring-1 ring-primary/40"
           : "ring-1 ring-transparent hover:ring-border/30",

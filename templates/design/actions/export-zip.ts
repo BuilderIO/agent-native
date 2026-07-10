@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import {
   exportFilename,
   injectHiddenLayerExportStyle,
@@ -83,9 +84,14 @@ export default defineAction({
       zip.file(filename, content);
     }
 
-    // Add design data if present
-    if (row.data) {
-      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, row.data);
+    // Add design data if present. Public/viewer exports keep render metadata
+    // but must never serialize a localhost bridge token into the archive.
+    const exportDesignData = designDataForAccessRole(
+      row.data ?? null,
+      access.role,
+    );
+    if (typeof exportDesignData === "string") {
+      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, exportDesignData);
     }
 
     // Generate ZIP

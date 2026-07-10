@@ -1,63 +1,112 @@
 ---
-title: "Agent-Native 툴킷"
-description: "협업, 설정, 공유, 탐색, presence, 기록, 설정 준비, Agent UX를 위한 재사용 가능한 키트."
+title: "Toolkits"
+description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
 ---
 
-# Agent-Native 툴킷
+<!-- i18n-docs-ignore -->
 
-Agent-Native 앱은 workspace 공통 기능을 매번 다시 만들면 안 됩니다. 앱은 도메인 모델,
-도메인 action, 제품별 화면을 소유합니다. Framework와 `@agent-native/toolkit`은 모든 앱이
-상속해야 하는 재사용 가능한 표면을 소유합니다: 협업, 공유, 설정, 탐색, 정리, 설정 준비,
-Agent UX, 기록, 운영 가시성입니다.
+# Toolkits
 
-사용자는 공유, 키 연결, Agent의 공동 편집, 설정 위치, 변경 내역을 앱마다 새로 배우지 않아야 합니다.
+Toolkits are reusable, battle-tested building blocks for high-quality agentic
+applications. They turn the hard product work that repeats across apps into
+standard surfaces: realtime collaboration between humans and agents, sharing
+with humans and agents, settings, teams, setup, resources, history, review, and
+observability.
 
-## 툴킷 계약 {#toolkit-contract}
+Each kit packages the UI patterns, action contracts, app-state expectations,
+access boundaries, and agent-visible behavior that users expect to work
+consistently. Apps still own their domain model and visual identity; toolkits
+make the common product systems feel complete from the first version instead of
+being rebuilt in slightly different ways every time.
 
-다음에 해당하면 동작을 toolkit으로 옮깁니다.
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
 
-- **Workspace 전체** - 모든 앱에서 같은 방식으로 동작해야 합니다.
-- **Agent-visible** - Agent가 actions, instructions, application state를 통해 같은 기능을 써야 합니다.
-- **Governed** - 권한, audit, secrets, org policy, billing, sharing rules가 적용됩니다.
-- **Repeated** - 두 앱 이상이 비슷한 UI나 로직을 이미 만들었습니다.
-- **Not domain-specific** - 앱은 resource 이름과 action을 제공하지만 interaction pattern은 일반적입니다.
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
 
-도메인 모델이나 앱 고유 workflow에 깊게 묶인 동작은 app-local로 둡니다.
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Runtime</span><br />
+    actions, SQL, auth, app state, access checks, realtime transport
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkits</span><br />
+    collaboration, sharing, setup, review, history, observability
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Apps</span><br />
+    domain schema, routes, actions, branding, specialized workflows
+  </div>
+</div>
+```
 
-## 재사용 가능한 키트 {#reusable-kits}
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
 
-- **Settings kit** - account, workspace, AI models, LLM keys, connections,
-  secrets, usage, notifications, changelog, app preferences의 표준 tabs입니다. 지속 설정은
-  Settings에 두고 Agent sidebar는 contextual quick controls와 deep links만 유지합니다.
-- **Collaboration kit** - real-time editing, Yjs docs, presence, agent presence,
-  live cursors, remote selections, recent edit highlights, shared undo/redo입니다. 자세한 내용은
-  [Real-Time Collaboration](/docs/real-time-collaboration)을 보세요.
-- **Sharing kit** - private, workspace, org, public link, invites, roles,
-  expirations, agent-readable access를 하나의 권한 모델로 다룹니다. 자세한 내용은
-  [Sharing & Privacy](/docs/sharing)을 보세요.
-- **Navigation and command kit** - app shell, nav, breadcrumbs, app switcher,
-  command palette, recents, pinned resources, search입니다.
-- **Organization kit** - folders, tags, favorites, archive, trash, ownership,
-  membership, common metadata입니다.
-- **Setup and connections kit** - API keys, OAuth, connections, model readiness,
-  missing secrets, declarative onboarding입니다. 자세한 내용은
-  [Workspace Connections](/docs/workspace-connections)을 보세요.
-- **Agent UX kit** - sidebar, composer, staged context, mentions, voice, human
-  approval, generative UI, progress, Agent-visible state입니다.
-- **History and recovery kit** - audit log, activity feed, version history,
-  checkpoints, undo, redo, restore, proof-of-done입니다. 자세한 내용은
-  [Audit Log](/docs/audit-log)를 보세요.
-- **Comments and review kit** - anchored comments, pins, mentions, review requests,
-  resolved threads, Agent follow-up tasks입니다.
-- **Workflow and observability kit** - notifications, approvals, background runs,
-  recurring jobs, traces, evals, feedback, run timelines입니다. 자세한 내용은
-  [Observability](/docs/observability)를 보세요.
+</Diagram>
 
-## 구현 순서 {#implementation-order}
+## The Kits {#the-kits}
 
-1. 지속 설정을 표준 Settings tabs로 통합합니다.
-2. collaboration, presence, agent presence, undo/redo, real-time editing을 공유 adapters 뒤로 정규화합니다.
-3. navigation, commands, recents, favorites, folders, tags, archive, trash를 공유 primitives로 이동합니다.
-4. 모든 공유 가능한 resource를 같은 permissions와 agent-readable access 모델에 등록합니다.
-5. collaborative resource마다 activity, comments, review, restore, audit 경험을 일관되게 만듭니다.
-6. notifications, approvals, run status, traces, evals, feedback을 통합합니다.
+| Kit                                                      | Use it for                                                                                                  |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
+| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
+| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
+| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
+| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
+| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
+| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
+| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+
+## Implementation Boundary {#implementation-boundary}
+
+Kits are product surfaces first. Some pieces are runtime-backed
+(`@agent-native/core`), some are presentation primitives
+(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
+Use the package path that owns the needed behavior, but design the user-facing
+settings, collaboration, sharing, team, review, and setup experiences as one
+coherent kit instead of exposing package boundaries in the app.
+
+## Foundation Pieces {#foundation-pieces}
+
+- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
+  `@agent-native/toolkit/ui/*`.
+- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
+  through local `@/components/*` adapters.
+- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
+  toasts, and small app-shell helpers.
+- [Component API](/docs/components) remains the lower-level reference for the
+  public React exports.
+
+## Design Rule {#design-rule}
+
+Use a toolkit when the behavior repeats across apps and users expect it to feel
+standard: sharing, settings, teams, comments, history, and agent progress should
+not be slightly different in every template. Keep domain-specific data,
+workflows, labels, and visual styling in the app.

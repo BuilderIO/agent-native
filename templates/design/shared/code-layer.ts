@@ -1,4 +1,9 @@
 import {
+  isSafeCssUrlReference,
+  removeBreakpointMediaDeclaration,
+  setBreakpointMediaDeclaration,
+} from "./breakpoint-media.js";
+import {
   isComponentInstance,
   instanceFromNode,
   type ComponentInstance,
@@ -8,6 +13,8 @@ import {
   getPropertyClasses,
   parseClassGroups,
   parseClassToken,
+  removeMaxWidthPropertyClass,
+  setMaxWidthPropertyClass,
   setPropertyClass,
   removePropertyClass,
   utilityStem,
@@ -64,6 +71,9 @@ export type VisualStyleProperty =
   | "background"
   | "background-color"
   | "background-image"
+  | "background-size"
+  | "background-repeat"
+  | "background-position"
   | "background-blend-mode"
   | "fill"
   | "fill-opacity"
@@ -103,6 +113,8 @@ export type VisualStyleProperty =
   | "outline-style"
   | "outline-color"
   | "outline-offset"
+  | "-webkit-text-stroke-width"
+  | "-webkit-text-stroke-color"
   | "box-shadow"
   | "text-shadow"
   | "filter"
@@ -236,6 +248,22 @@ export type EditCapability =
       reason?: string;
     }
   | {
+      /**
+       * Breakpoint-scoped raw style editing (§6.4) — the `@media` fallback
+       * for values responsive class prefixes can't express. Writes into the
+       * managed `<style data-agent-native-breakpoints>` block via
+       * `breakpoint-media.ts`, targeting the node's stable
+       * `data-agent-native-node-id`.
+       */
+      kind: "breakpoint-style";
+      /** Inclusive upper viewport bound (px) the edit was applied below. */
+      maxWidthPx: number;
+      operations: Array<"set" | "remove">;
+      properties: string[];
+      confidence: number;
+      reason?: string;
+    }
+  | {
       kind: "text";
       operations: Array<"setTextContent">;
       confidence: number;
@@ -244,6 +272,13 @@ export type EditCapability =
   | {
       kind: "structure";
       operations: Array<"moveNode">;
+      confidence: number;
+      reason?: string;
+    }
+  | {
+      /** Single plain-attribute writes (see AttributeEditIntent). */
+      kind: "attribute";
+      operations: Array<"set">;
       confidence: number;
       reason?: string;
     };
@@ -390,6 +425,24 @@ export interface TextEditIntent {
   html?: string;
 }
 
+/**
+ * Node-id integrity (id-on-demand): sets or replaces a single plain HTML
+ * attribute on the target element. Introduced so the host can persist the
+ * bridge's minted `pendingNodeId` (see ElementInfo.pendingNodeId) as the
+ * element's real `data-agent-native-node-id` the moment an id-less node is
+ * selected — every subsequent id-keyed operation (move/reorder, style
+ * commits, motion tracks, scrub) then resolves normally. Not limited to that
+ * attribute name; kept general so other single-attribute host writes can
+ * reuse the same deterministic path instead of a full-document
+ * find/replace-and-resave.
+ */
+export interface AttributeEditIntent {
+  kind: "attribute";
+  target: EditIntentTarget;
+  name: string;
+  value: string;
+}
+
 export interface MoveNodeEditIntent {
   kind: "moveNode";
   target: EditIntentTarget;
@@ -485,17 +538,50 @@ export interface ResponsiveClassEditIntent {
    * rejected as `"conflict"` rather than applied. Ignored for `"remove"`.
    */
   from?: string;
+  /**
+   * Framer-style desktop-down scope (§6.4 breakpoint bar). When set, the
+   * edit writes a `max-[<maxWidthPx>px]:` scoped token instead of a
+   * min-width `prefix` token, and `prefix` is ignored. The bound comes from
+   * `breakpointUpperBoundPx` (just below the next-wider frame). `from`
+   * guards are not applied to max-width scopes.
+   */
+  maxWidthPx?: number;
+}
+
+/**
+ * Breakpoint-scoped raw style edit — the `@media` fallback for values that
+ * responsive class prefixes can't express (exact px positions from canvas
+ * drags, rgb()/calc() values, …). Persists into the managed
+ * `<style data-agent-native-breakpoints>` block as a
+ * `@media (max-width: <maxWidthPx>px)` rule targeting the element's
+ * `data-agent-native-node-id` (stamped automatically when missing).
+ *
+ * - `operation: "set"` (default) writes/overwrites the declaration.
+ * - `operation: "remove"` deletes it, falling back to the base value.
+ */
+export interface BreakpointStyleEditIntent {
+  kind: "breakpoint-style";
+  target: EditIntentTarget;
+  /** Inclusive upper viewport bound (px) the override applies below. */
+  maxWidthPx: number;
+  /** CSS property (camelCase or kebab-case). */
+  property: string;
+  /** CSS value. Required for `"set"`; ignored for `"remove"`. */
+  value?: string;
+  operation?: "set" | "remove";
 }
 
 export type EditIntent =
   | StyleEditIntent
   | ClassEditIntent
   | TextEditIntent
+  | AttributeEditIntent
   | MoveNodeEditIntent
   | WrapNodesEditIntent
   | UnwrapEditIntent
   | AutoLayoutEditIntent
-  | ResponsiveClassEditIntent;
+  | ResponsiveClassEditIntent
+  | BreakpointStyleEditIntent;
 
 export interface EditIntentResolution {
   status: "resolved" | "conflict" | "unsupported";
@@ -598,6 +684,9 @@ const STYLE_PROPERTIES = [
   "background",
   "background-color",
   "background-image",
+  "background-size",
+  "background-repeat",
+  "background-position",
   "background-blend-mode",
   "fill",
   "fill-opacity",
@@ -637,6 +726,8 @@ const STYLE_PROPERTIES = [
   "outline-style",
   "outline-color",
   "outline-offset",
+  "-webkit-text-stroke-width",
+  "-webkit-text-stroke-color",
   "box-shadow",
   "text-shadow",
   "filter",
@@ -694,7 +785,18 @@ const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   radius: "border-radius",
   rotation: "rotate",
   shadow: "box-shadow",
+  // Vendor-prefixed longhands need explicit aliases: the generic camel→kebab
+  // pass in normalizeStyleProperty yields "webkit-text-stroke-*" WITHOUT the
+  // required leading dash, which would miss the allow-list entirely.
+  webkitTextStrokeColor: "-webkit-text-stroke-color",
+  webkitTextStrokeWidth: "-webkit-text-stroke-width",
 };
+
+// Matches url(...) in double-quoted, single-quoted, or unquoted form so each
+// reference inside a (possibly multi-layer) background-image value can be
+// checked individually against isSafeCssUrlReference.
+const URL_IN_VALUE_RE =
+  /\burl\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/gi;
 
 const VOID_TAGS = new Set([
   "area",
@@ -1084,16 +1186,55 @@ function normalizeStyleProperty(property: string): VisualStyleProperty | null {
   return normalized as VisualStyleProperty;
 }
 
+/**
+ * `background-image` is the one property where `url(...)` is a legitimate,
+ * expected value (image fills — see `ImageFillControls`/
+ * `imageFillToBackgroundStyles`). Every `url(...)` reference in the value is
+ * checked with the same scheme allowlist the breakpoint-scoped media-block
+ * path uses (`isSafeCssUrlReference`, which itself rejects control
+ * characters and `<>"'`): http(s), protocol-relative, relative/root paths,
+ * and `data:image/...` are allowed; `javascript:` and other non-image
+ * schemes are not. The `background` shorthand is deliberately NOT included
+ * here — keep it on the strict no-url path below.
+ *
+ * A `data:image/...` URI legitimately contains a `;` before `base64,`, so a
+ * validated `url(...)` is excised before the generic `<>{};` breakout check
+ * below runs — that check only ever sees the CSS around the reference.
+ */
+function isSafeBackgroundImageValue(value: string): string | false {
+  URL_IN_VALUE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let lastIndex = 0;
+  let withoutValidatedParts = "";
+  while ((match = URL_IN_VALUE_RE.exec(value))) {
+    const raw = match[1] ?? match[2] ?? match[3] ?? "";
+    if (!isSafeCssUrlReference(raw)) return false;
+    withoutValidatedParts += value.slice(lastIndex, match.index);
+    lastIndex = URL_IN_VALUE_RE.lastIndex;
+  }
+  withoutValidatedParts += value.slice(lastIndex);
+  // Anything left that still looks like "url(" wasn't matched by the
+  // well-formed pattern above (malformed/unterminated) — reject.
+  if (/url\s*\(/i.test(withoutValidatedParts)) return false;
+  return withoutValidatedParts;
+}
+
 function isSafeStyleValue(
   property: VisualStyleProperty,
   value: string,
 ): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  if (/[<>{};]/.test(trimmed)) return false;
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
-  if (/url\s*\(/i.test(trimmed)) return false;
+  if (/url\s*\(/i.test(trimmed)) {
+    if (property !== "background-image") return false;
+    const withoutValidatedUrls = isSafeBackgroundImageValue(trimmed);
+    if (withoutValidatedUrls === false) return false;
+    if (/[<>{};]/.test(withoutValidatedUrls)) return false;
+  } else if (/[<>{};]/.test(trimmed)) {
+    return false;
+  }
   if (property === "display") {
     return [
       "block",
@@ -1163,19 +1304,107 @@ function findHtmlTagEnd(html: string, start: number): number {
   return html.length;
 }
 
+// Depth-aware closing-tag scan: used for NON_VISUAL_TAGS (script/style/
+// template/etc) whose interiors are skipped wholesale rather than descended
+// into by the main parser loop. A naive "first </tag> after `from`" search
+// (the previous implementation) breaks the moment the same tag nests inside
+// itself — e.g. `<template x-if><ul><template x-for>…</template></ul>
+// </template>` (a completely ordinary Alpine x-if-wrapping-x-for pattern) —
+// because it matches the INNER `</template>` and resumes the main loop right
+// after it, leaving the outer element's true `</ul></template>` closes to be
+// mis-parsed as stray/unmatched tags against whatever unrelated element is
+// on the stack. That corrupted contentEnd tracking for enclosing elements
+// (observed: body-append/insertion offsets computed from the wrong node,
+// splicing moved content into template interiors). Track same-tag open/close
+// depth so only the tag that actually balances the ORIGINAL opening tag is
+// returned, matching real nested-template documents correctly.
 function findClosingTag(
   html: string,
   tag: string,
   from: number,
 ): { closeStart: number; closeEnd: number } | null {
-  const closeRe = new RegExp(`<\\/\\s*${tag}\\s*>`, "gi");
-  closeRe.lastIndex = from;
-  const match = closeRe.exec(html);
-  if (!match) return null;
-  return {
-    closeStart: match.index,
-    closeEnd: match.index + match[0].length,
-  };
+  const tagRe = new RegExp(`<(\\/?)\\s*${tag}\\b[^>]*>`, "gi");
+  tagRe.lastIndex = from;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    const isClose = match[1] === "/";
+    const selfClosing = !isClose && /\/\s*>$/.test(match[0]);
+    if (isClose) {
+      if (depth === 0) {
+        return {
+          closeStart: match.index,
+          closeEnd: match.index + match[0].length,
+        };
+      }
+      depth -= 1;
+    } else if (!selfClosing) {
+      depth += 1;
+    }
+    // Guard against zero-length matches causing an infinite loop (not
+    // expected given the tag-name-anchored pattern, but cheap to keep safe).
+    if (tagRe.lastIndex === match.index) {
+      tagRe.lastIndex += 1;
+    }
+  }
+  return null;
+}
+
+// Defense-in-depth safety net for moveNodeBetweenDocuments: `<template>`
+// interiors (x-if/x-for/x-show templates and friends) are opaque to
+// parseHtmlElements (NON_VISUAL_TAGS) and, per the DOM spec, live in a
+// detached DocumentFragment (`template.content`) — a node inserted into a
+// template's raw markup range renders nowhere, can't be selected/queried by
+// the runtime DOM, and is invisible to every downstream querySelector-based
+// pass (getElementInfo, setAbsolutePositioningForNodeInHtml, etc). A correct
+// findClosingTag (see above) prevents the offset MISCALCULATION that used to
+// cause this, but this function is kept as an independent second guard —
+// even if some other insertion-point calculation ever computes an offset
+// that lands inside a real `<template>` block, this catches it and callers
+// redirect to a real DOM slot instead of silently splicing into markup that
+// will never render or be selectable again.
+//
+// Finding 8: when it fires, callers used to always redirect to the end of
+// <body> (or end of document) — a silent teleport that can land an anchored
+// insert far from where the user was working. `findEnclosingTemplateClose`
+// below returns the ENCLOSING outer template's closeEnd position (the
+// offset immediately after its `</template>`) when `offset` is inside a
+// template interior, so callers can redirect there instead: still a
+// guaranteed-safe real-DOM slot (immediately after a closing tag, a sibling
+// of the template rather than jumping to doc end), just much closer to the
+// anchor the caller actually asked for.
+function isOffsetInsideTemplateInterior(html: string, offset: number): boolean {
+  return findEnclosingTemplateClose(html, offset) !== null;
+}
+
+// Exported ONLY for the finding-8 redirect-target unit test below: with
+// findClosingTag's offset-miscalculation bug fixed (see the doc comment
+// above), every insertAt this module's own callers compute through
+// parseHtmlElements-derived positions (anchor.start/end/contentEnd,
+// bodyEl.contentEnd) already lands OUTSIDE template interiors in practice —
+// NON_VISUAL_TAGS like <template> are skipped wholesale, so a template can
+// never itself become part of another element's registered content range.
+// That makes this guard a true defense-in-depth backstop with no reachable
+// integration-level repro through moveNodeBetweenDocuments today; testing
+// the redirect target directly against a synthetic offset is the honest way
+// to pin its behavior instead of contriving a fragile call into the guard.
+export function findEnclosingTemplateClose(
+  html: string,
+  offset: number,
+): { closeEnd: number } | null {
+  const templateOpenRe = /<template\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = templateOpenRe.exec(html))) {
+    const openEnd = match.index + match[0].length;
+    if (openEnd > offset) break;
+    const close = findClosingTag(html, "template", openEnd);
+    const contentEnd = close ? close.closeStart : html.length;
+    if (offset > openEnd && offset <= contentEnd) {
+      return { closeEnd: close ? close.closeEnd : html.length };
+    }
+    templateOpenRe.lastIndex = close ? close.closeEnd : html.length;
+  }
+  return null;
 }
 
 function parseHtmlElements(html: string): ParsedElement[] {
@@ -2625,6 +2854,31 @@ function applyClassEdit(
   };
 }
 
+// Same shape as the bridge's own attributeOverrides guard (editor-chrome.bridge.ts)
+// — alphanumeric/dash/colon/dot/underscore, must start with a letter, never an
+// `on*` event handler. Deliberately conservative: this path is for host-side
+// bookkeeping writes (pending node-id persistence today), not general-purpose
+// attribute editing, so unknown/unsafe names are rejected rather than guessed at.
+const SAFE_ATTRIBUTE_NAME = /^(?!on)[a-zA-Z][a-zA-Z0-9:_.-]*$/;
+
+function applyAttributeEdit(
+  html: string,
+  element: ParsedElement,
+  intent: AttributeEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  if (!intent.name || !SAFE_ATTRIBUTE_NAME.test(intent.name)) {
+    return "unsupported";
+  }
+  return {
+    content: replaceOrInsertAttribute(html, element, intent.name, intent.value),
+    capability: {
+      kind: "attribute",
+      operations: ["set"],
+      confidence: 0.95,
+    },
+  };
+}
+
 function sanitizeTextEditHtml(html: string): string {
   return html
     .replace(
@@ -2724,6 +2978,12 @@ function applyResponsiveClassEdit(
   intent: ResponsiveClassEditIntent,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const currentClass = attributeValue(element, "class") ?? "";
+  const maxWidthPx =
+    intent.maxWidthPx !== undefined &&
+    Number.isFinite(intent.maxWidthPx) &&
+    intent.maxWidthPx > 0
+      ? Math.round(intent.maxWidthPx)
+      : undefined;
 
   let nextClass: string;
   if (intent.operation === "remove") {
@@ -2732,15 +2992,19 @@ function applyResponsiveClassEdit(
       return "unsupported";
     }
     if (!isSafeClassToken(intent.stem)) return "unsupported";
-    nextClass = removePropertyClass(currentClass, intent.prefix, intent.stem);
+    nextClass =
+      maxWidthPx !== undefined
+        ? removeMaxWidthPropertyClass(currentClass, maxWidthPx, intent.stem)
+        : removePropertyClass(currentClass, intent.prefix, intent.stem);
   } else {
-    // "add" and "replace" both use setPropertyClass
+    // "add" and "replace" both use the same replace-if-same-stem setter.
     if (!intent.utility) return "unsupported";
     if (!isSafeClassToken(intent.utility)) return "unsupported";
-    if (intent.from) {
+    if (intent.from && maxWidthPx === undefined) {
       // `from` guard: the utility the caller expects to be effective at this
       // prefix. On mismatch (stale selection / wrong element) reject instead
-      // of silently overwriting whatever is actually there.
+      // of silently overwriting whatever is actually there. Max-width scopes
+      // skip the guard — the desktop-down cascade has no prefix analog.
       if (!isSafeClassToken(intent.from)) return "unsupported";
       const effective = effectivePropertyUtilities(
         currentClass,
@@ -2749,7 +3013,10 @@ function applyResponsiveClassEdit(
       );
       if (!effective.includes(intent.from)) return "conflict";
     }
-    nextClass = setPropertyClass(currentClass, intent.prefix, intent.utility);
+    nextClass =
+      maxWidthPx !== undefined
+        ? setMaxWidthPropertyClass(currentClass, maxWidthPx, intent.utility)
+        : setPropertyClass(currentClass, intent.prefix, intent.utility);
   }
 
   if (nextClass === currentClass) {
@@ -2778,6 +3045,97 @@ function applyResponsiveClassEdit(
       confidence: 0.87,
     },
   };
+}
+
+/**
+ * Apply a breakpoint-style edit intent: persist (or remove) one raw CSS
+ * declaration for the element inside the managed
+ * `<style data-agent-native-breakpoints>` block, scoped to
+ * `@media (max-width: <maxWidthPx>px)`.
+ *
+ * The rule targets the element's `data-agent-native-node-id`; when the
+ * element doesn't carry one yet it is stamped first (stable hash of the
+ * node's identity, mirroring `ensureCodeLayerNodeIdsInHtml`), so the media
+ * rule and the element stay linked across future edits.
+ */
+function applyBreakpointStyleEdit(
+  html: string,
+  element: ParsedElement,
+  node: CodeLayerNode,
+  intent: BreakpointStyleEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  const property = normalizeStyleProperty(intent.property);
+  if (!property) return "unsupported";
+  if (!Number.isFinite(intent.maxWidthPx) || intent.maxWidthPx <= 0) {
+    return "unsupported";
+  }
+  const maxWidthPx = Math.round(intent.maxWidthPx);
+  const operation = intent.operation ?? "set";
+
+  // Resolve the stable node id, stamping one when missing so the managed
+  // rule has a durable anchor.
+  const existingId = attributeValue(
+    element,
+    "data-agent-native-node-id",
+  )?.trim();
+  let nodeId = existingId || stableAttributeValueForNode(node);
+  let content = html;
+  if (!existingId) {
+    if (content.includes(`data-agent-native-node-id="${nodeId}"`)) {
+      // Extremely unlikely hash collision with another stamped node — derive
+      // a distinct id from the element's source span.
+      nodeId = `an-${hashStable(`${nodeId}:${element.start}:${element.end}`)}`;
+    }
+    content = replaceOrInsertAttribute(
+      content,
+      element,
+      "data-agent-native-node-id",
+      nodeId,
+    );
+  }
+
+  if (operation === "remove") {
+    const next = removeBreakpointMediaDeclaration(content, {
+      nodeId,
+      maxWidthPx,
+      property,
+    });
+    return {
+      content: next,
+      capability: {
+        kind: "breakpoint-style",
+        maxWidthPx,
+        operations: ["remove"],
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  }
+
+  if (intent.value === undefined || !isSafeStyleValue(property, intent.value)) {
+    return "unsupported";
+  }
+  try {
+    const next = setBreakpointMediaDeclaration(content, {
+      nodeId,
+      maxWidthPx,
+      property,
+      value: intent.value.trim(),
+    });
+    return {
+      content: next,
+      capability: {
+        kind: "breakpoint-style",
+        maxWidthPx,
+        operations: ["set"],
+        properties: [property],
+        confidence: 0.9,
+      },
+    };
+  } catch {
+    // setBreakpointMediaDeclaration throws on unsafe property/value.
+    return "unsupported";
+  }
 }
 
 function applyMoveNodeEdit(
@@ -3608,8 +3966,12 @@ export function applyVisualEdit(
     edit = applyClassEdit(html, element, intent);
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
+  } else if (intent.kind === "attribute") {
+    edit = applyAttributeEdit(html, element, intent);
   } else if (intent.kind === "responsive-class") {
     edit = applyResponsiveClassEdit(html, element, intent);
+  } else if (intent.kind === "breakpoint-style") {
+    edit = applyBreakpointStyleEdit(html, element, beforeNode, intent);
   } else {
     const anchorResolution = resolveTarget(initial, intent.anchor);
     if (anchorResolution.status !== "resolved" || !anchorResolution.node) {
@@ -3762,6 +4124,17 @@ export interface MoveNodeBetweenDocumentsResult {
    * Only present when status is "applied".
    */
   movedNodeId?: string;
+  /**
+   * Finding 8: true when the requested anchor placement fell inside a
+   * `<template>` interior and the insert was redirected to a real DOM slot
+   * instead (immediately after the enclosing template's `</template>` when
+   * that could be located, otherwise the pre-existing doc-end/body-end
+   * fallback). Hosts can use this to toast a "landed near, not exactly
+   * where you dropped it" notice instead of the previous fully silent
+   * teleport. Only meaningful when status is "applied" and an anchor was
+   * requested.
+   */
+  anchorRedirected?: boolean;
 }
 
 /**
@@ -3848,6 +4221,7 @@ export function moveNodeBetweenDocuments(
 
   // --- Insert fragment into destHtml ---
   let nextDestHtml: string;
+  let anchorRedirected = false;
 
   if (anchorNodeId) {
     const anchor = destElements.find(
@@ -3861,7 +4235,7 @@ export function moveNodeBetweenDocuments(
         message: `Anchor node with data-agent-native-node-id="${anchorNodeId}" not found in destHtml.`,
       };
     }
-    const insertAt =
+    let insertAt =
       placement === "before"
         ? anchor.start
         : placement === "after"
@@ -3869,15 +4243,44 @@ export function moveNodeBetweenDocuments(
           : anchor.selfClosing
             ? anchor.end
             : anchor.contentEnd;
+    // Never splice into a <template> interior — it renders nowhere and is
+    // unselectable afterward (see isOffsetInsideTemplateInterior doc above).
+    // Finding 8: redirect to immediately AFTER the ENCLOSING outer
+    // </template> when it can be located — still a guaranteed-safe real-DOM
+    // slot, just a sibling of the template instead of a jump all the way to
+    // the end of <body>/the document. Falls back to the old doc-end/body-end
+    // behavior only if the enclosing template's close somehow can't be
+    // resolved (defense-in-depth for a guard that should always agree with
+    // itself here).
+    const enclosingTemplate = findEnclosingTemplateClose(destHtml, insertAt);
+    if (enclosingTemplate) {
+      insertAt = enclosingTemplate.closeEnd;
+      anchorRedirected = true;
+    } else if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
+      const bodyEl = destElements.find((el) => el.tag === "body");
+      insertAt = bodyEl
+        ? bodyEl.selfClosing
+          ? bodyEl.end
+          : bodyEl.contentEnd
+        : destHtml.length;
+      anchorRedirected = true;
+    }
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
     // Default: find <body> and append inside it, or append at end of doc.
     const bodyEl = destElements.find((el) => el.tag === "body");
-    const insertAt = bodyEl
+    let insertAt = bodyEl
       ? bodyEl.selfClosing
         ? bodyEl.end
         : bodyEl.contentEnd
       : destHtml.length;
+    // Same template-interior guard as the anchored branch above — a
+    // miscomputed bodyEl.contentEnd (or a body that itself is only reachable
+    // through a template, e.g. a fragment being treated as a full document)
+    // must never land inside template markup.
+    if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
+      insertAt = destHtml.length;
+    }
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
 
@@ -3889,5 +4292,6 @@ export function moveNodeBetweenDocuments(
     destHtml: nextDestHtml,
     status: "applied",
     movedNodeId,
+    ...(anchorRedirected ? { anchorRedirected: true } : {}),
   };
 }

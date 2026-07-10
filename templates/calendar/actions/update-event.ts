@@ -11,9 +11,11 @@ import type { CalendarEvent } from "../shared/api.js";
 import {
   availabilityInput,
   attachmentsInput,
+  attendeesInput,
   buildReminderOverrides,
   cliBoolean,
   googleColorIdInput,
+  normalizeAttendees,
   normalizeGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
@@ -23,27 +25,6 @@ import {
   resolveOwnedAccountEmail,
   visibilityInput,
 } from "./event-action-helpers.js";
-
-const attendeeInput = z.object({
-  email: z.string(),
-  displayName: z.string().optional(),
-});
-
-const attendeesInput = z.union([z.array(attendeeInput), z.string()]);
-
-function normalizeAttendees(
-  input: z.infer<typeof attendeesInput> | undefined,
-): CalendarEvent["attendees"] | undefined {
-  if (input === undefined) return undefined;
-  if (typeof input === "string") {
-    const emails = input
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.includes("@"));
-    return emails.map((email) => ({ email }));
-  }
-  return input.filter((a) => a.email && a.email.includes("@"));
-}
 
 function mergeAttendees(
   existing: CalendarEvent["attendees"] | undefined,
@@ -71,6 +52,12 @@ function mergeAttendees(
       email,
       displayName: attendee.displayName ?? current?.displayName,
       photoUrl: attendee.photoUrl ?? current?.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : attendee.optional === false
+            ? undefined
+            : current?.optional,
     });
   }
 
@@ -157,12 +144,12 @@ export default defineAction({
     attendees: attendeesInput
       .optional()
       .describe(
-        "Replace the event's attendee list. Accepts an array of {email, displayName?} or a comma-separated string of emails. Pass an empty array to clear all attendees.",
+        "Replace the event's attendee list. Accepts an array of {email, displayName?, optional?} or a comma-separated string of emails. Pass an empty array to clear all attendees. Set optional:true to mark a guest optional.",
       ),
     addAttendees: attendeesInput
       .optional()
       .describe(
-        "Add invitees without dropping or resetting existing attendees. Accepts an array of {email, displayName?} or a comma-separated string of emails.",
+        "Add invitees without dropping or resetting existing attendees. Accepts an array of {email, displayName?, optional?} or a comma-separated string of emails. Set optional:true to mark a newly added guest optional.",
       ),
     sendUpdates: z
       .enum(["all", "none"])

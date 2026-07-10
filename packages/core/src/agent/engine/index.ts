@@ -25,6 +25,7 @@ export {
   getStoredModelForEngine,
   normalizeModelForEngine,
   detectEngineFromEnv,
+  detectEngineFromEnvForRequest,
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
   isAgentEnginePackageInstalled,

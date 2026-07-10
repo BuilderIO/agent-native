@@ -1,4 +1,6 @@
 import { defineAction } from "@agent-native/core";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import type { ImageGenResponse } from "@shared/api";
 import { z } from "zod";
 
@@ -59,11 +61,21 @@ export default defineAction({
     }
 
     const result = await provider.generate(prompt, refImages);
-
-    const dataUrl = `data:${result.mimeType};base64,${result.imageData.toString("base64")}`;
+    const uploaded = await uploadFile({
+      data: result.imageData,
+      filename: `slides-generated-${Date.now()}.png`,
+      mimeType: result.mimeType,
+      ownerEmail: getRequestUserEmail() ?? undefined,
+      recordAsset: false,
+    });
+    if (!uploaded?.url) {
+      throw new Error(
+        "File storage is not configured. Connect Builder.io or another upload provider before generating slide images.",
+      );
+    }
 
     const response: ImageGenResponse = {
-      url: dataUrl,
+      url: uploaded.url,
       model: result.model,
       prompt,
     };

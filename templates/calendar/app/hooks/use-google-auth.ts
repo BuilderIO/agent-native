@@ -32,6 +32,11 @@ interface DesktopAuthOptions {
   timeoutMs?: number;
 }
 
+interface DesktopGlobals {
+  agentNativeDesktop?: unknown;
+  electronAPI?: unknown;
+}
+
 function bodyError(
   body: any,
   raw: string | undefined,
@@ -185,9 +190,15 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isPending, setIsPending] = useState(false);
   const isDesktopGoogleAuth = useMemo(() => {
-    if (typeof navigator === "undefined") return false;
+    if (typeof window === "undefined" || typeof navigator === "undefined") {
+      return false;
+    }
+    const desktopGlobals = window as Window & DesktopGlobals;
     return (
-      /AgentNativeDesktop/i.test(navigator.userAgent) && !isInBuilderFrame()
+      (/AgentNativeDesktop/i.test(navigator.userAgent) ||
+        !!desktopGlobals.agentNativeDesktop ||
+        !!desktopGlobals.electronAPI) &&
+      !isInBuilderFrame()
     );
   }, []);
 
@@ -215,7 +226,6 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         desktop: "1",
         flow_id: flowId,
       });
-      let popup: Window | null = null;
       const reportError = (issue: DesktopAuthIssue) => {
         clearPoll();
         setIsPending(false);
@@ -249,12 +259,7 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         };
       };
       const openAuthUrl = (url: string) => {
-        if (popup && !popup.closed) {
-          popup.location.href = url;
-          return true;
-        }
-        popup = window.open(url, "_blank");
-        return !!popup;
+        window.open(url, "_blank");
       };
 
       const startedAt = Date.now();
@@ -263,16 +268,6 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         setIsPending(false);
         await onSuccess?.(result);
       };
-
-      popup = window.open("about:blank", "_blank");
-      if (!popup) {
-        reportError({
-          code: "popup_blocked",
-          message:
-            "Calendar could not open Google sign-in. Allow popups and try again.",
-        });
-        return true;
-      }
 
       void (async () => {
         try {
@@ -283,15 +278,8 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
             agentNativePath(`${path}?${params.toString()}`),
             { credentials: "include" },
           );
-          if (!openAuthUrl(url)) {
-            reportError({
-              code: "popup_blocked",
-              message:
-                "Calendar could not open Google sign-in. Allow popups and try again.",
-            });
-          }
+          openAuthUrl(url);
         } catch (err) {
-          popup?.close();
           reportError(authStartIssue(err));
         }
       })();

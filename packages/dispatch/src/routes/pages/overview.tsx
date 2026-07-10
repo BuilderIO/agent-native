@@ -1,4 +1,4 @@
-import { DispatchControlPlane } from "@/components/dispatch-control-plane";
+import { DispatchControlPlane } from "../../components/dispatch-control-plane";
 
 const SEO_TITLE =
   "Agent-Native Dispatch - Open Source workspace control plane for AI agents";

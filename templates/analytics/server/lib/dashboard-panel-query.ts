@@ -1,5 +1,6 @@
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { resolveCredential } from "@agent-native/core/credentials";
+import { runDataProgram } from "@agent-native/core/data-programs";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import { getUserSegmentation, queryEvents } from "./amplitude";
@@ -19,13 +20,17 @@ export const DASHBOARD_PANEL_SOURCES = [
   "first-party",
   "demo",
   "prometheus",
+  "program",
 ] as const;
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
 
+const ANALYTICS_DATA_PROGRAM_APP_ID = "analytics";
+
 export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }
 
 export function isDashboardPanelSource(
@@ -37,14 +42,62 @@ export function isDashboardPanelSource(
   );
 }
 
+/**
+ * program panels carry a JSON blob in `sql` describing which stored data
+ * program to run and with what params. Shape:
+ * { programId: string; params?: Record<string, unknown> }.
+ */
+export function serializeProgramDescriptorInput(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (typeof obj.programId !== "string" || !obj.programId.trim()) {
+      throw new Error("program panel descriptor requires a 'programId' field");
+    }
+    return JSON.stringify(raw);
+  }
+  throw new Error(
+    "program panel sql must be a JSON string or object with 'programId'",
+  );
+}
+
+export interface ProgramDescriptor {
+  programId: string;
+  params?: Record<string, unknown>;
+}
+
+function parseProgramDescriptor(raw: string): ProgramDescriptor {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err: any) {
+    throw new Error(
+      `program panel sql must be a JSON object: ${err?.message ?? err}`,
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("program panel sql must be a JSON object");
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.programId !== "string" || !obj.programId.trim()) {
+    throw new Error("program panel descriptor requires a 'programId' field");
+  }
+  const params =
+    obj.params && typeof obj.params === "object" && !Array.isArray(obj.params)
+      ? (obj.params as Record<string, unknown>)
+      : undefined;
+  return { programId: obj.programId, params };
+}
+
 export function normalizeDashboardPanelQuery(
   source: DashboardPanelSource,
   rawQuery: unknown,
 ): string {
-  if (source === "prometheus" || source === "demo") {
+  if (source === "prometheus" || source === "demo" || source === "program") {
     if (rawQuery === undefined || rawQuery === null || rawQuery === "") {
       throw new Error("Missing or invalid query");
     }
+    if (source === "program") return serializeProgramDescriptorInput(rawQuery);
     return source === "demo"
       ? serializeDemoDescriptorInput(rawQuery)
       : serializePanelDescriptorInput(rawQuery);
@@ -291,6 +344,57 @@ function flattenAmplitudeResponse(
   };
 }
 
+/**
+ * program panels run a stored data program server-side through the shared
+ * data-programs runtime, with the acting VIEWER's credentials (never the
+ * program author's) — the security-load-bearing choice for shared
+ * dashboards. Errors carry a structured `code: message` shape so the
+ * existing panel error card surfaces something actionable, and a stale
+ * `lastGoodRun` is preferred over a broken panel whenever one exists.
+ */
+async function runProgramPanel(
+  raw: string,
+  ctx: CredentialContext,
+): Promise<DashboardPanelQueryResult> {
+  const descriptor = parseProgramDescriptor(raw);
+  const result = await runDataProgram({
+    programId: descriptor.programId,
+    appId: ANALYTICS_DATA_PROGRAM_APP_ID,
+    params: descriptor.params,
+    ctx: { userEmail: ctx.userEmail, orgId: ctx.orgId ?? null },
+    triggeredBy: "panel_view",
+  });
+
+  if (result.ok) {
+    return {
+      rows: result.rows,
+      schema: result.schema,
+      truncated: result.truncated,
+    };
+  }
+
+  if (result.lastGoodRun) {
+    return {
+      rows: result.lastGoodRun.rows,
+      schema: result.lastGoodRun.schema,
+      truncated: result.lastGoodRun.truncated,
+    };
+  }
+
+  const friendlyMessages: Partial<Record<string, string>> = {
+    access_denied: "You don't have access to this data program",
+    archived: "This data program was archived",
+    background_pending:
+      "This data program is still computing — check back shortly",
+  };
+  const friendly = friendlyMessages[result.error.code];
+  throw new Error(
+    friendly
+      ? `${result.error.code}: ${friendly}`
+      : `${result.error.code}: ${result.error.message}`,
+  );
+}
+
 export async function runDashboardPanelQuery(args: {
   source: DashboardPanelSource;
   query: string;
@@ -359,6 +463,10 @@ export async function runDashboardPanelQuery(args: {
     );
     if (missingUrl) return missingUrl;
     return await runPrometheusPanel(query);
+  }
+
+  if (source === "program") {
+    return await runProgramPanel(query, ctx);
   }
 
   throw new Error("Unsupported source");

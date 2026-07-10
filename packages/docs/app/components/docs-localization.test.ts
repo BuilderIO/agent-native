@@ -10,7 +10,7 @@ import {
   loadDoc,
 } from "./docs-content";
 import { docsMarkdownPathForPath } from "./docs-seo";
-import { getDocsNavItems } from "./docsNavItems";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 
 function loaderArgs(
   params: Record<string, string>,
@@ -121,6 +121,12 @@ describe("localized docs fallback", () => {
     expect(items.find((item) => item.id === "internationalization")?.to).toBe(
       "/fr-FR/docs/internationalization",
     );
+    const toolkitSection = getDocsNavSections("fr-FR").find(
+      (section) => section.id === "toolkits",
+    );
+    expect(
+      toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
+    ).toBe("/fr-FR/docs/toolkit-ui");
   });
 
   it("indexes translated docs at localized canonical paths", async () => {

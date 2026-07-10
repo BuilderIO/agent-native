@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { registerErrorCaptureProvider } from "./capture-error.js";
 import { getRequestUserEmail } from "./request-context.js";
 import {
   createH3SSRHandler,
@@ -98,6 +99,37 @@ describe("createH3SSRHandler", () => {
 
     await expect(response.text()).resolves.toBe("GET /inbox?view=unread");
     expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("captures SSR exceptions with request context before returning a safe 500", async () => {
+    const error = new Error("render failed");
+    const provider = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "ssr-handler-test",
+      provider,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw error;
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const response = await handler(createEvent("/recaps/recap_test"));
+
+      expect(response.status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/recaps/recap_test",
+        method: "GET",
+        userAgent: undefined,
+        tags: { renderMode: "anonymous-public", surface: "ssr" },
+      });
+    } finally {
+      consoleError.mockRestore();
+      unregister();
+    }
   });
 
   it("strips APP_BASE_PATH from React Router lazy route manifest paths", async () => {

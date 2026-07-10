@@ -13,8 +13,8 @@
  *    coordinates exactly (no clamping).
  * 3. Inserts the fragments as direct <body> children of a new __board__.html
  *    design file (or merges into an existing one if somehow already present).
- * 4. Stores the new file's id into designs.data.boardFileId in a transaction.
- * 5. Nulls out designs.data.boardObjects so the old model no longer conflicts.
+ * 4. Reserves one stable file id in designs.data, then upserts the board file.
+ * 5. Finalizes boardFileId and nulls boardObjects through a retryable mutation.
  *
  * ## Contract
  *
@@ -37,6 +37,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   BOARD_FILENAME,
   backfillBoardPrimitiveMarkers,
@@ -64,29 +65,39 @@ export default defineAction({
     const db = getDb();
 
     // ── 1. Idempotency guard ──────────────────────────────────────────────
-    // Read the design data JSON to check whether boardFileId is already set.
-    // guard:allow-unscoped — assertAccess "editor" above scopes this read to
-    // the requesting user's accessible designs.
-    const [existing] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
+    // Reserve one stable file id without clearing boardObjects. If the process
+    // stops between phases, the next call resumes the same reservation.
+    const [preexistingBoardFile] = await db
+      .select({ id: schema.designFiles.id })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.filename, BOARD_FILENAME),
+        ),
+      )
       .limit(1);
-
-    if (!existing) {
-      throw new Error(`Design "${designId}" not found.`);
-    }
-
-    let parsed: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(existing.data);
-      parsed =
-        raw && typeof raw === "object" && !Array.isArray(raw)
-          ? (raw as Record<string, unknown>)
-          : {};
-    } catch {
-      parsed = {};
-    }
+    const proposedBoardFileId = preexistingBoardFile?.id ?? nanoid();
+    const reservation = await mutateDesignData({
+      designId,
+      mutate: (current) => {
+        if (
+          (typeof current.boardFileId === "string" && current.boardFileId) ||
+          (typeof current.boardFileMigrationId === "string" &&
+            current.boardFileMigrationId)
+        ) {
+          return current;
+        }
+        return { ...current, boardFileMigrationId: proposedBoardFileId };
+      },
+      isApplied: (current) =>
+        Boolean(
+          (typeof current.boardFileId === "string" && current.boardFileId) ||
+          (typeof current.boardFileMigrationId === "string" &&
+            current.boardFileMigrationId),
+        ),
+    });
+    const parsed = reservation.data;
 
     if (
       typeof parsed["boardFileId"] === "string" &&
@@ -176,68 +187,32 @@ export default defineAction({
 
     const now = new Date().toISOString();
 
-    // ── 4. Upsert the board file and update designs.data atomically ───────
-    // Run in a transaction so concurrent opens cannot create two board files.
-    let boardFileId = "";
+    // ── 4. Upsert the board file, then finalize the reservation ────────
+    const reservationId =
+      typeof parsed.boardFileMigrationId === "string" &&
+      parsed.boardFileMigrationId
+        ? parsed.boardFileMigrationId
+        : proposedBoardFileId;
+    const [existingBoardFile] = await db
+      .select({ id: schema.designFiles.id })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.filename, BOARD_FILENAME),
+        ),
+      )
+      .limit(1);
+    const boardFileId = existingBoardFile?.id ?? reservationId;
 
-    await db.transaction(async (tx) => {
-      // Re-read designs.data inside the transaction to guard against a
-      // concurrent migration that raced us.
-      const [fresh] = await tx
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, designId))
-        .limit(1);
-
-      if (!fresh) {
-        throw new Error(`Design "${designId}" not found.`);
-      }
-
-      let freshParsed: Record<string, unknown>;
+    if (existingBoardFile) {
+      await db
+        .update(schema.designFiles)
+        .set({ content: boardHtml, updatedAt: now })
+        .where(eq(schema.designFiles.id, boardFileId));
+    } else {
       try {
-        const raw = JSON.parse(fresh.data);
-        freshParsed =
-          raw && typeof raw === "object" && !Array.isArray(raw)
-            ? (raw as Record<string, unknown>)
-            : {};
-      } catch {
-        freshParsed = {};
-      }
-
-      // Double-check inside the transaction.
-      if (
-        typeof freshParsed["boardFileId"] === "string" &&
-        freshParsed["boardFileId"].length > 0
-      ) {
-        boardFileId = freshParsed["boardFileId"] as string;
-        return; // Another concurrent call already finished — skip.
-      }
-
-      // Check if a __board__.html file was somehow already created (shouldn't
-      // happen in normal flow, but be defensive).
-      const [existingBoardFile] = await tx
-        .select({ id: schema.designFiles.id })
-        .from(schema.designFiles)
-        .where(
-          and(
-            eq(schema.designFiles.designId, designId),
-            eq(schema.designFiles.filename, BOARD_FILENAME),
-          ),
-        )
-        .limit(1);
-
-      if (existingBoardFile) {
-        // Board file exists but boardFileId was not set — link it and update
-        // its content.
-        boardFileId = existingBoardFile.id;
-        await tx
-          .update(schema.designFiles)
-          .set({ content: boardHtml, updatedAt: now })
-          .where(eq(schema.designFiles.id, boardFileId));
-      } else {
-        // Create the board file.
-        boardFileId = nanoid();
-        await tx.insert(schema.designFiles).values({
+        await db.insert(schema.designFiles).values({
           id: boardFileId,
           designId,
           filename: BOARD_FILENAME,
@@ -246,22 +221,31 @@ export default defineAction({
           createdAt: now,
           updatedAt: now,
         });
+      } catch (error) {
+        const [concurrentBoardFile] = await db
+          .select({ id: schema.designFiles.id })
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.id, boardFileId))
+          .limit(1);
+        if (!concurrentBoardFile) throw error;
       }
+    }
 
-      // Write boardFileId into designs.data; null out boardObjects.
-      const nextData: Record<string, unknown> = {
-        ...freshParsed,
-        boardFileId,
-        boardObjects: null,
-      };
-
-      await tx
-        .update(schema.designs)
-        .set({
-          data: JSON.stringify(nextData),
-          updatedAt: now,
-        })
-        .where(eq(schema.designs.id, designId));
+    await mutateDesignData({
+      designId,
+      mutate: (current) => {
+        if (typeof current.boardFileId === "string" && current.boardFileId) {
+          return current;
+        }
+        const next: Record<string, unknown> = {
+          ...current,
+          boardFileId,
+          boardObjects: null,
+        };
+        delete next.boardFileMigrationId;
+        return next;
+      },
+      isApplied: (current) => current.boardFileId === boardFileId,
     });
 
     // ── 5. Seed collab state for the new board file ───────────────────────

@@ -10,6 +10,7 @@ const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
+const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
@@ -47,7 +48,7 @@ vi.mock("./google-api.js", () => ({
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
   calendarGetEvent: calendarGetEventMock,
-  calendarInsertEvent: vi.fn(),
+  calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: vi.fn(),
   calendarPatchEvent: calendarPatchEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
@@ -57,8 +58,10 @@ import {
   exchangeCode,
   getAuthUrl,
   getAuthStatus,
+  getClientsWithErrors,
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
+  createEvent,
   listEvents,
   listOverlayEvents,
   rsvpEvent,
@@ -246,6 +249,94 @@ describe("calendar Google auth status", () => {
   });
 });
 
+describe("calendar unusable OAuth token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getRequestOrgIdMock.mockReturnValue(undefined);
+    process.env.GOOGLE_CLIENT_ID = "client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "client-secret";
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? value : null;
+    });
+    resolveGoogleProviderCredentialsMock.mockImplementation(() =>
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null,
+    );
+    resolveGoogleLegacyProviderCredentialsMock.mockReturnValue(null);
+    runWithRequestContextMock.mockImplementation(
+      (_context: unknown, callback: () => unknown) => callback(),
+    );
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+  });
+
+  it("reports disconnected without deleting the row when a record parses to an empty object", async () => {
+    // A stored row that fails to decrypt (key rotation / wrong key) parses to
+    // `{}` in core's parseStoredTokens. The account must read as disconnected
+    // — but the row must NOT be deleted, because this process may simply hold
+    // the wrong key while the row is still decryptable elsewhere.
+    getOAuthAccountsMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const status = await getAuthStatus("steve@example.com");
+
+    expect(status.connected).toBe(false);
+    expect(status.accounts).toEqual([]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+    expect(createOAuth2ClientMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a reconnect error instead of an undefined bearer token", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      { accountId: "steve@example.com", tokens: {} },
+    ]);
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(clients).toEqual([]);
+    expect(errors).toEqual([
+      {
+        email: "steve@example.com",
+        error: expect.stringContaining("please reconnect"),
+      },
+    ]);
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes instead of returning undefined when only a refresh token survives", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: { refresh_token: "refresh-token" },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi.fn().mockResolvedValue({
+        access_token: "fresh-token",
+        expiry_date: Date.now() + 3_600_000,
+      }),
+    });
+
+    const { clients, errors } = await getClientsWithErrors("steve@example.com");
+
+    expect(errors).toEqual([]);
+    expect(clients).toEqual([
+      { email: "steve@example.com", accessToken: "fresh-token" },
+    ]);
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "google",
+      "steve@example.com",
+      expect.objectContaining({ access_token: "fresh-token" }),
+      "steve@example.com",
+    );
+  });
+});
+
 describe("calendar event listing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -373,6 +464,71 @@ describe("calendar event listing", () => {
         displayName: "Host Person",
       },
     });
+  });
+});
+
+describe("calendar event creation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarInsertEventMock.mockResolvedValue({
+      id: "event-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("sends attendee RSVP statuses when creating an event", async () => {
+    await createEvent({
+      id: "",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-09T16:00:00.000Z",
+      end: "2026-07-09T16:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "steve@example.com",
+      attendees: [
+        {
+          email: "steve@example.com",
+          organizer: true,
+          self: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "guest@example.com",
+          responseStatus: "needsAction",
+        },
+      ],
+      createdAt: "2026-07-09T15:00:00.000Z",
+      updatedAt: "2026-07-09T15:00:00.000Z",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "accepted",
+          },
+          {
+            email: "guest@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+      }),
+      undefined,
+    );
   });
 });
 

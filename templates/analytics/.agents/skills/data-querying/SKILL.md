@@ -111,6 +111,7 @@ For complete answers, combine data from multiple sources:
 ## After Completing an Analysis — Capture New Knowledge
 
 When you complete an analysis and discover:
+
 - A new confirmed metric definition or how a field is actually calculated
 - A provider gotcha (wrong column name, API quirk, unexpected behavior)
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)

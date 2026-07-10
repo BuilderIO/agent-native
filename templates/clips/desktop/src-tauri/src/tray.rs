@@ -8,7 +8,7 @@ use crate::clips::{force_show_popover, toggle_popover};
 use crate::dlog;
 use crate::state::{TrayAnchor, TrayMeetings};
 use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, MeetingItem};
-use crate::util::is_recording_active;
+use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
 /// Build the full tray menu with the given upcoming-meetings list. Used both
@@ -22,16 +22,34 @@ fn build_menu_with_meetings(
     let meetings_submenu = build_meetings_section(app, meetings)?;
     let show_item = MenuItem::with_id(app, "show", "Show popover", true, None::<&str>)?;
     let recording_active = is_recording_active(app);
+    let meeting_active = is_meeting_active(app);
     let stop_item = MenuItem::with_id(
         app,
         "stop",
-        if recording_active {
+        if meeting_active {
+            "Stop meeting notes"
+        } else if recording_active {
             "Stop recording"
         } else {
             "No active recording"
         },
-        recording_active,
+        recording_active || meeting_active,
         None::<&str>,
+    )?;
+    let has_last_dictation = app
+        .try_state::<crate::state::LastTranscript>()
+        .and_then(|s| {
+            s.0.lock()
+                .ok()
+                .map(|g| g.as_deref().is_some_and(|t| !t.trim().is_empty()))
+        })
+        .unwrap_or(false);
+    let paste_last_dictation_item = MenuItem::with_id(
+        app,
+        "paste-last-dictation",
+        "Paste Last Dictation",
+        has_last_dictation,
+        Some("Cmd+Ctrl+V"),
     )?;
     let guides = crate::config::feature_config(app).region_guides;
     let region_guides_item = CheckMenuItem::with_id(
@@ -53,6 +71,7 @@ fn build_menu_with_meetings(
             &separator,
             &show_item,
             &stop_item,
+            &paste_last_dictation_item,
             &region_guides_item,
             &devtools_item,
             &quit_item,
@@ -116,7 +135,19 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             match id_ref {
                 "show" => force_show_popover(app),
                 "stop" => {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    if is_meeting_active(app) {
+                        let _ = app.emit("clips:pill-stop", serde_json::json!({}));
+                    } else {
+                        let _ = app.emit("clips:recorder-stop", ());
+                    }
+                }
+                "paste-last-dictation" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = crate::clips::paste_last_dictation(app).await {
+                            eprintln!("[clips-tray] paste_last_dictation (tray) failed: {err}");
+                        }
+                    });
                 }
                 "toggle-region-guides" => {
                     let mut new_config = crate::config::feature_config(app);
@@ -148,14 +179,11 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     rebuild_tray_menu(app);
                 }
                 "devtools" => {
-                    #[cfg(debug_assertions)]
-                    {
-                        if let Some(w) = app.get_webview_window("popover") {
-                            if w.is_devtools_open() {
-                                w.close_devtools();
-                            } else {
-                                w.open_devtools();
-                            }
+                    if let Some(w) = app.get_webview_window("popover") {
+                        if w.is_devtools_open() {
+                            w.close_devtools();
+                        } else {
+                            w.open_devtools();
                         }
                     }
                 }
@@ -192,8 +220,13 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             {
                 let app = tray.app_handle();
                 let active = is_recording_active(app);
-                dlog!("[clips-tray] tray click — is_recording_active={}", active);
-                if active {
+                let meeting_active = is_meeting_active(app);
+                dlog!(
+                    "[clips-tray] tray click — is_recording_active={} is_meeting_active={}",
+                    active,
+                    meeting_active
+                );
+                if active && !meeting_active {
                     let _ = app.emit("clips:recorder-stop", ());
                 } else {
                     toggle_popover(app);

@@ -92,6 +92,8 @@ const messages = {
     googlePickerNeedsKeys:
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
+    imageUploadNeedsBuilder:
+      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -469,6 +471,8 @@ const messages = {
     backToDecks: "返回幻灯片",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
+    imageUploadNeedsBuilder:
+      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",

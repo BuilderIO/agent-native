@@ -483,6 +483,51 @@ describe("ask_app — honest routing metadata", () => {
     });
   });
 
+  it("retries transient hosted ask_app status fetch failures", async () => {
+    vi.spyOn(callerAuth, "resolveA2ACallerAuth").mockResolvedValue({
+      apiKey: "signed-org-jwt",
+      userEmail: "caller@acme.com",
+      orgId: "org-1",
+      orgDomain: "acme.com",
+      orgSecret: "org-secret",
+      metadata: {},
+    });
+    const getTaskSpy = vi
+      .spyOn(a2aClient.A2AClient.prototype, "getTask")
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValue({
+        id: "task-1",
+        status: {
+          state: "completed",
+          timestamp: "2026-06-15T00:00:01.000Z",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "local answer after retry" }],
+          },
+        },
+        history: [],
+        artifacts: [],
+      } as any);
+
+    const tools = getBuiltinCrossAppTools(
+      baseConfig({ askAgent: async () => "unused" }),
+      { origin: "https://mail.example.com" },
+    );
+    const result: any = await tools.ask_app_status.run({
+      app: "mail",
+      taskId: "task-1",
+    });
+
+    expect(getTaskSpy).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "completed",
+      response: "local answer after retry",
+    });
+  });
+
   it("does not falsely claim delegation when the target is unreachable", async () => {
     const tools = getBuiltinCrossAppTools(
       baseConfig({

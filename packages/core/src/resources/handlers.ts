@@ -607,10 +607,9 @@ export async function handleUploadResource(event: any) {
   }
   const owner = await resolveOwner(event, shared);
 
-  // Prefer a registered file upload provider (e.g. Builder.io) for binary
-  // assets so we get a real CDN URL instead of a base64 blob in SQL.
-  // Text resources still live in SQL — they're edited inline and benefit
-  // from the resource store's metadata/search features.
+  // Binary assets must live in file storage so resource rows do not become
+  // base64 blobs in SQL. Text resources still live in SQL because they are
+  // edited inline and benefit from the resource store's metadata/search.
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
 
@@ -638,12 +637,15 @@ export async function handleUploadResource(event: any) {
       setResponseStatus(event, 201);
       return { ...resource, url: uploaded.url, provider: uploaded.provider };
     }
+    setResponseStatus(event, 503);
+    return {
+      error:
+        "File storage is not configured. Connect Builder.io or register an S3/R2/GCS file upload provider before uploading binary resources.",
+      storageSetupRequired: true,
+    };
   }
 
-  // Fallback: store contents in SQL (base64 for binary, text as-is).
-  const content = isText
-    ? Buffer.from(filePart.data).toString("utf-8")
-    : Buffer.from(filePart.data).toString("base64");
+  const content = Buffer.from(filePart.data).toString("utf-8");
 
   const resource = await resourcePut(owner, path, content, mimeType);
 

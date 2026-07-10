@@ -98,12 +98,21 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
   // ── OpenAI / Codex ──────────────────────────────────────────────────────────
-  // Published rates as of 2026-06; OpenAI bills cached input at a discount
-  // and has no separate cache-write token charge, so cacheWrite is 0.
-  // /gpt-5\.5/ must precede /gpt-5/ since the latter also matches "gpt-5.5".
+  // Published rates as of 2026-07; OpenAI bills cached input at a discount
+  // and has no separate cache-write token charge, so cacheWrite is 0. Sol and
+  // Terra have higher large-context rates after 272K tokens; this table tracks
+  // the standard rate because usage rows do not preserve request context size.
   {
-    match: /gpt-5\.5/i,
+    match: /gpt-5[.-]6-sol/i,
     pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5[.-]6-terra/i,
+    pricing: { input: 250, output: 1500, cacheRead: 25, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5[.-]6-luna/i,
+    pricing: { input: 100, output: 600, cacheRead: 10, cacheWrite: 0 },
   },
   {
     match: /gpt-5/i,

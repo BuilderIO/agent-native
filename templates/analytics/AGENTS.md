@@ -9,6 +9,10 @@ details live in `.agents/skills/`.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
@@ -53,11 +57,12 @@ details live in `.agents/skills/`.
 - For named account/deal deep dives, call `account-deep-dive` first. It bundles
   HubSpot deal/account/contact activity with Gong call detail and compact
   transcript evidence so the final report can match Fusion-style depth.
-- For HubSpot deal cohorts, use structured `hubspot-deals` filters for the
-  cohort definition: `product` for the `products` field, `pipeline` for deal
-  pipeline, `closedStatus` for won/lost/open, and `closedDateFrom` /
-  `closedDateTo` for close-date windows. `query` is full-text search across
-  deals and is not valid proof that a specific property matched.
+- For HubSpot deal cohorts, prefer structured `hubspot-deals` filters
+  (`product`, `pipeline`, `closedStatus`, `closedDateFrom`/`closedDateTo`) for
+  the common case. `query` is full-text search and is not proof a specific
+  property matched. When a cohort needs an arbitrary property filter, an
+  IN-search, or a join against another provider, use the generic
+  provider-access pattern below instead of asking for a new action.
 - For BigQuery, Prometheus, or other external providers, use the provider skill
   and existing credential/integration flow.
 - For questions that span multiple sources, follow `cross-source-analysis`:
@@ -83,15 +88,18 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
-- `/agents` is the Analytics home for core agent-admin surfaces. The default
-  Monitoring view embeds the shared observability dashboard for traces,
-  conversations, evals, experiments, and feedback. The Advanced menu opens
-  `/agents?view=database`, where organization owners/admins can connect other
-  agent-native app databases and use the shared database admin tool for table
-  browsing, row editing, and SQL inspection. This surface is for connected
-  target app databases, not broad access to all Analytics data. Keep future
-  agent-admin additions inside this route instead of adding many top-level
-  sidebar tabs.
+- `/agents` is the Analytics home for admin surfaces. The default Monitoring
+  view embeds the shared observability dashboard for traces, conversations,
+  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
+  admins ask about dashboard created/modified dates, owners, last tracked
+  modifier, views, engagements, saved views, or cleanup candidates. The
+  Advanced menu opens `/agents?view=database`, where organization owners/admins
+  can connect other agent-native app databases and use the shared database admin
+  tool for table browsing, row editing, and SQL inspection. This database
+  surface is for connected target app databases, not broad access to all
+  Analytics data. Keep future admin additions inside this route instead of
+  adding many top-level sidebar tabs.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -99,6 +107,13 @@ details live in `.agents/skills/`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
+- Dashboard saves keep bounded history in SQL. Use
+  `list-dashboard-revisions` to inspect undo points and
+  `restore-dashboard-revision` to restore one instead of hand-editing history
+  rows.
+- Saved analyses also keep bounded history. Use `list-analysis-revisions` and
+  `restore-analysis-revision` for rollback after a re-run updates the saved
+  findings.
 - Do not count shifting `/panels/<index>` values for ordinary dashboard edit
   requests. Use low-level JSON-pointer edits only when explicitly requested.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
@@ -139,11 +154,15 @@ details live in `.agents/skills/`.
   `thresholdMode: "distinct_count"` counts unique values from `distinctBy`.
   Alert notifications use the shared notification channel registry, so
   `channels` can include `inbox`, `email`, `slack`, `webhook`, or any custom
-  registered channel. Configure Slack with `NOTIFICATIONS_SLACK_WEBHOOK_URL`
-  and optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with
-  `NOTIFICATIONS_EMAIL_CHANNEL=1`, existing `RESEND_API_KEY` or
-  `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule `emailRecipients` or
-  the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`.
+  registered channel. Slack/webhook prefer delivery-only
+  `metadata.delivery.slackWebhookUrl` / `metadata.delivery.webhookUrl` (uptime
+  monitors store these on the monitor row), then fall back to
+  `NOTIFICATIONS_SLACK_WEBHOOK_URL` / `NOTIFICATIONS_WEBHOOK_URL`. Configure
+  optional `NOTIFICATIONS_SLACK_WEBHOOK_AUTH`; configure email with existing
+  `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM`, and pass per-rule
+  `emailRecipients` or the fallback `NOTIFICATIONS_EMAIL_RECIPIENTS`. Saving
+  explicit `emailRecipients` also remembers them as the current user's defaults
+  for the next alert rule created in Settings.
   Netlify builds emit an alert cron trigger plus background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts` every five minutes; long-lived
   runtimes use the in-process scheduler unless `ANALYTICS_ALERT_JOBS=0` is set.
@@ -156,10 +175,16 @@ details live in `.agents/skills/`.
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
+- Clicking a dashboard chart, table, or extension stages that panel as a chat
+  context chip and writes `selected-object` with `type="dashboard-panel"`.
+  Use its dashboard and panel ids to scope inspection and edits to that panel.
 - `navigate` moves the user to the relevant analytics view, including
   `view="catalog"` for the template catalog, `view="sessions"` for session
-  replay, and `view="agents"` / `agentsView="database"` with optional
-  `dbAdminConnectionId` for agent monitoring or connected app database admin.
+  replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
+  `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
+  public status pages, or error triage, and `view="agents"` with
+  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
+  dashboard usage or connected app database admin.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay
@@ -199,6 +224,54 @@ details live in `.agents/skills/`.
 - Dashboard rows that include `recording_id` should link to
   `/sessions/:recordingId`; rows that only include `session_id` can link to a
   filtered `/sessions` search.
+
+## Monitoring
+
+- `/monitoring` is the Monitoring tab (`app/routes/monitoring._index.tsx` →
+  `app/pages/monitoring/MonitoringPage.tsx`), a thin shell hosting two
+  independently-owned panels selected by `?view=uptime|errors` (defaults to
+  uptime). `navigation` mirrors it as `view="monitoring"` with `monitoringView`
+  (plus `monitorId`/`errorIssueId` when a row is open); each panel also writes
+  richer selection to the `monitoring` application-state key.
+- Uptime (`app/pages/monitoring/UptimePanel.tsx`,
+  `app/pages/monitoring/uptime/**`) manages synthetic HTTP checks with
+  alerting. Actions: `list-monitors`, `get-monitor`, `save-monitor`,
+  `run-monitor-check`, `delete-monitor`. Checks/alerting run server-side in
+  `server/lib/uptime-monitors.ts` (sweep job `server/jobs/uptime-monitors.ts`,
+  scheduler `server/plugins/uptime-monitor-jobs.ts`) over
+  `server/db/schema-monitoring.ts`. Production serverless/Netlify-style
+  runtimes skip the in-process interval scheduler and rely on the generated
+  scheduled/background worker or external cron instead. Deep links: list
+  `?view=uptime`, detail `?view=uptime&monitor=<id>`, create
+  `?view=uptime&monitor=new`, edit `?view=uptime&monitor=<id>&edit=1`. See
+  `docs/uptime-monitoring.md`.
+- Status pages (`app/pages/monitoring/uptime/status-pages/**`) are a config
+  sub-view under Uptime that bundle chosen monitors under a public
+  `/status/<slug>` page. Actions: `list-status-pages`, `get-status-page`,
+  `save-status-page`, `delete-status-page`, `add-status-page-monitor`,
+  `remove-status-page-monitor`, `reorder-status-page-monitors`, plus the
+  unauthenticated `get-public-status-page`. Owner-scoped CRUD and the sanitized
+  public projection live in `server/lib/status-pages.ts` over
+  `server/db/schema-monitoring.ts`. Deep links: index
+  `?view=uptime&statuspage=list`, create `?view=uptime&statuspage=new`, edit
+  `?view=uptime&statuspage=<id>`.
+- Errors (`app/pages/monitoring/ErrorsPanel.tsx`,
+  `app/pages/monitoring/errors/**`) is Sentry-style exception triage grouped
+  into issues by fingerprint. Actions: `list-error-issues`, `get-error-issue`,
+  `resolve-error-issue`, `capture-test-error`, `match-error-issues`.
+  Ingest/grouping lives in `server/lib/error-capture.ts` over
+  `server/db/schema-errors.ts`. Browser capture uses the SDK from
+  `@agent-native/core/client` (`captureException` / `captureMessage` /
+  `addErrorBreadcrumb`), auto-enabled by `configureTracking` and transported
+  through the first-party analytics ingest as a `$exception` event. Deep link:
+  `?view=errors&issue=<id>`. Issue detail includes recent frequency,
+  parsed/raw stack traces, source code snippets when available, breadcrumbs,
+  tags, occurrence history, and session replay links. See
+  `docs/error-capture.md`.
+- Session replay ↔ Errors: a recording's devtools Console error lines link to
+  the grouped issue at `/monitoring?view=errors&issue=<id>`, resolved by
+  `match-error-issues` (exact fingerprint match, no heuristics); issues link
+  back to the originating recording at `/sessions/<recordingId>`.
 
 ## Dashboard Template Catalog
 
@@ -301,33 +374,28 @@ For analyses spanning 30+ accounts, deals, or calls:
 
 Do not try to hold 30+ full records in one context pass.
 
-### Corpus-First Provider Analysis
+### Provider Access & Dashboard Data Programs
 
-For broad provider searches, cross-source joins, mention counts, classifications,
-or questions where absence matters:
+One generic pattern covers arbitrary provider access, cross-source joins,
+corpus search, and turning any of that into a live dashboard panel — there is
+no separate per-vendor workflow:
 
-1. Inspect the provider catalog/docs when a canned action cannot express the
-   exact endpoint, filter, body, or pagination needed.
-2. Fetch the full relevant cohort, or an explicit bounded cohort, using
-   `provider-api-request` with `fetchAllPages`, `stageAs`, or `saveToFile` when
-   the payload is large.
-3. Use `run-code` with `providerSearchAll` for broad mention/phrase/term/regex
-   searches across transcripts, messages, tickets, issues, notes, events, or
-   documents; it preserves provider item IDs, snippets, paths, page/item counts,
-   and pagination status. Use `providerFetch`, `appAction`, and
-   Resources-backed workspace helpers to join, classify, count, and aggregate
-   without flooding chat context. Write temporary files under `scratch/`; write
-   durable, user-facing files under a descriptive Resources folder only when
-   they should remain visible after the analysis.
-   Give durable corpus jobs descriptive, source-neutral names and preserve the
-   `jobId`; completed, quota-waiting, and failed jobs are surfaced in the app
-   with their coverage counts so the user can resume or inspect the exact run.
-4. Report coverage: source, filters, time window, row/record counts, joins,
-   failed/aborted pages, truncation, and any remaining gaps.
+1. `provider-api-catalog` / `provider-api-docs` to confirm the endpoint,
+   params, and auth (check `corpusRecipes` for broad body-text searches).
+2. `provider-api-request` for a one-off call, or `run-code`'s `providerFetch` /
+   `providerFetchAll` / `providerSearchAll` to fetch/join/filter/aggregate
+   server-side so big intermediates never enter chat context (`stageAs` +
+   `query-staged-dataset` for a large single-source pull).
+3. `save-data-program` to persist that run-code script as a live dashboard
+   panel feed: it dry-runs before saving, the panel binds with
+   `source: "program"`, and refresh policy (ttl/manual/background) lives on
+   the program — the agent does not re-run it per view.
+4. Report coverage: source, filters, time window, row counts, joins,
+   failed/aborted pages, truncation, and remaining gaps. Never turn sampled or
+   truncated results into a confident "none found" or exhaustive conclusion.
 
-Never turn sampled records, default limits, truncated excerpts, or aborted tool
-calls into a confident "none found", "all records", or exhaustive conclusion.
-Recover coverage first, or answer as explicitly partial.
+See the `provider-api` and `data-programs` skills for the full API surface,
+caching model, and a worked HubSpot x Pylon join example.
 
 ### Learnings Flywheel
 
@@ -361,6 +429,9 @@ Read the relevant skill before deeper work:
 - `prometheus` for metrics queries and incident investigation pattern.
 - `actions` for the shared provider API pattern when a first-class action is too
   narrow for arbitrary authenticated provider HTTP calls and API docs lookup.
+- `data-programs` for turning a run-code script into a stored, refreshable
+  dashboard data source: the `emit(rows, schema)` contract, caching/refresh
+  model, limits, and the Risk Meeting worked example.
 - `dashboard-management` for dashboard/chart creation and layout.
 - `adhoc-analysis` for one-off analytical answers and batch fan-out pattern.
 - `analysis-workspace` for large-scale multi-source analyses: Resources-backed

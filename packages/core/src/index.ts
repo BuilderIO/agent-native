@@ -336,3 +336,13 @@ export {
   type SecretValidator,
   type SecretRef,
 } from "./secrets/index.js";
+
+export * from "./history/index.js";
+export * from "./review/index.js";
+export * from "./org-team/index.js";
+export * from "./navigation/index.js";
+export * from "./command-navigation/index.js";
+export {
+  registerWorkspaceConnectionOnboardingStep,
+  type RegisterWorkspaceConnectionOnboardingStepOptions,
+} from "./setup-connections/index.js";

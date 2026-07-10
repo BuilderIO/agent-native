@@ -14,18 +14,19 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconActivity,
+  IconHeartbeat,
   IconPin,
   IconPlus,
-  IconBuilding,
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconUsersGroup,
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconShieldCheck,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -82,7 +83,8 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { OrgSwitcher, useOrgRole } from "@agent-native/core/client/org";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,33 +94,29 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@agent-native/toolkit/ui/toggle-group";
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
-} from "@agent-native/toolkit/ui/tooltip";
-
+} from "@/components/ui/tooltip";
 import {
   useDashboardViews,
   useDeleteDashboardView,
@@ -139,6 +137,7 @@ import { NewDashboardDialog } from "./NewDashboardDialog";
 type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
+const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
@@ -148,6 +147,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
+type SidebarVisibilityFilter = "all" | "private" | "shared";
 
 import {
   DndContext,
@@ -171,12 +171,16 @@ const bottomItems = [
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
-function getStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return fallback;
+function getStoredBooleanPreference(key: string): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    // localStorage unavailable — ignore, section state is best-effort.
+  }
+  return null;
 }
 
 function setStoredBoolean(key: string, value: boolean): void {
@@ -234,25 +238,38 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
+function matchesVisibilityFilter(
+  item: { visibility?: Visibility },
+  filter: SidebarVisibilityFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "private") {
+    return item.visibility !== "org" && item.visibility !== "public";
+  }
+  return item.visibility === "org" || item.visibility === "public";
+}
+
 function SidebarSectionSettingsPopover({
   label,
   sortMode,
   onSortModeChange,
-  sharedOnly,
-  onSharedOnlyChange,
+  visibilityFilter,
+  onVisibilityFilterChange,
   showHidden,
   onShowHiddenChange,
 }: {
   label: string;
   sortMode: SidebarSortMode;
   onSortModeChange: (value: SidebarSortMode) => void;
-  sharedOnly: boolean;
-  onSharedOnlyChange: (value: boolean) => void;
+  visibilityFilter: SidebarVisibilityFilter;
+  onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
   onShowHiddenChange?: (value: boolean) => void;
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const segmentedItemClass =
+    "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
     <Popover>
       <Tooltip>
@@ -269,11 +286,55 @@ function SidebarSectionSettingsPopover({
         </TooltipTrigger>
         <TooltipContent side="right">{settingsLabel}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="start" className="w-60 p-2">
+      <PopoverContent side="right" align="start" className="w-64 p-2">
         <div className="px-2 pb-2">
           <p className="text-xs font-medium text-foreground">{label}</p>
         </div>
         <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sidebar.show")}
+            </p>
+            <ToggleGroup
+              type="single"
+              value={visibilityFilter}
+              onValueChange={(next) => {
+                if (next === "all" || next === "private" || next === "shared") {
+                  onVisibilityFilterChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("sidebar.visibilityAllDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityAll")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="private"
+                aria-label={t("sidebar.visibilityPrivateOnlyDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityPrivateOnly")}
+              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="shared"
+                    aria-label={t("sidebar.visibilitySharedOnlyDescription")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.visibilitySharedOnly")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.visibilitySharedOnlyDescription")}
+                </TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
           <div className="grid gap-1.5">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("sidebar.sortBy")}
@@ -290,46 +351,39 @@ function SidebarSectionSettingsPopover({
                   onSortModeChange(next);
                 }
               }}
-              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
             >
-              <ToggleGroupItem
-                value="most-used"
-                aria-label={t("sidebar.sortMostUsed")}
-                className="h-7 px-2 text-[11px]"
-              >
-                {t("sidebar.used")}
-              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="most-used"
+                    aria-label={t("sidebar.sortMostUsedPersonal")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.used")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.usedExplainer")}
+                </TooltipContent>
+              </Tooltip>
               <ToggleGroupItem
                 value="alphabetical"
                 aria-label={t("sidebar.sortAlphabetically")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.alphabetical")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="manual"
                 aria-label={t("sidebar.sortManually")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
           <div className="grid gap-1">
-            <label
-              htmlFor={`${label.toLowerCase()}-shared-filter`}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
-            >
-              <span className="min-w-0 truncate">
-                {t("sidebar.orgSharedOnly")}
-              </span>
-              <Switch
-                id={`${label.toLowerCase()}-shared-filter`}
-                checked={sharedOnly}
-                onCheckedChange={onSharedOnlyChange}
-                aria-label={`${label} ${t("sidebar.orgSharedOnly")}`}
-              />
-            </label>
             {onShowHiddenChange && showHidden !== undefined && (
               <label
                 htmlFor={`${label.toLowerCase()}-hidden-filter`}
@@ -547,7 +601,7 @@ function SortableRow({
       <button
         type="button"
         className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
-        aria-label={t("sidebar.dragItem", { name })}
+        aria-label={t("sidebar.dragItemPersonal", { name })}
         {...attributes}
         {...listeners}
       >
@@ -605,14 +659,18 @@ function SortableRow({
                     : "text-muted-foreground/50 hover:text-yellow-500",
                 )}
                 aria-label={
-                  isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")
+                  isFav
+                    ? t("sidebar.unfavoritePersonal")
+                    : t("sidebar.favoritePersonal")
                 }
               >
                 <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")}
+              {isFav
+                ? t("sidebar.unfavoritePersonal")
+                : t("sidebar.favoritePersonal")}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -652,7 +710,7 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="me-2 h-3.5 w-3.5" />
+                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
                   ) : (
                     <IconLock className="me-2 h-3.5 w-3.5" />
                   )}
@@ -708,7 +766,7 @@ function SortableRow({
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.deletePermanently")}
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -875,6 +933,7 @@ function SortableDashboardItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -886,6 +945,11 @@ function SortableDashboardItem({
                               ? "text-yellow-500 opacity-100"
                               : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
                           )}
+                          aria-label={
+                            favoriteIds.has(`view:${d.id}:${sv.id}`)
+                              ? t("sidebar.unfavoritePersonal")
+                              : t("sidebar.favoritePersonal")
+                          }
                         >
                           <IconStar
                             className={cn(
@@ -898,8 +962,8 @@ function SortableDashboardItem({
                       </TooltipTrigger>
                       <TooltipContent side="right">
                         {favoriteIds.has(`view:${d.id}:${sv.id}`)
-                          ? t("sidebar.unfavorite")
-                          : t("sidebar.favorite")}
+                          ? t("sidebar.unfavoritePersonal")
+                          : t("sidebar.favoritePersonal")}
                       </TooltipContent>
                     </Tooltip>
                     <Popover
@@ -1418,7 +1482,15 @@ function AnalyticsChatsSection() {
                       onClick={() => openThread(thread.id)}
                       className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="block truncate">{title}</span>
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {thread.pinnedAt ? (
+                          <IconPin
+                            aria-hidden="true"
+                            className="size-3 shrink-0 text-current opacity-60"
+                          />
+                        ) : null}
+                        <span className="block min-w-0 truncate">{title}</span>
+                      </span>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">{title}</TooltipContent>
@@ -1513,18 +1585,37 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const navigate = useNavigate();
   const t = useT();
   const queryClient = useQueryClient();
+  const { canManageOrg } = useOrgRole();
   const { setTheme } = useTheme();
 
-  const [dashOpen, setDashOpen] = useState(() =>
-    getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
+  const isAskRoute = location.pathname === "/ask";
+  const activeDashboardId = useMemo(() => {
+    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
+    if (!match?.[1]) return null;
+    return new URLSearchParams(location.search).get("id") || match[1];
+  }, [location.pathname, location.search]);
+  const activeAnalysisId = useMemo(() => {
+    const match = location.pathname.match(/^\/analyses\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [location.pathname]);
+  const [askOpen, setAskOpen] = useState(
+    () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
+  );
+  const [dashOpen, setDashOpen] = useState(
+    () =>
+      getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
+      activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<"all" | "org">("all");
-  const [analysesOpen, setAnalysesOpen] = useState(() =>
-    getStoredBoolean(ANALYSES_OPEN_KEY, true),
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
+  const [analysesOpen, setAnalysesOpen] = useState(
+    () =>
+      getStoredBooleanPreference(ANALYSES_OPEN_KEY) ??
+      activeAnalysisId !== null,
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
-  const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
+  const [analysisFilter, setAnalysisFilter] =
+    useState<SidebarVisibilityFilter>("all");
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
@@ -1622,6 +1713,32 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setAnalysisSortModeState(mode);
   }, []);
 
+  useEffect(() => {
+    if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
+      setAskOpen(isAskRoute);
+    }
+  }, [isAskRoute]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) === null) {
+      setDashOpen(activeDashboardId !== null);
+    }
+  }, [activeDashboardId]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(ANALYSES_OPEN_KEY) === null) {
+      setAnalysesOpen(activeAnalysisId !== null);
+    }
+  }, [activeAnalysisId]);
+
+  const toggleAskOpen = useCallback(() => {
+    setAskOpen((current) => {
+      const next = !current;
+      setStoredBoolean(ASK_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
   const toggleDashOpen = useCallback(() => {
     setDashOpen((current) => {
       const next = !current;
@@ -1692,11 +1809,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredAnalyses = useMemo(
     () =>
-      analysisFilter === "org"
-        ? sortedAnalyses.filter(
-            (a) => a.visibility === "org" || a.visibility === "public",
-          )
-        : sortedAnalyses,
+      sortedAnalyses.filter((analysis) =>
+        matchesVisibilityFilter(analysis, analysisFilter),
+      ),
     [sortedAnalyses, analysisFilter],
   );
 
@@ -1707,12 +1822,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         : filteredAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
     [filteredAnalyses, analysesShowAll],
   );
-
-  const activeDashboardId = useMemo(() => {
-    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
-    if (!match?.[1]) return null;
-    return new URLSearchParams(location.search).get("id") || match[1];
-  }, [location.pathname, location.search]);
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
@@ -1808,11 +1917,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredDashboards = useMemo(
     () =>
-      dashFilter === "org"
-        ? visibleDashboards.filter(
-            (d) => d.visibility === "org" || d.visibility === "public",
-          )
-        : visibleDashboards,
+      visibleDashboards.filter((dashboard) =>
+        matchesVisibilityFilter(dashboard, dashFilter),
+      ),
     [visibleDashboards, dashFilter],
   );
 
@@ -2286,11 +2393,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/sessions"),
     },
     {
-      icon: IconActivity,
-      label: t("navigation.agents"),
-      href: "/agents",
-      active: location.pathname.startsWith("/agents"),
+      icon: IconHeartbeat,
+      label: t("navigation.monitoring"),
+      href: "/monitoring",
+      active: location.pathname.startsWith("/monitoring"),
     },
+    ...(canManageOrg
+      ? [
+          {
+            icon: IconShieldCheck,
+            label: t("navigation.admin"),
+            href: "/agents?view=dashboards",
+            active: location.pathname.startsWith("/agents"),
+          },
+        ]
+      : []),
     {
       icon: IconDatabase,
       label: t("navigation.dataSources"),
@@ -2325,7 +2442,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   return (
     <div
-      className="relative flex h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
+      className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
       style={
         mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
       }
@@ -2425,33 +2542,57 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-              {/* Ask link */}
-              <div className="min-w-0 space-y-1">
-                <Link
-                  to="/ask"
-                  onClick={(event) => {
-                    if (
-                      location.pathname !== "/ask" &&
-                      !event.metaKey &&
-                      !event.ctrlKey &&
-                      !event.shiftKey &&
-                      !event.altKey
-                    ) {
-                      event.preventDefault();
-                      navigateWithAgentChatViewTransition(navigate, "/ask");
-                    }
-                  }}
+              {/* Ask section */}
+              <div className="group/section min-w-0 space-y-1">
+                <div
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                    location.pathname === "/ask"
+                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    isAskRoute
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <IconMessageCircle className="h-4 w-4" />
-                  {t("navigation.ask")}
-                </Link>
-                {location.pathname === "/ask" && <AnalyticsChatsSection />}
+                  <Link
+                    to="/ask"
+                    onClick={(event) => {
+                      if (
+                        !isAskRoute &&
+                        !event.metaKey &&
+                        !event.ctrlKey &&
+                        !event.shiftKey &&
+                        !event.altKey
+                      ) {
+                        event.preventDefault();
+                        navigateWithAgentChatViewTransition(navigate, "/ask");
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                  >
+                    <IconMessageCircle className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("navigation.ask")}
+                    </span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={toggleAskOpen}
+                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                    aria-label={
+                      askOpen
+                        ? t("sidebar.collapseAsk")
+                        : t("sidebar.expandAsk")
+                    }
+                    aria-expanded={askOpen}
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 transition-transform",
+                        !askOpen && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                </div>
+                {askOpen && <AnalyticsChatsSection />}
               </div>
 
               {/* Sessions link */}
@@ -2468,19 +2609,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 {t("navigation.sessions")}
               </Link>
 
-              {/* Agents link */}
+              {/* Monitoring link */}
               <Link
-                to="/agents"
+                to="/monitoring"
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                  location.pathname.startsWith("/agents")
+                  location.pathname.startsWith("/monitoring")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
                 )}
               >
-                <IconActivity className="h-4 w-4" />
-                {t("navigation.agents")}
+                <IconHeartbeat className="h-4 w-4" />
+                {t("navigation.monitoring")}
               </Link>
+
+              {canManageOrg ? (
+                <Link
+                  to="/agents?view=dashboards"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                    location.pathname.startsWith("/agents")
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <IconShieldCheck className="h-4 w-4" />
+                  {t("navigation.admin")}
+                </Link>
+              ) : null}
 
               {/* Data Sources link */}
               <Link
@@ -2535,10 +2691,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
-                    sharedOnly={dashFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setDashFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={dashFilter}
+                    onVisibilityFilterChange={setDashFilter}
                   />
                   <button
                     type="button"
@@ -2683,10 +2837,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.analyses")}
                     sortMode={analysisSortMode}
                     onSortModeChange={setAnalysisSortMode}
-                    sharedOnly={analysisFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setAnalysisFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={analysisFilter}
+                    onVisibilityFilterChange={setAnalysisFilter}
                     showHidden={analysisHiddenFilter === "hidden"}
                     onShowHiddenChange={(checked) =>
                       setAnalysisHiddenFilter(checked ? "hidden" : "visible")

@@ -64,7 +64,10 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import {
+  callerHasRunAccess,
+  callerHasThreadAccess,
+} from "../agent/run-ownership.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
 import {
   CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
@@ -76,7 +79,10 @@ import {
   setRunTerminalReason,
   updateRunStatusIfRunning,
 } from "../agent/run-store.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+import {
+  buildCurrentTimeUserContext,
+  buildRuntimeContextPrompt,
+} from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
@@ -98,6 +104,8 @@ import {
   createThread,
   forkThread,
   getThread,
+  registerChatThreadsShareable,
+  resolveThreadAccess,
   listThreads,
   searchThreads,
   renameThread,
@@ -1352,15 +1360,17 @@ function createDataWidgetActionEntries(): Record<string, ActionEntry> {
 
 /**
  * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
- * These let the agent read and write the app's own SQL database. Scoping to
- * the current user/org is enforced automatically in production via temp views.
+ * By default these let the agent inspect the app's own SQL database; raw SQL
+ * writes are only exposed when the app explicitly opts into write mode.
+ * Scoping to the current user/org is enforced automatically in production via
+ * temp views.
  *
  * In dev mode template actions are invoked via bash and the agent can call
  * `pnpm action db-query ...` — but in production there is no bash, so these
  * must be registered as native tools for the agent to reach the app DB at all.
  */
 async function createDbScriptEntries(
-  mode: DatabaseToolsMode = "write",
+  mode: DatabaseToolsMode = "read",
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
@@ -1958,8 +1968,10 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
             const owner =
               getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
             if (!owner) return "No authenticated user is available.";
-            const thread = await getThread(id);
-            if (!thread || thread.ownerEmail !== owner) {
+            const thread = await resolveThreadAccess(owner, id, "editor", {
+              orgId: getRequestOrgId(),
+            });
+            if (!thread) {
               return `Chat thread "${id}" not found.`;
             }
             const title = thread.title || thread.preview || "(untitled)";
@@ -1969,23 +1981,17 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
                   ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
                   : "";
               if (!nextTitle) return "Missing required title.";
-              const renamed = await renameThread(id, nextTitle, {
-                ownerEmail: owner,
-              });
+              const renamed = await renameThread(id, nextTitle);
               if (!renamed) return `Chat thread "${id}" could not be renamed.`;
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
-              const archived = await setThreadArchived(id, true, {
-                ownerEmail: owner,
-              });
+              const archived = await setThreadArchived(id, true);
               if (!archived)
                 return `Chat thread "${id}" could not be archived.`;
               return `Archived chat: ${title}`;
             }
-            const pinned = await setThreadPinned(id, args.action === "pin", {
-              ownerEmail: owner,
-            });
+            const pinned = await setThreadPinned(id, args.action === "pin");
             if (!pinned) return `Chat thread "${id}" could not be updated.`;
             return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }
@@ -2733,7 +2739,11 @@ export interface AgentChatPluginOptions {
    * agent starts with only these tools plus `tool-search`; the live registry
    * remains searchable, and matching schemas from `tool-search` results are
    * loaded into the next model request. Use this for domain-focused apps that
-   * have a few common actions and many rare framework utilities.
+   * have a few common actions and many rare framework utilities. Common
+   * provider/corpus/code-execution tools are promoted automatically when present
+   * in the current app/mode registry, so broad integration guidance stays
+   * immediately callable without overloading apps that do not expose those
+   * tools.
    */
   initialToolNames?: string[];
   /**
@@ -2774,12 +2784,11 @@ export interface AgentChatPluginOptions {
   /**
    * Expose raw SQL/native database tools to the app agent.
    *
-   * Defaults to `"write"` (also `true`) for backwards-compatible agent/UI
-   * parity: `db-schema`, `db-query`, `db-exec`, and `db-patch` are available
-   * and writes remain scoped to the current user/org. Set to `"read"` to keep
-   * `db-schema`/`db-query` for inspection while routing writes through typed
-   * app actions. Set to `"off"` (also `false`) for chat-first apps that want
-   * agents to use typed actions only.
+   * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
+   * while writes route through typed app actions. Set to `"write"` (also
+   * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
+   * Set to `"off"` (also `false`) for chat-first apps that want agents to use
+   * typed actions only.
    */
   databaseTools?: DatabaseToolsOption;
   /**
@@ -3054,19 +3063,17 @@ Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every convers
 
   "sql-tools": `### SQL Tools
 
-When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. When database write tools are enabled, \`db-exec\` and \`db-patch\` are also available. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
+When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. Raw SQL write tools are only available when the app explicitly opts into database write tools; by default, writes go through typed app actions. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
 
 - \`db-schema\` — refresh the full schema with indexes and foreign keys
 - \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — run INSERT / UPDATE / DELETE / REPLACE when raw DB writes are enabled (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, use \`statements\` so they run in one transaction instead of separate tool calls. Schema changes are blocked.
-- \`db-patch\` — surgical search-and-replace on a large text column when raw DB writes are enabled. Use for edits to large fields instead of re-sending multi-kilobyte strings.
+- \`db-exec\` — only when present: run INSERT / UPDATE / DELETE / REPLACE for scoped maintenance. For normal product data writes, use a typed app action instead.
+- \`db-patch\` — only when present: surgical search-and-replace on a large text column. If a typed app action exists for the resource, use that action.
 
 ### When to pick which SQL tool
-- Set a short column outright, update multiple columns, or do computed updates → \`db-exec UPDATE\`
-- Insert/update several rows as one logical operation → \`db-exec\` with \`statements: '[{"sql":"...","args":[...]}]'\`
-- Change a small slice of a large text/JSON column → \`db-patch\`
 - A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
 - Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.
+- Raw write tools are present and no app action exists → use \`db-exec\` or \`db-patch\` only for deliberate maintenance, not normal product workflows.
 
 ### External data sources vs the app database
 The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
@@ -3122,9 +3129,9 @@ If the app exposes native actions or instructions for dashboards, reports, analy
 
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
-Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+Generated UI content can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). Use appAction() for app data writes, and dbQuery() only for read-only inspection of known app SQL tables. It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
 
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
+If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. After one content read, keep the body in working memory and move to focused \`update-extension\` \`edits\`/\`patches\`; do not loop on repeated \`get-extension\` + \`run-code\` string scans before writing. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
 In Act mode, when in doubt — if the request asks for a new small interactive utility and does not need reuse, choose \`render-inline-extension\`; if it mentions saving/reuse or asks for an extension/widget/dashboard/calculator/mini-app, choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
 
@@ -3162,7 +3169,7 @@ Keep the first \`create-extension\` call compact and working. If the request is 
 
 Generated UI can read chat inputs from slotContext/window.onSlotContext, see/update app state through appFetch/appAction, use extensionData, record passive current values through agentNative.ui.output(value, opts?), and send visible results through agentNative.chat.send(...) or sendToAgentChat(...). ui.output writes \`inline-ui:<extensionId>:output\` in application state; when the user asks to use the current slider/selection/value, read \`readAppState("inline-ui:<id>:output")\`. Transient extensionData is browser-local only, so do not rely on it for values the agent or app must observe. Use semantic Tailwind theme classes.
 
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
+If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. After one content read, use focused \`update-extension\` \`edits\`/\`patches\`; do not repeatedly re-read and scan the same HTML with \`run-code\` before writing. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
 
 For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
 
@@ -3505,7 +3512,7 @@ export async function loadResourcesForPrompt(
  */
 async function buildSchemaBlock(
   owner: string,
-  databaseTools: DatabaseToolsOption = "write",
+  databaseTools: DatabaseToolsOption = "read",
 ): Promise<string> {
   try {
     return await loadSchemaPromptBlock({
@@ -3801,6 +3808,72 @@ export function shouldBlockInProductCodeEditingSurface(input: {
     hostname === "127.0.0.1" ||
     hostname === "::1" ||
     hostname === "[::1]"
+  );
+}
+
+/**
+ * Load the sandboxed code-execution tool entries for one action registry:
+ * `run-code` plus its `get-code-execution` poll companion. The poll tool is
+ * registered ALONGSIDE run-code everywhere run-code appears, so the durable
+ * background-execution guidance run-code emits ("check it with
+ * get-code-execution") always points at a callable tool. Returns an empty
+ * registry when the coding module is unavailable (e.g. bundled browser
+ * build), mirroring the prior silent-skip behavior.
+ *
+ * Exported for tests — the plugin init calls this for the prod, lean, and dev
+ * tool bags, so a spec on this helper pins the real registration wiring.
+ */
+export async function loadRunCodeToolEntries(
+  supplier: () => Record<string, ActionEntry>,
+  runCodeOptions?: { bridgeTools?: string[] },
+): Promise<Record<string, ActionEntry>> {
+  try {
+    const { createRunCodeEntry, createGetCodeExecutionEntry } =
+      await import("../coding-tools/run-code.js");
+    const entries: Record<string, ActionEntry> = {
+      "run-code": createRunCodeEntry(supplier, runCodeOptions),
+      "get-code-execution": createGetCodeExecutionEntry(),
+    };
+
+    // Data programs: stored JS scripts executed through this same run-code
+    // sandbox, cached in SQL, and rendered by dashboard panels. Registered
+    // identically to run-code — same try/dynamic-import guard, silently
+    // skipped when the module is unavailable (e.g. bundled browser build) —
+    // so every app gets the primitive without per-template wiring.
+    try {
+      const { initDataPrograms, createDataProgramActions } =
+        await import("../data-programs/index.js");
+      const appId = resolveDataProgramsAppId();
+      initDataPrograms({ appId, getActions: supplier });
+      Object.assign(
+        entries,
+        createDataProgramActions({ appId, getActions: supplier }),
+      );
+    } catch {
+      // Module unavailable — skip silently, mirroring the run-code guard above.
+    }
+
+    return entries;
+  } catch {
+    // Module unavailable (e.g. bundled browser build) — skip silently.
+    return {};
+  }
+}
+
+/**
+ * Resolve the stable app identity data programs are scoped under. Mirrors
+ * the precedent in `cli/agent.ts` (`AGENT_NATIVE_APP_ID` env override, then
+ * `APP_ID`, then a fixed fallback) — data programs don't need a per-call
+ * agent-supplied appId the way staged datasets do (staged datasets are
+ * scratch space the agent explicitly stages into); a data program is a
+ * persisted resource scoped to "this app deployment".
+ */
+function resolveDataProgramsAppId(): string {
+  return (
+    process.env.AGENT_NATIVE_APP_ID?.trim() ||
+    process.env.APP_ID?.trim() ||
+    process.env.APP_NAME?.trim() ||
+    "app"
   );
 }
 
@@ -4507,28 +4580,23 @@ export function createAgentChatPlugin(
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code tool: available in "sandboxed" or "trusted" prod
-      // modes and always in dev mode.
-      const runCodeTool: Record<string, ActionEntry> = {};
-      const leanRunCodeTool: Record<string, ActionEntry> = {};
-      try {
-        const { createRunCodeEntry } =
-          await import("../coding-tools/run-code.js");
-        runCodeTool["run-code"] = createRunCodeEntry(
+      // Sandboxed run-code tool (+ its get-code-execution poll companion):
+      // available in "sandboxed" or "trusted" prod modes and always in dev
+      // mode. See loadRunCodeToolEntries for the registration contract.
+      const runCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Supplier is evaluated at invocation time so runtime additions to
           // prodActions (e.g. MCP sync) are visible to the bridge.
           () => prodRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-        leanRunCodeTool["run-code"] = createRunCodeEntry(
+      const leanRunCodeTool: Record<string, ActionEntry> =
+        await loadRunCodeToolEntries(
           // Lean prompt mode intentionally exposes a much smaller action
           // surface; keep sandbox appAction() calls scoped to that same surface.
           () => leanRunCodeToolActions,
           { bridgeTools: options?.codeExecution?.bridgeTools },
         );
-      } catch {
-        // Module unavailable (e.g. bundled browser build) — skip silently.
-      }
 
       // Full coding tool registry (bash/read/edit/write) for "trusted" prod.
       // In dev mode this is handled separately via devHandler below.
@@ -4555,21 +4623,15 @@ export function createAgentChatPlugin(
       // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register run-code in dev mode (when the coding module loads).
-      const devRunCodeTool: Record<string, ActionEntry> = {};
-      if (canToggle) {
-        try {
-          const { createRunCodeEntry } =
-            await import("../coding-tools/run-code.js");
-          // devActions is not yet defined at this point; we use a late-binding
-          // supplier so devRunCodeTool can reference the devActions registry
-          // once it is built below (see devHandler block).
-          devRunCodeTool["run-code"] = createRunCodeEntry(
-            () => devRunCodeToolActions,
-            { bridgeTools: options?.codeExecution?.bridgeTools },
-          );
-        } catch {}
-      }
+      // Always register run-code (+ get-code-execution) in dev mode (when the
+      // coding module loads). devActions is not yet defined at this point; we
+      // use a late-binding supplier so devRunCodeTool can reference the
+      // devActions registry once it is built below (see devHandler block).
+      const devRunCodeTool: Record<string, ActionEntry> = canToggle
+        ? await loadRunCodeToolEntries(() => devRunCodeToolActions, {
+            bridgeTools: options?.codeExecution?.bridgeTools,
+          })
+        : {};
 
       const resolveExtraContext = async (
         event: any,
@@ -4858,10 +4920,14 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
-            ? devPrompt + runtimeContext + resources + schemaBlock + extra
-            : basePrompt + runtimeContext + resources + schemaBlock + extra;
+            ? devPrompt + resources + schemaBlock + extra + runtimeContext
+            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -4920,8 +4986,15 @@ export function createAgentChatPlugin(
 
           const a2aTools = actionsToEngineTools(a2aActions);
 
+          // Precise current time rides the user message (not the cached
+          // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
-            { role: "user", content: [{ type: "text", text }] },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: text + buildCurrentTimeUserContext() },
+              ],
+            },
           ];
 
           // Run the SAME agent loop, then extract the final answer from the
@@ -5160,15 +5233,19 @@ export function createAgentChatPlugin(
                 : lazyContext
                   ? DEV_FRAMEWORK_PROMPT_COMPACT
                   : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
+            // Stable-first ordering: runtime-context (which changes daily)
+            // goes last so the cached prompt prefix survives as long as
+            // possible — same pattern as the other prompt-assembly sites in
+            // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock
+                schemaBlock +
+                buildRuntimeContextPrompt()
               : basePrompt +
-                buildRuntimeContextPrompt() +
                 resources +
-                schemaBlock;
+                schemaBlock +
+                buildRuntimeContextPrompt();
 
             let accumulatedText = "";
             const controller = new AbortController();
@@ -5180,7 +5257,17 @@ export function createAgentChatPlugin(
                 systemPrompt,
                 tools: mcpTools,
                 messages: [
-                  { role: "user", content: [{ type: "text", text: message }] },
+                  {
+                    role: "user",
+                    content: [
+                      {
+                        type: "text",
+                        // Precise time rides the user message, not the cached
+                        // system-prompt prefix.
+                        text: message + buildCurrentTimeUserContext(),
+                      },
+                    ],
+                  },
                 ],
                 actions: mcpActions,
                 send: (event) => {
@@ -5222,6 +5309,17 @@ export function createAgentChatPlugin(
       ): Promise<string | undefined> => {
         return (await resolveOwnerContext(event)).name;
       };
+      const getOrgIdFromEvent = async (
+        event: any,
+      ): Promise<string | undefined> => {
+        if (options?.resolveOrgId) {
+          return (await options.resolveOrgId(event)) ?? undefined;
+        }
+        const session = await getSession(event).catch(() => null);
+        return session?.orgId ?? undefined;
+      };
+
+      registerChatThreadsShareable();
 
       // Auto-mount template actions as HTTP endpoints under /_agent-native/actions/
       // Include engine management script so the UI can call manage-agent-engine.
@@ -5293,15 +5391,6 @@ export function createAgentChatPlugin(
                 `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
               );
             }
-            const runOwner =
-              getRequestRunContext()?.owner ?? getRequestUserEmail();
-            if (runOwner && thread.ownerEmail !== runOwner) {
-              throw createError({
-                statusCode: 404,
-                statusMessage: "Thread not found",
-              });
-            }
-
             const assistantMsg = buildAssistantMessage(
               run.events ?? [],
               run.runId,
@@ -5513,7 +5602,19 @@ export function createAgentChatPlugin(
               thread = await getThread(threadId);
             }
           }
-          if (!thread || thread.ownerEmail !== ownerEmail) {
+          if (!thread) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+          const access = await resolveThreadAccess(
+            ownerEmail,
+            threadId,
+            "editor",
+            { orgId: getRequestOrgId() },
+          );
+          if (!access) {
             throw createError({
               statusCode: 404,
               statusMessage: "Thread not found",
@@ -5838,14 +5939,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : "";
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
+          // Stable-first ordering: base prompt / schema / extra come before
+          // the runtime-context block, which is appended LAST. runtimeContext
+          // only changes once per calendar day, but placing it after any
+          // less-stable content would still invalidate the cached prefix for
+          // everything that follows it — putting it last means a day
+          // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
             return setSystemPromptOnContext(
               leanBasePrompt +
-                runtimeContext +
                 codeEditingSurfaceRestriction +
                 prodCodeExecPromptNote +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -5861,13 +5968,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
-              runtimeContext +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
               prodCodeExecPromptNote +
               extra +
-              modelOverlay,
+              modelOverlay +
+              runtimeContext,
           );
         },
         model: options?.model,
@@ -5883,6 +5990,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const runCtxForPrepare = ensureRequestRunContext();
           if (runCtxForPrepare && details.threadId) {
             (runCtxForPrepare as any)._requestThreadId = details.threadId;
+          }
+          if (details.threadId && details.ownerEmail) {
+            const existingThread = await getThread(details.threadId);
+            if (existingThread) {
+              const access = await resolveThreadAccess(
+                details.ownerEmail,
+                details.threadId,
+                "editor",
+                { orgId: await getOrgIdFromEvent(details.event) },
+              );
+              if (!access) {
+                throw createError({
+                  statusCode: 404,
+                  statusMessage: "Thread not found",
+                });
+              }
+            }
           }
 
           // Drain any parent-completion injections queued by finished sub-agents
@@ -5958,8 +6082,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const { extra } = await prepareRun(event);
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
-                    runtimeContextForEvent(event) +
-                    extra,
+                    extra +
+                    runtimeContextForEvent(event),
                 );
               },
               model: options?.model,
@@ -6070,9 +6194,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ? FIRST_SESSION_PERSONALIZATION
               : "";
             const modelOverlay = resolveModelOverlay();
+            // Stable-first ordering: runtimeContext (day-granular) is
+            // appended LAST so a day rollover invalidates as little of the
+            // cached prompt prefix as possible. See the prod handler above
+            // for the same pattern.
             if (leanPrompt) {
               return setSystemPromptOnContext(
-                leanBasePrompt + runtimeContext + extra + modelOverlay,
+                leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -6087,11 +6215,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
-                runtimeContext +
                 resources +
                 schemaBlock +
                 extra +
-                modelOverlay,
+                modelOverlay +
+                runtimeContext,
             );
           },
           model: options?.model,
@@ -6101,7 +6229,30 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
-          prepareRequest: options?.prepareRequest,
+          prepareRequest: async (details) => {
+            const runCtxForPrepare = ensureRequestRunContext();
+            if (runCtxForPrepare && details.threadId) {
+              (runCtxForPrepare as any)._requestThreadId = details.threadId;
+            }
+            if (details.threadId && details.ownerEmail) {
+              const existingThread = await getThread(details.threadId);
+              if (existingThread) {
+                const access = await resolveThreadAccess(
+                  details.ownerEmail,
+                  details.threadId,
+                  "editor",
+                  { orgId: await getOrgIdFromEvent(details.event) },
+                );
+                if (!access) {
+                  throw createError({
+                    statusCode: 404,
+                    statusMessage: "Thread not found",
+                  });
+                }
+              }
+            }
+            return options?.prepareRequest?.(details);
+          },
           skipFilesContext,
           initialToolNames: options?.initialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -6530,6 +6681,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               value: trimmedKey,
               scope: "user",
               scopeId: ownerEmail,
+            });
+            const { clearProviderCredentialAuthFailure } =
+              await import("./credential-provider.js");
+            await clearProviderCredentialAuthFailure({
+              key: secretKey,
+              value: trimmedKey,
             });
           } catch (err) {
             console.error(
@@ -7192,19 +7349,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           const method = getMethod(event);
           const url = event.node?.req?.url || event.path || "";
+          const orgId = await getOrgIdFromEvent(event);
 
-          // Authorization: a run's events/abort and a thread's active-run
-          // status must only be exposed to the user who OWNS the thread.
+          // Authorization: a run's events and a thread's active-run status are
+          // visible to anyone with viewer+ access to the thread. Mutating run
+          // controls require editor+ access.
           // agent_runs carries no owner column — ownership lives on the
-          // chat_threads row via thread_id. callerOwnsRun/callerOwnsThread
-          // (agent/run-ownership.ts) resolve the run's thread (in-memory first,
-          // SQL fallback) and compare its ownerEmail. Without this, any
-          // authenticated tenant who learns another tenant's runId/threadId
-          // could stream their live agent turn (assistant text + tool-result
-          // payloads) or abort their run.
-          const ownsThread = (threadId: string | null | undefined) =>
-            callerOwnsThread(owner, threadId);
-          const ownsRun = (runId: string) => callerOwnsRun(owner, runId);
+          // chat_threads row via thread_id.
+          const canViewThread = (threadId: string | null | undefined) =>
+            callerHasThreadAccess(owner, threadId, "viewer", { orgId });
+          const canViewRun = (runId: string) =>
+            callerHasRunAccess(owner, runId, "viewer", { orgId });
+          const canEditRun = (runId: string) =>
+            callerHasRunAccess(owner, runId, "editor", { orgId });
 
           // Route: GET /runs/list?goalId=agent-team|agent-harness
           // Returns background agents in the Code hub-compatible run shape.
@@ -7279,8 +7436,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/abort/);
           if (abortMatch && method === "POST") {
             const runId = decodeURIComponent(abortMatch[1]);
-            if (!(await ownsRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to non-owners.
+            if (!(await canEditRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -7350,8 +7507,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             url.match(/^\/([^/?]+)\/events/);
           if (eventsMatch && method === "GET") {
             const runId = decodeURIComponent(eventsMatch[1]);
-            if (!(await ownsRun(runId))) {
-              // 404 (not 403) so run existence isn't leaked to non-owners.
+            if (!(await canViewRun(runId))) {
+              // 404 (not 403) so run existence isn't leaked to unauthorized users.
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
@@ -7387,11 +7544,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return { error: "threadId query parameter is required" };
             }
 
-            // Only reveal a thread's active run to the thread's owner.
-            // Present non-owners (or unknown threads) as idle rather than
-            // 404 so thread existence isn't leaked and the client polls
-            // benignly.
-            if (!(await ownsThread(threadId))) {
+            // Only reveal a thread's active run to viewers/editors of the
+            // thread. Present unauthorized users (or unknown threads) as idle
+            // rather than 404 so thread existence isn't leaked and the client
+            // polls benignly.
+            if (!(await canViewThread(threadId))) {
               return {
                 active: false,
                 threadId,
@@ -7647,6 +7804,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         `${routePath}/threads`,
         defineEventHandler(async (event) => {
           const owner = await getOwnerFromEvent(event);
+          const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -7656,8 +7814,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7672,8 +7835,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const thread = await getThread(threadId);
-                if (!thread || thread.ownerEmail !== owner) {
+                const thread = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                if (!thread) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
@@ -7750,16 +7918,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // queued messages durable across reloads without piggybacking
             // on full-thread saves.
             if (method === "POST" && isThreadSubroute("queued")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               const body = await readBody(event);
               const queued = Array.isArray(body?.queuedMessages)
                 ? body.queuedMessages
                 : [];
-              // Ownership is checked inside setThreadQueuedMessages (under
-              // the thread-data lock) — no separate getThread pre-read on
-              // this debounced hot path.
-              const saved = await setThreadQueuedMessages(threadId, queued, {
-                ownerEmail: owner,
-              });
+              const saved = await setThreadQueuedMessages(threadId, queued);
               if (!saved) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7768,8 +7941,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7782,9 +7960,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Title is required" };
               }
-              const renamed = await renameThread(threadId, title, {
-                ownerEmail: owner,
-              });
+              const renamed = await renameThread(threadId, title);
               if (!renamed) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7793,8 +7969,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("pin")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7803,9 +7984,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "pinned boolean is required" };
               }
-              const pinned = await setThreadPinned(threadId, body.pinned, {
-                ownerEmail: owner,
-              });
+              const pinned = await setThreadPinned(threadId, body.pinned);
               if (!pinned) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7814,8 +7993,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (method === "POST" && isThreadSubroute("archive")) {
-              const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "editor",
+                { orgId },
+              );
+              if (!thread) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -7824,11 +8008,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "archived boolean is required" };
               }
-              const archived = await setThreadArchived(
-                threadId,
-                body.archived,
-                { ownerEmail: owner },
-              );
+              const archived = await setThreadArchived(threadId, body.archived);
               if (!archived) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7838,10 +8018,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             // POST /threads/:id/fork — duplicate a thread with all its messages
             if (method === "POST" && isThreadSubroute("fork")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "viewer",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               const body = await readBody(event);
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
                 source: parseForkSourceFromBody(body?.source),
+                sourceAccessGranted: true,
               });
               if (!forked) {
                 setResponseStatus(event, 404);
@@ -7851,10 +8042,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (isThreadSubroute("share")) {
+              const thread = await resolveThreadAccess(
+                owner,
+                threadId,
+                "admin",
+                { orgId },
+              );
+              if (!thread) {
+                setResponseStatus(event, 404);
+                return { error: "Thread not found" };
+              }
               if (method === "GET") {
-                const state = await getThreadShareState(threadId, {
-                  ownerEmail: owner,
-                });
+                const state = await getThreadShareState(threadId);
                 if (!state) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7863,9 +8062,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
 
               if (method === "POST") {
-                const link = await createThreadShareLink(threadId, {
-                  ownerEmail: owner,
-                });
+                const link = await createThreadShareLink(threadId);
                 if (!link) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7877,9 +8074,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
 
               if (method === "DELETE") {
-                const state = await revokeThreadShareLink(threadId, {
-                  ownerEmail: owner,
-                });
+                const state = await revokeThreadShareLink(threadId);
                 if (!state) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
@@ -7915,6 +8110,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (q) {
               const threads = await searchThreads(owner, q, limit, {
                 scope: scope ?? undefined,
+                orgId,
               });
               return { threads };
             }
@@ -7924,6 +8120,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               offset,
               scope: scope ?? undefined,
               unscopedOnly,
+              orgId,
             });
             return { threads };
           }

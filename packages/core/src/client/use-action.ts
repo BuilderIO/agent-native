@@ -68,7 +68,39 @@ export function defaultActionQueryRetry(
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
+  if (isBrowserResourceExhaustion(error)) return false;
+  // Network-level failures never carry an HTTP `status` (actionFetch only
+  // sets it after a response arrives). Chrome reports connection-pool
+  // exhaustion (net::ERR_INSUFFICIENT_RESOURCES) as a generic "Failed to
+  // fetch", indistinguishable from a transient blip — allow one retry, not
+  // three, so an exhausted tab cannot sustain its own fetch storm.
+  if (isNetworkLevelFailure(error)) return failureCount < 1;
   return failureCount < 3;
+}
+
+/** @internal alias kept for existing specs. */
+export const shouldRetryActionQueryForError = defaultActionQueryRetry;
+
+function isBrowserResourceExhaustion(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
+}
+
+function isNetworkLevelFailure(error: unknown): boolean {
+  // Match the exact shape actionFetch produces for fetch-level failures (its
+  // catch wraps the cause as "Action <name> failed: <cause>" and never sets a
+  // status). Other status-less errors (test doubles, transport internals)
+  // keep the standard three-retry policy.
+  return (
+    error instanceof Error &&
+    (error as { status?: unknown }).status === undefined &&
+    /^Action .+ failed: /.test(error.message)
+  );
 }
 
 /**
@@ -180,6 +212,40 @@ export interface ActionFetchOptions {
   signal?: AbortSignal;
   /** Per-call override for the fetch timeout. */
   timeoutMs?: number;
+  /** Keep the request alive while the document is being unloaded. */
+  keepalive?: boolean;
+  /** Pre-serialized mutation body used by the keepalive budget coordinator. */
+  serializedBody?: string;
+}
+
+/**
+ * Conservative per-document keepalive body budget. Browsers commonly enforce
+ * an approximately 64 KiB aggregate limit across every in-flight keepalive
+ * request; leaving headroom for other framework traffic prevents a request
+ * that passed our guard from being rejected by the browser at send time.
+ */
+export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
+
+let reservedKeepaliveBodyBytes = 0;
+
+function utf8ByteLength(value: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes +=
+      codePoint <= 0x7f
+        ? 1
+        : codePoint <= 0x7ff
+          ? 2
+          : codePoint <= 0xffff
+            ? 3
+            : 4;
+  }
+  return bytes;
 }
 
 async function actionFetch<T>(
@@ -205,6 +271,7 @@ async function actionFetch<T>(
     method,
     headers,
     cache: "no-store",
+    keepalive: options?.keepalive,
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {
@@ -213,7 +280,7 @@ async function actionFetch<T>(
     const qs = serializeActionQueryParams(params);
     if (qs) url += `?${qs}`;
   } else if (method !== "GET" && params) {
-    init.body = JSON.stringify(params);
+    init.body = options?.serializedBody ?? JSON.stringify(params);
   }
 
   // One controller drives both cancellation sources: the caller's signal
@@ -362,6 +429,83 @@ export function callAction<
   });
 }
 
+export type KeepaliveActionCallRejectionReason =
+  | "body-too-large"
+  | "budget-exhausted";
+
+export type KeepaliveActionCallResult<TResult> =
+  | {
+      accepted: true;
+      bodyBytes: number;
+      completion: Promise<TResult>;
+    }
+  | {
+      accepted: false;
+      bodyBytes: number;
+      reason: KeepaliveActionCallRejectionReason;
+      completion: null;
+    };
+
+/**
+ * Attempts an unload-safe action call without exceeding the browser's shared
+ * keepalive request budget. The reservation remains held until the response
+ * body has completed, because browsers count every in-flight keepalive body
+ * against the same per-document quota.
+ *
+ * A rejected attempt is deliberately synchronous so callers can fall back to
+ * a durable outbox before returning from `pagehide`.
+ */
+export function tryCallActionKeepalive<
+  TResult = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: Omit<ClientActionCallOptions, "method"> = {},
+): KeepaliveActionCallResult<
+  TResult extends undefined ? ActionResult<TName> : TResult
+> {
+  type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  const serializedBody = JSON.stringify(params ?? {});
+  const bodyBytes = utf8ByteLength(serializedBody);
+
+  if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "body-too-large",
+      completion: null,
+    };
+  }
+
+  if (
+    reservedKeepaliveBodyBytes + bodyBytes >
+    ACTION_KEEPALIVE_BODY_BUDGET_BYTES
+  ) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "budget-exhausted",
+      completion: null,
+    };
+  }
+
+  reservedKeepaliveBodyBytes += bodyBytes;
+  const completion = actionFetch<R>(actionName, "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+    keepalive: true,
+    serializedBody,
+  }).finally(() => {
+    reservedKeepaliveBodyBytes = Math.max(
+      0,
+      reservedKeepaliveBodyBytes - bodyBytes,
+    );
+  });
+
+  return { accepted: true, bodyBytes, completion };
+}
+
 // ---------------------------------------------------------------------------
 // Query hook
 // ---------------------------------------------------------------------------
@@ -436,12 +580,14 @@ export function useActionMutation<
     "mutationFn"
   > & {
     method?: "POST" | "PUT" | "DELETE";
+    skipActionQueryInvalidation?: boolean;
   },
 ) {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
     onSuccess,
+    skipActionQueryInvalidation = false,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -454,8 +600,11 @@ export function useActionMutation<
     mutationFn: (params) =>
       actionFetch<D>(actionName, method, params as Record<string, any>),
     onSuccess: (...args: [any, any, any]) => {
-      // Invalidate related action queries
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+      // Most mutations change app data broadly. High-volume background
+      // mutations can opt out and perform narrower invalidation in onSuccess.
+      if (!skipActionQueryInvalidation) {
+        queryClient.invalidateQueries({ queryKey: ["action"] });
+      }
       (onSuccess as Function)?.(...args);
     },
   });

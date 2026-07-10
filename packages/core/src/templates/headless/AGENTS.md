@@ -8,6 +8,10 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
 
 - Prefer actions in `actions/` for every app operation. Do not create REST wrappers around actions.
 - Keep action inputs validated with Zod and return structured data, not JSON strings.
+- SQL is for structured records, metadata, references, and searchable text. Store
+  large files/blob payloads (base64, `data:` URLs, images, video/audio, PDFs,
+  ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
+  storage and persist only URLs, ids, or handles.
 - Do not hardcode API keys, tokens, webhook URLs, private data, or credential-looking literals.
 - `actions/run.ts` is the CLI dispatcher for `pnpm action ...`, not an app
   action. Leave it in place and add callable primitives as separate
@@ -38,19 +42,28 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
 the corpus for reusable framework/template patterns.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the app
-root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+To bring an older app current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the app root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided `.agents/skills` and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
 ## Actions
 
-| Action      | Args              | Purpose                 |
-| ----------- | ----------------- | ----------------------- |
-| `hello`     | `[--name <name>]` | Return a greeting       |
-| `db-schema` |                   | Show SQL schema         |
-| `db-query`  | `--sql "SELECT"`  | Run a scoped SELECT     |
-| `db-exec`   | `--sql "UPDATE"`  | Last-resort maintenance |
+| Action      | Args              | Purpose             |
+| ----------- | ----------------- | ------------------- |
+| `hello`     | `[--name <name>]` | Return a greeting   |
+| `db-schema` |                   | Show SQL schema     |
+| `db-query`  | `--sql "SELECT"`  | Run a scoped SELECT |
+
+Raw SQL writes are not exposed by default. Add or update a typed action for app
+data writes; opt into `databaseTools: "write"` only for deliberate maintenance
+surfaces.
 
 Run actions from this app root:
 

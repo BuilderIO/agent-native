@@ -1,7 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Card, CardContent } from "@agent-native/toolkit/ui/card";
 import {
   IconCheck,
   IconClock,
@@ -17,6 +14,9 @@ import {
  */
 import { NavLink } from "react-router";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";
@@ -209,7 +209,7 @@ function relativeStartLabel(
 /**
  * <UpcomingMeetingCard /> — a not-yet-recorded calendar event (Granola-style).
  * Recording is a native Clips desktop-app gesture, so the card just opens the
- * meeting's notes ("Open") and links out to the call ("Join"). Buttons are
+ * meeting's notes ("Open notes") and links out to the call ("Join"). Buttons are
  * NavLink/<a> siblings (never nested anchors) so the markup stays valid.
  */
 export function UpcomingMeetingCard({
@@ -272,6 +272,11 @@ export function UpcomingMeetingCard({
               <span>– {formatTime(meeting.scheduledEnd)}</span>
             )}
           </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            {soon || isLive
+              ? t("meetingCard.startFromDesktopNow")
+              : t("meetingCard.startFromDesktopLater")}
+          </p>
         </NavLink>
 
         <div className="flex items-center justify-between gap-2 pt-1">
@@ -302,7 +307,7 @@ export function UpcomingMeetingCard({
               className="h-7 gap-1 px-2.5 text-xs cursor-pointer"
             >
               <NavLink to={`/meetings/${meeting.id}`}>
-                {isLive ? t("meetingCard.openNotes") : t("meetingCard.open")}
+                {t("meetingCard.openNotes")}
               </NavLink>
             </Button>
           </div>

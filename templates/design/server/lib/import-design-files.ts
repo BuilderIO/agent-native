@@ -10,9 +10,12 @@ import { nanoid } from "nanoid";
 
 import {
   mergeCanvasFramePlacements,
+  parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
+import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
+import { mutateDesignData } from "./design-data-mutation.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
@@ -50,6 +53,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function stringFromState(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string"
     ? (value[key] as string)
@@ -70,16 +77,6 @@ export async function resolveImportDesignId(
     );
   }
   return designId;
-}
-
-function parseJson(value: string | null | undefined): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 export function sanitizeImportedFilename(filename: string): string {
@@ -193,6 +190,8 @@ export async function saveImportedDesignFiles(
   const now = new Date().toISOString();
   const savedFiles: SavedImportedDesignFile[] = [];
   const seedRecords: Array<{ id: string; content: string }> = [];
+  const placements: CanvasFramePlacement[] = [];
+  const metadataByFileId = new Map<string, Record<string, unknown>>();
   let placedFrames:
     | Array<{
         fileId: string;
@@ -200,6 +199,15 @@ export async function saveImportedDesignFiles(
         frame: CanvasFramePlacement;
       }>
     | undefined;
+
+  // Preserve the old all-or-nothing behavior for already-invalid data as far
+  // as the shared mutation boundary permits: validate before inserting files,
+  // then re-run the real intent against the latest revision after file work.
+  await mutateDesignData({
+    designId,
+    mutate: (current) => current,
+    isApplied: () => true,
+  });
 
   await db.transaction(async (tx) => {
     const [design] = await tx
@@ -214,11 +222,6 @@ export async function saveImportedDesignFiles(
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
-    const prevData = parseJson(design.data);
-    const previousMetadata = isRecord(prevData.screenMetadata)
-      ? { ...prevData.screenMetadata }
-      : {};
-    const placements: CanvasFramePlacement[] = [];
     let nextFrameX = 0;
 
     for (let index = 0; index < input.files.length; index += 1) {
@@ -228,16 +231,24 @@ export async function saveImportedDesignFiles(
         usedFilenames,
       );
       const fileId = nanoid();
+      // Stamp missing data-agent-native-node-id attributes before persisting
+      // so imported screens are fully addressable by id-keyed editor
+      // operations immediately, instead of depending on a client-side
+      // backfill the first time someone opens the imported screen.
+      const annotatedContent = annotateScreenHtmlForPersist(
+        file.content,
+        file.fileType,
+      );
       await tx.insert(schema.designFiles).values({
         id: fileId,
         designId,
         filename,
         fileType: file.fileType,
-        content: file.content,
+        content: annotatedContent,
         createdAt: now,
         updatedAt: now,
       });
-      seedRecords.push({ id: fileId, content: file.content });
+      seedRecords.push({ id: fileId, content: annotatedContent });
 
       const width = positiveDimension(
         file.preferredFrame?.width,
@@ -265,7 +276,7 @@ export async function saveImportedDesignFiles(
         height,
         ...file.source,
       };
-      previousMetadata[fileId] = source;
+      metadataByFileId.set(fileId, source);
       savedFiles.push({
         id: fileId,
         filename,
@@ -273,26 +284,65 @@ export async function saveImportedDesignFiles(
         source,
       });
     }
+  });
 
-    const mergedFrames = mergeCanvasFramePlacements({
-      existing: prevData.canvasFrames,
-      placements,
-      resolveFileId: (placement) => placement.fileId,
-    });
-    placedFrames = mergedFrames.placedFrames;
-    await tx
-      .update(schema.designs)
-      .set({
-        data: JSON.stringify({
-          ...prevData,
-          sourceMode: "import",
-          canvasFrames: mergedFrames.canvasFrames,
-          screenMetadata: previousMetadata,
-          updatedAt: now,
-        }),
-        updatedAt: now,
-      })
-      .where(eq(schema.designs.id, designId));
+  await mutateDesignData({
+    designId,
+    mutate: (current, { updatedAt }) => {
+      const previousMetadata = isRecord(current.screenMetadata)
+        ? { ...current.screenMetadata }
+        : {};
+      for (const [fileId, metadata] of metadataByFileId) {
+        previousMetadata[fileId] = metadata;
+      }
+      const mergedFrames = mergeCanvasFramePlacements({
+        existing: current.canvasFrames,
+        placements,
+        resolveFileId: (placement) => placement.fileId,
+      });
+      placedFrames = mergedFrames.placedFrames;
+      return {
+        ...current,
+        sourceMode: "import",
+        canvasFrames: mergedFrames.canvasFrames,
+        screenMetadata: previousMetadata,
+        updatedAt,
+      };
+    },
+    isApplied: (current) => {
+      if (current.sourceMode !== "import") return false;
+      const currentFrames = parseCanvasFrameGeometryById(current.canvasFrames);
+      const currentMetadata = isRecord(current.screenMetadata)
+        ? current.screenMetadata
+        : {};
+      return savedFiles.every((file) => {
+        const frame = currentFrames[file.id];
+        const metadata = currentMetadata[file.id];
+        const placement = placements.find(
+          (candidate) => candidate.fileId === file.id,
+        );
+        const expectedFrame = placement
+          ? {
+              x: placement.x,
+              y: placement.y,
+              width: placement.width,
+              height: placement.height,
+              z: placement.z,
+            }
+          : null;
+        return (
+          frame !== undefined &&
+          expectedFrame !== null &&
+          Object.entries(expectedFrame).every(
+            ([key, value]) => frame[key as keyof typeof frame] === value,
+          ) &&
+          isRecord(metadata) &&
+          Object.entries(file.source ?? {}).every(([key, value]) =>
+            jsonValuesEqual(metadata[key], value),
+          )
+        );
+      });
+    },
   });
 
   for (const record of seedRecords) {

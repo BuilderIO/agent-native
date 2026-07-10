@@ -161,6 +161,18 @@ to find likely URLs, `web-request` or `provider-api-docs` with clean
 `webFetch()` when you need to grep, aggregate, or compare many pages before
 returning a small result.
 
+For LONG compute, `run-code` supports durable background executions: pass
+`background: true` and the code is enqueued to a `sandbox_executions` row and
+executed out-of-band with a generous budget (default 10 min), surviving the
+hosted agent run's ~40s soft timeout. The call returns
+`{ executionId, status: "queued" }` immediately with polling guidance; check
+progress with `run-code` `{ executionId }` (or the `get-code-execution` tool
+where registered) — results persist after completion. Use background for big
+cross-source joins, multi-page provider sweeps, and heavy analysis scripts;
+keep quick scripts in the default foreground mode. Agents should continue
+other work between polls, and on `failed`/`timed_out` split the computation or
+persist intermediate progress with `workspaceWrite` and re-run.
+
 ### The `http` Option
 
 Controls how the action is exposed as an HTTP endpoint:
@@ -204,6 +216,49 @@ run: async (args) => {
   return JSON.stringify(events, null, 2);
 }
 ```
+
+### Returning Images the Agent Can See (`_agentImages`)
+
+An action's return object may include the well-known optional field
+`_agentImages` to attach vision images (screenshots, chart previews, rendered
+designs) to the tool result. The agent literally sees them — enabling visual
+self-review loops — while the field itself is stripped from the JSON text the
+model reads.
+
+```ts
+run: async ({ dashboardId }) => {
+  const shot = await renderDashboardPng(dashboardId); // Buffer
+  return {
+    dashboardId,
+    panelCount: 6,
+    _agentImages: [
+      // Either a public https URL (preferred — the provider fetches it)…
+      { url: "https://cdn.example.com/previews/dash-1.png", label: "overview" },
+      // …or base64 without a data: prefix (mediaType required; a full
+      // data:image/png;base64,… URL in `data` is also accepted and parsed).
+      { data: shot.toString("base64"), mediaType: "image/png" },
+    ],
+  };
+},
+```
+
+Rules and limits:
+
+- Shape: `Array<{ url?: string; data?: string; mediaType?: string; label?: string }>`.
+  Each entry needs `url` (https only) **or** `data`. Supported media types:
+  `image/jpeg`, `image/png`, `image/gif`, `image/webp`.
+- Caps: max **4 images** per result; max **~2MB of base64** per image.
+  Over-cap or invalid entries never fail the call — they become text notes in
+  the result telling the model what was dropped and why.
+- Persistence: the run ledger stores only the string result plus compact
+  `[image: …]` notes (URLs verbatim; base64 as a byte-count placeholder) —
+  never the payload. Images are re-attached only for the live turn; replayed
+  history is text-only, so prefer stable `url` images the model can re-request.
+- Engine support: native Anthropic and vision-capable AI-SDK providers
+  (anthropic, openai, google, openrouter) receive real image blocks; other
+  paths (Builder gateway, non-vision providers) degrade to the text notes.
+- External MCP tools need no changes — standard MCP `image` content parts are
+  converted automatically under the same caps.
 
 ### Validating Return Values (`outputSchema`)
 
@@ -321,6 +376,11 @@ Most operations should be actions. You only need custom routes in `server/routes
 - **Streaming responses** — SSE or chunked responses that need direct H3 control
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
+
+When the agent needs a durable image or file URL, call the core `upload-image`
+action or use `uploadFile()` in server code. Do not write base64 into SQL,
+markdown, deck/design JSON, or action results. `_agentImages` on action results
+is for ephemeral vision previews only, not persistence.
 
 If it's a standard CRUD operation, data query, or a wrapper around an action, use the action instead.
 

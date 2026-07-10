@@ -37,7 +37,11 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { sumRecordingChunkBytes } from "../../../../lib/recording-upload-state.js";
+import {
+  deleteRecordingChunks,
+  pruneStaleRecordingChunks,
+  sumRecordingChunkBytes,
+} from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -49,6 +53,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../../../../lib/video-storage.js";
@@ -175,6 +180,13 @@ export default defineEventHandler(async (event: H3Event) => {
   debugLog("[chunk] resolved owner:", ownerEmail);
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+    await pruneStaleRecordingChunks(ownerEmail).catch((err) => {
+      console.warn("[chunk] stale recording chunk prune failed:", {
+        ownerEmail,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     const db = getDb();
 
     // Verify the recording belongs to the current user.
@@ -271,6 +283,15 @@ export default defineEventHandler(async (event: H3Event) => {
         storageSetupRequired: true,
       };
     }
+    if (!allowsSqlRecordingChunkScratch()) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error:
+          "Recording upload storage is configured, but this upload did not start a resumable storage session. Refresh and start the recording again.",
+        storageSetupRequired: false,
+      };
+    }
 
     const raw = await readRawBody(event, false);
     const bodySize = raw ? raw.byteLength : 0;
@@ -320,6 +341,12 @@ export default defineEventHandler(async (event: H3Event) => {
           ? latestState.failureReason
           : "Recording upload has already failed.";
       if (latestState?.status === "failed") {
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed upload chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         return failedUploadResponse(latestReason);
       }
 
@@ -333,6 +360,12 @@ export default defineEventHandler(async (event: H3Event) => {
       if (current?.status === "failed") {
         const reason =
           current.failureReason ?? "Recording upload has already failed.";
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed recording chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         await writeAppState(`recording-upload-${recordingId}`, {
           recordingId,
           status: "failed",
@@ -364,6 +397,12 @@ export default defineEventHandler(async (event: H3Event) => {
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
       });
+      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+        console.warn("[chunk] oversized upload chunk cleanup failed:", {
+          recordingId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
       setResponseStatus(event, 413);
       return {
         ok: false,
@@ -375,7 +414,11 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
+    // Check for abort/failure before writing so parallel in-flight requests
+    // don't recreate scratch chunk rows after /abort already cleared them.
     if (bytes.byteLength > 0) {
+      const failedBeforeWrite = await stopIfUploadFailed();
+      if (failedBeforeWrite) return failedBeforeWrite;
       // Pad index to 6 digits so string-sort order matches numeric order if the
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
@@ -409,15 +452,25 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Update upload progress (best-effort). If total is unknown we treat it as
     // indeterminate and keep progress at its last known value.
+    // Chunks may arrive out of order when uploaded in parallel, so take the
+    // max of the current persisted value and the incoming index to keep
+    // progress monotonically non-decreasing.
     if (total > 0) {
       const failedResponse = await stopIfUploadFailed();
       if (failedResponse) return failedResponse;
-      const progress = Math.min(100, Math.round(((index + 1) / total) * 100));
+      const chunksReceived = Math.max(
+        stateNumber(uploadState, "chunksReceived") ?? 0,
+        index + 1,
+      );
+      const progress = Math.max(
+        stateNumber(uploadState, "progress") ?? 0,
+        Math.min(100, Math.round((chunksReceived / total) * 100)),
+      );
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
         progress,
-        chunksReceived: index + 1,
+        chunksReceived,
         totalChunks: total,
         ...(expectedDataChunks !== undefined
           ? {
@@ -449,7 +502,10 @@ export default defineEventHandler(async (event: H3Event) => {
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
-        chunksReceived: index + 1,
+        chunksReceived: Math.max(
+          stateNumber(uploadState, "chunksReceived") ?? 0,
+          index + 1,
+        ),
         ...(expectedDataChunks !== undefined
           ? {
               expectedDataChunks,
@@ -579,7 +635,15 @@ export default defineEventHandler(async (event: H3Event) => {
             updatedAt: new Date().toISOString(),
           })
           .where(eq(schema.recordings.id, recordingId));
+        const failedUploadStateRaw = await readAppState(
+          `recording-upload-${recordingId}`,
+        ).catch(() => null);
+        const failedUploadState =
+          failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+            ? (failedUploadStateRaw as Record<string, unknown>)
+            : {};
         await writeAppState(`recording-upload-${recordingId}`, {
+          ...failedUploadState,
           recordingId,
           status: "failed",
           failureReason: err instanceof Error ? err.message : "Finalize failed",
@@ -602,19 +666,20 @@ function buildFinalizeArgs(
   mimeType: string,
   query: Record<string, unknown>,
 ) {
+  const queryBoolean = (value: unknown): boolean | undefined => {
+    if (value === undefined) return undefined;
+    if (Array.isArray(value)) return queryBoolean(value[0]);
+    return value === "1" || value === "true" || value === true;
+  };
+
   return {
     id: recordingId,
     durationMs: normalizeChunkUploadNumber(query.durationMs),
     width: normalizeChunkUploadNumber(query.width),
     height: normalizeChunkUploadNumber(query.height),
-    hasAudio:
-      query.hasAudio === undefined
-        ? undefined
-        : query.hasAudio === "1" || query.hasAudio === "true",
-    hasCamera:
-      query.hasCamera === undefined
-        ? undefined
-        : query.hasCamera === "1" || query.hasCamera === "true",
+    hasAudio: queryBoolean(query.hasAudio),
+    hasCamera: queryBoolean(query.hasCamera),
+    locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
   };
 }

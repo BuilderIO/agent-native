@@ -37,6 +37,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPuzzle,
   IconSettings,
+  IconSettingsAutomation,
   IconShieldCheck,
 } from "@tabler/icons-react";
 import {
@@ -50,26 +51,16 @@ import {
 } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
+import { cn } from "../../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-
+} from "../ui/dropdown-menu";
+import { Input } from "../ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 
@@ -189,6 +180,13 @@ const OPERATIONS_NAV_ITEMS = [
     section: "operations",
   },
   {
+    id: "automations",
+    to: "/automations",
+    label: "Automations",
+    icon: IconSettingsAutomation,
+    section: "operations",
+  },
+  {
     id: "audit",
     to: "/audit",
     label: "Audit",
@@ -223,7 +221,7 @@ const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 const CHROMELESS_PATHS = ["/approval"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 
-// Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
+// Routes whose page renders its own toolbar.
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
 // there's no double-header.
 function pageOwnsToolbar(pathname: string): boolean {

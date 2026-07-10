@@ -20,6 +20,17 @@ import {
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
 
+// Not (yet) part of the shared API surface — kept local to avoid touching
+// shared/api.ts, which another workstream owns concurrently. Structural
+// shape only; consumers should narrow on `conflict: true` rather than import
+// this type across a package boundary.
+export interface DocumentUpdateConflictResponse {
+  conflict: true;
+  id: string;
+  /** Current server document as of the failed compare-and-swap. */
+  document: DocumentUpdateResponse;
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -62,6 +73,30 @@ function normalizedBuilderBodyProse(content: string | null | undefined) {
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function isEffectivelyEmptyDocumentContent(
+  content: string | null | undefined,
+) {
+  const normalized = (content ?? "").trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+export function shouldRejectStaleEmptyBodySave(args: {
+  incomingContent: string | null | undefined;
+  currentContent: string | null | undefined;
+  loadedUpdatedAt: string | null | undefined;
+  currentUpdatedAt: string | null | undefined;
+  loadedContentWasEmpty?: boolean | null | undefined;
+}) {
+  if (!args.loadedUpdatedAt || !args.currentUpdatedAt) return false;
+  if (!isEffectivelyEmptyDocumentContent(args.incomingContent)) return false;
+  if (isEffectivelyEmptyDocumentContent(args.currentContent)) return false;
+  if (args.loadedContentWasEmpty === true) return true;
+  return (
+    new Date(args.currentUpdatedAt).getTime() >
+    new Date(args.loadedUpdatedAt).getTime()
+  );
 }
 
 /**
@@ -122,8 +157,33 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Favorite status (true/false)"),
+    loadedUpdatedAt: z
+      .string()
+      .optional()
+      .describe("Document updatedAt value the client loaded before editing"),
+    loadedContentWasEmpty: z
+      .boolean()
+      .optional()
+      .describe("Whether the client-loaded content snapshot was empty"),
+    // Optional optimistic-concurrency guard for content saves: the
+    // `updatedAt` of the document snapshot the caller last loaded/reconciled.
+    // When provided alongside `content`, the write is a compare-and-swap on
+    // `updatedAt` instead of a blind overwrite — this is how the browser
+    // editor's autosave avoids clobbering a document that a concurrent
+    // process (e.g. the Notion auto-pull) updated after the editor's last
+    // snapshot but before this save landed. Agent/CLI callers that omit it
+    // keep today's last-write-wins behavior unchanged.
+    baseUpdatedAt: z
+      .string()
+      .optional()
+      .describe(
+        "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
+      ),
   }),
-  run: async (args, ctx): Promise<DocumentUpdateResponse> => {
+  run: async (
+    args,
+    ctx,
+  ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -201,6 +261,17 @@ export default defineAction({
           content = existing.content;
         }
       }
+      if (
+        shouldRejectStaleEmptyBodySave({
+          incomingContent: content,
+          currentContent: existing.content,
+          loadedUpdatedAt: args.loadedUpdatedAt,
+          currentUpdatedAt: existing.updatedAt,
+          loadedContentWasEmpty: args.loadedContentWasEmpty,
+        })
+      ) {
+        content = existing.content;
+      }
     }
 
     // Detect actual changes — a no-op call (e.g. the editor echoing back the
@@ -253,6 +324,14 @@ export default defineAction({
 
     let softDeletedDatabaseIds: string[] = [];
 
+    // Content saves optionally carry the `updatedAt` of the snapshot the
+    // caller last reconciled. Guard the write with a compare-and-swap in that
+    // case so a concurrent update (e.g. the Notion auto-pull applying a newer
+    // remote edit) between the caller's snapshot and this save landing isn't
+    // silently overwritten. Title/icon/favorite-only saves are unaffected —
+    // only a save that's actually changing content is CAS-guarded.
+    const useContentCas = contentChanged && args.baseUpdatedAt !== undefined;
+
     if (anyChange) {
       const updates: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
@@ -263,10 +342,60 @@ export default defineAction({
       if (iconChanged) updates.icon = args.icon;
       if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
 
-      await db
-        .update(schema.documents)
-        .set(updates)
-        .where(eq(schema.documents.id, id));
+      if (useContentCas) {
+        const applied = await db
+          .update(schema.documents)
+          .set(updates)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
+            ),
+          )
+          .returning({ id: schema.documents.id });
+
+        if (!applied || applied.length === 0) {
+          // Someone else's write landed after the caller's snapshot. Don't
+          // apply this save at all (title/icon/favorite included — a partial
+          // apply would desync the fields from what the caller believes it
+          // just sent) and hand back the current server row instead so the
+          // caller can reconcile.
+          const [current] = await db
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id));
+          return {
+            conflict: true,
+            id,
+            document: {
+              id: current.id,
+              urlPath: `/page/${current.id}`,
+              parentId: current.parentId,
+              title: current.title,
+              content: current.content,
+              icon: current.icon,
+              position: current.position,
+              isFavorite: parseDocumentFavorite(current.isFavorite),
+              hideFromSearch: parseDocumentHideFromSearch(
+                current.hideFromSearch,
+              ),
+              visibility: current.visibility,
+              accessRole: access.role,
+              canEdit: true,
+              canManage: canManageRole(access.role),
+              createdAt: current.createdAt,
+              updatedAt: current.updatedAt,
+              source: serializeDocumentSource(current),
+              softDeletedDatabaseIds: [],
+            },
+          };
+        }
+      } else {
+        await db
+          .update(schema.documents)
+          .set(updates)
+          .where(eq(schema.documents.id, id));
+      }
 
       if (titleChanged && args.title !== undefined) {
         await db

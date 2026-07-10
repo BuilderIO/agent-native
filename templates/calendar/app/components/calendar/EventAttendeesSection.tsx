@@ -1,24 +1,37 @@
 import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Label } from "@agent-native/toolkit/ui/label";
+import type { CalendarEvent } from "@shared/api";
+import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
+import { useEffect, useId, useMemo, useState } from "react";
+
+import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@agent-native/toolkit/ui/radio-group";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import type { CalendarEvent } from "@shared/api";
-import { IconMessageCircle, IconUser } from "@tabler/icons-react";
-import { useEffect, useId, useMemo, useState } from "react";
-
-import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
+} from "@/components/ui/popover";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
+import {
+  useAttendeeTimezones,
+  useSetAttendeeTimezone,
+} from "@/hooks/use-attendee-timezones";
 import { useRsvpEvent } from "@/hooks/use-events";
+import {
+  getAttendeeLocalTimeLabel,
+  resolveAttendeeTimeZone,
+} from "@/lib/attendee-local-time";
+import { getLocalTimezone } from "@/lib/event-form-utils";
 import {
   canInlineRsvp,
   RsvpStatusIcon,
@@ -346,24 +359,63 @@ function AttendeeRow({
   currentNote,
   onResponseChange,
   isRecurring,
+  canEditOptional,
+  onToggleOptional,
+  timezoneOverrides,
+  onSetTimezone,
 }: {
   attendee: Attendee;
-  event: Pick<CalendarEvent, "id" | "accountEmail">;
+  event: Pick<
+    CalendarEvent,
+    "id" | "accountEmail" | "start" | "startTimeZone" | "allDay"
+  >;
   photoUrl?: string;
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
   currentNote?: string;
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
+  timezoneOverrides?: Record<string, string>;
+  onSetTimezone?: (email: string, timeZone: string | undefined) => void;
 }) {
   const t = useT();
+  const [timezonePickerOpen, setTimezonePickerOpen] = useState(false);
+  const resolvedZone =
+    resolveAttendeeTimeZone({
+      attendee,
+      accountEmail: event.accountEmail,
+      eventStartTimeZone: event.startTimeZone,
+      overrides: timezoneOverrides,
+    }) ?? getLocalTimezone();
+  const [draftTimezone, setDraftTimezone] = useState(resolvedZone);
   const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
   const statusLabel =
     getLocalizedRsvpStatusLabel(t, displayStatus) ?? t("eventForm.awaiting");
   const comment = (inlineRsvp ? currentNote : attendee.comment)?.trim();
+  const showOptionalMenu =
+    canEditOptional && onToggleOptional && !attendee.organizer;
+  const showMenu = showOptionalMenu || !!onSetTimezone;
+  const localTimeLabel =
+    !event.allDay && event.start
+      ? getAttendeeLocalTimeLabel({
+          attendee,
+          accountEmail: event.accountEmail,
+          eventStartTimeZone: event.startTimeZone,
+          overrides: timezoneOverrides,
+          startIso: event.start,
+        })
+      : null;
+
+  useEffect(() => {
+    if (timezonePickerOpen) {
+      setDraftTimezone(resolvedZone);
+    }
+  }, [timezonePickerOpen, resolvedZone]);
 
   return (
-    <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+    <div className="group rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
       <AttendeeApolloPopover attendee={attendee}>
         <div className="flex items-center gap-2.5">
           <div className="relative shrink-0">
@@ -382,18 +434,77 @@ function AttendeeRow({
                   {t("eventForm.organizer")}
                 </span>
               )}
+              {attendee.optional && !attendee.organizer && (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {t("attendees.optionalBadge")}
+                </span>
+              )}
             </div>
             {attendee.displayName && (
               <div className="truncate text-[11px] text-muted-foreground/60">
                 {attendee.email}
+                {localTimeLabel ? (
+                  <span className="ms-1.5 text-muted-foreground/50">
+                    · {localTimeLabel}
+                  </span>
+                ) : null}
               </div>
             )}
+            {!attendee.displayName && localTimeLabel ? (
+              <div className="truncate text-[11px] text-muted-foreground/50">
+                {localTimeLabel}
+              </div>
+            ) : null}
             <div className="mt-0.5 text-[11px] text-muted-foreground/70">
               {inlineRsvp
                 ? t("eventForm.yourResponse", { status: statusLabel })
                 : statusLabel}
             </div>
           </div>
+          {showMenu && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                  aria-label={t("attendees.guestOptions", {
+                    email: attendee.email,
+                  })}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {showOptionalMenu && (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onToggleOptional(attendee.email, !attendee.optional)
+                    }
+                  >
+                    {attendee.optional
+                      ? t("attendees.markRequired")
+                      : t("attendees.markOptional")}
+                  </DropdownMenuItem>
+                )}
+                {onSetTimezone && (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setTimezonePickerOpen(true);
+                    }}
+                  >
+                    {t("attendees.setTimezone")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
         {comment && (
           <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -402,6 +513,67 @@ function AttendeeRow({
           </div>
         )}
       </AttendeeApolloPopover>
+      {onSetTimezone && (
+        <Popover open={timezonePickerOpen} onOpenChange={setTimezonePickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className="sr-only" tabIndex={-1} />
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="left"
+            className="w-72 p-3"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDownCapture={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                {t("attendees.setTimezone")}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {attendee.displayName || attendee.email}
+              </p>
+              <TimezoneCombobox
+                id={`attendee-tz-${attendee.email}`}
+                value={draftTimezone}
+                onChange={setDraftTimezone}
+              />
+              <div className="flex justify-end gap-1.5 pt-1">
+                {timezoneOverrides?.[attendee.email.trim().toLowerCase()] ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs me-auto"
+                    onClick={() => {
+                      onSetTimezone(attendee.email, undefined);
+                      setTimezonePickerOpen(false);
+                    }}
+                  >
+                    {t("attendees.clearTimezone")}
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setTimezonePickerOpen(false)}
+                >
+                  {t("eventForm.cancel")}
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    onSetTimezone(attendee.email, draftTimezone);
+                    setTimezonePickerOpen(false);
+                  }}
+                >
+                  {t("eventForm.save")}
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
       {inlineRsvp && currentStatus && onResponseChange && (
         <RsvpControls
           eventId={event.id}
@@ -428,6 +600,8 @@ function sortAttendees(attendees: Attendee[]) {
 
 export function EventAttendeesSection({
   event,
+  canEditOptional = false,
+  onToggleOptional,
 }: {
   event: Pick<
     CalendarEvent,
@@ -438,7 +612,12 @@ export function EventAttendeesSection({
     | "responseStatus"
     | "source"
     | "recurringEventId"
+    | "start"
+    | "startTimeZone"
+    | "allDay"
   >;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
   const t = useT();
   const attendees = event.attendees ?? [];
@@ -451,6 +630,8 @@ export function EventAttendeesSection({
   );
   const emails = attendees.map((attendee) => attendee.email);
   const { data: photos } = useAttendeePhotos(emails);
+  const { data: timezoneOverrides } = useAttendeeTimezones();
+  const setAttendeeTimezone = useSetAttendeeTimezone();
 
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
   const canRsvpInline = canInlineRsvp(event);
@@ -470,6 +651,10 @@ export function EventAttendeesSection({
   const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
     setSelfStatus(status);
     setSelfNote(note);
+  };
+
+  const handleSetTimezone = (email: string, timeZone: string | undefined) => {
+    setAttendeeTimezone.mutate({ email, timeZone });
   };
 
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
@@ -526,6 +711,10 @@ export function EventAttendeesSection({
                 attendee={attendee}
                 event={event}
                 photoUrl={photos?.[attendee.email.toLowerCase()]}
+                canEditOptional={canEditOptional}
+                onToggleOptional={onToggleOptional}
+                timezoneOverrides={timezoneOverrides}
+                onSetTimezone={handleSetTimezone}
               />
             ))}
 
@@ -560,6 +749,10 @@ export function EventAttendeesSection({
                   currentNote={selfNote}
                   onResponseChange={handleSelfResponseChange}
                   isRecurring={!!event.recurringEventId}
+                  canEditOptional={canEditOptional}
+                  onToggleOptional={onToggleOptional}
+                  timezoneOverrides={timezoneOverrides}
+                  onSetTimezone={handleSetTimezone}
                 />
               </>
             )}

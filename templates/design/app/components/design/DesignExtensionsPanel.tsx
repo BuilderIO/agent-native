@@ -11,27 +11,6 @@ import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@agent-native/toolkit/ui/tabs";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
   IconAdjustmentsHorizontal,
@@ -60,6 +39,22 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
@@ -399,8 +394,54 @@ function ToolFilterMenu<T extends string>({
 
 // ─── Asset Library panel ──────────────────────────────────────────────────────
 
+/**
+ * Result of converting a viewport (`clientX`/`clientY`) drop point into a
+ * specific screen's own content-px coordinate space — the space
+ * insert-design-native-asset's `x`/`y`/`screenId` parameters expect (same
+ * convention as committed canvas-primitive geometry; see that action's
+ * schema doc for the exact contract).
+ */
+export interface ResolvedScreenDropPoint {
+  /** Screen/design-file id the point resolved onto. */
+  screenId: string;
+  /** x in that screen's own content px (not viewport/client px). */
+  x: number;
+  /** y in that screen's own content px (not viewport/client px). */
+  y: number;
+}
+
 interface AssetLibraryPanelProps {
   context: DesignExtensionSlotContext;
+  /**
+   * Optional viewport-point → screen-content-point resolver, supplied by the
+   * DesignEditor owner. This panel only has `context.zoom`/`viewMode`/
+   * `screens` (id/filename/fileType) — it does NOT have per-screen overview
+   * frame geometry or camera pan/offset, so it cannot do this conversion
+   * itself (see the report for why: that state lives in DesignEditor's
+   * MultiScreenCanvas-facing camera/frame-geometry state, which this panel
+   * does not own and this change does not touch).
+   *
+   * Contract: given a viewport point (`event.clientX`/`clientY` from a native
+   * HTML5 drag event), return the screen id plus the point converted into
+   * that screen's own content px (the same space
+   * `insert-design-native-asset`'s `x`/`y` expect — NOT viewport px), or
+   * `null` when the point isn't over any screen (e.g. dropped on empty
+   * overview canvas, over the board surface, or the editor is in
+   * single-screen mode and the point is outside that screen's iframe).
+   *
+   * When omitted (the default — no DesignEditor wiring yet), this panel
+   * falls back to EXACTLY today's behavior: it sends the raw viewport point
+   * as `x`/`y` with no `screenId`, which the action already handles safely
+   * (a raw client point rarely lands inside a real screen's small content
+   * bounds, and even when it coincidentally does, worst case is an
+   * imprecisely-placed insert — never a crash or data loss; see
+   * isUsableDropPosition's fallback-to-append behavior in that action for
+   * the "can't convert" case generally).
+   */
+  resolveScreenPoint?: (point: {
+    clientX: number;
+    clientY: number;
+  }) => ResolvedScreenDropPoint | null;
 }
 
 type FigmaLibraryAsset = {
@@ -458,7 +499,10 @@ const NATIVE_ASSET_CATEGORY_LABELS: Record<
   layout: "Layout",
 };
 
-export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
+export function AssetLibraryPanel({
+  context,
+  resolveScreenPoint,
+}: AssetLibraryPanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [assetPickerReady, setAssetPickerReady] = useState(false);
   const [nativeSearchQuery, setNativeSearchQuery] = useState("");
@@ -585,16 +629,30 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
   );
 
   const handleInsertNativeAsset = useCallback(
-    (asset: DesignNativeAsset) => {
+    (
+      asset: DesignNativeAsset,
+      dropPosition?: { x: number; y: number; screenId?: string },
+    ) => {
       if (!context.activeFileId) {
         toast.error("Open a design screen first to insert assets.");
         return;
       }
+      // insert-design-native-asset's schema now accepts x/y (screen-content
+      // px) and an optional screenId target directly — see that action's
+      // isUsableDropPosition for the exact "both x and y, non-negative"
+      // usability contract a caller-supplied position must meet, and this
+      // component's resolveScreenPoint prop doc above for how dropPosition
+      // gets its coordinate space (converted screen-content px when
+      // resolveScreenPoint is wired up by the DesignEditor owner, otherwise
+      // the raw viewport point as an inert-but-harmless fallback).
       insertNativeAsset.mutate(
         {
           kind: asset.kind,
           designId: context.designId || undefined,
           fileId: context.activeFileId || undefined,
+          screenId: dropPosition?.screenId,
+          x: dropPosition?.x,
+          y: dropPosition?.y,
         },
         {
           onSuccess: (result) => {
@@ -644,7 +702,24 @@ export function AssetLibraryPanel({ context }: AssetLibraryPanelProps) {
     event.preventDefault();
     event.stopPropagation();
     if (!draggedNativeAsset) return;
-    handleInsertNativeAsset(draggedNativeAsset);
+    // Convert the viewport drop point into a specific screen's own
+    // content-px coordinates via the optional resolveScreenPoint prop (see
+    // its doc comment above for the exact contract). Without that prop
+    // (no DesignEditor wiring yet), fall back to sending the raw viewport
+    // point with no screenId — the exact behavior this drop handler always
+    // had, and still safe: insert-design-native-asset's isUsableDropPosition
+    // only requires non-negative finite numbers, so an unconverted point is
+    // never rejected, just imprecise (see that action's fallback doc).
+    const resolved = resolveScreenPoint?.({
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
+    handleInsertNativeAsset(
+      draggedNativeAsset,
+      resolved
+        ? { x: resolved.x, y: resolved.y, screenId: resolved.screenId }
+        : { x: event.clientX, y: event.clientY },
+    );
     clearNativeAssetDrag();
   };
 

@@ -32,6 +32,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
+  settleInterruptedAssistantToolCallsInRepo,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -186,6 +187,265 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([repeatedCall]);
   });
 
+  it("drops reconnect tool repeats during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_live",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const handoffDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_reconnect",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [handoffDuplicate],
+        persistedMessages,
+        { suppressToolRepeats: true },
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops ahead reconnect tool copies during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_live",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const completedOverlay = {
+      type: "tool-call" as const,
+      toolCallId: "tc_reconnect",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [completedOverlay],
+        persistedMessages,
+        { suppressToolRepeats: true },
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops a reconnect activity spinner already rendered as a live tool card", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    // Reconnect overlay spinner: no args yet (no fingerprint) and a reader-local
+    // id that never matches the server-scoped id above.
+    const spinnerDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_0",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [spinnerDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a later same-name reconnect spinner with a different local id", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    const laterSpinner = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([laterSpinner], persistedMessages),
+    ).toEqual([laterSpinner]);
+  });
+
+  it("drops a same-name reconnect spinner when a matching pending call is rendered beside a completed call", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 2"}',
+            args: { sql: "select 2" },
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "db-query",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a reconnect spinner for a tool not yet rendered", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const newToolSpinner = {
+      type: "tool-call" as const,
+      toolCallId: "tc_1",
+      toolName: "web-search",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [newToolSpinner],
+        persistedMessages,
+      ),
+    ).toEqual([newToolSpinner]);
+  });
+
+  it("keeps a completed reconnect tool copy ahead of a live spinner outside handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "run123:tc_0",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+          },
+        ],
+      },
+    ];
+    // Overlay is strictly ahead (completed) of the rendered spinner and has a
+    // fingerprint, so the name fallback must not hide it when not in handoff.
+    const completedOverlay = {
+      type: "tool-call" as const,
+      toolCallId: "tc_0",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+      result: "1",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [completedOverlay],
+        persistedMessages,
+      ),
+    ).toEqual([completedOverlay]);
+  });
+
+  it("drops stale pending tool-call copies inside the reconnect snapshot", () => {
+    const stalePending = {
+      type: "tool-call" as const,
+      toolCallId: "tc_stale",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+    };
+    const completed = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_1",
+      toolName: "edit-screen",
+      argsText: '{"screen":"home"}',
+      args: { screen: "home" },
+      result: "done",
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([stalePending, completed], []),
+    ).toEqual([completed]);
+  });
+
   it("drops a pending reconnect duplicate whose call already completed in messages (fingerprint fallback)", () => {
     // Two readers of the same run assign unrelated synthetic ids until the
     // server id converges — a pending copy of an already-completed call is a
@@ -228,7 +488,38 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([unrelatedPending]);
   });
 
-  it("never fingerprint-drops activity placeholders or completed parts", () => {
+  it("drops a pending reconnect duplicate while the rendered call is still pending", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "update-extension",
+            argsText: '{"extensionId":"npm-downloads"}',
+            args: { extensionId: "npm-downloads" },
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_7",
+      toolName: "update-extension",
+      argsText: '{"extensionId":"npm-downloads"}',
+      args: { extensionId: "npm-downloads" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("never fingerprint-drops activity placeholders or completed-vs-completed repeats", () => {
     const persistedMessages = [
       {
         role: "assistant",
@@ -300,6 +591,78 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     expect(
       dedupeReconnectContentAgainstMessages([completedCall], persistedMessages),
     ).toEqual([completedCall]);
+  });
+
+  it("drops a pending reconnect duplicate when the rendered call already completed", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+    ];
+    const pendingDuplicate = {
+      type: "tool-call" as const,
+      toolCallId: "tc_9",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [pendingDuplicate],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not fingerprint-drop reconnect tools against older assistant turns", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_old",
+            toolName: "db-query",
+            argsText: '{"sql":"select 1"}',
+            args: { sql: "select 1" },
+            result: "1",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Run it again" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Starting fresh." }],
+      },
+    ];
+    const repeatedPending = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_new",
+      toolName: "db-query",
+      argsText: '{"sql":"select 1"}',
+      args: { sql: "select 1" },
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [repeatedPending],
+        persistedMessages,
+      ),
+    ).toEqual([repeatedPending]);
   });
 
   it("hides reconnect text that is already visible in the latest assistant message", () => {
@@ -385,15 +748,16 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toBe(reconnectContent);
   });
 
-  it("shows fallback activity when all reconnect content was already rendered", () => {
+  it("does not replace deduped reconnect content with fallback activity", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain("visibleReconnectContent.length === 0");
-    expect(source).not.toContain(
-      "reconnectContent.length === 0 &&\n                        reconnectActivityContent.length > 0",
+    expect(source).toMatch(
+      /reconnectContent\.length === 0 &&\s+reconnectActivityContent\.length > 0/,
     );
+    expect(source).toContain("Do not memoize this on `messages` identity");
   });
 });
 
@@ -412,7 +776,7 @@ describe("centered empty chat setup layout", () => {
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("showScrollToBottom");
+    expect(source).toContain("<MessageScrollerButton />");
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
@@ -488,6 +852,46 @@ describe("resolveAssistantChatRunningState", () => {
   });
 });
 
+describe("settleInterruptedAssistantToolCallsInRepo", () => {
+  it("settles active tool activity so stopped tool cards do not keep spinning", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "tool-1",
+                toolName: "query",
+                args: {},
+                activity: true,
+              },
+            ],
+            status: { type: "running" },
+          },
+        },
+      ],
+    };
+
+    const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+    const tool = settled.repo.messages[0].message.content[0] as {
+      result?: unknown;
+      isError?: boolean;
+      activity?: boolean;
+    };
+
+    expect(settled.changed).toBe(true);
+    expect(tool.result).toBe("Stopped before this action started.");
+    expect(tool.isError).toBe(true);
+    expect(tool.activity).toBe(true);
+    expect(settled.repo.messages[0].message.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+  });
+});
+
 describe("resolveAssistantChatRunningStatusLabel", () => {
   it("keeps active tool activity ahead of recovery labels", () => {
     expect(
@@ -520,6 +924,39 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         hasReconnectContent: false,
       }),
     ).toBe("Thinking");
+  });
+});
+
+describe("chat submit and stop hardening", () => {
+  it("does not block chat composer submit on the async readiness hook", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain(
+      "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
+    );
+    expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+  });
+
+  it("clears queued follow-ups and settles stopped tool calls by default", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const stopActiveRun = useCallback");
+    const end = source.indexOf("// Keep the ref current");
+    const helperSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(helperSource).toContain("preserveQueuedMessages");
+    expect(helperSource).toContain("queueStopVersionRef.current += 1");
+    expect(helperSource).toContain("dequeueInFlightRef.current = false");
+    expect(helperSource).toContain("applyLocalQueuedMessages(() => [])");
+    expect(helperSource).toContain("setPendingReconnectRecovery(null)");
+    expect(helperSource).toContain("resetRunningActivity()");
+    expect(helperSource).toContain("includeActivity: true");
+    expect(helperSource).toContain("settleVisibleInterruptedTools()");
   });
 });
 
@@ -722,7 +1159,7 @@ describe("waitForThreadRunToClear", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("{(isReconnecting || reconnectFrozen) &&");
+    const start = source.indexOf("visibleReconnectContent.length > 0");
     const end = source.indexOf("{showRunningInUI &&", start);
     const renderSource = source.slice(start, end);
 
@@ -730,6 +1167,8 @@ describe("waitForThreadRunToClear", () => {
     expect(end).toBeGreaterThan(start);
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
+    expect(renderSource).toContain("reconnectContent.length === 0");
+    expect(renderSource).toContain("adapterHandoffPending");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -849,6 +1288,18 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(noProgressSource).toContain("setPendingReconnectRecovery");
     expect(noProgressSource).toContain("agent-chat:auto-continue");
+    const autoRecoverStart = noProgressSource.indexOf(
+      "const canAutoRecoverReconnect",
+    );
+    const autoRecoverEnd = noProgressSource.indexOf(
+      "if (canAutoRecoverReconnect)",
+      autoRecoverStart,
+    );
+    const autoRecoverGate = noProgressSource.slice(
+      autoRecoverStart,
+      autoRecoverEnd,
+    );
+    expect(autoRecoverGate).not.toContain("reconnectTerminalReason");
     expect(source).toContain("treat that action input as stalled or too large");
     expect(source).toContain("use a smaller bounded input");
     expect(
@@ -861,7 +1312,61 @@ describe("waitForThreadRunToClear", () => {
     expect(effectSource).toContain("addToQueue(");
     expect(effectSource).toContain('"continue"');
     expect(effectSource).toContain(
-      '"continue",\n        false,\n        false,\n        true,',
+      '"continue",\n        false,\n        false,\n        true,\n        true,',
+    );
+  });
+});
+
+describe("server thread snapshot caching", () => {
+  it("does not cache an initial server fetch that the runtime rejected as stale", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("if (data.threadData) {");
+    const end = source.indexOf(
+      "// Also skip title generation if thread already has a title",
+    );
+    const restoreSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(restoreSource).toContain("shouldCacheServerSnapshot");
+    expect(restoreSource).toContain("shouldImportServerThreadData");
+    expect(restoreSource).toContain("writeCachedThreadSnapshot");
+    expect(restoreSource).toContain("shouldCacheServerSnapshot = false");
+  });
+
+  it("does not apply queued messages from a rejected server snapshot", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("const importThreadData = useCallback");
+    const end = source.indexOf("const refreshThreadFromServer = useCallback");
+    const importSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(importSource).toContain("shouldImport = false");
+    expect(importSource).toContain(
+      "isRuntimeRunningRef.current || isAutoResumingRef.current",
+    );
+    expect(importSource).toContain(
+      "if (settled && Array.isArray(repo?.queuedMessages))",
+    );
+  });
+});
+
+describe("adapter reconnect handoff", () => {
+  it("defers wiping reconnect content until the adapter message catches up", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("adapterHandoffPending");
+    expect(source).toContain("setAdapterHandoffPending(true)");
+    expect(source).toContain("suppressToolRepeats: adapterHandoffPending");
+    expect(source).toContain("Do not memoize this on `messages` identity");
+    expect(source).toMatch(
+      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
     );
   });
 });

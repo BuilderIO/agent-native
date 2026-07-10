@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  detectMetricValueColumn,
   formatMetricValue,
   safeDashboardLinkHref,
   sessionReplayHref,
@@ -52,6 +53,30 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
+  });
+});
+
+describe("detectMetricValueColumn", () => {
+  it("prefers numeric-string columns over leading label columns", () => {
+    expect(
+      detectMetricValueColumn({
+        metric: "Visual Views",
+        billing_type: "rollover",
+        amount: "30299",
+      }),
+    ).toBe("amount");
+  });
+
+  it("keeps an explicit configured metric column when present", () => {
+    expect(
+      detectMetricValueColumn(
+        {
+          label: "Seats",
+          total: "57532",
+        },
+        "total",
+      ),
+    ).toBe("total");
   });
 });
 

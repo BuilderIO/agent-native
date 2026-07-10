@@ -3,7 +3,6 @@ import {
   useActionMutation,
   useT,
 } from "@agent-native/core/client";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import type { Meal, Exercise } from "@shared/types";
 import {
   IconChevronLeft,
@@ -21,6 +20,7 @@ import { DailyProgress } from "@/components/DailyProgress";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { MealCard } from "@/components/MealCard";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { VoiceDictation } from "@/components/VoiceDictation";
 import { WeightTracker } from "@/components/WeightTracker";
 import {

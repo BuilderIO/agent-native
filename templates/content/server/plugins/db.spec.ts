@@ -129,6 +129,24 @@ describe("content db.ts migration entries follow the naming convention", () => {
       .map((e) => e.version);
     expect(missingNames).toEqual([]);
   });
+
+  it("keeps Builder source refresh hot-path indexes in migrations", () => {
+    expect(dbTsSource).toContain(
+      "content_database_source_rows_source_item_idx",
+    );
+    expect(dbTsSource).toContain(
+      "content_database_body_hydration_queue_source_document_idx",
+    );
+    expect(dbTsSource).toContain(
+      "content_database_body_hydration_queue_item_idx",
+    );
+    expect(dbTsSource).toContain(
+      "content_database_items_database_position_idx",
+    );
+    expect(dbTsSource).toContain(
+      "content_database_source_fields_source_key_idx",
+    );
+  });
 });
 
 /**

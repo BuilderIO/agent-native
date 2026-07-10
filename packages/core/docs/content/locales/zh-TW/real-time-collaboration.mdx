@@ -252,11 +252,8 @@ export default createCollabPlugin({
 ### 4.使用用戶端鉤子
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -358,12 +355,14 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 伺服器端代理存在幫助程式保留在較低階別的協作包中：
@@ -449,7 +448,7 @@ setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
 將遠端游標呈現為容器元素上的絕對定位標籤：
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -469,7 +468,7 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 在遠端選取的元素上渲染彩色輪廓環+名稱標籤：
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}
@@ -745,7 +744,7 @@ undoManager.redo(); // Shift+Cmd+Z
   （持久存在心跳）。
 
 Use `emailToColor(email)` and `emailToName(email)` from
-`@agent-native/core/client` 產生一致的游標顏色和顯示
+`@agent-native/toolkit/collab-ui` 產生一致的游標顏色和顯示
 電子郵件地址中的姓名。
 
 使用 `activeUsers` 渲染的 `PresenceBar` 顯示活人和代理

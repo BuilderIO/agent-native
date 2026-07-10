@@ -391,6 +391,12 @@ extension HTML, inline scripts, docs, examples, or extension seed content.
 Extensions are stored in SQL and rendered in the browser; anything written into
 the extension body should be treated as visible.
 
+Extension HTML belongs in SQL, but large media does not. Do not embed pasted
+files, base64 assets, screenshots, or binary blobs in `content` or
+`extensionData`; upload media to file/blob storage and reference hosted URLs or
+opaque handles. For large pasted text bodies, use the documented
+`contentFromAttachment` flow instead of a megabyte inline string.
+
 For external API calls, use `extensionFetch()` with `${keys.NAME}` placeholders
 inside single-quoted strings, for example
 `Authorization: 'Bearer ${keys.GITHUB_TOKEN}'`. The proxy resolves the value

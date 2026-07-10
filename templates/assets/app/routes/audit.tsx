@@ -3,20 +3,6 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Separator } from "@agent-native/toolkit/ui/separator";
-import { Sheet, SheetContent } from "@agent-native/toolkit/ui/sheet";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconAlertTriangle,
   IconClipboardList,
@@ -26,6 +12,21 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   IMAGE_MODELS,

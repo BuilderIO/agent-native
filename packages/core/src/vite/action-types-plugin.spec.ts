@@ -35,6 +35,8 @@ describe("generateActionRegistryForProject", () => {
       expect(registry).toContain('"real-action": a_real_action');
       expect(registry).toContain('"get-localization-preference"');
       expect(registry).toContain('"set-localization-preference"');
+      expect(registry).toContain('"list-resource-history"');
+      expect(registry).toContain('"list-review-comments"');
       expect(registry).not.toContain("real-action.spec");
       expect(registry).not.toContain("other.test");
 
@@ -44,6 +46,8 @@ describe("generateActionRegistryForProject", () => {
       );
       expect(types).toContain('"get-localization-preference"');
       expect(types).toContain('"set-localization-preference"');
+      expect(types).toContain('"list-resource-history"');
+      expect(types).toContain('"list-review-comments"');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

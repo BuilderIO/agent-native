@@ -23,16 +23,16 @@ description: >
 
 ### Exported Functions
 
-| Function                    | Description                                              |
-| --------------------------- | -------------------------------------------------------- |
-| `getCalls(filters?)`        | List calls (cursor-paginated)                            |
-| `getCall(callId)`           | Get single call detail                                   |
-| `getCallTranscript(callId)` | Get one call transcript                                  |
-| `getCallTranscripts(callIds)` | Batch-fetch call transcripts                           |
-| `getUsers()`                | List Gong users                                          |
-| `searchCalls(query, days)`  | List + filter by title and external party name/email/domain |
-| `getCallDetail(callId)`     | Get parties plus Gong brief/key points/outline            |
-| `getEnrichedTranscript(id)` | Transcript mapped to Gong parties and external speakers    |
+| Function                      | Description                                                 |
+| ----------------------------- | ----------------------------------------------------------- |
+| `getCalls(filters?)`          | List calls (cursor-paginated)                               |
+| `getCall(callId)`             | Get single call detail                                      |
+| `getCallTranscript(callId)`   | Get one call transcript                                     |
+| `getCallTranscripts(callIds)` | Batch-fetch call transcripts                                |
+| `getUsers()`                  | List Gong users                                             |
+| `searchCalls(query, days)`    | List + filter by title and external party name/email/domain |
+| `getCallDetail(callId)`       | Get parties plus Gong brief/key points/outline              |
+| `getEnrichedTranscript(id)`   | Transcript mapped to Gong parties and external speakers     |
 
 ### UI API Routes
 
@@ -87,8 +87,8 @@ raw transcript corpus path:
 2. Prefer `provider-corpus-job` with `mode: "batch-search"` against
    `POST /calls/transcript`.
 3. Use `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
-   "callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
-   ["transcript"]`, and `search.idPaths: ["callId"]`.
+"callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
+["transcript"]`, and `search.idPaths: ["callId"]`.
 4. Join the stored hits back to deals/accounts with `run-code` or staged-dataset
    queries, then report cohort size, call IDs discovered, transcript records
    scanned, hits, errors, and quota gaps.

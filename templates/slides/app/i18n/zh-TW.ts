@@ -88,6 +88,8 @@ const messages = {
     googlePickerNeedsKeys:
       "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
     imageUploadFailed: "圖片上傳失敗",
+    imageUploadNeedsBuilder:
+      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
     sentToAgent: "已傳送給代理",
     imageUploadGenericError: "上傳這張圖片時發生問題。",
     uploading: "正在上傳…",
@@ -460,6 +462,8 @@ const messages = {
     backToDecks: "返回幻燈片",
     tryAgain: "重試",
     imageUploadFailed: "圖片上傳失敗",
+    imageUploadNeedsBuilder:
+      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",

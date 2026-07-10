@@ -8,21 +8,6 @@ import {
   getBrowserTabId,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@agent-native/toolkit/ui/tabs";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -63,6 +48,16 @@ import {
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -452,7 +447,28 @@ export default function ShareRoute() {
       return { ok: res.ok, status: res.status, data };
     },
     enabled: !!shareId,
-    refetchInterval: 2000,
+    refetchInterval: (q) => {
+      const payload = (q.state.data as { data?: any } | undefined)?.data;
+      const rec = payload?.recording;
+      if (!rec) return false;
+      // Poll while the recording is still being assembled / transcoded so the
+      // page auto-upgrades from "Processing" to the real player the moment
+      // the server flips status to 'ready' and writes videoUrl. Mirrors
+      // r.$recordingId.tsx's playerDataQ.refetchInterval.
+      if (rec.status !== "ready" || !rec.videoUrl) return 2000;
+      // Also keep polling while a transcript is pending so "Transcribing…"
+      // auto-flips to the ready transcript (or to the failure card). The
+      // public payload has no transcript.cleanup field (that's authenticated
+      // -only), so there is no equivalent of the cleanup.status poll here.
+      if (payload?.transcript?.status === "pending") return 3000;
+      // And keep polling while the title is still the server-seeded default
+      // — the agent will land a generated title via `update-recording` and
+      // we want the skeleton to swap in promptly.
+      if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
+        return 3000;
+      }
+      return false;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -907,6 +923,7 @@ export default function ShareRoute() {
               ref={playerRef}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}

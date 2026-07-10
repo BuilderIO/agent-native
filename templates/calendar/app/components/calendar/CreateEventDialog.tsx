@@ -3,33 +3,6 @@ import {
   sendToAgentChat,
   useT,
 } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
 import type { CalendarEventDraft } from "@shared/api";
 import {
   IconCalendarTime,
@@ -57,6 +30,33 @@ import {
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction } from "@/hooks/use-undo";
@@ -111,9 +111,25 @@ function uniqueAttendees(attendees: AttendeeRecipient[]) {
       email,
       displayName: existing?.displayName ?? attendee.displayName,
       photoUrl: existing?.photoUrl ?? attendee.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : existing?.optional === true
+            ? true
+            : undefined,
     });
   }
   return Array.from(byEmail.values());
+}
+
+function buildVideoProviderPatch(
+  provider: VideoProvider,
+  explicitChoice: boolean,
+): { addGoogleMeet?: boolean; addZoom?: boolean } {
+  if (provider === "google_meet")
+    return { addGoogleMeet: true, addZoom: false };
+  if (provider === "zoom") return { addGoogleMeet: false, addZoom: true };
+  return explicitChoice ? { addGoogleMeet: false, addZoom: false } : {};
 }
 
 function dateTimePartsInTimezone(value: string, timezone: string) {
@@ -234,6 +250,7 @@ export function CreateEventPopover({
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
+  const [videoProviderTouched, setVideoProviderTouched] = useState(false);
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const timedOnlyStatus =
@@ -298,12 +315,16 @@ export function CreateEventPopover({
       setVideoProvider(
         draft.addGoogleMeet ? "google_meet" : draft.addZoom ? "zoom" : "none",
       );
+      setVideoProviderTouched(
+        draft.addGoogleMeet !== undefined || draft.addZoom !== undefined,
+      );
       setAttendees(
         uniqueAttendees(
           (draft.attendees ?? []).map((attendee) => ({
             email: attendee.email,
             displayName: attendee.displayName,
             photoUrl: attendee.photoUrl,
+            optional: attendee.optional === true ? true : undefined,
           })),
         ),
       );
@@ -328,6 +349,7 @@ export function CreateEventPopover({
     setAttachments([createAttachmentDraft()]);
     setWorkingLocationType("customLocation");
     setVideoProvider("none");
+    setVideoProviderTouched(false);
     setAttendees([]);
   }, [
     open,
@@ -393,10 +415,10 @@ export function CreateEventPopover({
           ? attendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
       accountEmail: draft?.accountEmail,
       workingLocationType,
       workingLocationLabel:
@@ -441,6 +463,7 @@ export function CreateEventPopover({
     attachments,
     attendees,
     videoProvider,
+    videoProviderTouched,
     workingLocationType,
     timedOnlyStatus,
     onDraftChange,
@@ -490,6 +513,19 @@ export function CreateEventPopover({
     setAttendees((prev) =>
       prev.filter(
         (attendee) => attendee.email.toLowerCase() !== email.toLowerCase(),
+      ),
+    );
+  }
+
+  function toggleAttendeeOptional(email: string, optional: boolean) {
+    setAttendees((prev) =>
+      prev.map((attendee) =>
+        attendee.email.toLowerCase() === email.toLowerCase()
+          ? {
+              ...attendee,
+              optional: optional ? true : undefined,
+            }
+          : attendee,
       ),
     );
   }
@@ -626,8 +662,6 @@ export function CreateEventPopover({
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
       ...statusPatch,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
       color: colorId ? getGoogleEventColorHex(colorId) : undefined,
       colorId,
       attachments:
@@ -639,8 +673,10 @@ export function CreateEventPopover({
           ? finalAttendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
     };
 
     onOpenChange(false);
@@ -925,6 +961,7 @@ export function CreateEventPopover({
                 attendees={attendees}
                 onAdd={addAttendee}
                 onRemove={removeAttendee}
+                onToggleOptional={toggleAttendeeOptional}
                 inputId="event-attendees"
                 placeholder={t("eventForm.attendeesPlaceholder")}
                 onEmptyEnter={() => formRef.current?.requestSubmit()}
@@ -956,9 +993,10 @@ export function CreateEventPopover({
               </Label>
               <Select
                 value={videoProvider}
-                onValueChange={(value) =>
-                  setVideoProvider(value as VideoProvider)
-                }
+                onValueChange={(value) => {
+                  setVideoProvider(value as VideoProvider);
+                  setVideoProviderTouched(true);
+                }}
               >
                 <SelectTrigger
                   id="event-video-provider"

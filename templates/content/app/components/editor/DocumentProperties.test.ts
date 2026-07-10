@@ -20,6 +20,7 @@ import {
   personItems,
   personLabel,
   placeLabel,
+  propertyTypeForSourceFieldType,
   relationItems,
   removePropertyOption,
   renamePropertyOption,
@@ -67,6 +68,15 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("")).not.toContain("formula");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_time");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_by");
+  });
+});
+
+describe("source field type compatibility", () => {
+  it("keeps raw list fields conservative for binding compatibility", () => {
+    expect(propertyTypeForSourceFieldType("list")).toBe("text");
+    expect(propertyTypeForSourceFieldType("array")).toBe("text");
+    expect(propertyTypeForSourceFieldType("tags")).toBe("multi_select");
+    expect(propertyTypeForSourceFieldType("multi_select")).toBe("multi_select");
   });
 });
 

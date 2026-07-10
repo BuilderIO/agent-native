@@ -1,3 +1,5 @@
+import { Link } from "react-router";
+
 import {
   Table,
   TableBody,
@@ -5,8 +7,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@agent-native/toolkit/ui/table";
-import { Link } from "react-router";
+} from "@/components/ui/table";
 
 export interface TopVideoRow {
   id: string;

@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { sampleSpring, springToCssLinear } from "../../../shared/motion-easing";
+
 /**
  * These tests exercise the REAL motion-preview bridge script that
  * `DesignCanvas.tsx` injects into the design iframe. Rather than copy the
@@ -13,6 +15,10 @@ import { describe, expect, it } from "vitest";
  * Source: app/components/design/bridge/motion-preview.bridge.ts
  * Compiled: .generated/bridge/motion-preview.generated.ts
  */
+interface FakeElement {
+  style: Record<string, string>;
+}
+
 function loadBridge(): {
   lerp: (a: string, b: string, ratio: number) => string;
   interpolate: (
@@ -21,6 +27,14 @@ function loadBridge(): {
   ) => string;
   parseColor: (value: string) => number[] | null;
   evalEase: (ease: string | undefined, x: number) => number;
+  trackLocalT: (
+    track: { delayMs?: number; durationMs?: number },
+    t: number,
+  ) => number;
+  /** Dispatch a parent → iframe postMessage into the bridge's listener. */
+  sendMessage: (data: unknown) => void;
+  /** Register a fake element addressable by data-agent-native-node-id. */
+  addElement: (nodeId: string) => FakeElement;
 } {
   // Import the compiled bridge string from the generated module. Using
   // require() so the import is synchronous and the function can be called
@@ -53,13 +67,43 @@ function loadBridge(): {
   // Remove inner IIFE closing
   body = body.replace(/\}\)\(\);\s*$/, "");
 
+  // Fake window/document so the bridge's live message handler and
+  // applyPreview() path are exercised for real (offsets, inline styles).
+  const listeners: Array<(e: unknown) => void> = [];
+  const elements = new Map<string, FakeElement>();
+  const parentSentinel = {};
+  const fakeWindow = {
+    parent: parentSentinel,
+    addEventListener(type: string, fn: (e: unknown) => void) {
+      if (type === "message") listeners.push(fn);
+    },
+  };
+  const fakeDocument = {
+    querySelector(selector: string): FakeElement | null {
+      const m = /\[data-agent-native-node-id="([^"]+)"\]/.exec(selector);
+      return m ? (elements.get(m[1]) ?? null) : null;
+    },
+  };
+
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "window",
     "document",
-    body + "\n; return { lerp, interpolate, parseColor, evalEase };",
+    body +
+      "\n; return { lerp, interpolate, parseColor, evalEase, trackLocalT };",
   );
-  return factory({ addEventListener() {} }, { querySelector: () => null });
+  const api = factory(fakeWindow, fakeDocument);
+  return {
+    ...api,
+    sendMessage: (data: unknown) => {
+      for (const fn of listeners) fn({ source: parentSentinel, data });
+    },
+    addElement: (nodeId: string) => {
+      const el: FakeElement = { style: {} };
+      elements.set(nodeId, el);
+      return el;
+    },
+  };
 }
 
 const bridge = loadBridge();
@@ -229,5 +273,142 @@ describe("motion-preview bridge easing", () => {
 
   it("falls back to linear for unknown easing strings", () => {
     expect(bridge.evalEase("totally-unknown", 0.4)).toBeCloseTo(0.4, 6);
+  });
+});
+
+describe("motion-preview bridge spring + linear() easing (Figma Motion parity)", () => {
+  it("evaluates spring tokens with real physics, matching the shared sampler", () => {
+    for (const [token, spring] of [
+      ["spring(0.69)", { bounce: 0.69, settle: 1 }],
+      ["spring(0)", { bounce: 0, settle: 1 }],
+      ["spring(0.2, 0.5)", { bounce: 0.2, settle: 0.5 }],
+    ] as const) {
+      for (const x of [0, 0.1, 0.3, 0.5, 0.7, 0.9, 1]) {
+        expect(bridge.evalEase(token, x)).toBeCloseTo(
+          sampleSpring(spring, x),
+          10,
+        );
+      }
+    }
+  });
+
+  it("bouncy springs overshoot past 1; bounce 0 never does", () => {
+    let max = 0;
+    for (let i = 0; i <= 200; i++) {
+      max = Math.max(max, bridge.evalEase("spring(0.69)", i / 200));
+    }
+    expect(max).toBeGreaterThan(1.1);
+    for (let i = 0; i <= 100; i++) {
+      expect(bridge.evalEase("spring(0)", i / 100)).toBeLessThanOrEqual(1.0001);
+    }
+  });
+
+  it("evaluates CSS linear() stop lists (incl. compiled springs)", () => {
+    expect(bridge.evalEase("linear(0, 0.5, 1)", 0.25)).toBeCloseTo(0.25, 6);
+    expect(bridge.evalEase("linear(0, 0.9 20%, 1)", 0.2)).toBeCloseTo(0.9, 6);
+    expect(bridge.evalEase("linear(0, 1 40% 60%, 1)", 0.5)).toBeCloseTo(1, 6);
+    // A compiled spring replays through linear() close to the true spring.
+    const compiled = springToCssLinear({ bounce: 0.69, settle: 1 });
+    for (const x of [0.2, 0.5, 0.8]) {
+      expect(
+        Math.abs(
+          bridge.evalEase(compiled, x) -
+            sampleSpring({ bounce: 0.69, settle: 1 }, x),
+        ),
+      ).toBeLessThan(0.08);
+    }
+  });
+});
+
+describe("motion-preview bridge per-track offsets (span timing)", () => {
+  it("maps timeline time into an offset track's local span, clamped outside", () => {
+    const fresh = loadBridge();
+    // Establish the timeline duration via a load message.
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      tracks: [],
+      durationMs: 2000,
+    });
+    const track = { delayMs: 500, durationMs: 1000 };
+    expect(fresh.trackLocalT(track, 0)).toBe(0);
+    expect(fresh.trackLocalT(track, 0.25)).toBe(0); // 500ms = span start
+    expect(fresh.trackLocalT(track, 0.5)).toBeCloseTo(0.5, 6); // 1000ms
+    expect(fresh.trackLocalT(track, 0.75)).toBe(1); // 1500ms = span end
+    expect(fresh.trackLocalT(track, 1)).toBe(1);
+    // Offset-free tracks pass through unchanged.
+    expect(fresh.trackLocalT({}, 0.42)).toBeCloseTo(0.42, 6);
+  });
+
+  it("previews offset tracks through the real message + inline-style path", () => {
+    const fresh = loadBridge();
+    const el = fresh.addElement("hero");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 2000,
+      tracks: [
+        {
+          targetNodeId: "hero",
+          property: "opacity",
+          delayMs: 1000,
+          durationMs: 1000,
+          keyframes: [
+            { t: 0, value: "0", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    // Before the span: holds the first keyframe value (fill-mode both).
+    fresh.sendMessage({ type: "motion-preview", t: 0.25, durationMs: 2000 });
+    expect(el.style.opacity).toBe("0");
+    // Mid-span: 1500ms → local t 0.5.
+    fresh.sendMessage({ type: "motion-preview", t: 0.75, durationMs: 2000 });
+    expect(el.style.opacity).toBe("0.5");
+    // After the span end: holds the last keyframe value.
+    fresh.sendMessage({ type: "motion-preview", t: 1, durationMs: 2000 });
+    expect(el.style.opacity).toBe("1");
+    // Clear restores the original inline value.
+    fresh.sendMessage({ type: "motion-preview-clear" });
+    expect(el.style.opacity).toBe("");
+  });
+
+  it("previews modern individual transform properties (translate/scale/rotate)", () => {
+    const fresh = loadBridge();
+    const el = fresh.addElement("card");
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "card",
+          property: "translate",
+          keyframes: [
+            { t: 0, value: "0px 16px", ease: "linear" },
+            { t: 1, value: "0px 0px", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId: "card",
+          property: "rotate",
+          keyframes: [
+            { t: 0, value: "0deg", ease: "linear" },
+            { t: 1, value: "90deg", ease: "linear" },
+          ],
+        },
+        {
+          targetNodeId: "card",
+          property: "scale",
+          keyframes: [
+            { t: 0, value: "0.8", ease: "linear" },
+            { t: 1, value: "1", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+    // Individual transform properties compose without clobbering each other.
+    expect(el.style.translate).toBe("0px 8px");
+    expect(el.style.rotate).toBe("45deg");
+    expect(el.style.scale).toBe("0.9");
   });
 });

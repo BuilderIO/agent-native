@@ -1,5 +1,5 @@
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 
 const panelGhost = "bg-[var(--design-editor-skeleton-panel-ghost-bg)]";
 

@@ -2488,6 +2488,63 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps materialized pending tool calls across clear events", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "clear" },
+          { type: "text", text: "Retrying" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    const clearSnapshot = results.find(
+      (result) =>
+        Array.isArray(result.content) &&
+        result.content.some(
+          (part) =>
+            part?.type === "tool-call" &&
+            part.toolName === "query" &&
+            !("result" in part),
+        ) &&
+        !result.content.some((part) => part?.type === "text"),
+    );
+    expect(clearSnapshot?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        args: { sql: "select 1" },
+      }),
+    ]);
+  });
+
+  it("still clears ephemeral activity placeholders on clear events", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing query",
+            tool: "query",
+          },
+          { type: "clear" },
+          { type: "text", text: "Retrying" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [{ type: "text", text: "Retrying" }],
+    });
+  });
+
   it("dispatches visible activity for tool starts", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3023,5 +3080,58 @@ describe("journal-recovery tool replay coalescing", () => {
     const toolCards = content.filter((p) => p.type === "tool-call");
     expect(toolCards).toHaveLength(2);
     expect(toolCards.map((p) => p.result)).toEqual(["row A", "row B"]);
+  });
+});
+
+describe("SSE thinking / reasoning events", () => {
+  function eventsStream(events: object[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        const enc = new TextEncoder();
+        for (const ev of events) {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
+        }
+        controller.close();
+      },
+    });
+  }
+
+  it("coalesces thinking deltas into a single reasoning part", async () => {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([
+        { type: "thinking", text: "First, " },
+        { type: "reasoning", text: "check the schema." },
+        { type: "text", text: "Here is the answer." },
+        { type: "done" },
+      ]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {});
+
+    expect(content).toEqual([
+      { type: "reasoning", text: "First, check the schema." },
+      { type: "text", text: "Here is the answer." },
+    ]);
+  });
+
+  it("clears in-flight reasoning on clear events", async () => {
+    const content: any[] = [];
+    await readSSEStreamRaw(
+      eventsStream([
+        { type: "thinking", text: "draft thought" },
+        { type: "clear" },
+        { type: "text", text: "retry" },
+        { type: "done" },
+      ]),
+      content,
+      { value: 0 },
+      undefined,
+      () => {},
+    ).catch(() => {});
+
+    expect(content).toEqual([{ type: "text", text: "retry" }]);
   });
 });

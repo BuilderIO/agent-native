@@ -200,7 +200,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +218,14 @@ Las raíces de las plantillas de Agent Native ya llaman a `configureTracking()`.
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 El ayudante del navegador también realiza una lectura sin bloqueo y de mejor esfuerzo de la sesión de autenticación actual de Agent Native. La repetición es solo para usuarios con sesión iniciada de forma predeterminada: cuando `sessionReplay` está habilitado, la grabación no se inicia a menos que la sesión se resuelva en una dirección de correo electrónico de usuario. Las repeticiones de usuarios con sesión iniciada incluyen `userId`/`userEmail` respaldados por correo electrónico más `orgId`.
 
 Configure `sessionReplay.requireSignedInUser: false` o `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` solo para una implementación de repetición anónima intencional. Cuando la restricción de autenticación está deshabilitada, las grabaciones anónimas siguen siendo consultables por visitante anónimo, sesión, aplicación/plantilla, nombre de host y ruta.
 
-La repetición de sesión se muestrea de forma determinista por sesión de navegador. Un `sampleRate` de `0.1` graba aproximadamente el 10% de las sesiones elegibles; use `1` cuando la población elegible sea intencionalmente pequeña, como en pruebas internas solo para usuarios con sesión iniciada.
+La repetición de sesión se muestrea de forma determinista por sesión de navegador. Un `sampleRate` de `1` graba todas las sesiones elegibles; use valores más bajos, como `0.1`, cuando la población elegible sea intencionalmente amplia.
 
 Los valores predeterminados de privacidad son intencionalmente conservadores pero siguen siendo útiles para la reproducción:
 

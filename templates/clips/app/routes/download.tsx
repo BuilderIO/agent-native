@@ -1,15 +1,14 @@
 import { appBasePath, appPath, useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
   IconExternalLink,
-  IconPlayerRecord,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
   clipsChromeExtensionEnabled,
@@ -201,9 +200,18 @@ export default function DownloadPage() {
             href={appPath("/")}
             className="flex items-center gap-2 font-semibold"
           >
-            <span className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground">
-              <IconPlayerRecord className="h-4 w-4" />
-            </span>
+            <img
+              src={appPath("/agent-native-icon-light.svg")}
+              alt=""
+              aria-hidden="true"
+              className="block h-4 w-auto shrink-0 dark:hidden"
+            />
+            <img
+              src={appPath("/agent-native-icon-dark.svg")}
+              alt=""
+              aria-hidden="true"
+              className="hidden h-4 w-auto shrink-0 dark:block"
+            />
             <span>Clips</span>
           </a>
           <a

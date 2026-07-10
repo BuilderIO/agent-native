@@ -1,6 +1,7 @@
 import {
   appApiPath,
   agentNativePath,
+  callAction,
   oauthRedirectUri,
   useActionMutation,
   useActionQuery,
@@ -8,38 +9,6 @@ import {
   PromptComposer,
   useT,
 } from "@agent-native/core/client";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/toolkit/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconCheck,
   IconChevronDown,
@@ -61,6 +30,38 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import {
   getOptionalCredentialKeys,
@@ -112,19 +113,7 @@ const firstPartyAnalyticsEndpoint =
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ vars }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to save");
-  }
+  await callAction("update-data-source-credentials", { vars });
 }
 
 async function testConnection(
@@ -268,19 +257,7 @@ function StepItem({
 }
 
 async function deleteCredentials(keys: string[]): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ keys }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to delete");
-  }
+  await callAction("delete-data-source-credentials", { keys });
 }
 
 async function disconnectDataSource(source: DataSource): Promise<void> {
@@ -1461,6 +1438,34 @@ function FirstPartyAnalyticsCard() {
                   VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
                 </code>
               </div>
+            </div>
+
+            {/* Error capture note — the analytics SDK also captures uncaught
+                exceptions and links them to session replays. Static English
+                copy because shared i18n is owned elsewhere. */}
+            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+              <div className="font-medium text-foreground">
+                Error capture{/* i18n-ignore static SDK docs label */}
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                Once a public key is set, the browser SDK automatically captures
+                uncaught exceptions and unhandled promise rejections, and
+                exposes a Sentry-style{" "}
+                <code className="font-mono">captureException()</code> /{" "}
+                <code className="font-mono">captureMessage()</code> API. Errors
+                {/* i18n-ignore static SDK docs copy */} are grouped into issues
+                under Monitoring → Errors and linked to the session replay where
+                each one happened.
+              </p>
+              <a
+                href="https://www.agent-native.com/docs/tracking#error-capture"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                Error capture docs{/* i18n-ignore static SDK docs link */}
+                <IconExternalLink className="h-3 w-3" />
+              </a>
             </div>
 
             <div className="data-source-inline-form">

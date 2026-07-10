@@ -12,6 +12,9 @@ import {
   ToolCallDisplay,
   ToolCallFallback,
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
+  formatWorkedDuration,
+  ReasoningCell,
+  toolInputPayload,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
@@ -325,6 +328,53 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector("button")?.parentElement;
     expect(row?.className).toContain("w-full");
     expect(container.querySelector("button")?.className).toContain("w-full");
+  });
+
+  it("expands inputs inline and opens output in a popover", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="slack_read_thread"
+          args={{ channel_id: "C123", message_ts: "1.2" }}
+          result={JSON.stringify({ messages: "ok" })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("slack read thread");
+    expect(container.textContent).not.toContain("C123");
+
+    const expandButton = container.querySelector(
+      'button[aria-expanded="false"]',
+    ) as HTMLButtonElement | null;
+    expect(expandButton).not.toBeNull();
+    act(() => {
+      expandButton?.click();
+    });
+
+    expect(container.textContent).toContain("C123");
+    const outputButton = container.querySelector(
+      'button[aria-label="View slack_read_thread output"]',
+    ) as HTMLButtonElement | null;
+    expect(outputButton).not.toBeNull();
+
+    act(() => {
+      outputButton?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Raw slack_read_thread tool call output",
+    );
+    expect(document.body.textContent).toContain("messages");
+  });
+
+  it("syntax highlights run-code source as JavaScript", () => {
+    const payload = toolInputPayload("run-code", {
+      code: "const answer = 42;\nconsole.log(answer);",
+    });
+
+    expect(payload?.lang).toBe("javascript");
   });
 
   it("shows a compact repeat count for coalesced tool rows", () => {
@@ -651,5 +701,55 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       textParts.map((part) => part.getAttribute("data-streaming")),
     ).toEqual([null]);
+  });
+});
+
+describe("formatWorkedDuration", () => {
+  it("formats seconds, minutes, and hours", () => {
+    expect(formatWorkedDuration(1_000)).toBe("1s");
+    expect(formatWorkedDuration(45_000)).toBe("45s");
+    expect(formatWorkedDuration(60_000)).toBe("1m");
+    expect(formatWorkedDuration(125_000)).toBe("2m 5s");
+    expect(formatWorkedDuration(3_600_000)).toBe("1h");
+    expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+  });
+});
+
+describe("ReasoningCell", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders collapsible plain-English thinking prose", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="I should verify the join keys first." />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.textContent).not.toContain("verify the join keys");
+
+    const button = container.querySelector(
+      'button[aria-expanded="false"]',
+    ) as HTMLButtonElement | null;
+    act(() => {
+      button?.click();
+    });
+
+    expect(container.textContent).toContain("verify the join keys first.");
   });
 });
