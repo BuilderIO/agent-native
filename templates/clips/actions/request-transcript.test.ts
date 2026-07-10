@@ -36,6 +36,9 @@ const mockTranscribeWithBuilder = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockPrepareAudioOnlyTranscriptionMedia = vi.hoisted(() => vi.fn());
 const mockAssertAccess = vi.hoisted(() => vi.fn());
+const mockDispatchPostFinalizeJob = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -122,6 +125,10 @@ vi.mock("../server/lib/recordings.js", () => ({
     email,
     kind: "ownerEmailMatches",
   }),
+}));
+
+vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
+  dispatchPostFinalizeJob: mockDispatchPostFinalizeJob,
 }));
 
 vi.mock("./regenerate-title.js", () => ({

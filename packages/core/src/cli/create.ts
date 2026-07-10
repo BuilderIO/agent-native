@@ -2077,6 +2077,17 @@ function copyDir(src: string, dest: string, root?: string): void {
 }
 
 function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
+  const pathParts = srcPath?.split(path.sep);
+  if (
+    name === "plans" &&
+    pathParts?.at(-2) === "plan" &&
+    pathParts.at(-3) === "templates"
+  ) {
+    return true;
+  }
+  if (name === "preview.html" && srcPath?.split(path.sep).includes("plans")) {
+    return true;
+  }
   if (
     /^settings(?:\..*)?\.json$/.test(name) &&
     srcPath?.split(path.sep).includes(".claude")
@@ -2102,9 +2113,5 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  return (
-    name.endsWith(".tmp.json") ||
-    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) ||
-    /\.db-(?:shm|wal)$/.test(name)
-  );
+  return name.endsWith(".tmp.json") || /\.db(?:-shm|-wal)?$/.test(name);
 }

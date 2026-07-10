@@ -10,6 +10,9 @@ const saveMonitorLib = vi.fn(
 vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: () => "brent@builder.io",
   getRequestOrgId: () => "org-1",
+  buildDeepLink: (input: { to: string }) =>
+    `https://analytics.agent-native.test${input.to}`,
+  getAppProductionUrl: () => "https://analytics.agent-native.test",
 }));
 
 vi.mock("../server/lib/uptime-monitors", () => ({
@@ -63,5 +66,34 @@ describe("save-monitor action name defaulting", () => {
       expect.objectContaining({ name: "Marketing site" }),
       expect.anything(),
     );
+  });
+
+  it("returns a focused link for the saved monitor", () => {
+    expect(
+      saveMonitorAction.link?.({
+        args: { url: "https://clips.agent-native.com" },
+        result: {
+          id: "monitor/clips",
+          monitorAppUrl:
+            "https://analytics.agent-native.test/monitoring?view=uptime&monitor=monitor%2Fclips",
+        },
+      }),
+    ).toEqual({
+      url: "https://analytics.agent-native.test/monitoring?view=uptime&monitor=monitor%2Fclips",
+      label: "Open monitor in Analytics",
+      view: "monitoring",
+    });
+  });
+
+  it("returns the exact monitor link in the action result", async () => {
+    const result = await saveMonitorAction.run({
+      url: "https://clips.agent-native.com",
+    } as never);
+
+    expect(result).toMatchObject({
+      id: "monitor-1",
+      monitorAppUrl:
+        "https://analytics.agent-native.test/monitoring?view=uptime&monitor=monitor-1",
+    });
   });
 });

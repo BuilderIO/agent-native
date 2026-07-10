@@ -63,12 +63,13 @@ describe("flow-to-absolute structure drop persistence", () => {
   it("keeps the source update on the existing local history/optimistic-preview path", () => {
     const start = editorSource.indexOf("const handleVisualStructureChange");
     const end = editorSource.indexOf(
-      "const handleScreenVisualStructureChange",
+      "const handleVisualDuplicateChange",
       start,
     );
     const section = editorSource.slice(start, end);
 
     expect(section).toContain("applyLocalContentUpdate(");
+    expect(section.match(/applyLocalContentUpdate\(/g)).toHaveLength(1);
     expect(section).toContain("{ skipPreview: true }");
     expect(section).not.toContain("recordHistory: false");
   });

@@ -39,6 +39,8 @@ export interface BuildBuilderDesignSystemIndexFilesOptions {
   designMdFilename?: string;
   maxCodeFiles?: number;
   maxTotalCodeBytes?: number;
+  /** Default keeps legacy best-effort code indexing; upload/chat surfaces should fail loudly. */
+  overflowBehavior?: "skip" | "throw";
 }
 
 export interface BuilderDesignSystemProxyFieldsOptions {
@@ -194,6 +196,7 @@ export function buildBuilderDesignSystemIndexFiles({
   designMdFilename,
   maxCodeFiles = DEFAULT_MAX_CODE_FILES,
   maxTotalCodeBytes = DEFAULT_MAX_TOTAL_CODE_BYTES,
+  overflowBehavior = "skip",
 }: BuildBuilderDesignSystemIndexFilesOptions): BuilderDesignSystemIndexFile[] {
   const encoder = new TextEncoder();
   const files: BuilderDesignSystemIndexFile[] = [];
@@ -214,7 +217,14 @@ export function buildBuilderDesignSystemIndexFiles({
         ? new Uint8Array(Buffer.from(content, "base64"))
         : encoder.encode(content);
     if (data.byteLength === 0) return;
-    if (totalBytes + data.byteLength > maxTotalCodeBytes) return;
+    if (totalBytes + data.byteLength > maxTotalCodeBytes) {
+      if (overflowBehavior === "throw") {
+        throw new Error(
+          `Design-system file "${normalizedName}" exceeds the ${Math.round(maxTotalCodeBytes / 1024 / 1024)} MB inline upload budget. Use the dedicated file upload instead of sending large binary files through an action payload.`,
+        );
+      }
+      return;
+    }
     totalBytes += data.byteLength;
     files.push({
       name: normalizedName,
@@ -234,6 +244,11 @@ export function buildBuilderDesignSystemIndexFiles({
     );
   }
 
+  if (overflowBehavior === "throw" && (codeFiles?.length ?? 0) > maxCodeFiles) {
+    throw new Error(
+      `Too many design-system files (max ${maxCodeFiles}); no files were indexed.`,
+    );
+  }
   for (const file of (codeFiles ?? []).slice(0, maxCodeFiles)) {
     pushFile(file.filename, file.content, file.mimeType, file.encoding);
   }

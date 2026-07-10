@@ -60,10 +60,11 @@ describe("telegramAdapter parseIncomingMessage", () => {
 
     expect(msg).toMatchObject({
       platform: "telegram",
-      externalThreadId: "555",
+      externalThreadId: "chat:555",
       text: "ship it",
       senderName: "Ada",
       senderId: "777",
+      replyRef: "42",
       timestamp: 1700000000 * 1000,
     });
     expect(msg?.platformContext).toMatchObject({
@@ -74,6 +75,21 @@ describe("telegramAdapter parseIncomingMessage", () => {
       fromId: 777,
       fromUsername: "ada_l",
     });
+  });
+
+  it("uses the Telegram topic as canonical thread identity", async () => {
+    const adapter = telegramAdapter();
+    const msg = await adapter.parseIncomingMessage(
+      eventWithBody(update({ message_thread_id: 99 })),
+    );
+
+    expect(msg).toMatchObject({
+      externalThreadId: "chat:555:thread:99",
+      threadRef: "99",
+      replyRef: "42",
+      platformContext: { messageThreadId: 99 },
+    });
+    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual(["555"]);
   });
 
   it("joins first and last name for senderName", async () => {
@@ -152,6 +168,49 @@ describe("telegramAdapter parseIncomingMessage", () => {
       eventWithBody(null),
     );
     expect(msg).toBeNull();
+  });
+});
+
+describe("telegramAdapter getStatus", () => {
+  it("requires both the bot token and webhook secret", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "123:abc";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, result: { username: "example_bot" } }),
+          ),
+      ),
+    );
+
+    const status = await telegramAdapter().getStatus();
+
+    expect(status.configured).toBe(false);
+    expect(status.details).toMatchObject({
+      hasToken: true,
+      hasWebhookSecret: false,
+      botUsername: "example_bot",
+    });
+    expect(status.error).toContain("TELEGRAM_WEBHOOK_SECRET");
+  });
+
+  it("reports configured only when the webhook secret is present", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "123:abc";
+    process.env.TELEGRAM_WEBHOOK_SECRET = "telegram-webhook-secret-example";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+    );
+
+    const status = await telegramAdapter().getStatus();
+
+    expect(status.configured).toBe(true);
+    expect(status.details).toMatchObject({
+      hasToken: true,
+      hasWebhookSecret: true,
+    });
+    expect(status.error).toBeUndefined();
   });
 });
 
@@ -312,6 +371,40 @@ describe("telegramAdapter sendResponse", () => {
       chat_id: 555,
       text: "*hi*",
       parse_mode: "Markdown",
+    });
+  });
+
+  it("preserves topic and contextual reply references", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "example-token";
+    let body: any;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body));
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+
+    await telegramAdapter().sendResponse(
+      { text: "reply", platformContext: {} },
+      {
+        platform: "telegram",
+        externalThreadId: "chat:555:thread:99",
+        text: "question",
+        threadRef: "99",
+        replyRef: "42",
+        timestamp: 1,
+        platformContext: { chatId: 555 },
+      },
+    );
+
+    expect(body).toMatchObject({
+      chat_id: 555,
+      message_thread_id: 99,
+      reply_parameters: {
+        message_id: 42,
+        allow_sending_without_reply: true,
+      },
     });
   });
 

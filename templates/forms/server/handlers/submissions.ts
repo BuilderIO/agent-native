@@ -210,7 +210,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   const now = new Date().toISOString();
   const responseId = nanoid();
-  const ip = getRequestIP(event) ?? null;
+  const anonymous = settings.anonymous === true;
+  const ip = anonymous ? null : (getRequestIP(event) ?? null);
 
   // Optional metadata sent by trusted clients (e.g. the framework's
   // FeedbackButton, which forwards the logged-in user's email so we can see
@@ -218,7 +219,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // when present; cross-app feedback submissions fall back to the client hint,
   // which is useful context but not verified identity.
   const meta =
-    typeof body._meta === "object" && body._meta !== null
+    !anonymous && typeof body._meta === "object" && body._meta !== null
       ? (body._meta as {
           submitterEmail?: unknown;
           chatSessionId?: unknown;
@@ -228,7 +229,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
           clientSurface?: unknown;
         })
       : null;
-  const session = await getSession(event).catch(() => null);
+  const session = anonymous ? null : await getSession(event).catch(() => null);
   const submitterEmail =
     cleanSubmitterEmail(session?.email) ??
     cleanSubmitterEmail(meta?.submitterEmail);

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatPendingVisualStylePrompt,
+  pendingLiveStructureEditsMatch,
   reactSourceAnchorForPendingEdit,
+  type PendingLiveStructureEdit,
 } from "./pending-edits";
 import {
   buildReactSemanticHandoff,
@@ -789,6 +791,10 @@ describe("pending React source anchors", () => {
           anchorSourceId: "runtime-hero",
           anchorSourceAnchor: targetAnchor,
           placement: "inside",
+          dropMode: "flow-insert",
+          forceFlowPositionOverride: true,
+          sourceRect: { x: 40, y: 60, width: 120, height: 80 },
+          anchorRect: { x: 20, y: 20, width: 640, height: 480 },
           updatedAt: 3,
         },
       ],
@@ -803,6 +809,13 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"semanticHandoff"');
     expect(prompt).toContain('"executionMode": "coding-agent"');
     expect(prompt).toContain('"operation": "reparent"');
+    expect(prompt).toContain('"dropMode": "flow-insert"');
+    expect(prompt).toContain('"forceFlowPositionOverride": true');
+    expect(prompt).toContain('"sourceRect"');
+    expect(prompt).toContain('"anchorRect"');
+    expect(prompt).toContain(
+      "remove authored absolute positioning so the moved element participates in the target container's layout",
+    );
     expect(prompt).toContain('"versionHashes": []');
     expect(prompt).toContain('"subjectAnchorIds": [');
     expect(prompt).toContain('"targetAnchorId": "target"');
@@ -813,6 +826,38 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain(
       "keep the preview pending until HMR proves the intended runtime relationship",
     );
+  });
+
+  it("preserves absolute-container geometry semantics in the guarded handoff", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      edits: [],
+      liveEdits: [
+        {
+          kind: "structure",
+          screenId: "home",
+          filename: "home",
+          screenName: "Home",
+          selector: ".card",
+          sourceId: "runtime-card",
+          sourceAnchor: SUBJECT,
+          anchorSelector: ".freeform",
+          anchorSourceId: "runtime-freeform",
+          anchorSourceAnchor: TARGET,
+          placement: "inside",
+          dropMode: "absolute-container",
+          sourceRect: { x: 340, y: 220, width: 120, height: 80 },
+          anchorRect: { x: 300, y: 180, width: 640, height: 480 },
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"dropMode": "absolute-container"');
+    expect(prompt).toContain(
+      "preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space",
+    );
+    expect(prompt).toContain('"x": 340');
+    expect(prompt).toContain('"x": 300');
   });
 
   it("includes a safe handoff failure without leaking an unresolved absolute path", () => {
@@ -851,5 +896,38 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"code": "unsafe-source-path"');
     expect(prompt).toContain("does not include a safe project-relative path");
     expect(prompt).not.toContain("/Users/private");
+  });
+});
+
+describe("pending localhost structure history", () => {
+  const structureEdit: PendingLiveStructureEdit = {
+    kind: "structure",
+    screenId: "home",
+    filename: "home",
+    screenName: "Home",
+    selector: ".card",
+    sourceId: "runtime-card",
+    anchorSelector: ".hero",
+    anchorSourceId: "runtime-hero",
+    placement: "inside",
+    dropMode: "flow-insert",
+    forceFlowPositionOverride: true,
+    updatedAt: 20,
+  };
+
+  it("matches a bridge replay by semantic operation rather than transient request id", () => {
+    expect(
+      pendingLiveStructureEditsMatch(structureEdit, {
+        ...structureEdit,
+        requestId: "fresh-bridge-request",
+        updatedAt: 999,
+      }),
+    ).toBe(true);
+    expect(
+      pendingLiveStructureEditsMatch(structureEdit, {
+        ...structureEdit,
+        dropMode: "absolute-container",
+      }),
+    ).toBe(false);
   });
 });

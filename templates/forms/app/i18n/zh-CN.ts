@@ -178,6 +178,8 @@ const messages = {
       successMessage: "成功消息",
       defaultSuccessMessage: "谢谢！你的回复已记录。",
       redirectUrl: "重定向 URL（可选）",
+      anonymousResponses: "匿名回复",
+      anonymousResponsesDescription: "不保留 IP 地址、回复者身份或来源元数据。",
       saveSettings: "保存设置",
     },
     integrations: {

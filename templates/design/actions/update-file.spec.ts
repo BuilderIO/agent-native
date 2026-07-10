@@ -229,6 +229,26 @@ beforeEach(() => {
 });
 
 describe("update-file: expectedVersionHash / syncCollab regression baseline", () => {
+  it("rejects malformed managed-style HTML before SQL or collab mutation", async () => {
+    const before = buildDoc();
+    const malformed = before.replace(
+      "</head>",
+      'data-agent-native-breakpoints">@media (max-width: 1279px) { [data-agent-native-node-id="an-node-1"] { color: red; } }</style></head>',
+    );
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: malformed,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(before),
+      } as never),
+    ).rejects.toThrow(/DESIGN_HTML_INTEGRITY/);
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
   it("1. no expectedVersionHash provided at all: content write proceeds exactly as before", async () => {
     const next = buildDoc(" changed-");
     const result = await updateFileAction.run({

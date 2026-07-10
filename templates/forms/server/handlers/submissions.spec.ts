@@ -70,6 +70,7 @@ describe("submitForm pageUrl pass-through", () => {
   beforeEach(() => {
     state.inserted.length = 0;
     state.session = null;
+    publishedForm.settings = JSON.stringify({});
   });
 
   it("persists the page URL and client surface forwarded in _meta", async () => {
@@ -150,5 +151,30 @@ describe("submitForm pageUrl pass-through", () => {
     expect(res).toMatchObject({ success: true });
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.submitterEmail).toBe("real-user@example.com");
+  });
+
+  it("suppresses identity, IP, and source metadata in strict anonymous mode", async () => {
+    publishedForm.settings = JSON.stringify({ anonymous: true });
+    state.session = { email: "signed-in@example.com" };
+
+    const res = await submit({
+      data: { msg: "private feedback" },
+      _meta: {
+        submitterEmail: "metadata@example.com",
+        chatSessionId: "chat-sensitive",
+        activeRunId: "run-sensitive",
+        pageUrl: "https://example.test/account/private",
+        clientSurface: "web",
+      },
+    });
+
+    expect(res).toMatchObject({ success: true });
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0]).toMatchObject({
+      ip: null,
+      submitterEmail: null,
+      pageUrl: null,
+      clientSurface: null,
+    });
   });
 });

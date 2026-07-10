@@ -15,11 +15,9 @@ import {
   deleteAppState,
 } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
-import {
-  getActiveFileUploadProvider,
-  uploadFile,
-} from "@agent-native/core/file-upload";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -31,6 +29,7 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   listRecordingChunkKeys,
   validateRecordingChunkKeys,
@@ -43,6 +42,7 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -52,11 +52,7 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
-import {
-  ensureRecordingSeekable,
-  markRecordingSeekable,
-} from "./lib/ensure-seekable-video.js";
-import requestTranscript from "./request-transcript.js";
+import { markRecordingSeekable } from "./lib/ensure-seekable-video.js";
 
 // Recordings up to this size get their seekable rewrite applied inline during
 // finalize (we already hold the assembled bytes). Larger recordings are handed
@@ -392,25 +388,28 @@ async function markRecordingReady(params: {
   } else {
     // Streaming/resumable (or oversized) uploads shipped raw MediaRecorder
     // bytes with no seekable rewrite: an MP4 with a trailing moov or a WebM
-    // without a Cues index buffers on load and re-buffers on every seek. Fix
-    // it in the background so playback is smooth without blocking finalize.
-    void Promise.resolve(
-      ensureRecordingSeekable({ recordingId: id, ownerEmail }),
-    ).catch((err: unknown) => {
-      console.warn("[finalize] background seekable remux failed", {
+    // without a Cues index buffers on load and re-buffers on every seek. A
+    // fresh self-dispatched request owns the repair so serverless runtimes do
+    // not freeze it when this finalize request returns.
+    await dispatchPostFinalizeJob({
+      recordingId: id,
+      kind: "seekable",
+    }).catch((err: unknown) => {
+      console.warn("[finalize] seekable remux dispatch failed", {
         id,
         error: err instanceof Error ? err.message : String(err),
       });
     });
   }
 
-  // Kick off transcription in the background — fire-and-forget so the chunk
-  // endpoint gets a quick response. The request context (user email via
-  // AsyncLocalStorage) carries through to async continuations.
-  void Promise.resolve(
-    requestTranscript.run({ recordingId: id, force: true }),
-  ).catch((err: unknown) => {
-    console.error("[finalize] background transcript failed", {
+  // Transcription can outlive the upload request. Dispatch it into a fresh
+  // invocation instead of leaving an unawaited promise in this serverless
+  // function, where it can be frozen immediately after the response is sent.
+  await dispatchPostFinalizeJob({
+    recordingId: id,
+    kind: "transcript",
+  }).catch((err: unknown) => {
+    console.error("[finalize] transcript dispatch failed", {
       id,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -511,6 +510,12 @@ export default defineAction({
       // chunks are gone by then).
       if (existing.status === "ready" && existing.videoUrl) {
         debugLog("[finalize] already finalized, returning existing", { id });
+        // A prior attempt may have persisted the ready row and then failed
+        // before deleting its resumable-session handle. The provider upload is
+        // complete at this point, so retire only the local retry state.
+        await deleteResumableSession(id).catch((err) =>
+          console.warn("[finalize] failed to delete resumable session:", err),
+        );
         return {
           id,
           status: "ready" as const,
@@ -581,8 +586,43 @@ export default defineAction({
           id,
           providerId: resumableSession.providerId,
         });
+        if (
+          existing.status === "failed" &&
+          typeof existing.failureReason === "string" &&
+          isStoredButUnservableFinalizeError(existing.failureReason)
+        ) {
+          // Verification failed after the provider may already have completed
+          // the multipart upload. Move only that known-recoverable failure
+          // back to processing. A later user abort writes a different failed
+          // state, and markRecordingReady's status guard will still win.
+          const recoveryStartedAt = new Date().toISOString();
+          await db
+            .update(schema.recordings)
+            .set({
+              status: "processing",
+              failureReason: null,
+              updatedAt: recoveryStartedAt,
+            })
+            .where(
+              and(
+                eq(schema.recordings.id, id),
+                ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                eq(schema.recordings.status, "failed"),
+                eq(schema.recordings.failureReason, existing.failureReason),
+              ),
+            );
+          await writeAppState(`recording-upload-${id}`, {
+            ...(uploadState ?? {}),
+            recordingId: id,
+            status: "processing",
+            failureReason: null,
+            updatedAt: recoveryStartedAt,
+          });
+        }
         try {
-          const uploadProvider = getActiveFileUploadProvider();
+          const uploadProvider = await resolveResumableUploadProvider(
+            resumableSession.providerId,
+          );
           if (!uploadProvider?.resumable) {
             throw new Error("No resumable upload provider configured");
           }

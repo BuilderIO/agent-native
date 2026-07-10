@@ -39,6 +39,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
@@ -382,6 +383,7 @@ export default defineEventHandler(async (event) => {
   // Don't leak the URL (which now carries a short-lived token) into the
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  const transcriptPresentation = resolveTranscriptPresentation(transcript);
 
   return {
     recording: {
@@ -418,10 +420,10 @@ export default defineEventHandler(async (event) => {
     agentContextUrl,
     transcript: transcript
       ? {
-          status: transcript.status,
+          status: transcriptPresentation.status,
           language: transcript.language,
           fullText: transcript.fullText,
-          failureReason: transcript.failureReason,
+          failureReason: transcriptPresentation.failureReason,
           segments: transcriptSegments,
         }
       : null,

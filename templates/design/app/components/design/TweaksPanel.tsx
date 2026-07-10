@@ -73,6 +73,12 @@ export function TweaksPanelContent({
           )}
         </div>
       )}
+      <p
+        data-tweaks-help
+        className="mt-2 border-t border-border/60 pt-2 !text-[10px] leading-relaxed text-muted-foreground/70"
+      >
+        {t("designEditor.tweaksHelp")}
+      </p>
     </div>
   );
 }

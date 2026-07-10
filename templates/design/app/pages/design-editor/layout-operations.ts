@@ -15,6 +15,26 @@ export interface AlignableRect {
   height: number;
 }
 
+export function mergeAuthoredAndLiveRect(args: {
+  id: string;
+  authored: Partial<Omit<AlignableRect, "id">>;
+  live: Omit<AlignableRect, "id"> | null;
+}): AlignableRect {
+  const resolve = (authored: number | undefined, live: number | undefined) =>
+    Number.isFinite(authored)
+      ? (authored as number)
+      : Number.isFinite(live)
+        ? (live as number)
+        : 0;
+  return {
+    id: args.id,
+    x: resolve(args.authored.x, args.live?.x),
+    y: resolve(args.authored.y, args.live?.y),
+    width: resolve(args.authored.width, args.live?.width),
+    height: resolve(args.authored.height, args.live?.height),
+  };
+}
+
 export function computeAlignedPositions(
   rects: readonly AlignableRect[],
   bounds: { x: number; y: number; width: number; height: number },
@@ -142,7 +162,14 @@ export function inferAutoLayoutFromChildren(
   padding: number;
 } {
   if (children.length === 0) {
-    return { direction: "row", gap: 10, padding: 0 };
+    return { direction: "column", gap: 10, padding: 0 };
+  }
+  // Live Figma defaults a one-item Shift+A wrapper to vertical flow even
+  // when the item itself is much wider than it is tall. With no relationship
+  // between multiple children to infer, use that stable default rather than
+  // allowing the selected child's aspect ratio to choose the axis.
+  if (children.length === 1) {
+    return { direction: "column", gap: 10, padding: 0 };
   }
   const minX = Math.min(...children.map((child) => child.x));
   const maxX = Math.max(...children.map((child) => child.x + child.width));

@@ -167,7 +167,7 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
     page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
   const overviewChromeVisible = await page
-    .getByRole("button", { name: "Full view", exact: true })
+    .getByRole("button", { name: "Interact", exact: true })
     .first()
     .isVisible()
     .catch(() => false);
@@ -223,7 +223,7 @@ export async function enterDirectMode(
   page: Page,
   options?: { screenId?: string },
 ): Promise<void> {
-  const fullView = page.getByRole("button", { name: "Full view", exact: true });
+  const fullView = page.getByRole("button", { name: "Interact", exact: true });
   const fullViewVisible = await fullView
     .first()
     .waitFor({ state: "visible", timeout: 5_000 })
@@ -235,7 +235,7 @@ export async function enterDirectMode(
           .locator(
             `[data-screen-shell][data-frame-id="${options.screenId.replace(/"/g, '\\"')}"]`,
           )
-          .getByRole("button", { name: "Full view", exact: true })
+          .getByRole("button", { name: "Interact", exact: true })
       : fullView.last();
     await expect(targetFullView).toHaveCount(1);
     await targetFullView.click();

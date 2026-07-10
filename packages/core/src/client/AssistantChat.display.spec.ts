@@ -18,6 +18,7 @@ vi.mock("./analytics.js", () => ({
   trackSessionStatus: vi.fn(),
 }));
 
+import { clearActiveRun, getActiveRun } from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
@@ -33,6 +34,7 @@ import {
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
 describe("displayableUserMessageText", () => {
@@ -761,8 +763,8 @@ describe("dedupeReconnectContentAgainstMessages", () => {
   });
 });
 
-describe("centered empty chat setup layout", () => {
-  it("floats the setup card outside the centered composer stack unless adjacent UI needs space", () => {
+describe("missing agent engine setup", () => {
+  it("renders a stable in-composer trigger with a responsive popover", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -780,22 +782,19 @@ describe("centered empty chat setup layout", () => {
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
-    expect(source).toContain('data-agent-composer-setup-position="above"');
-    expect(source).toContain('data-agent-composer-setup-position="below"');
+    expect(source).toContain("missingKeySetupOpen");
+    expect(source).toContain("requestMissingKeySetup");
+    expect(source).toContain('className="agent-composer-missing-key-trigger"');
+    expect(source).toContain("<BuilderSetupContent");
+    expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
+    expect(source).toContain("collisionPadding={12}");
+    expect(source).not.toContain("missingKeyBouncePulse");
+    expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toMatch(
-      /\[data-agent-empty-state="centered"\]\s*>\s*\.agent-composer-stack:not\(\s*\[data-agent-composer-adjacent-ui="true"\]\s*\):not\(\s*:has\(\.agent-selection-attached-pill\)\s*\)\s*>\s*\.agent-composer-setup-card\s*\{[^}]*position:\s*absolute;/s,
+      /\.agent-composer-root--hero\s+\.agent-composer-missing-key-trigger\s*\{[^}]*min-height:\s*7\.5rem;[^}]*justify-content:\s*center;/s,
     );
     expect(css).toMatch(
-      /\.agent-composer-stack\[data-agent-composer-adjacent-ui="true"\]\s*,\s*\.agent-composer-stack:has\(\.agent-selection-attached-pill\)\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*gap:\s*0\.5rem;/s,
-    );
-    expect(css).toMatch(
-      /data-agent-composer-setup-position="above"\]\s*\{[^}]*bottom:\s*calc\(100% \+ 0\.5rem\);/s,
-    );
-    expect(css).toMatch(
-      /data-agent-composer-setup-position="below"\]\s*\{[^}]*top:\s*calc\(100% \+ 0\.5rem\);/s,
-    );
-    expect(css).not.toMatch(
-      /\[data-agent-empty-state="compact-setup"\]\s*>\s*\.agent-chat-scroll\s*\{[^}]*flex:\s*0\s+0\s+auto;/s,
+      /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
     );
   });
 });
@@ -961,6 +960,42 @@ describe("chat submit and stop hardening", () => {
 });
 
 describe("waitForThreadRunToClear", () => {
+  afterEach(() => {
+    clearActiveRun();
+    vi.unstubAllGlobals();
+  });
+
+  it("reattaches to a deferred successor instead of clearing its queued follow-up", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          active: true,
+          runId: "run-deferred-successor",
+          threadId: "thread-deferred-successor",
+          status: "running",
+          dispatchMode: "background",
+          awaitingRedispatch: true,
+          lastProgressAt: Date.now(),
+          serverNow: Date.now(),
+        }),
+      })),
+    );
+
+    await expect(
+      waitForThreadRunToClear(
+        "/_agent-native/agent-chat",
+        "thread-deferred-successor",
+      ),
+    ).resolves.toBe(false);
+    expect(getActiveRun()).toEqual({
+      threadId: "thread-deferred-successor",
+      runId: "run-deferred-successor",
+      lastSeq: -1,
+    });
+  });
+
   it("uses server-relative run progress when deciding whether an active run is stale", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

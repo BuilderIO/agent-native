@@ -8,6 +8,7 @@ import { useLocation } from "react-router";
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.library",
   "/library": "navigation.library",
+  "/shared": "navigation.sharedWithMe",
   "/spaces": "navigation.spaces",
   "/archive": "navigation.archive",
   "/trash": "navigation.trash",

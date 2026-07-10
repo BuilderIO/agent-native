@@ -27,6 +27,16 @@ registerShareableResource({
 });
 
 registerShareableResource({
+  type: "design-template",
+  resourceTable: schema.designTemplates,
+  sharesTable: schema.designTemplateShares,
+  displayName: "Design template",
+  titleColumn: "title",
+  getResourcePath: (template) => `/templates?templateId=${template.id}`,
+  getDb,
+});
+
+registerShareableResource({
   type: "design-system",
   resourceTable: schema.designSystems,
   sharesTable: schema.designSystemShares,

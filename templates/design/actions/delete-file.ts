@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { countLockedLayers } from "../shared/locked-layers.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -73,6 +74,7 @@ export default defineAction({
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
+        content: schema.designFiles.content,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -90,6 +92,11 @@ export default defineAction({
     if (!file) return { id, deleted: false, alreadyMissing: true };
 
     await assertAccess("design", file.designId, "editor");
+    if (countLockedLayers(file.content) > 0) {
+      throw new Error(
+        "This screen contains locked layers. Unlock them before deleting the screen.",
+      );
+    }
 
     const pruneMetadata = () =>
       mutateDesignData({

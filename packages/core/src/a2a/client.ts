@@ -550,6 +550,15 @@ export async function callAgent(
     timeoutMs?: number;
     /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
+    /**
+     * Called with each successfully polled task while an async call is still
+     * in flight (see `A2AClient.sendAndWait`). Fires once per real poll
+     * round-trip that returns a task — including the terminal poll — so
+     * callers can surface genuine remote liveness/progress. Not called when a
+     * poll fetch throws (remote unresponsive) or when the task completes
+     * synchronously on submit. Only threaded through for async calls.
+     */
+    onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
   const metadata: Record<string, unknown> = {};
@@ -585,6 +594,7 @@ export async function callAgent(
           metadata,
           timeoutMs: opts?.timeoutMs,
           pollIntervalMs: opts?.pollIntervalMs,
+          onUpdate: opts?.onUpdate,
         });
       } else {
         task = await client.send(message, {

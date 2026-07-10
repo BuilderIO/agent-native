@@ -245,26 +245,6 @@ function hasRecentDatabaseLock(logs: string[]): boolean {
   return tail.includes("database is locked") || tail.includes("SQLITE_BUSY");
 }
 
-function parseDevAutoLoginCredentials(logs: string[]): {
-  email: string;
-  password: string;
-} | null {
-  const text = logs.join("");
-  const match = text.match(
-    /Local dev auto-login ready\.\s+email:\s+([^\s]+)\s+password:\s+([^\s]+)/,
-  );
-  if (!match) return null;
-  return { email: match[1], password: match[2] };
-}
-
-function isLoggedOutBody(body: string): boolean {
-  return (
-    /create an account to get started/i.test(body) ||
-    /sign in to your account/i.test(body) ||
-    /log in to your account/i.test(body)
-  );
-}
-
 /**
  * Wait until no Vite full-page reload log chunk has arrived for `quietMs`.
  * Uses chunk timestamps — old "reloading" text in the log buffer never clears.
@@ -569,54 +549,6 @@ function isBenignHttpError(status: number, url: string): boolean {
   return false;
 }
 
-async function signInViaAuthApi(
-  page: Page,
-  email: string,
-  password: string,
-): Promise<void> {
-  await retryAfterNavigation("auth API login", () =>
-    page.evaluate(
-      async ({ email, password }) => {
-        const post = async (path: string, body: Record<string, unknown>) => {
-          const response = await fetch(path, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          const text = await response.text();
-          return { ok: response.ok, status: response.status, text };
-        };
-
-        let login = await post("/_agent-native/auth/login", {
-          email,
-          password,
-        });
-        if (!login.ok) {
-          const register = await post("/_agent-native/auth/register", {
-            email,
-            password,
-            name: "Smoke Tester",
-            callbackURL: "/",
-          });
-          if (!register.ok && register.status !== 409) {
-            throw new Error(
-              `register failed with HTTP ${register.status}: ${register.text}`,
-            );
-          }
-          login = await post("/_agent-native/auth/login", { email, password });
-        }
-        if (!login.ok) {
-          throw new Error(
-            `login failed with HTTP ${login.status}: ${login.text}`,
-          );
-        }
-      },
-      { email, password },
-    ),
-  );
-}
-
 interface WaitForHomeLinkOptions {
   baseUrl?: string;
   /** Only safe after Vite deps are quiet — re-goto races active reloads. */
@@ -783,12 +715,6 @@ async function waitForAuthenticatedShell(
   running: RunningDev,
 ): Promise<string> {
   const serverLogs = running.logs;
-  const fallbackEmail =
-    process.env.STANDALONE_CHAT_DEV_SMOKE_EMAIL ||
-    `standalone-smoke-${Date.now()}@example.test`;
-  const fallbackPassword =
-    process.env.STANDALONE_CHAT_DEV_SMOKE_PASSWORD ||
-    "standalone-chat-smoke-password";
 
   log(`navigating to ${baseUrl}/ (auto-login path)`);
   await gotoCommitted(page, `${baseUrl}/`);
@@ -811,17 +737,6 @@ async function waitForAuthenticatedShell(
     }
 
     if (await homeLink.isVisible().catch(() => false)) break;
-
-    const devCreds = parseDevAutoLoginCredentials(serverLogs);
-    const authEmail = devCreds?.email ?? fallbackEmail;
-    const authPassword = devCreds?.password ?? fallbackPassword;
-
-    if (isLoggedOutBody(lastBody) && devCreds) {
-      log(`auth API login as ${authEmail}`);
-      await signInViaAuthApi(page, authEmail, authPassword);
-      await sleep(2_000);
-      continue;
-    }
 
     // Auto-login redirect or Vite reload in progress — poll, do not page.goto again.
     await sleep(2_000);

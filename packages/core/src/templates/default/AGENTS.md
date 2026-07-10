@@ -76,9 +76,13 @@ only the hosted URL/reference in SQL.
 1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
 2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
-**Update `LEARNINGS.md` when you learn something important.** Built-in app
-chat agents use the `resources` tool with the `action` argument. External CLI
-agents can use the equivalent `pnpm action resource-*` commands.
+**Update the shared `LEARNINGS.md` when you learn something important for the
+team.** Canonical destinations, request fields, metric definitions, routing
+conventions, and corrections learned in Slack belong there with concise source
+links. Shared scope resolves to the active organization. Personal preferences
+and user-specific context go through `save-memory` into `memory/MEMORY.md`.
+Built-in app chat agents use the `resources` tool with the `action` argument.
+External CLI agents can use the equivalent `pnpm action resource-*` commands.
 
 | Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |

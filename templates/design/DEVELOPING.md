@@ -114,7 +114,7 @@ Design has two editor views:
 - **Overview** is the default multi-screen canvas after generation or broad
   updates. It renders every screen as a static, movable frame on an infinite
   surface. Users can select screens, move/resize/drop frames and primitives,
-  edit layers in place, and use a frame's full-view button to focus it.
+  edit layers in place, and use a frame's Interact button to focus it.
 - **Single screen** renders one file in the iframe editor. Use it for scrolling,
   interacting with prototype behavior, text/DOM selection, and local visual
   edits inside that screen.

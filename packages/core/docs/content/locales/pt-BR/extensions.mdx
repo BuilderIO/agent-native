@@ -11,6 +11,15 @@ Se você usou QuickBooks Online, você viu o modelo: QBO fornece um produto cont
 
 O enquadramento é importante: uma extensão não é uma sandbox genérica do tipo "faça o que quiser". É um **miniaplicativo que estende um modelo específico** — Mail, Analytics, Calendar, Clips, Design — e usa o actions e os dados desse modelo. Uma extensão Mail lê e-mails. Uma extensão do Analytics lê as métricas de um painel. Uma extensão do Calendário atua no evento aberto. Eles se sentem parte do produto hospedeiro porque _são_ parte do produto hospedeiro.
 
+> **As extensões adicionam interface; elas não reescrevem a interface do
+> aplicativo host.** Uma extensão é exibida em sua própria página ou em um
+> [slot](#slots) nomeado exposto pelo modelo. Ela não pode inserir elementos em
+> componentes nativos arbitrários — por exemplo, ao lado de cada participante
+> no Calendário — a menos que o modelo exponha um slot nesse local. Para uma
+> personalização mais profunda, peça ao agente para editar o código-fonte do
+> modelo. A personalização completa do código é um recurso central do Agent
+> Native; as extensões são a camada rápida, sem implantação.
+
 Três coisas fazem as extensões funcionarem:
 
 - **Sem código, sem implantação.** O agente os grava e eles ficam ativos em segundos. Armazenado no banco de dados, não no repositório.

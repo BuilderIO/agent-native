@@ -38,14 +38,20 @@ function shouldRefuseWhenSecretMissing(): boolean {
  *
  * Required env vars:
  * - TELEGRAM_BOT_TOKEN — Bot token from @BotFather
- *
- * Optional env vars:
  * - TELEGRAM_WEBHOOK_SECRET — Secret token for webhook verification
  */
 export function telegramAdapter(): PlatformAdapter {
   return {
     platform: "telegram",
     label: "Telegram",
+    capabilities: {
+      replyText: true,
+      proactiveMessages: true,
+      nativeThreads: true,
+      contextualReplies: true,
+      deferredWebhookResponse: false,
+      interactionOnly: false,
+    },
 
     getRequiredEnvKeys(): EnvKeyConfig[] {
       return [
@@ -59,9 +65,9 @@ export function telegramAdapter(): PlatformAdapter {
         {
           key: "TELEGRAM_WEBHOOK_SECRET",
           label: "Telegram Webhook Secret",
-          required: false,
+          required: true,
           helpText:
-            "Optional. Any random string — Telegram will echo it on every webhook so dispatch can verify the request came from Telegram.",
+            "A random secret token. Telegram echoes it on every webhook so the adapter can verify the request came from Telegram.",
         },
       ];
     },
@@ -149,24 +155,40 @@ export function telegramAdapter(): PlatformAdapter {
 
       const chat = message.chat;
       const from = message.from;
+      const messageThreadId = message.message_thread_id;
+      const externalThreadId =
+        messageThreadId === undefined
+          ? `chat:${String(chat.id)}`
+          : `chat:${String(chat.id)}:thread:${String(messageThreadId)}`;
 
       return {
         platform: "telegram",
-        externalThreadId: String(chat.id),
+        externalThreadId,
         text: cleanText,
         senderName:
           from?.first_name + (from?.last_name ? ` ${from.last_name}` : ""),
         senderId: String(from?.id),
+        threadRef:
+          messageThreadId === undefined ? undefined : String(messageThreadId),
+        replyRef: String(message.message_id),
         platformContext: {
           chatId: chat.id,
           chatType: chat.type,
           messageId: message.message_id,
+          messageThreadId,
           rawText: text,
           fromId: from?.id,
           fromUsername: from?.username,
         },
         timestamp: message.date * 1000,
       };
+    },
+
+    getLegacyExternalThreadIds(incoming: IncomingMessage): string[] {
+      const chatId = incoming.platformContext.chatId;
+      return typeof chatId === "string" || typeof chatId === "number"
+        ? [String(chatId)]
+        : [];
     },
 
     async sendResponse(
@@ -182,18 +204,28 @@ export function telegramAdapter(): PlatformAdapter {
       const chatId = context.platformContext.chatId;
       const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);
 
-      for (const chunk of chunks) {
+      for (const [index, chunk] of chunks.entries()) {
         try {
+          const body: Record<string, unknown> = {
+            chat_id: chatId,
+            text: chunk,
+            parse_mode: "Markdown",
+          };
+          if (context.threadRef) {
+            body.message_thread_id = Number(context.threadRef);
+          }
+          if (index === 0 && context.replyRef) {
+            body.reply_parameters = {
+              message_id: Number(context.replyRef),
+              allow_sending_without_reply: true,
+            };
+          }
           const res = await fetch(
             `https://api.telegram.org/bot${token}/sendMessage`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: chatId,
-                text: chunk,
-                parse_mode: "Markdown",
-              }),
+              body: JSON.stringify(body),
             },
           );
           const data = (await res.json()) as {
@@ -207,8 +239,8 @@ export function telegramAdapter(): PlatformAdapter {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  chat_id: chatId,
-                  text: chunk,
+                  ...body,
+                  parse_mode: undefined,
                 }),
               });
             } else {
@@ -275,6 +307,10 @@ export function telegramAdapter(): PlatformAdapter {
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       const hasToken = !!token;
+      const hasWebhookSecret = !!(await resolveSecret(
+        "TELEGRAM_WEBHOOK_SECRET",
+      ));
+      const configured = hasToken && hasWebhookSecret;
 
       let botName: string | undefined;
       if (hasToken) {
@@ -294,12 +330,15 @@ export function telegramAdapter(): PlatformAdapter {
         platform: "telegram",
         label: "Telegram",
         enabled: false, // overridden by plugin
-        configured: hasToken,
+        configured,
         details: {
           hasToken,
+          hasWebhookSecret,
           botUsername: botName,
         },
-        error: !hasToken ? "Save TELEGRAM_BOT_TOKEN in settings" : undefined,
+        error: !configured
+          ? "Save TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in settings"
+          : undefined,
       };
     },
   };

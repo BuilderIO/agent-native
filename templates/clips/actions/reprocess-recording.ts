@@ -16,6 +16,7 @@
  *   pnpm action reprocess-recording --ids='["id1","id2"]'
  *   pnpm action reprocess-recording --all --limit=20
  *   pnpm action reprocess-recording --id=<recordingId> --force
+ *   pnpm action reprocess-recording --id=<recordingId> --normalizeTimeline
  */
 
 import { defineAction } from "@agent-native/core";
@@ -34,6 +35,11 @@ import {
 
 const MAX_TARGETS_PER_CALL = 100;
 const DEFAULT_ALL_LIMIT = 20;
+const cliBoolean = z.preprocess((value) => {
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  return value;
+}, z.boolean());
 
 function parseIds(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -58,7 +64,7 @@ function parseIds(value: unknown): string[] {
 
 export default defineAction({
   description:
-    "Repair slow-loading or buffering recordings by rewriting their stored video to be start-playable and seekable (MP4 faststart / WebM Cues remux) and re-uploading it. Use for clips that take a long time to load or re-buffer when scrubbing. Pass `id` for one clip, `ids` for several, or `all: true` to sweep the caller's ready clips (bounded by `limit`). Already-seekable clips are skipped unless `force` is true.",
+    "Repair playback of existing recordings and re-upload the fixed media without replacing the original unless the repair succeeds. By default this makes MP4/WebM start-playable and seekable. Set `normalizeTimeline: true` when a clip freezes or stops visually despite a longer duration because its video timestamps have large gaps; this transcodes to constant-frame-rate faststart MP4, preserves audio, and holds the last captured frame through missing-video gaps. Pass `id` for one clip, `ids` for several, or `all: true` for a bounded owner-scoped sweep. Already-seekable clips are skipped unless `force` is true; timeline normalization always runs when explicitly requested.",
   schema: z.object({
     id: z.string().optional().describe("A single recording id to repair."),
     ids: z
@@ -67,8 +73,7 @@ export default defineAction({
       .describe(
         "Multiple recording ids (array, or JSON/comma string for CLI).",
       ),
-    all: z.coerce
-      .boolean()
+    all: cliBoolean
       .optional()
       .describe(
         "Repair the caller's own ready clips, most recent first, up to `limit`.",
@@ -82,10 +87,14 @@ export default defineAction({
       .describe(
         `Max clips to process when using \`all\` (default ${DEFAULT_ALL_LIMIT}).`,
       ),
-    force: z.coerce
-      .boolean()
+    force: cliBoolean
       .optional()
       .describe("Re-run even on clips already marked seekable."),
+    normalizeTimeline: cliBoolean
+      .optional()
+      .describe(
+        "Transcode sparse/discontinuous video timestamps to constant-frame-rate faststart MP4 while preserving audio. Use when playback freezes or appears to stop before the declared duration.",
+      ),
   }),
   run: async (args) => {
     const db = getDb();
@@ -132,7 +141,12 @@ export default defineAction({
     for (const recordingId of targetIds) {
       try {
         results.push(
-          await ensureRecordingSeekable({ recordingId, ownerEmail, force }),
+          await ensureRecordingSeekable({
+            recordingId,
+            ownerEmail,
+            force,
+            normalizeTimeline: args.normalizeTimeline === true,
+          }),
         );
       } catch (err) {
         console.warn("[reprocess-recording] failed for", recordingId, err);

@@ -6,6 +6,7 @@ import {
   withRequestContextFromEvent,
 } from "../../lib/credentials";
 import {
+  CLAY_ANALYTICS_CREDENTIAL_KEYS,
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
   resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential,
@@ -91,6 +92,21 @@ export default defineEventHandler(async (event) => {
             headers: { Authorization: `Bearer ${key}` },
           });
           if (!res.ok) return { ok: false, error: "Invalid API key" };
+          return { ok: true };
+        }
+
+        case "clay": {
+          const credential = await resolveAnalyticsProviderCredential({
+            provider: "clay",
+            keys: CLAY_ANALYTICS_CREDENTIAL_KEYS,
+            ctx,
+          });
+          const key = credential?.value;
+          if (!key) return { ok: false, error: "Missing Clay Public API key" };
+          const res = await fetch("https://api.clay.com/public/v0/me", {
+            headers: { "clay-api-key": key },
+          });
+          if (!res.ok) return { ok: false, error: "Invalid Clay API key" };
           return { ok: true };
         }
 

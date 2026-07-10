@@ -66,6 +66,13 @@ beforeEach(() => {
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
     ref_id TEXT NOT NULL DEFAULT '',
+    org_id TEXT,
+    run_id TEXT,
+    thread_id TEXT,
+    task_id TEXT,
+    integration_scope_id TEXT,
+    source_platform TEXT,
+    source_id TEXT,
     created_at INTEGER NOT NULL
   )`);
   delete process.env.AGENT_APP;

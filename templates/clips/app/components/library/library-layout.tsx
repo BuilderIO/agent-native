@@ -28,6 +28,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconPlus,
+  IconShare,
   IconSettings,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -132,6 +133,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   // Clip count for the "Library" nav item — count-only, no row payload or
   // title polling across the app shell.
   const { data: libraryCount } = useRecordingsCount({ view: "library" });
+  const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
   const libFolderList: FolderNode[] = useMemo(
     () =>
@@ -158,6 +160,11 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const pageHasHeaderSearch =
+    location.pathname.startsWith("/library") ||
+    location.pathname === "/shared" ||
+    location.pathname === "/archive" ||
+    /^\/spaces\/[^/]+/.test(location.pathname);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -192,6 +199,13 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconInbox,
       match: (p) => p.startsWith("/library"),
       count: libraryCount,
+    },
+    {
+      to: "/shared",
+      label: t("navigation.sharedWithMe"),
+      icon: IconShare,
+      match: (p) => p === "/shared",
+      count: sharedCount,
     },
     {
       to: "/spaces",
@@ -505,7 +519,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   {t("navigation.desktopCta")}
                 </CaptureInstallInlineLink>
               )}
-              <SearchBar />
+              {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
             </div>
 
             <div className="shrink-0 px-1 py-1">

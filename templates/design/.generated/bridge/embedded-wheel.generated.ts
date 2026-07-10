@@ -8,6 +8,7 @@ export const embeddedWheelBridgeScript: string = `"use strict";
   (function() {
     var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
     var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
+    var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
     var leftButtonEnabled = false;
     var temporarySpacePanEnabled = false;
     var activePointerId = null;
@@ -21,6 +22,12 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var lastMetaKey = false;
     var lastShiftKey = false;
     var lastAltKey = false;
+    if (editingSafetyEnabled) {
+      var freezeStyle = document.createElement("style");
+      freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
+      freezeStyle.textContent = "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{animation:none!important;transition:none!important}";
+      (document.head || document.documentElement).appendChild(freezeStyle);
+    }
     function clamp(value, limit) {
       var number = Number(value) || 0;
       if (number > limit) return limit;
@@ -31,6 +38,16 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    }
+    function stopEditingNavigation(e) {
+      if (!editingSafetyEnabled) return;
+      stopNativeInteraction(e);
+    }
+    function stopEditingLinkNavigation(e) {
+      if (!editingSafetyEnabled) return;
+      var target = e.target;
+      if (!target || !target.closest) return;
+      if (target.closest("a[href], area[href]")) stopNativeInteraction(e);
     }
     function postToParent(message) {
       try {
@@ -216,6 +233,12 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     function onWindowBlur() {
       if (document.visibilityState === "hidden") cancelActivePan();
     }
+    var reloadReported = false;
+    function reportRuntimeReload() {
+      if (!editingSafetyEnabled || reloadReported) return;
+      reloadReported = true;
+      postToParent({ type: "agent-native:runtime-reloading" });
+    }
     var wheelTarget = document.documentElement || document.body || document;
     wheelTarget.addEventListener("wheel", onWheel, {
       passive: false,
@@ -226,12 +249,16 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     document.addEventListener("pointerup", onPointerUp, true);
     document.addEventListener("pointercancel", onPointerCancel, true);
     document.addEventListener("click", suppressTrailingClick, true);
+    document.addEventListener("click", stopEditingLinkNavigation, true);
     document.addEventListener("auxclick", suppressTrailingClick, true);
+    document.addEventListener("submit", stopEditingNavigation, true);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("message", onHostMessage);
     window.addEventListener("blur", onWindowBlur);
     document.addEventListener("visibilitychange", onWindowBlur);
+    window.addEventListener("beforeunload", reportRuntimeReload);
+    window.addEventListener("pagehide", reportRuntimeReload);
     window.addEventListener("pagehide", cancelActivePan);
   })();
 })();

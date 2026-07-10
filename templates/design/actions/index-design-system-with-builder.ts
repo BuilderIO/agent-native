@@ -76,6 +76,10 @@ export default defineAction({
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
+      // Agent action payloads intentionally stay at the core 2 MB inline
+      // budget. Fail loudly instead of silently dropping a larger `.fig`;
+      // the setup screen's guarded multipart route supports up to 200 MB.
+      overflowBehavior: "throw",
     });
     const result = await startBuilderDesignSystemIndex({
       projectName,

@@ -7,6 +7,7 @@ import {
   keyboardShortcutLabels,
 } from "./i18n-keyboard-shortcuts";
 import { motionDockOverrides } from "./i18n-motion";
+import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -51,6 +52,28 @@ const enUS = {
     suggestionLandingPage: "Design a landing page for my startup",
     suggestionBrandMatch: "Make this match our brand",
     suggestionMobile: "Add a mobile version of this",
+    figmaLink: {
+      frameDetected: "Figma frame detected",
+      fileDetected: "Figma file detected",
+      connected: "Connected",
+      connectedLast4: "Connected ••••{{last4}}",
+      checkingConnection: "Checking Figma connection…",
+      connectionCheckFailed: "Could not check the Figma connection",
+      connectFailed: "Could not connect Figma",
+      connectDescription:
+        "Connect once to import, inspect, or reuse this Figma link through chat.",
+      tokenLabel: "Figma access token",
+      tokenPlaceholder: "Paste Figma access token",
+      connecting: "Connecting…",
+      connect: "Connect",
+      getToken: "Get token",
+      importFrame: "Import frame",
+      chooseFrame: "Choose frame",
+      inspect: "Inspect",
+      exportSvg: "Export SVG",
+      actionsPrefill: "Review, then send",
+      retry: "Retry",
+    },
   },
   common: {
     genericError: "Something went wrong",
@@ -346,11 +369,35 @@ const enUS = {
         watch: "Watch",
         paper: "Paper",
         socialMedia: "Social media",
+        adUnit: "Ad unit",
       },
     },
   },
   designEditor: {
     askAgent: "Ask agent",
+    autoLayoutSuggestion: {
+      menuLabel: "Suggest auto layout…",
+      title: "Suggest auto layout",
+      description:
+        "Review the layout inferred from measured child geometry. Nothing changes until you apply it.",
+      preview: "Auto layout preview",
+      sizing: "Sizing",
+      fixed: "Fixed",
+      hug: "Hug",
+      cancel: "Cancel",
+      apply: "Apply auto layout",
+      selectContainer:
+        "Select one container with children to get a suggestion.",
+      stale:
+        "The container changed. Preview a fresh suggestion before applying.",
+      warnings: {
+        overlap:
+          "Some children overlap, so this proposal cannot be safely applied.",
+        irregular: "Spacing is irregular; the median gap is shown.",
+        transformed:
+          "Transformed children need manual review before conversion.",
+      },
+    },
     componentInstances: {
       selectLayer: "Select layer",
       goToMain: "Go to main component",
@@ -408,6 +455,23 @@ const enUS = {
       desktop: "Desktop",
       tablet: "Tablet",
       phone: "Phone",
+      scope: {
+        label: "Responsive edit scope",
+        cascadeSmaller: "This breakpoint and smaller",
+        only: "This breakpoint only",
+        firstEditGuidance:
+          "Responsive edits affect this breakpoint and smaller sizes by default. Change the scope beside the breakpoint control.",
+      },
+    },
+    screenDeletion: {
+      titleOne: "Delete this screen?",
+      titleMany: "Delete {{count}} screens?",
+      descriptionOne:
+        '"{{filename}}" and all of its responsive variants will be deleted. You can undo this while the editor remains open.',
+      descriptionMany:
+        "These screens and all of their responsive variants will be deleted. You can undo this while the editor remains open.",
+      cancel: "Cancel",
+      confirm: "Delete",
     },
     motion: {
       dockLabel: "Motion dock",
@@ -489,6 +553,25 @@ const enUS = {
       title: "Import",
       description:
         "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
+      figmaUrlTitle: "Figma frame URL",
+      figmaUrlDescription: "Import a frame or file from a Figma link.",
+      figmaUrlLabel: "Figma frame or file URL",
+      figmaUrlPlaceholder: "https://www.figma.com/design/…",
+      figmaConnectionChecking: "Checking Figma connection…",
+      figmaConnected: "Figma connected",
+      figmaConnectedWithSuffix: "Figma connected · ••••{{suffix}}",
+      figmaTokenLabel: "Figma access token",
+      figmaTokenDocs: "Get a token",
+      figmaTokenPlaceholder: "Paste your Figma personal access token",
+      figmaTokenDescription:
+        "Saved securely for Figma imports and agent chat. The token is never added to chat.",
+      importFigmaUrl: "Import from Figma",
+      saveKeyAndImport: "Save key and import",
+      figmaUrlSuccess: "Imported from Figma.",
+      figmaImageFallbackWarning:
+        "Image fallbacks: {{count}}. Appearance is preserved, but these layers are not fully editable.",
+      figmaApproximationWarning:
+        "Approximated layers: {{count}}. HTML/CSS cannot represent every Figma property exactly.",
       figmaPasteTitle: "Paste from Figma",
       figmaPasteDescription:
         "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
@@ -501,8 +584,10 @@ const enUS = {
       figmaPasteHtmlLabel: "Imported from clipboard preview",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
-        "Export only the frames you need. Large files with many embedded images may exceed the import limit.",
+        "Experimental: Figma's .fig format is proprietary and may change. Supported layers become editable screens; some features may differ. Maximum 50 MB.",
       chooseFigFile: "Choose .fig file",
+      figUploadUploading: "Uploading {{progress}}%",
+      figUploadProcessing: "Converting…",
       htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
@@ -523,10 +608,15 @@ const enUS = {
       uploadSuccess: "File imported",
       lastImport: "Last import",
       errors: {
+        figmaUrlRequired: "Paste a Figma frame or file URL.",
+        invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+        figmaImportFailed: "Couldn’t import from Figma",
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
         figmaPasteFailed: "Figma paste import failed",
         uploadFailed: "File upload failed",
+        invalidFigFile: "Choose a file ending in .fig.",
+        figFileTooLarge: ".fig files must be 50 MB or smaller.",
       },
     },
     generationMayHaveStopped:
@@ -539,6 +629,17 @@ const enUS = {
       "Generation stopped before creating files. Check the agent message or try again.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
+    saveAsTemplate: "Save as template…",
+    saveTemplateDescription:
+      "Capture the current screens, dimensions, defaults, and locked layers as a reusable starting point.",
+    templateName: "Template name",
+    templateDescription: "Description",
+    templateCategory: "Category",
+    templateSnapshotSummary:
+      "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
+    saveTemplate: "Save template",
+    templateSaved: "Template saved with {{count}} locked layer(s)",
+    templateSaveFailed: "Could not save this template",
     clickToRename: "Click to rename",
     collaborators: "Collaborators",
     share: "Share",
@@ -717,7 +818,9 @@ const enUS = {
     downloadHtml: "Download HTML",
     downloadPng: "Download PNG",
     downloadSvg: "Download SVG",
+    downloadFigmaSvg: "Download for Figma (SVG)",
     downloadZip: "Download ZIP",
+    downloadPdfAllScreens: "Download PDF (all screens)",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
     copyCodingHandoff: "Copy agent prompt",
@@ -741,6 +844,8 @@ const enUS = {
     addTweaks: "Add tweaks",
     addTweakControls: "Add tweak controls",
     closeTweaks: "Close tweaks",
+    tweaksHelp:
+      "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
     noTweakControls: "No tweak controls yet.",
     extensions: "Extensions",
     addExtension: "Extension",
@@ -795,10 +900,17 @@ const enUS = {
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
       applyWithAgent: "Apply with Design agent",
+      verifying: "Verifying source and runtime…",
+      retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
       sentToast: "Style edits sent to the Design agent",
+      verifiedToast: "Source and runtime structure verified",
+      conflictToast:
+        "The reloaded runtime did not match the pending structure edit. The preview is still undoable; retry after resolving the source conflict.",
+      sourceCheckFailedToast:
+        "Could not verify the connected source files. The preview was kept so you can retry or undo.",
       copiedToast: "Style prompt copied",
       abortedToast: "Pending preview discarded",
       interactBlocked:
@@ -842,10 +954,12 @@ const enUS = {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      pdfAllScreensDownloaded: "PDF downloaded (all screens)",
       openScreenSvg: "Open a screen before exporting SVG",
       svgDownloaded: "SVG downloaded",
       svgExportError: "Could not export SVG",
       figmaSvgCopied: "Copied as Figma SVG",
+      figmaSvgDownloaded: "Figma SVG downloaded",
       figmaSvgUnsupported:
         "This browser can't copy SVG images to the clipboard",
       figmaSvgBlocked: "Allow clipboard access to copy this SVG",
@@ -927,12 +1041,11 @@ const enUS = {
   multiScreenCanvas: {
     duplicate: "Duplicate",
     fork: "Fork",
-    fullView: "Full view",
+    fullView: "Interact",
     preview: "Preview",
-    openAndDuplicate:
-      "Select {{display}}. Use Full view for focused scrolling.",
-    openAndPreview: "Select {{display}}. Use Full view for focused scrolling.",
-    doubleClickToEdit: "Use Full view for focused scrolling",
+    openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
+    openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
+    doubleClickToEdit: "Use Interact for focused scrolling",
     sources: {
       localhost: {
         label: "Localhost",
@@ -1090,6 +1203,8 @@ const enUS = {
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
     openingDesign: "Opening design...",
+    skipToEditor: "Skip to editor",
+    failedToCreateDesign: "Failed to create design",
     describeBuild: "Describe what you want to build...",
     selected: "{{count}} selected",
     clearVisibleSelection: "Clear visible selection",
@@ -1134,11 +1249,36 @@ const enUS = {
     layoutLabel: "Screen layout ready to save",
   },
   templatesPage: {
-    title: "Marketing templates",
+    title: "Templates",
     description:
-      "Sized, editable starter designs for launches, ads, decks, events, and PDF handouts.",
+      "Start with the right dimensions and defaults, then prompt the unlocked content into place.",
+    searchPlaceholder: "Search templates...",
+    starterTemplates: "Starter templates",
+    savedTemplates: "Saved templates",
+    savedTemplatesDescription:
+      "Save any Design project as a reusable template from its editor menu.",
+    savedEmpty: "Open a design and choose Save as template to add it here.",
     brand: "Brand: {{title}}",
     useTemplate: "Use template",
+    useAsIs: "Use template as-is",
+    promptPlaceholder: "Describe what you want to make with this template...",
+    opening: "Opening template...",
+    createFailed: "Could not create a design from this template",
+    deleted: "Template deleted",
+    deleteFailed: "Could not delete this template",
+    deleteTitle: "Delete template?",
+    deleteDescription:
+      "This permanently deletes {{title}}. Designs already created from it are not affected.",
+    templateActions: "Template actions",
+    lockedCount: "{{count}} locked",
+    categories: {
+      ad: "Ad",
+      social: "Social",
+      "one-pager": "One-pager",
+      "landing-page": "Landing page",
+      presentation: "Presentation",
+      other: "Other",
+    },
     socialSquare: "Social square",
     formatQuestion: "What format should this {{title}} target?",
     formatHeader: "Format",
@@ -1276,11 +1416,31 @@ const enUS = {
     updateError: "Could not update design system",
     bulkDeleteError: "Could not delete selected design systems",
     selectedLabel: "selected",
+    yoursTitle: "Your design systems",
     newCardDescription: "Set up your brand",
     defaultBadge: "Default",
     selectAria: "Select {{title}}",
     currentlyDefault: "Currently default",
     moreActionsAria: "More actions for {{title}}",
+    showcase: {
+      title: "Production-ready starting points",
+      description:
+        "Use a source-linked snapshot of an established public design system. Each copy includes real tokens, type scales, spacing, shapes, state guidance, and attribution.",
+      useTemplate: "Use this system",
+      adding: "Adding...",
+      openSource: "Open the {{title}} source documentation",
+      license: "Source license: {{license}}",
+      addSuccess: "Design system added",
+      addError: "Could not add design system",
+      descriptions: {
+        material3:
+          "Google’s baseline light roles, Roboto type scale, 4 dp spacing, and Material shape system.",
+        carbon:
+          "IBM’s Carbon v11 White theme, IBM Plex typography, enterprise color roles, and 2/4/8 spacing.",
+        primer:
+          "GitHub’s Primer light tokens, Mona Sans, compact developer-tool density, and responsive spacing.",
+      },
+    },
     actions: {
       done: "Done",
       select: "Select",
@@ -1562,7 +1722,9 @@ const designLocaleOverrides = {
       downloadHtml: "下载 HTML",
       downloadPng: "下载 PNG",
       downloadSvg: "下载 SVG",
+      downloadFigmaSvg: "下载用于 Figma 的 SVG",
       downloadZip: "下载 ZIP",
+      downloadPdfAllScreens: "下载 PDF（所有屏幕）",
       copyCodingHandoff: "复制编码交接",
       pickDirection: "选择一个方向",
       variations: "{{count}} 变体",
@@ -1596,6 +1758,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG 下载",
         pngSaveError: "无法保存 PNG",
         pngExportError: "无法导出 PNG",
+        pdfAllScreensDownloaded: "PDF 下载（所有屏幕）",
         openScreenSvg: "导出 SVG 之前打开一个屏幕",
         svgDownloaded: "SVG 下载",
         svgExportError: "无法导出 SVG",
@@ -1711,11 +1874,31 @@ const designLocaleOverrides = {
       updateError: "无法更新设计系统",
       bulkDeleteError: "无法删除选定的设计系统",
       selectedLabel: "已选择",
+      yoursTitle: "您的设计系统",
       newCardDescription: "建立您的品牌",
       defaultBadge: "默认",
       selectAria: "选择{{title}}",
       currentlyDefault: "目前默认",
       moreActionsAria: "{{title}} 的更多操作",
+      showcase: {
+        title: "可用于生产的起点",
+        description:
+          "使用成熟公共设计系统的来源链接快照。每个副本都包含真实令牌、字号、间距、形状、状态指南和署名。",
+        useTemplate: "使用此系统",
+        adding: "正在添加...",
+        openSource: "打开 {{title}} 来源文档",
+        license: "源许可证：{{license}}",
+        addSuccess: "已添加设计系统",
+        addError: "无法添加设计系统",
+        descriptions: {
+          material3:
+            "Google 的基准浅色角色、Roboto 字号、4 dp 间距和 Material 形状系统。",
+          carbon:
+            "IBM Carbon v11 White 主题、IBM Plex 排版、企业色彩角色和 2/4/8 间距。",
+          primer:
+            "GitHub Primer 浅色令牌、Mona Sans、紧凑的开发者工具密度和响应式间距。",
+        },
+      },
       actions: {
         done: "完毕",
         select: "选择",
@@ -1942,6 +2125,7 @@ const designLocaleOverrides = {
       downloadPng: "Descargar PNG",
       downloadSvg: "Descargar SVG",
       downloadZip: "Descargar ZIP",
+      downloadPdfAllScreens: "Descargar PDF (todas las pantallas)",
       copyCodingHandoff: "Copiar transferencia de codificación",
       pickDirection: "Elige una dirección",
       variations: "variaciones {{count}}",
@@ -1977,6 +2161,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG descargado",
         pngSaveError: "No se pudo guardar PNG",
         pngExportError: "No se pudo exportar PNG",
+        pdfAllScreensDownloaded: "PDF descargado (todas las pantallas)",
         openScreenSvg: "Abra una pantalla antes de exportar SVG",
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
@@ -2107,11 +2292,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "No se pudieron eliminar los sistemas de diseño seleccionados",
       selectedLabel: "seleccionado",
+      yoursTitle: "Tus sistemas de diseño",
       newCardDescription: "Configura tu marca",
       defaultBadge: "Por defecto",
       selectAria: "Seleccione {{title}}",
       currentlyDefault: "Actualmente predeterminado",
       moreActionsAria: "Otras acciones para {{title}}",
+      showcase: {
+        title: "Puntos de partida listos para producción",
+        description:
+          "Usa una copia con fuentes enlazadas de un sistema de diseño público consolidado. Cada copia incluye tokens, escalas tipográficas, espaciado, formas, estados y atribución reales.",
+        useTemplate: "Usar este sistema",
+        adding: "Añadiendo...",
+        openSource: "Abrir la documentación fuente de {{title}}",
+        license: "Licencia de origen: {{license}}",
+        addSuccess: "Sistema de diseño añadido",
+        addError: "No se pudo añadir el sistema de diseño",
+        descriptions: {
+          material3:
+            "Roles claros base de Google, escala Roboto, espaciado de 4 dp y sistema de formas Material.",
+          carbon:
+            "Tema White de IBM Carbon v11, tipografía IBM Plex, roles de color empresariales y espaciado 2/4/8.",
+          primer:
+            "Tokens claros de GitHub Primer, Mona Sans, densidad compacta para herramientas y espaciado adaptable.",
+        },
+      },
       actions: {
         done: "Hecho",
         select: "Seleccionar",
@@ -2341,6 +2546,7 @@ const designLocaleOverrides = {
       downloadPng: "Télécharger PNG",
       downloadSvg: "Télécharger SVG",
       downloadZip: "Télécharger ZIP",
+      downloadPdfAllScreens: "Télécharger PDF (tous les écrans)",
       copyCodingHandoff: "Copie du transfert du codage",
       pickDirection: "Choisissez une direction",
       variations: "variantes de {{count}}",
@@ -2378,6 +2584,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG téléchargé",
         pngSaveError: "Impossible d'enregistrer PNG",
         pngExportError: "Impossible d'exporter PNG",
+        pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",
         openScreenSvg: "Ouvrir un écran avant d'exporter SVG",
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d'exporter SVG",
@@ -2510,11 +2717,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Impossible de supprimer les systèmes de conception sélectionnés",
       selectedLabel: "choisi",
+      yoursTitle: "Vos systèmes de conception",
       newCardDescription: "Configurez votre marque",
       defaultBadge: "Défaut",
       selectAria: "Sélectionnez {{title}}",
       currentlyDefault: "Actuellement par défaut",
       moreActionsAria: "Plus de propositions pour {{title}}",
+      showcase: {
+        title: "Points de départ prêts pour la production",
+        description:
+          "Utilisez une copie reliée à ses sources d’un système de conception public reconnu. Chaque copie inclut de vrais jetons, échelles typographiques, espacements, formes, états et attributions.",
+        useTemplate: "Utiliser ce système",
+        adding: "Ajout...",
+        openSource: "Ouvrir la documentation source de {{title}}",
+        license: "Licence source : {{license}}",
+        addSuccess: "Système de conception ajouté",
+        addError: "Impossible d’ajouter le système de conception",
+        descriptions: {
+          material3:
+            "Rôles clairs de base de Google, échelle Roboto, espacement de 4 dp et système de formes Material.",
+          carbon:
+            "Thème White d’IBM Carbon v11, typographie IBM Plex, rôles colorimétriques d’entreprise et espacement 2/4/8.",
+          primer:
+            "Jetons clairs de GitHub Primer, Mona Sans, densité compacte pour outils et espacement adaptatif.",
+        },
+      },
       actions: {
         done: "Fait",
         select: "Sélectionner",
@@ -2744,6 +2971,7 @@ const designLocaleOverrides = {
       downloadPng: "Laden Sie PNG herunter",
       downloadSvg: "Laden Sie SVG herunter",
       downloadZip: "Laden Sie ZIP herunter",
+      downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
       copyCodingHandoff: "Übergabe der Codierung kopieren",
       pickDirection: "Wählen Sie eine Richtung",
       variations: "{{count}}-Variationen",
@@ -2781,6 +3009,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG heruntergeladen",
         pngSaveError: "PNG konnte nicht gespeichert werden",
         pngExportError: "PNG konnte nicht exportiert werden",
+        pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
         openScreenSvg: "Öffnen Sie einen Bildschirm, bevor Sie SVG exportieren",
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
@@ -2914,11 +3143,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Ausgewählte Designsysteme konnten nicht gelöscht werden",
       selectedLabel: "ausgewählt",
+      yoursTitle: "Ihre Designsysteme",
       newCardDescription: "Richten Sie Ihre Marke ein",
       defaultBadge: "Standard",
       selectAria: "Wählen Sie {{title}}",
       currentlyDefault: "Derzeit Standard",
       moreActionsAria: "Weitere Aktionen für {{title}}",
+      showcase: {
+        title: "Produktionsreife Ausgangspunkte",
+        description:
+          "Nutzen Sie eine mit Quellen verknüpfte Kopie eines etablierten öffentlichen Designsystems. Jede Kopie enthält echte Tokens, Typografieskalen, Abstände, Formen, Zustände und Quellenangaben.",
+        useTemplate: "Dieses System verwenden",
+        adding: "Wird hinzugefügt...",
+        openSource: "Quelldokumentation für {{title}} öffnen",
+        license: "Quelllizenz: {{license}}",
+        addSuccess: "Designsystem hinzugefügt",
+        addError: "Designsystem konnte nicht hinzugefügt werden",
+        descriptions: {
+          material3:
+            "Googles helle Basisrollen, Roboto-Typografieskala, 4-dp-Abstände und Material-Formensystem.",
+          carbon:
+            "IBM Carbon v11 White Theme, IBM Plex, Farbrollen für Unternehmenssoftware und 2/4/8-Abstände.",
+          primer:
+            "GitHub Primer Light Tokens, Mona Sans, kompakte Werkzeugdichte und responsive Abstände.",
+        },
+      },
       actions: {
         done: "Erledigt",
         select: "Wählen",
@@ -3148,6 +3397,7 @@ const designLocaleOverrides = {
       downloadPng: "ダウンロード",
       downloadSvg: "ダウンロード",
       downloadZip: "ダウンロード",
+      downloadPdfAllScreens: "PDFをダウンロード（すべての画面）",
       copyCodingHandoff: "コピーコーディングのハンドオフ",
       pickDirection: "方向を選択してください",
       variations: "{{count}}のバリエーション",
@@ -3184,6 +3434,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNGがダウンロードされました",
         pngSaveError: "PNG を保存できませんでした",
         pngExportError: "PNG をエクスポートできませんでした",
+        pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
         openScreenSvg: "SVG をエクスポートする前に画面を開く",
         svgDownloaded: "SVGがダウンロードされました",
         svgExportError: "SVG をエクスポートできませんでした",
@@ -3314,11 +3565,31 @@ const designLocaleOverrides = {
       updateError: "デザインシステムを更新できませんでした",
       bulkDeleteError: "選択したデザイン システムを削除できませんでした",
       selectedLabel: "選択された",
+      yoursTitle: "あなたのデザインシステム",
       newCardDescription: "ブランドを設定する",
       defaultBadge: "デフォルト",
       selectAria: "{{title}}を選択します",
       currentlyDefault: "現在のデフォルト",
       moreActionsAria: "{{title}} のその他のアクション",
+      showcase: {
+        title: "本番対応の出発点",
+        description:
+          "確立された公開デザインシステムの、出典付きスナップショットを使用できます。各コピーには実際のトークン、書体、間隔、形状、状態ガイド、出典が含まれます。",
+        useTemplate: "このシステムを使用",
+        adding: "追加中...",
+        openSource: "{{title}} の公式ドキュメントを開く",
+        license: "ソースライセンス: {{license}}",
+        addSuccess: "デザインシステムを追加しました",
+        addError: "デザインシステムを追加できませんでした",
+        descriptions: {
+          material3:
+            "Google の基準ライトロール、Roboto タイプスケール、4 dp 間隔、Material シェイプシステム。",
+          carbon:
+            "IBM Carbon v11 White テーマ、IBM Plex、業務向けカラー役割、2/4/8 間隔。",
+          primer:
+            "GitHub Primer のライトトークン、Mona Sans、開発ツール向けの密度、レスポンシブ間隔。",
+        },
+      },
       actions: {
         done: "終わり",
         select: "選択",
@@ -3547,6 +3818,7 @@ const designLocaleOverrides = {
       downloadPng: "PNG 다운로드",
       downloadSvg: "SVG 다운로드",
       downloadZip: "ZIP 다운로드",
+      downloadPdfAllScreens: "PDF 다운로드 (모든 화면)",
       copyCodingHandoff: "코딩 전달 복사",
       pickDirection: "방향을 선택하세요",
       variations: "{{count}} 변형",
@@ -3582,6 +3854,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG 다운로드됨",
         pngSaveError: "PNG를 저장할 수 없습니다.",
         pngExportError: "PNG를 내보낼 수 없습니다.",
+        pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
         openScreenSvg: "SVG를 내보내기 전에 화면을 엽니다",
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없습니다.",
@@ -3707,11 +3980,31 @@ const designLocaleOverrides = {
       updateError: "디자인 시스템을 업데이트할 수 없습니다.",
       bulkDeleteError: "선택한 디자인 시스템을 삭제할 수 없습니다.",
       selectedLabel: "선택된",
+      yoursTitle: "내 디자인 시스템",
       newCardDescription: "브랜드 설정",
       defaultBadge: "기본",
       selectAria: "{{title}} 선택",
       currentlyDefault: "현재 기본값",
       moreActionsAria: "{{title}}에 대한 추가 작업",
+      showcase: {
+        title: "프로덕션 준비 시작점",
+        description:
+          "검증된 공개 디자인 시스템의 출처 연결 스냅샷을 사용하세요. 각 사본에는 실제 토큰, 타입 스케일, 간격, 형태, 상태 지침 및 출처가 포함됩니다.",
+        useTemplate: "이 시스템 사용",
+        adding: "추가 중...",
+        openSource: "{{title}} 원본 문서 열기",
+        license: "원본 라이선스: {{license}}",
+        addSuccess: "디자인 시스템이 추가되었습니다",
+        addError: "디자인 시스템을 추가할 수 없습니다",
+        descriptions: {
+          material3:
+            "Google 기준 라이트 역할, Roboto 타입 스케일, 4dp 간격 및 Material 형태 시스템.",
+          carbon:
+            "IBM Carbon v11 White 테마, IBM Plex, 엔터프라이즈 색상 역할 및 2/4/8 간격.",
+          primer:
+            "GitHub Primer 라이트 토큰, Mona Sans, 개발 도구용 밀도 및 반응형 간격.",
+        },
+      },
       actions: {
         done: "완료",
         select: "선택하다",
@@ -3939,6 +4232,7 @@ const designLocaleOverrides = {
       downloadPng: "Baixar PNG",
       downloadSvg: "Baixar SVG",
       downloadZip: "Baixar ZIP",
+      downloadPdfAllScreens: "Baixar PDF (todas as telas)",
       copyCodingHandoff: "Copiar transferência de codificação",
       pickDirection: "Escolha uma direção",
       variations: "variações de {{count}}",
@@ -3975,6 +4269,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG baixado",
         pngSaveError: "Não foi possível salvar PNG",
         pngExportError: "Não foi possível exportar PNG",
+        pdfAllScreensDownloaded: "PDF baixado (todas as telas)",
         openScreenSvg: "Abra uma tela antes de exportar SVG",
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
@@ -4105,11 +4400,31 @@ const designLocaleOverrides = {
       bulkDeleteError:
         "Não foi possível excluir os sistemas de design selecionados",
       selectedLabel: "selecionado",
+      yoursTitle: "Seus sistemas de design",
       newCardDescription: "Configure sua marca",
       defaultBadge: "Padrão",
       selectAria: "Selecione {{title}}",
       currentlyDefault: "Atualmente padrão",
       moreActionsAria: "Mais ações para {{title}}",
+      showcase: {
+        title: "Pontos de partida prontos para produção",
+        description:
+          "Use uma cópia com fontes vinculadas de um sistema de design público consolidado. Cada cópia inclui tokens, escalas tipográficas, espaçamento, formas, estados e atribuição reais.",
+        useTemplate: "Usar este sistema",
+        adding: "Adicionando...",
+        openSource: "Abrir a documentação de origem de {{title}}",
+        license: "Licença da fonte: {{license}}",
+        addSuccess: "Sistema de design adicionado",
+        addError: "Não foi possível adicionar o sistema de design",
+        descriptions: {
+          material3:
+            "Papéis claros básicos do Google, escala Roboto, espaçamento de 4 dp e sistema de formas Material.",
+          carbon:
+            "Tema White do IBM Carbon v11, tipografia IBM Plex, papéis de cor empresariais e espaçamento 2/4/8.",
+          primer:
+            "Tokens claros do GitHub Primer, Mona Sans, densidade compacta para ferramentas e espaçamento responsivo.",
+        },
+      },
       actions: {
         done: "Feito",
         select: "Selecione",
@@ -4337,6 +4652,7 @@ const designLocaleOverrides = {
       downloadPng: "PNG डाउनलोड करें",
       downloadSvg: "SVG डाउनलोड करें",
       downloadZip: "ZIP डाउनलोड करें",
+      downloadPdfAllScreens: "PDF डाउनलोड करें (सभी स्क्रीन)",
       copyCodingHandoff: "कोडिंग हैंडऑफ़ कॉपी करें",
       pickDirection: "एक दिशा चुनें",
       variations: "{{count}} विविधताएँ",
@@ -4372,6 +4688,7 @@ const designLocaleOverrides = {
         pngDownloaded: "PNG डाउनलोड किया गया",
         pngSaveError: "PNG को सहेजा नहीं जा सका",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
+        pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
         openScreenSvg: "SVG निर्यात करने से पहले एक स्क्रीन खोलें",
         svgDownloaded: "SVG डाउनलोड किया गया",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
@@ -4495,11 +4812,31 @@ const designLocaleOverrides = {
       updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",
       bulkDeleteError: "चयनित डिज़ाइन सिस्टम को हटाया नहीं जा सका",
       selectedLabel: "चयनित",
+      yoursTitle: "आपके डिज़ाइन सिस्टम",
       newCardDescription: "अपना ब्रांड स्थापित करें",
       defaultBadge: "गलती करना",
       selectAria: "{{title}} चुनें",
       currentlyDefault: "वर्तमान में डिफ़ॉल्ट",
       moreActionsAria: "{{title}} के लिए और अधिक कार्रवाइयां",
+      showcase: {
+        title: "प्रोडक्शन के लिए तैयार शुरुआती बिंदु",
+        description:
+          "स्थापित सार्वजनिक डिज़ाइन सिस्टम की स्रोत-लिंक्ड कॉपी उपयोग करें। हर कॉपी में वास्तविक टोकन, टाइप स्केल, स्पेसिंग, आकार, स्टेट मार्गदर्शन और श्रेय शामिल हैं।",
+        useTemplate: "इस सिस्टम का उपयोग करें",
+        adding: "जोड़ा जा रहा है...",
+        openSource: "{{title}} का स्रोत दस्तावेज़ खोलें",
+        license: "स्रोत लाइसेंस: {{license}}",
+        addSuccess: "डिज़ाइन सिस्टम जोड़ा गया",
+        addError: "डिज़ाइन सिस्टम नहीं जोड़ा जा सका",
+        descriptions: {
+          material3:
+            "Google की बेसलाइन लाइट भूमिकाएँ, Roboto टाइप स्केल, 4 dp स्पेसिंग और Material आकार सिस्टम।",
+          carbon:
+            "IBM Carbon v11 White थीम, IBM Plex, एंटरप्राइज़ रंग भूमिकाएँ और 2/4/8 स्पेसिंग।",
+          primer:
+            "GitHub Primer लाइट टोकन, Mona Sans, कॉम्पैक्ट डेवलपर-टूल घनत्व और रिस्पॉन्सिव स्पेसिंग।",
+        },
+      },
       actions: {
         done: "हो गया",
         select: "चुनना",
@@ -4727,6 +5064,7 @@ const designLocaleOverrides = {
       downloadPng: "تحميل PNG",
       downloadSvg: "تحميل SVG",
       downloadZip: "تحميل ZIP",
+      downloadPdfAllScreens: "تحميل PDF (كل الشاشات)",
       copyCodingHandoff: "نسخ عملية الترميز",
       pickDirection: "اختر الاتجاه",
       variations: "الاختلافات {{count}}",
@@ -4762,6 +5100,7 @@ const designLocaleOverrides = {
         pngDownloaded: "تم تنزيل PNG",
         pngSaveError: "تعذر حفظ PNG",
         pngExportError: "تعذر تصدير PNG",
+        pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
         openScreenSvg: "افتح الشاشة قبل تصدير SVG",
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
@@ -4885,11 +5224,31 @@ const designLocaleOverrides = {
       updateError: "لا يمكن تحديث نظام التصميم",
       bulkDeleteError: "لا يمكن حذف أنظمة التصميم المحددة",
       selectedLabel: "مختارة",
+      yoursTitle: "أنظمة التصميم الخاصة بك",
       newCardDescription: "قم بإعداد علامتك التجارية",
       defaultBadge: "تقصير",
       selectAria: "حدد {{title}}",
       currentlyDefault: "الافتراضي حاليا",
       moreActionsAria: "المزيد من الإجراءات لـ {{title}}",
+      showcase: {
+        title: "نقاط بداية جاهزة للإنتاج",
+        description:
+          "استخدم نسخة مرتبطة بالمصدر من نظام تصميم عام راسخ. تتضمن كل نسخة رموزا ومقاييس كتابة ومسافات وأشكالا وإرشادات حالات ونسبا حقيقية.",
+        useTemplate: "استخدام هذا النظام",
+        adding: "جار الإضافة...",
+        openSource: "فتح وثائق مصدر {{title}}",
+        license: "رخصة المصدر: {{license}}",
+        addSuccess: "تمت إضافة نظام التصميم",
+        addError: "تعذرت إضافة نظام التصميم",
+        descriptions: {
+          material3:
+            "أدوار Google الأساسية الفاتحة ومقياس Roboto ومسافات 4 dp ونظام أشكال Material.",
+          carbon:
+            "سمة IBM Carbon v11 White وخط IBM Plex وأدوار ألوان المؤسسات ومسافات 2/4/8.",
+          primer:
+            "رموز GitHub Primer الفاتحة وخط Mona Sans وكثافة أدوات المطورين المدمجة والمسافات المتجاوبة.",
+        },
+      },
       actions: {
         done: "منتهي",
         select: "يختار",
@@ -5056,6 +5415,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "新设计",
       createDesignProject: "创建一个设计项目",
       openingDesign: "正在打开设计...",
+      skipToEditor: "直接进入编辑器",
+      failedToCreateDesign: "无法创建设计",
       describeBuild: "描述您想要构建的内容...",
       selected: "已选择 {{count}}",
       clearVisibleSelection: "清晰可见的选择",
@@ -5213,6 +5574,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Nuevo diseño",
       createDesignProject: "Crear un proyecto de diseño.",
       openingDesign: "Abriendo diseño...",
+      skipToEditor: "Ir al editor",
+      failedToCreateDesign: "No se pudo crear el diseño",
       describeBuild: "Describe lo que quieres crear...",
       selected: "{{count}} seleccionado",
       clearVisibleSelection: "Borrar selección visible",
@@ -5371,6 +5734,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Nouveau design",
       createDesignProject: "Créer un projet de conception",
       openingDesign: "Ouverture du design...",
+      skipToEditor: "Accéder à l’éditeur",
+      failedToCreateDesign: "Impossible de créer le design",
       describeBuild: "Décrivez ce que vous voulez créer...",
       selected: "{{count}} sélectionné",
       clearVisibleSelection: "Effacer la sélection visible",
@@ -5530,6 +5895,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Neues Design",
       createDesignProject: "Erstellen Sie ein Designprojekt",
       openingDesign: "Design wird geöffnet...",
+      skipToEditor: "Direkt zum Editor",
+      failedToCreateDesign: "Design konnte nicht erstellt werden",
       describeBuild: "Beschreiben Sie, was Sie erstellen möchten...",
       selected: "{{count}} ausgewählt",
       clearVisibleSelection: "Klare sichtbare Auswahl",
@@ -5685,6 +6052,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "新しいデザイン",
       createDesignProject: "デザインプロジェクトを作成する",
       openingDesign: "デザインを開いています...",
+      skipToEditor: "エディターに移動",
+      failedToCreateDesign: "デザインを作成できませんでした",
       describeBuild: "作成したいものを説明してください...",
       selected: "{{count}} が選択されました",
       clearVisibleSelection: "表示されている選択範囲をクリアします",
@@ -5838,6 +6207,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "새로운 디자인",
       createDesignProject: "디자인 프로젝트 만들기",
       openingDesign: "디자인을 여는 중...",
+      skipToEditor: "편집기로 이동",
+      failedToCreateDesign: "디자인을 만들지 못했습니다",
       describeBuild: "만들고 싶은 것을 설명하세요...",
       selected: "{{count}} 선택됨",
       clearVisibleSelection: "보이는 선택 항목 지우기",
@@ -5995,6 +6366,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "Novo design",
       createDesignProject: "Crie um projeto de design",
       openingDesign: "Abrindo design...",
+      skipToEditor: "Ir para o editor",
+      failedToCreateDesign: "Não foi possível criar o design",
       describeBuild: "Descreva o que você quer criar...",
       selected: "{{count}} selecionado",
       clearVisibleSelection: "Limpar seleção visível",
@@ -6149,6 +6522,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "नया डिज़ाइन",
       createDesignProject: "एक डिज़ाइन प्रोजेक्ट बनाएं",
       openingDesign: "डिज़ाइन खोला जा रहा है...",
+      skipToEditor: "एडिटर पर जाएँ",
+      failedToCreateDesign: "डिज़ाइन नहीं बनाया जा सका",
       describeBuild: "बताएँ कि आप क्या बनाना चाहते हैं...",
       selected: "{{count}} चयनित",
       clearVisibleSelection: "स्पष्ट दृश्यमान चयन",
@@ -6302,6 +6677,8 @@ const designRawLiteralOverrides = {
       newDesignLower: "تصميم جديد",
       createDesignProject: "إنشاء مشروع تصميم",
       openingDesign: "جارٍ فتح التصميم...",
+      skipToEditor: "الانتقال إلى المحرر",
+      failedToCreateDesign: "تعذر إنشاء التصميم",
       describeBuild: "صف ما تريد إنشاءه...",
       selected: "تم تحديد {{count}}",
       clearVisibleSelection: "مسح التحديد المرئي",
@@ -6435,6 +6812,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG 已下载",
         svgExportError: "无法导出 SVG",
         figmaSvgCopied: "已复制为 Figma SVG",
+        figmaSvgDownloaded: "Figma SVG 已下载",
         figmaSvgUnsupported: "此浏览器无法将 SVG 图像复制到剪贴板",
         figmaSvgBlocked: "请允许访问剪贴板以复制此 SVG",
         figmaSvgWriteError: "无法将 SVG 复制到剪贴板",
@@ -6473,6 +6851,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Descargar HTML",
       downloadPng: "Descargar PNG",
       downloadSvg: "Descargar SVG",
+      downloadFigmaSvg: "Descargar para Figma (SVG)",
       downloadZip: "Descargar ZIP",
       generateDesign: "Generar diseño",
       generatePlaceholder: "Describe lo que quieres crear...",
@@ -6527,6 +6906,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG descargado",
         svgExportError: "No se pudo exportar SVG",
         figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgDownloaded: "SVG de Figma descargado",
         figmaSvgUnsupported:
           "Este navegador no puede copiar imágenes SVG al portapapeles",
         figmaSvgBlocked:
@@ -6567,6 +6947,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Télécharger HTML",
       downloadPng: "Télécharger PNG",
       downloadSvg: "Télécharger SVG",
+      downloadFigmaSvg: "Télécharger pour Figma (SVG)",
       downloadZip: "Télécharger ZIP",
       generateDesign: "Générer un design",
       generatePlaceholder: "Décrivez ce que vous voulez créer...",
@@ -6623,6 +7004,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG téléchargé",
         svgExportError: "Impossible d’exporter SVG",
         figmaSvgCopied: "Copié en tant que SVG Figma",
+        figmaSvgDownloaded: "SVG Figma téléchargé",
         figmaSvgUnsupported:
           "Ce navigateur ne peut pas copier d’images SVG dans le presse-papiers",
         figmaSvgBlocked:
@@ -6664,6 +7046,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML herunterladen",
       downloadPng: "PNG herunterladen",
       downloadSvg: "SVG herunterladen",
+      downloadFigmaSvg: "Für Figma herunterladen (SVG)",
       downloadZip: "ZIP herunterladen",
       generateDesign: "Design generieren",
       generatePlaceholder: "Beschreiben Sie, was Sie erstellen möchten...",
@@ -6720,6 +7103,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG heruntergeladen",
         svgExportError: "SVG konnte nicht exportiert werden",
         figmaSvgCopied: "Als Figma-SVG kopiert",
+        figmaSvgDownloaded: "Figma-SVG heruntergeladen",
         figmaSvgUnsupported:
           "Dieser Browser kann SVG-Bilder nicht in die Zwischenablage kopieren",
         figmaSvgBlocked:
@@ -6761,6 +7145,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML をダウンロード",
       downloadPng: "PNG をダウンロード",
       downloadSvg: "SVG をダウンロード",
+      downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
       downloadZip: "ZIP をダウンロード",
       generateDesign: "デザインを生成",
       generatePlaceholder: "作成したいものを説明してください...",
@@ -6816,6 +7201,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG をダウンロードしました",
         svgExportError: "SVG をエクスポートできませんでした",
         figmaSvgCopied: "Figma SVG としてコピーしました",
+        figmaSvgDownloaded: "Figma SVG をダウンロードしました",
         figmaSvgUnsupported:
           "このブラウザでは SVG 画像をクリップボードにコピーできません",
         figmaSvgBlocked:
@@ -6856,6 +7242,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML 다운로드",
       downloadPng: "PNG 다운로드",
       downloadSvg: "SVG 다운로드",
+      downloadFigmaSvg: "Figma용으로 다운로드(SVG)",
       downloadZip: "ZIP 다운로드",
       generateDesign: "디자인 생성",
       generatePlaceholder: "만들고 싶은 것을 설명하세요...",
@@ -6909,6 +7296,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG 다운로드됨",
         svgExportError: "SVG를 내보낼 수 없음",
         figmaSvgCopied: "Figma SVG로 복사됨",
+        figmaSvgDownloaded: "Figma SVG 다운로드됨",
         figmaSvgUnsupported:
           "이 브라우저에서는 SVG 이미지를 클립보드에 복사할 수 없음",
         figmaSvgBlocked: "이 SVG를 복사하려면 클립보드 접근을 허용하세요",
@@ -6948,6 +7336,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "Baixar HTML",
       downloadPng: "Baixar PNG",
       downloadSvg: "Baixar SVG",
+      downloadFigmaSvg: "Baixar para o Figma (SVG)",
       downloadZip: "Baixar ZIP",
       generateDesign: "Gerar design",
       generatePlaceholder: "Descreva o que você quer criar...",
@@ -7003,6 +7392,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG baixado",
         svgExportError: "Não foi possível exportar SVG",
         figmaSvgCopied: "Copiado como Figma SVG",
+        figmaSvgDownloaded: "SVG do Figma baixado",
         figmaSvgUnsupported:
           "Este navegador não pode copiar imagens SVG para a área de transferência",
         figmaSvgBlocked:
@@ -7044,6 +7434,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "HTML डाउनलोड करें",
       downloadPng: "PNG डाउनलोड करें",
       downloadSvg: "SVG डाउनलोड करें",
+      downloadFigmaSvg: "Figma के लिए डाउनलोड करें (SVG)",
       downloadZip: "ZIP डाउनलोड करें",
       generateDesign: "डिज़ाइन जनरेट करें",
       generatePlaceholder: "बताएँ कि आप क्या बनाना चाहते हैं...",
@@ -7096,6 +7487,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "SVG डाउनलोड हुआ",
         svgExportError: "SVG निर्यात नहीं किया जा सका",
         figmaSvgCopied: "Figma SVG के रूप में कॉपी हुआ",
+        figmaSvgDownloaded: "Figma SVG डाउनलोड हुआ",
         figmaSvgUnsupported:
           "यह ब्राउज़र SVG छवियों को क्लिपबोर्ड पर कॉपी नहीं कर सकता",
         figmaSvgBlocked: "इस SVG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
@@ -7135,6 +7527,7 @@ const designExactEnglishOverrides = {
       downloadHtml: "تنزيل HTML",
       downloadPng: "تنزيل PNG",
       downloadSvg: "تنزيل SVG",
+      downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
       downloadZip: "تنزيل ZIP",
       generateDesign: "إنشاء التصميم",
       generatePlaceholder: "صف ما تريد إنشاءه...",
@@ -7186,6 +7579,7 @@ const designExactEnglishOverrides = {
         svgDownloaded: "تم تنزيل SVG",
         svgExportError: "تعذر تصدير SVG",
         figmaSvgCopied: "تم النسخ كملف Figma SVG",
+        figmaSvgDownloaded: "تم تنزيل ملف Figma SVG",
         figmaSvgUnsupported: "لا يمكن لهذا المتصفح نسخ صور SVG إلى الحافظة",
         figmaSvgBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف SVG هذا",
         figmaSvgWriteError: "تعذر نسخ SVG إلى الحافظة",
@@ -7315,11 +7709,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分支",
-      fullView: "完整檢視",
+      fullView: "互動",
       preview: "預覽",
-      openAndDuplicate: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-      openAndPreview: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-      doubleClickToEdit: "使用完整檢視進行聚焦捲動",
+      openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+      openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+      doubleClickToEdit: "使用互動模式進行聚焦捲動",
       sources: {
         localhost: { label: "本機", title: "由本機開發伺服器渲染" },
         fusion: { label: "Fusion 遠端", title: "由 Fusion 渲染" },
@@ -7479,11 +7873,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "复制",
       fork: "分支",
-      fullView: "完整视图",
+      fullView: "互动",
       preview: "预览",
-      openAndDuplicate: "选择 {{display}}。使用完整视图进行聚焦滚动。",
-      openAndPreview: "选择 {{display}}。使用完整视图进行聚焦滚动。",
-      doubleClickToEdit: "使用完整视图进行聚焦滚动",
+      openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
+      openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
+      doubleClickToEdit: "使用互动模式进行聚焦滚动",
       sources: {
         localhost: { label: "本机", title: "由本地开发服务器渲染" },
         fusion: { label: "Fusion 远端", title: "由 Fusion 渲染" },
@@ -7644,13 +8038,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Bifurcar",
-      fullView: "Vista completa",
+      fullView: "Interactuar",
       preview: "Vista previa",
       openAndDuplicate:
-        "Selecciona {{display}}. Usa Vista completa para desplazamiento enfocado.",
+        "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
       openAndPreview:
-        "Selecciona {{display}}. Usa Vista completa para desplazamiento enfocado.",
-      doubleClickToEdit: "Usa Vista completa para desplazamiento enfocado",
+        "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
+      doubleClickToEdit: "Usa Interactuar para desplazamiento enfocado",
       sources: {
         localhost: {
           label: "Local",
@@ -7830,13 +8224,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Dupliquer",
       fork: "Créer une branche",
-      fullView: "Vue complète",
+      fullView: "Interagir",
       preview: "Aperçu",
       openAndDuplicate:
-        "Sélectionner {{display}}. Utilisez la vue complète pour le défilement ciblé.",
+        "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
       openAndPreview:
-        "Sélectionner {{display}}. Utilisez la vue complète pour le défilement ciblé.",
-      doubleClickToEdit: "Utilisez la vue complète pour le défilement ciblé",
+        "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
+      doubleClickToEdit: "Utilisez Interagir pour le défilement ciblé",
       sources: {
         localhost: { label: "Local", title: "Rendu depuis le serveur local" },
         fusion: { label: "Fusion distant", title: "Rendu depuis Fusion" },
@@ -8013,14 +8407,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplizieren",
       fork: "Abzweigen",
-      fullView: "Vollansicht",
+      fullView: "Interagieren",
       preview: "Vorschau",
       openAndDuplicate:
-        "{{display}} auswählen. Verwenden Sie die Vollansicht zum fokussierten Scrollen.",
+        "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
       openAndPreview:
-        "{{display}} auswählen. Verwenden Sie die Vollansicht zum fokussierten Scrollen.",
-      doubleClickToEdit:
-        "Verwenden Sie die Vollansicht zum fokussierten Scrollen",
+        "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
+      doubleClickToEdit: "Verwenden Sie Interagieren zum fokussierten Scrollen",
       sources: {
         localhost: {
           label: "Lokal",
@@ -8202,13 +8595,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分岐",
-      fullView: "フルビュー",
+      fullView: "操作",
       preview: "プレビュー",
       openAndDuplicate:
-        "{{display}} を選択します。集中してスクロールするにはフルビューを使用。",
+        "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
       openAndPreview:
-        "{{display}} を選択します。集中してスクロールするにはフルビューを使用。",
-      doubleClickToEdit: "集中してスクロールするにはフルビューを使用",
+        "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
+      doubleClickToEdit: "集中してスクロールするには操作モードを使用",
       sources: {
         localhost: {
           label: "ローカル",
@@ -8385,13 +8778,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "복제",
       fork: "분기",
-      fullView: "전체 보기",
+      fullView: "상호작용",
       preview: "미리보기",
       openAndDuplicate:
-        "{{display}} 선택. 집중 스크롤에는 전체 보기를 사용하세요.",
+        "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
       openAndPreview:
-        "{{display}} 선택. 집중 스크롤에는 전체 보기를 사용하세요.",
-      doubleClickToEdit: "집중 스크롤에는 전체 보기를 사용하세요",
+        "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
+      doubleClickToEdit: "집중 스크롤에는 상호작용 모드를 사용하세요",
       sources: {
         localhost: { label: "로컬", title: "로컬 개발 서버에서 렌더링됨" },
         fusion: { label: "Fusion 원격", title: "Fusion에서 렌더링됨" },
@@ -8565,13 +8958,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Ramificar",
-      fullView: "Visualização completa",
+      fullView: "Interagir",
       preview: "Prévia",
       openAndDuplicate:
-        "Selecione {{display}}. Use a Visualização completa para rolagem focada.",
+        "Selecione {{display}}. Use Interagir para rolagem focada.",
       openAndPreview:
-        "Selecione {{display}}. Use a Visualização completa para rolagem focada.",
-      doubleClickToEdit: "Use a Visualização completa para rolagem focada",
+        "Selecione {{display}}. Use Interagir para rolagem focada.",
+      doubleClickToEdit: "Use Interagir para rolagem focada",
       sources: {
         localhost: { label: "Local", title: "Renderizado pelo servidor local" },
         fusion: { label: "Fusion remoto", title: "Renderizado pelo Fusion" },
@@ -8745,13 +9138,13 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "डुप्लिकेट",
       fork: "फोर्क",
-      fullView: "पूर्ण दृश्य",
+      fullView: "इंटरैक्ट करें",
       preview: "पूर्वावलोकन",
       openAndDuplicate:
-        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें।",
+        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
       openAndPreview:
-        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें।",
-      doubleClickToEdit: "केंद्रित स्क्रॉलिंग के लिए पूर्ण दृश्य का उपयोग करें",
+        "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
+      doubleClickToEdit: "केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें",
       sources: {
         localhost: { label: "स्थानीय", title: "स्थानीय dev server से render" },
         fusion: { label: "Fusion remote", title: "Fusion से render" },
@@ -8925,11 +9318,11 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "تكرار",
       fork: "تفريع",
-      fullView: "العرض الكامل",
+      fullView: "تفاعل",
       preview: "معاينة",
-      openAndDuplicate: "حدد {{display}}. استخدم العرض الكامل للتمرير المركّز.",
-      openAndPreview: "حدد {{display}}. استخدم العرض الكامل للتمرير المركّز.",
-      doubleClickToEdit: "استخدم العرض الكامل للتمرير المركّز",
+      openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
+      openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
+      doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",
       sources: {
         localhost: { label: "محلي", title: "معروض من خادم التطوير المحلي" },
         fusion: { label: "Fusion بعيد", title: "معروض من Fusion" },
@@ -9034,6 +9427,24 @@ const designCanvasFeatureOverrides = {
   },
   "zh-CN": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "建议自动布局…",
+        title: "建议自动布局",
+        description: "预览根据子层实测几何推断的布局。应用前不会更改任何内容。",
+        preview: "自动布局预览",
+        sizing: "尺寸调整",
+        fixed: "固定",
+        hug: "适应内容",
+        cancel: "取消",
+        apply: "应用自动布局",
+        selectContainer: "请选择一个含子层的容器以获取建议。",
+        stale: "容器已更改。请重新预览后再应用。",
+        warnings: {
+          overlap: "部分子层重叠，无法安全应用此建议。",
+          irregular: "间距不规则；当前显示中位数间距。",
+          transformed: "变换后的子层需要手动检查后再转换。",
+        },
+      },
       toasts: {
         annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
         propsCopied: "属性已复制",
@@ -9111,6 +9522,26 @@ const designCanvasFeatureOverrides = {
   },
   "es-ES": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Sugerir diseño automático…",
+        title: "Sugerir diseño automático",
+        description:
+          "Revisa el diseño inferido de la geometría medida. Nada cambia hasta aplicarlo.",
+        preview: "Vista previa del diseño automático",
+        sizing: "Tamaño",
+        fixed: "Fijo",
+        hug: "Ajustar",
+        cancel: "Cancelar",
+        apply: "Aplicar diseño automático",
+        selectContainer: "Selecciona un contenedor con elementos secundarios.",
+        stale: "El contenedor cambió. Genera una vista previa nueva.",
+        warnings: {
+          overlap:
+            "Algunos elementos se superponen; no es seguro aplicar la propuesta.",
+          irregular: "El espaciado es irregular; se muestra la mediana.",
+          transformed: "Los elementos transformados requieren revisión manual.",
+        },
+      },
       toasts: {
         annotationSendError:
           "No se pudieron enviar las anotaciones. Tu dibujo sigue aquí; inténtalo de nuevo.",
@@ -9191,6 +9622,28 @@ const designCanvasFeatureOverrides = {
   },
   "fr-FR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Suggérer une mise en page auto…",
+        title: "Suggérer une mise en page auto",
+        description:
+          "Vérifiez la disposition déduite de la géométrie mesurée. Rien ne change avant l’application.",
+        preview: "Aperçu de la mise en page auto",
+        sizing: "Dimensionnement",
+        fixed: "Fixe",
+        hug: "Ajusté",
+        cancel: "Annuler",
+        apply: "Appliquer la mise en page auto",
+        selectContainer: "Sélectionnez un conteneur avec des enfants.",
+        stale: "Le conteneur a changé. Générez un nouvel aperçu.",
+        warnings: {
+          overlap:
+            "Des enfants se chevauchent ; la proposition ne peut pas être appliquée sûrement.",
+          irregular:
+            "L’espacement est irrégulier ; l’écart médian est affiché.",
+          transformed:
+            "Les enfants transformés nécessitent une vérification manuelle.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Impossible d’envoyer les annotations. Votre dessin est toujours là ; réessayez.",
@@ -9271,6 +9724,27 @@ const designCanvasFeatureOverrides = {
   },
   "de-DE": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Auto-Layout vorschlagen…",
+        title: "Auto-Layout vorschlagen",
+        description:
+          "Prüfe das aus der gemessenen Geometrie abgeleitete Layout. Bis zum Anwenden bleibt alles unverändert.",
+        preview: "Auto-Layout-Vorschau",
+        sizing: "Größenanpassung",
+        fixed: "Fest",
+        hug: "Inhalt",
+        cancel: "Abbrechen",
+        apply: "Auto-Layout anwenden",
+        selectContainer: "Wähle einen Container mit untergeordneten Ebenen.",
+        stale: "Der Container wurde geändert. Erstelle eine neue Vorschau.",
+        warnings: {
+          overlap:
+            "Einige Ebenen überlappen; der Vorschlag kann nicht sicher angewendet werden.",
+          irregular:
+            "Die Abstände sind unregelmäßig; der Median wird angezeigt.",
+          transformed: "Transformierte Ebenen müssen manuell geprüft werden.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Die Anmerkungen konnten nicht gesendet werden. Deine Zeichnung ist noch da – versuche es erneut.",
@@ -9352,6 +9826,25 @@ const designCanvasFeatureOverrides = {
   },
   "ja-JP": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "オートレイアウトを提案…",
+        title: "オートレイアウトを提案",
+        description:
+          "測定した子要素の形状から推定したレイアウトを確認します。適用するまで変更されません。",
+        preview: "オートレイアウトのプレビュー",
+        sizing: "サイズ調整",
+        fixed: "固定",
+        hug: "内容に合わせる",
+        cancel: "キャンセル",
+        apply: "オートレイアウトを適用",
+        selectContainer: "子要素を含むコンテナを1つ選択してください。",
+        stale: "コンテナが変更されました。新しい提案をプレビューしてください。",
+        warnings: {
+          overlap: "子要素が重なっているため、安全に適用できません。",
+          irregular: "間隔が不規則です。中央値を表示しています。",
+          transformed: "変形した子要素は手動確認が必要です。",
+        },
+      },
       toasts: {
         annotationSendError:
           "注釈を送信できませんでした。描画はそのまま残っています。もう一度お試しください。",
@@ -9431,6 +9924,25 @@ const designCanvasFeatureOverrides = {
   },
   "ko-KR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "오토 레이아웃 제안…",
+        title: "오토 레이아웃 제안",
+        description:
+          "측정된 자식 도형에서 추론한 레이아웃을 검토합니다. 적용 전에는 변경되지 않습니다.",
+        preview: "오토 레이아웃 미리보기",
+        sizing: "크기 조정",
+        fixed: "고정",
+        hug: "내용에 맞춤",
+        cancel: "취소",
+        apply: "오토 레이아웃 적용",
+        selectContainer: "자식이 있는 컨테이너 하나를 선택하세요.",
+        stale: "컨테이너가 변경되었습니다. 새 제안을 미리 보세요.",
+        warnings: {
+          overlap: "일부 자식이 겹쳐 안전하게 적용할 수 없습니다.",
+          irregular: "간격이 불규칙하여 중앙값을 표시합니다.",
+          transformed: "변형된 자식은 수동 검토가 필요합니다.",
+        },
+      },
       toasts: {
         annotationSendError:
           "주석을 보낼 수 없습니다. 그림은 그대로 남아 있으니 다시 시도하세요.",
@@ -9510,6 +10022,26 @@ const designCanvasFeatureOverrides = {
   },
   "pt-BR": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "Sugerir layout automático…",
+        title: "Sugerir layout automático",
+        description:
+          "Revise o layout inferido da geometria medida. Nada muda até você aplicar.",
+        preview: "Prévia do layout automático",
+        sizing: "Dimensionamento",
+        fixed: "Fixo",
+        hug: "Ajustar",
+        cancel: "Cancelar",
+        apply: "Aplicar layout automático",
+        selectContainer: "Selecione um contêiner com filhos.",
+        stale: "O contêiner mudou. Gere uma nova prévia.",
+        warnings: {
+          overlap:
+            "Alguns filhos se sobrepõem; não é seguro aplicar a proposta.",
+          irregular: "O espaçamento é irregular; a mediana é exibida.",
+          transformed: "Filhos transformados exigem revisão manual.",
+        },
+      },
       toasts: {
         annotationSendError:
           "Não foi possível enviar as anotações. Seu desenho continua aqui; tente novamente.",
@@ -9590,6 +10122,25 @@ const designCanvasFeatureOverrides = {
   },
   "hi-IN": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "ऑटो लेआउट सुझाएँ…",
+        title: "ऑटो लेआउट सुझाएँ",
+        description:
+          "मापी गई ज्यामिति से अनुमानित लेआउट देखें। लागू करने तक कुछ नहीं बदलेगा।",
+        preview: "ऑटो लेआउट पूर्वावलोकन",
+        sizing: "आकार",
+        fixed: "निश्चित",
+        hug: "सामग्री के अनुसार",
+        cancel: "रद्द करें",
+        apply: "ऑटो लेआउट लागू करें",
+        selectContainer: "बच्चों वाला एक कंटेनर चुनें।",
+        stale: "कंटेनर बदल गया है। नया सुझाव देखें।",
+        warnings: {
+          overlap: "कुछ बच्चे ओवरलैप हैं; सुझाव सुरक्षित रूप से लागू नहीं हो सकता।",
+          irregular: "अंतर अनियमित है; मध्य अंतर दिखाया गया है।",
+          transformed: "रूपांतरित बच्चों की मैन्युअल समीक्षा आवश्यक है।",
+        },
+      },
       toasts: {
         annotationSendError:
           "एनोटेशन नहीं भेजे जा सके। आपकी ड्रॉइंग यहीं सुरक्षित है—फिर से कोशिश करें।",
@@ -9669,6 +10220,25 @@ const designCanvasFeatureOverrides = {
   },
   "ar-SA": {
     designEditor: {
+      autoLayoutSuggestion: {
+        menuLabel: "اقتراح تخطيط تلقائي…",
+        title: "اقتراح تخطيط تلقائي",
+        description:
+          "راجع التخطيط المستنتج من القياسات. لن يتغير شيء حتى تطبقه.",
+        preview: "معاينة التخطيط التلقائي",
+        sizing: "التحجيم",
+        fixed: "ثابت",
+        hug: "ملائم للمحتوى",
+        cancel: "إلغاء",
+        apply: "تطبيق التخطيط التلقائي",
+        selectContainer: "حدد حاوية واحدة تحتوي على عناصر فرعية.",
+        stale: "تغيرت الحاوية. عاين اقتراحا جديدا.",
+        warnings: {
+          overlap: "بعض العناصر متداخلة؛ لا يمكن تطبيق الاقتراح بأمان.",
+          irregular: "التباعد غير منتظم؛ تعرض الفجوة الوسيطة.",
+          transformed: "العناصر المحولة تحتاج إلى مراجعة يدوية.",
+        },
+      },
       toasts: {
         annotationSendError:
           "تعذّر إرسال التعليقات التوضيحية. لا يزال الرسم محفوظًا هنا، فحاول مرة أخرى.",
@@ -10415,10 +10985,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "套用樣式",
         previewLabel: "待處理的視覺預覽",
         applyWithAgent: "用 Design 代理套用",
+        verifying: "正在驗證來源與執行階段…",
+        retryWithAgent: "重試來源驗證",
         copyPrompt: "將提示複製給您的代理",
         abortPreview: "中止預覽並互動",
         agentMessage: "將待處理的視覺樣式編輯套用到來源。",
         sentToast: "樣式編輯已傳送給 Design 代理",
+        verifiedToast: "已驗證來源與執行階段結構",
+        conflictToast:
+          "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
+        sourceCheckFailedToast:
+          "無法驗證連接的來源檔案。預覽已保留，您可以重試或復原。",
         copiedToast: "樣式提示已複製",
         abortedToast: "待處理的預覽已捨棄",
         interactBlocked: "請先套用或中止待處理的即時編輯，再切換到互動模式。",
@@ -10439,10 +11016,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "应用样式",
         previewLabel: "待处理的视觉预览",
         applyWithAgent: "用 Design 代理应用",
+        verifying: "正在验证源文件和运行时…",
+        retryWithAgent: "重试源文件验证",
         copyPrompt: "将提示复制给你的代理",
         abortPreview: "中止预览并互动",
         agentMessage: "将待处理的视觉样式编辑应用到源文件。",
         sentToast: "样式编辑已发送给 Design 代理",
+        verifiedToast: "已验证源文件和运行时结构",
+        conflictToast:
+          "重新加载的运行时与待处理的结构编辑不匹配。预览仍可撤销；请解决源文件冲突后重试。",
+        sourceCheckFailedToast:
+          "无法验证已连接的源文件。预览已保留，你可以重试或撤销。",
         copiedToast: "样式提示已复制",
         abortedToast: "待处理的预览已丢弃",
         interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
@@ -10463,11 +11047,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Vista previa visual pendiente",
         applyWithAgent: "Aplicar con el agente de Design",
+        verifying: "Verificando el código y el runtime…",
+        retryWithAgent: "Reintentar verificación del código",
         copyPrompt: "Copiar prompt a tu agente",
         abortPreview: "Cancelar vista previa e interactuar",
         agentMessage:
           "Aplica las ediciones visuales de estilo pendientes al código fuente.",
         sentToast: "Ediciones de estilo enviadas al agente de Design",
+        verifiedToast: "Código y estructura del runtime verificados",
+        conflictToast:
+          "El runtime recargado no coincide con la edición estructural pendiente. La vista previa aún se puede deshacer; resuelve el conflicto y vuelve a intentarlo.",
+        sourceCheckFailedToast:
+          "No se pudieron verificar los archivos conectados. Se conservó la vista previa para reintentar o deshacer.",
         copiedToast: "Prompt de estilo copiado",
         abortedToast: "Vista previa pendiente descartada",
         interactBlocked:
@@ -10489,11 +11080,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Appliquer les styles",
         previewLabel: "Aperçu visuel en attente",
         applyWithAgent: "Appliquer avec l’agent Design",
+        verifying: "Vérification de la source et du runtime…",
+        retryWithAgent: "Réessayer la vérification de la source",
         copyPrompt: "Copier le prompt vers votre agent",
         abortPreview: "Annuler l’aperçu et interagir",
         agentMessage:
           "Appliquez les modifications visuelles de style en attente à la source.",
         sentToast: "Modifications de style envoyées à l’agent Design",
+        verifiedToast: "Source et structure du runtime vérifiées",
+        conflictToast:
+          "Le runtime rechargé ne correspond pas à la modification de structure en attente. L’aperçu reste annulable ; résolvez le conflit puis réessayez.",
+        sourceCheckFailedToast:
+          "Impossible de vérifier les fichiers source connectés. L’aperçu a été conservé pour réessayer ou annuler.",
         copiedToast: "Prompt de style copié",
         abortedToast: "Aperçu en attente supprimé",
         interactBlocked:
@@ -10515,11 +11113,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Stile anwenden",
         previewLabel: "Ausstehende visuelle Vorschau",
         applyWithAgent: "Mit Design-Agent anwenden",
+        verifying: "Quelle und Laufzeit werden überprüft…",
+        retryWithAgent: "Quellprüfung wiederholen",
         copyPrompt: "Prompt an deinen Agent kopieren",
         abortPreview: "Vorschau abbrechen und interagieren",
         agentMessage:
           "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
         sentToast: "Stiländerungen an den Design-Agent gesendet",
+        verifiedToast: "Quelle und Laufzeitstruktur überprüft",
+        conflictToast:
+          "Die neu geladene Laufzeit stimmt nicht mit der ausstehenden Strukturänderung überein. Die Vorschau kann weiterhin rückgängig gemacht werden; löse den Konflikt und versuche es erneut.",
+        sourceCheckFailedToast:
+          "Die verbundenen Quelldateien konnten nicht überprüft werden. Die Vorschau wurde zum Wiederholen oder Rückgängigmachen beibehalten.",
         copiedToast: "Stil-Prompt kopiert",
         abortedToast: "Ausstehende Vorschau verworfen",
         interactBlocked:
@@ -10541,11 +11146,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "スタイルを適用",
         previewLabel: "保留中のビジュアルプレビュー",
         applyWithAgent: "Design エージェントで適用",
+        verifying: "ソースとランタイムを検証中…",
+        retryWithAgent: "ソース検証を再試行",
         copyPrompt: "エージェントにプロンプトをコピー",
         abortPreview: "プレビューを中止して操作",
         agentMessage:
           "保留中のビジュアルスタイル編集をソースに適用してください。",
         sentToast: "スタイル編集を Design エージェントに送信しました",
+        verifiedToast: "ソースとランタイム構造を検証しました",
+        conflictToast:
+          "再読み込みしたランタイムが保留中の構造編集と一致しません。プレビューは元に戻せます。ソースの競合を解決して再試行してください。",
+        sourceCheckFailedToast:
+          "接続されたソースファイルを検証できませんでした。再試行または元に戻せるよう、プレビューは保持されています。",
         copiedToast: "スタイルプロンプトをコピーしました",
         abortedToast: "保留中のプレビューを破棄しました",
         interactBlocked:
@@ -10567,10 +11179,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "스타일 적용",
         previewLabel: "보류 중인 시각 미리보기",
         applyWithAgent: "Design 에이전트로 적용",
+        verifying: "소스와 런타임 확인 중…",
+        retryWithAgent: "소스 확인 다시 시도",
         copyPrompt: "에이전트에 프롬프트 복사",
         abortPreview: "미리보기를 중단하고 상호작용",
         agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
         sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        verifiedToast: "소스와 런타임 구조를 확인했습니다",
+        conflictToast:
+          "다시 로드된 런타임이 보류 중인 구조 편집과 일치하지 않습니다. 미리보기는 계속 실행 취소할 수 있으니 소스 충돌을 해결한 뒤 다시 시도하세요.",
+        sourceCheckFailedToast:
+          "연결된 소스 파일을 확인할 수 없습니다. 다시 시도하거나 실행 취소할 수 있도록 미리보기를 유지했습니다.",
         copiedToast: "스타일 프롬프트가 복사되었습니다",
         abortedToast: "보류 중인 미리보기를 버렸습니다",
         interactBlocked:
@@ -10592,11 +11211,18 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Prévia visual pendente",
         applyWithAgent: "Aplicar com o agente Design",
+        verifying: "Verificando origem e runtime…",
+        retryWithAgent: "Tentar verificar a origem novamente",
         copyPrompt: "Copiar prompt para seu agente",
         abortPreview: "Cancelar prévia e interagir",
         agentMessage:
           "Aplique as edições visuais de estilo pendentes à origem.",
         sentToast: "Edições de estilo enviadas ao agente Design",
+        verifiedToast: "Origem e estrutura do runtime verificadas",
+        conflictToast:
+          "O runtime recarregado não corresponde à edição estrutural pendente. A prévia ainda pode ser desfeita; resolva o conflito e tente novamente.",
+        sourceCheckFailedToast:
+          "Não foi possível verificar os arquivos de origem conectados. A prévia foi mantida para tentar novamente ou desfazer.",
         copiedToast: "Prompt de estilo copiado",
         abortedToast: "Prévia pendente descartada",
         interactBlocked:
@@ -10618,10 +11244,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Styles लागू करें",
         previewLabel: "लंबित visual preview",
         applyWithAgent: "Design agent से लागू करें",
+        verifying: "Source और runtime सत्यापित हो रहे हैं…",
+        retryWithAgent: "Source verification फिर करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
         abortPreview: "Preview रोकें और interact करें",
         agentMessage: "लंबित visual style edits को source पर लागू करें।",
         sentToast: "Style edits Design agent को भेजे गए",
+        verifiedToast: "Source और runtime structure सत्यापित हैं",
+        conflictToast:
+          "Reload हुआ runtime pending structure edit से मेल नहीं खाता। Preview अभी भी undo किया जा सकता है; source conflict हल करके फिर कोशिश करें।",
+        sourceCheckFailedToast:
+          "Connected source files सत्यापित नहीं हो सके। Retry या undo के लिए preview रखा गया है।",
         copiedToast: "Style prompt कॉपी हुआ",
         abortedToast: "लंबित preview हटा दिया गया",
         interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
@@ -10642,10 +11275,17 @@ const designPendingVisualStyleOverrides = {
         applyButton: "تطبيق الأنماط",
         previewLabel: "معاينة مرئية معلقة",
         applyWithAgent: "تطبيق عبر وكيل Design",
+        verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
+        retryWithAgent: "إعادة التحقق من المصدر",
         copyPrompt: "نسخ الموجه إلى وكيلك",
         abortPreview: "إلغاء المعاينة والتفاعل",
         agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
         sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        verifiedToast: "تم التحقق من المصدر وبنية وقت التشغيل",
+        conflictToast:
+          "لا يطابق وقت التشغيل المعاد تحميله تعديل البنية المعلق. لا تزال المعاينة قابلة للتراجع؛ عالج تعارض المصدر ثم أعد المحاولة.",
+        sourceCheckFailedToast:
+          "تعذر التحقق من ملفات المصدر المتصلة. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو التراجع.",
         copiedToast: "تم نسخ موجه النمط",
         abortedToast: "تم تجاهل المعاينة المعلقة",
         interactBlocked:
@@ -11055,8 +11695,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
-          "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
+          "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
         chooseFigFile: "選擇 .fig 檔案",
+        figUploadUploading: "上傳中 {{progress}}%",
+        figUploadProcessing: "轉換中…",
         htmlTitle: "匯入 HTML",
         htmlDescription:
           "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -11071,6 +11713,10 @@ const designImportOverrides = {
           "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
         comingSoon: "即將推出",
         warningsToast: "匯入完成但有警告",
+        figmaImageFallbackWarning:
+          "圖像備援：{{count}}。外觀會保留，但這些圖層無法完整編輯。",
+        figmaApproximationWarning:
+          "近似圖層：{{count}}。HTML/CSS 無法精確呈現所有 Figma 屬性。",
         figmaSuccess: "已匯入 Figma 貼上內容",
         htmlSuccess: "已匯入 HTML",
         uploadSuccess: "已匯入檔案",
@@ -11080,6 +11726,8 @@ const designImportOverrides = {
           importFailed: "匯入失敗",
           figmaPasteFailed: "Figma 貼上匯入失敗",
           uploadFailed: "檔案上傳失敗",
+          invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+          figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
         },
       },
     },
@@ -11100,8 +11748,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
-          "只导出需要的画框。包含大量嵌入图片的大文件可能超过导入限制。",
+          "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 50 MB。",
         chooseFigFile: "选择 .fig 文件",
+        figUploadUploading: "正在上传 {{progress}}%",
+        figUploadProcessing: "正在转换…",
         htmlTitle: "导入 HTML",
         htmlDescription:
           "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
@@ -11116,6 +11766,10 @@ const designImportOverrides = {
           "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
         comingSoon: "即将推出",
         warningsToast: "导入完成但有警告",
+        figmaImageFallbackWarning:
+          "图像回退：{{count}}。外观会保留，但这些图层无法完全编辑。",
+        figmaApproximationWarning:
+          "近似图层：{{count}}。HTML/CSS 无法精确表示所有 Figma 属性。",
         figmaSuccess: "已导入 Figma 粘贴内容",
         htmlSuccess: "已导入 HTML",
         uploadSuccess: "已导入文件",
@@ -11125,6 +11779,8 @@ const designImportOverrides = {
           importFailed: "导入失败",
           figmaPasteFailed: "Figma 粘贴导入失败",
           uploadFailed: "文件上传失败",
+          invalidFigFile: "请选择以 .fig 结尾的文件。",
+          figFileTooLarge: ".fig 文件必须为 50 MB 或更小。",
         },
       },
     },
@@ -11147,8 +11803,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
-          "Exporta solo los marcos necesarios. Los archivos grandes con muchas imágenes incrustadas pueden superar el límite.",
+          "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo 50 MB.",
         chooseFigFile: "Elegir archivo .fig",
+        figUploadUploading: "Subiendo {{progress}}%",
+        figUploadProcessing: "Convirtiendo…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
@@ -11165,6 +11823,10 @@ const designImportOverrides = {
           "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
         comingSoon: "Próximamente",
         warningsToast: "La importación terminó con advertencias",
+        figmaImageFallbackWarning:
+          "Alternativas de imagen: {{count}}. Se conserva la apariencia, pero estas capas no son totalmente editables.",
+        figmaApproximationWarning:
+          "Capas aproximadas: {{count}}. HTML/CSS no puede representar todas las propiedades de Figma con exactitud.",
         figmaSuccess: "Pegado de Figma importado",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Archivo importado",
@@ -11174,6 +11836,8 @@ const designImportOverrides = {
           importFailed: "Error al importar",
           figmaPasteFailed: "Error al importar el pegado de Figma",
           uploadFailed: "Error al subir el archivo",
+          invalidFigFile: "Elige un archivo que termine en .fig.",
+          figFileTooLarge: "Los archivos .fig deben tener 50 MB o menos.",
         },
       },
     },
@@ -11196,8 +11860,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
-          "Exportez seulement les frames nécessaires. Les gros fichiers avec beaucoup d’images intégrées peuvent dépasser la limite.",
+          "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum 50 Mo.",
         chooseFigFile: "Choisir un fichier .fig",
+        figUploadUploading: "Téléversement {{progress}} %",
+        figUploadProcessing: "Conversion…",
         htmlTitle: "Importer HTML",
         htmlDescription:
           "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
@@ -11214,6 +11880,10 @@ const designImportOverrides = {
           "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
         comingSoon: "Bientôt",
         warningsToast: "Import terminé avec avertissements",
+        figmaImageFallbackWarning:
+          "Solutions de repli par image : {{count}}. L’apparence est préservée, mais ces calques ne sont pas entièrement modifiables.",
+        figmaApproximationWarning:
+          "Calques approximés : {{count}}. HTML/CSS ne peut pas représenter exactement toutes les propriétés Figma.",
         figmaSuccess: "Collage Figma importé",
         htmlSuccess: "HTML importé",
         uploadSuccess: "Fichier importé",
@@ -11223,6 +11893,8 @@ const designImportOverrides = {
           importFailed: "Échec de l’import",
           figmaPasteFailed: "Échec de l’import du collage Figma",
           uploadFailed: "Échec du téléversement",
+          invalidFigFile: "Choisissez un fichier se terminant par .fig.",
+          figFileTooLarge: "Les fichiers .fig doivent faire 50 Mo ou moins.",
         },
       },
     },
@@ -11245,8 +11917,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
-          "Exportiere nur die benötigten Frames. Große Dateien mit vielen eingebetteten Bildern können das Importlimit überschreiten.",
+          "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal 50 MB.",
         chooseFigFile: ".fig-Datei wählen",
+        figUploadUploading: "Wird hochgeladen: {{progress}} %",
+        figUploadProcessing: "Wird konvertiert…",
         htmlTitle: "HTML importieren",
         htmlDescription:
           "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
@@ -11262,6 +11936,10 @@ const designImportOverrides = {
           "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
         comingSoon: "Demnächst",
         warningsToast: "Import mit Warnungen abgeschlossen",
+        figmaImageFallbackWarning:
+          "Bild-Fallbacks: {{count}}. Das Erscheinungsbild bleibt erhalten, aber diese Ebenen sind nicht vollständig bearbeitbar.",
+        figmaApproximationWarning:
+          "Angenäherte Ebenen: {{count}}. HTML/CSS kann nicht jede Figma-Eigenschaft exakt darstellen.",
         figmaSuccess: "Figma-Einfügung importiert",
         htmlSuccess: "HTML importiert",
         uploadSuccess: "Datei importiert",
@@ -11271,6 +11949,8 @@ const designImportOverrides = {
           importFailed: "Import fehlgeschlagen",
           figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
           uploadFailed: "Dateiupload fehlgeschlagen",
+          invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
+          figFileTooLarge: ".fig-Dateien dürfen höchstens 50 MB groß sein.",
         },
       },
     },
@@ -11293,8 +11973,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
-          "必要なフレームだけを書き出してください。埋め込み画像が多い大きなファイルは制限を超える場合があります。",
+          "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 50 MB。",
         chooseFigFile: ".fig ファイルを選択",
+        figUploadUploading: "アップロード中 {{progress}}%",
+        figUploadProcessing: "変換中…",
         htmlTitle: "HTML をインポート",
         htmlDescription:
           "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
@@ -11311,6 +11993,10 @@ const designImportOverrides = {
           "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
         comingSoon: "近日対応",
         warningsToast: "警告付きでインポートが完了しました",
+        figmaImageFallbackWarning:
+          "画像フォールバック: {{count}}。外観は保持されますが、これらのレイヤーは完全には編集できません。",
+        figmaApproximationWarning:
+          "近似レイヤー: {{count}}。HTML/CSS ではすべての Figma プロパティを正確に表現できません。",
         figmaSuccess: "Figma 貼り付けをインポートしました",
         htmlSuccess: "HTML をインポートしました",
         uploadSuccess: "ファイルをインポートしました",
@@ -11320,6 +12006,8 @@ const designImportOverrides = {
           importFailed: "インポートに失敗しました",
           figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
           uploadFailed: "ファイルのアップロードに失敗しました",
+          invalidFigFile: ".fig で終わるファイルを選択してください。",
+          figFileTooLarge: ".fig ファイルは 50 MB 以下にしてください。",
         },
       },
     },
@@ -11342,8 +12030,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
-          "필요한 프레임만 내보내세요. 포함된 이미지가 많은 큰 파일은 가져오기 제한을 초과할 수 있습니다.",
+          "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 50MB.",
         chooseFigFile: ".fig 파일 선택",
+        figUploadUploading: "업로드 중 {{progress}}%",
+        figUploadProcessing: "변환 중…",
         htmlTitle: "HTML 가져오기",
         htmlDescription:
           "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
@@ -11360,6 +12050,10 @@ const designImportOverrides = {
           "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
         comingSoon: "곧 제공",
         warningsToast: "경고와 함께 가져오기가 완료되었습니다",
+        figmaImageFallbackWarning:
+          "이미지 대체: {{count}}. 모양은 유지되지만 이 레이어는 완전히 편집할 수 없습니다.",
+        figmaApproximationWarning:
+          "근사 처리된 레이어: {{count}}. HTML/CSS로 모든 Figma 속성을 정확히 표현할 수 없습니다.",
         figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
         htmlSuccess: "HTML을 가져왔습니다",
         uploadSuccess: "파일을 가져왔습니다",
@@ -11369,6 +12063,8 @@ const designImportOverrides = {
           importFailed: "가져오기 실패",
           figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
           uploadFailed: "파일 업로드 실패",
+          invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
+          figFileTooLarge: ".fig 파일은 50MB 이하여야 합니다.",
         },
       },
     },
@@ -11392,8 +12088,10 @@ const designImportOverrides = {
           "Importado da pré-visualização da área de transferência",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
-          "Exporte apenas os frames necessários. Arquivos grandes com muitas imagens incorporadas podem exceder o limite.",
+          "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de 50 MB.",
         chooseFigFile: "Escolher arquivo .fig",
+        figUploadUploading: "Enviando {{progress}}%",
+        figUploadProcessing: "Convertendo…",
         htmlTitle: "Importar HTML",
         htmlDescription:
           "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
@@ -11410,6 +12108,10 @@ const designImportOverrides = {
           "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
         comingSoon: "Em breve",
         warningsToast: "Importação concluída com avisos",
+        figmaImageFallbackWarning:
+          "Fallbacks de imagem: {{count}}. A aparência é preservada, mas essas camadas não são totalmente editáveis.",
+        figmaApproximationWarning:
+          "Camadas aproximadas: {{count}}. HTML/CSS não consegue representar exatamente todas as propriedades do Figma.",
         figmaSuccess: "Colagem do Figma importada",
         htmlSuccess: "HTML importado",
         uploadSuccess: "Arquivo importado",
@@ -11419,6 +12121,8 @@ const designImportOverrides = {
           importFailed: "Falha ao importar",
           figmaPasteFailed: "Falha ao importar colagem do Figma",
           uploadFailed: "Falha no upload do arquivo",
+          invalidFigFile: "Escolha um arquivo que termine em .fig.",
+          figFileTooLarge: "Arquivos .fig devem ter 50 MB ou menos.",
         },
       },
     },
@@ -11441,8 +12145,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
-          "सिर्फ ज़रूरी frames export करें। कई embedded images वाली बड़ी files import limit से ऊपर जा सकती हैं।",
+          "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम 50 MB।",
         chooseFigFile: ".fig file चुनें",
+        figUploadUploading: "अपलोड हो रहा है {{progress}}%",
+        figUploadProcessing: "बदला जा रहा है…",
         htmlTitle: "HTML आयात करें",
         htmlDescription:
           "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
@@ -11459,6 +12165,10 @@ const designImportOverrides = {
           "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
         comingSoon: "जल्द आ रहा है",
         warningsToast: "Import warnings के साथ पूरा हुआ",
+        figmaImageFallbackWarning:
+          "इमेज फ़ॉलबैक: {{count}}। दिखावट सुरक्षित रहती है, लेकिन इन लेयर को पूरी तरह संपादित नहीं किया जा सकता।",
+        figmaApproximationWarning:
+          "अनुमानित लेयर: {{count}}। HTML/CSS हर Figma प्रॉपर्टी को ठीक-ठीक प्रस्तुत नहीं कर सकता।",
         figmaSuccess: "Figma paste import हो गया",
         htmlSuccess: "HTML import हो गया",
         uploadSuccess: "File import हो गई",
@@ -11468,6 +12178,8 @@ const designImportOverrides = {
           importFailed: "आयात विफल रहा",
           figmaPasteFailed: "Figma paste आयात विफल रहा",
           uploadFailed: "File upload विफल रहा",
+          invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
+          figFileTooLarge: ".fig files 50 MB या उससे छोटी होनी चाहिए।",
         },
       },
     },
@@ -11489,8 +12201,10 @@ const designImportOverrides = {
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
-          "صدّر الإطارات التي تحتاجها فقط. قد تتجاوز الملفات الكبيرة ذات الصور المضمنة الكثيرة حد الاستيراد.",
+          "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى 50 ميغابايت.",
         chooseFigFile: "اختر ملف .fig",
+        figUploadUploading: "جار الرفع {{progress}}%",
+        figUploadProcessing: "جار التحويل…",
         htmlTitle: "استيراد HTML",
         htmlDescription:
           "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
@@ -11506,6 +12220,10 @@ const designImportOverrides = {
           "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
         comingSoon: "قريبا",
         warningsToast: "اكتمل الاستيراد مع تحذيرات",
+        figmaImageFallbackWarning:
+          "بدائل الصور: {{count}}. يتم الحفاظ على المظهر، لكن هذه الطبقات ليست قابلة للتحرير بالكامل.",
+        figmaApproximationWarning:
+          "طبقات تقريبية: {{count}}. لا يمكن لـ HTML/CSS تمثيل جميع خصائص Figma بدقة.",
         figmaSuccess: "تم استيراد لصق Figma",
         htmlSuccess: "تم استيراد HTML",
         uploadSuccess: "تم استيراد الملف",
@@ -11515,6 +12233,517 @@ const designImportOverrides = {
           importFailed: "فشل الاستيراد",
           figmaPasteFailed: "فشل استيراد لصق Figma",
           uploadFailed: "فشل رفع الملف",
+          invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
+          figFileTooLarge: "يجب ألا يتجاوز ملف .fig حجم 50 ميغابايت.",
+        },
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designFigmaConnectionOverrides = {
+  "zh-TW": {
+    chat: {
+      figmaLink: {
+        frameDetected: "偵測到 Figma 畫框",
+        fileDetected: "偵測到 Figma 檔案",
+        connected: "已連線",
+        connectedLast4: "已連線 ••••{{last4}}",
+        checkingConnection: "正在檢查 Figma 連線…",
+        connectionCheckFailed: "無法檢查 Figma 連線",
+        connectFailed: "無法連線 Figma",
+        connectDescription:
+          "連線一次，即可透過聊天匯入、檢查或重用此 Figma 連結。",
+        tokenLabel: "Figma 存取權杖",
+        tokenPlaceholder: "貼上 Figma 存取權杖",
+        connecting: "正在連線…",
+        connect: "連線",
+        getToken: "取得權杖",
+        importFrame: "匯入畫框",
+        chooseFrame: "選擇畫框",
+        inspect: "檢查",
+        exportSvg: "匯出 SVG",
+        actionsPrefill: "檢閱後再傳送",
+        retry: "重試",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma 畫框網址",
+        figmaUrlDescription: "從 Figma 連結匯入畫框或檔案。",
+        figmaUrlLabel: "Figma 畫框或檔案網址",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "正在檢查 Figma 連線…",
+        figmaConnected: "Figma 已連線",
+        figmaConnectedWithSuffix: "Figma 已連線 · ••••{{suffix}}",
+        figmaTokenLabel: "Figma 存取權杖",
+        figmaTokenDocs: "取得權杖",
+        figmaTokenPlaceholder: "貼上您的 Figma 個人存取權杖",
+        figmaTokenDescription:
+          "安全儲存以供 Figma 匯入和代理聊天使用。權杖絕不會加入聊天。",
+        importFigmaUrl: "從 Figma 匯入",
+        saveKeyAndImport: "儲存金鑰並匯入",
+        figmaUrlSuccess: "已從 Figma 匯入。",
+        errors: {
+          figmaUrlRequired: "請貼上 Figma 畫框或檔案網址。",
+          invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案網址。",
+          figmaImportFailed: "無法從 Figma 匯入",
+        },
+      },
+    },
+  },
+  "zh-CN": {
+    chat: {
+      figmaLink: {
+        frameDetected: "检测到 Figma 画框",
+        fileDetected: "检测到 Figma 文件",
+        connected: "已连接",
+        connectedLast4: "已连接 ••••{{last4}}",
+        checkingConnection: "正在检查 Figma 连接…",
+        connectionCheckFailed: "无法检查 Figma 连接",
+        connectFailed: "无法连接 Figma",
+        connectDescription:
+          "连接一次，即可通过聊天导入、检查或复用此 Figma 链接。",
+        tokenLabel: "Figma 访问令牌",
+        tokenPlaceholder: "粘贴 Figma 访问令牌",
+        connecting: "正在连接…",
+        connect: "连接",
+        getToken: "获取令牌",
+        importFrame: "导入画框",
+        chooseFrame: "选择画框",
+        inspect: "检查",
+        exportSvg: "导出 SVG",
+        actionsPrefill: "检查后发送",
+        retry: "重试",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma 画框 URL",
+        figmaUrlDescription: "从 Figma 链接导入画框或文件。",
+        figmaUrlLabel: "Figma 画框或文件 URL",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "正在检查 Figma 连接…",
+        figmaConnected: "Figma 已连接",
+        figmaConnectedWithSuffix: "Figma 已连接 · ••••{{suffix}}",
+        figmaTokenLabel: "Figma 访问令牌",
+        figmaTokenDocs: "获取令牌",
+        figmaTokenPlaceholder: "粘贴您的 Figma 个人访问令牌",
+        figmaTokenDescription:
+          "安全保存以用于 Figma 导入和代理聊天。令牌绝不会加入聊天。",
+        importFigmaUrl: "从 Figma 导入",
+        saveKeyAndImport: "保存密钥并导入",
+        figmaUrlSuccess: "已从 Figma 导入。",
+        errors: {
+          figmaUrlRequired: "请粘贴 Figma 画框或文件 URL。",
+          invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
+          figmaImportFailed: "无法从 Figma 导入",
+        },
+      },
+    },
+  },
+  "es-ES": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Marco de Figma detectado",
+        fileDetected: "Archivo de Figma detectado",
+        connected: "Conectado",
+        connectedLast4: "Conectado ••••{{last4}}",
+        checkingConnection: "Comprobando la conexión con Figma…",
+        connectionCheckFailed: "No se pudo comprobar la conexión con Figma",
+        connectFailed: "No se pudo conectar Figma",
+        connectDescription:
+          "Conecta una vez para importar, inspeccionar o reutilizar este enlace de Figma en el chat.",
+        tokenLabel: "Token de acceso de Figma",
+        tokenPlaceholder: "Pega el token de acceso de Figma",
+        connecting: "Conectando…",
+        connect: "Conectar",
+        getToken: "Obtener token",
+        importFrame: "Importar marco",
+        chooseFrame: "Elegir marco",
+        inspect: "Inspeccionar",
+        exportSvg: "Exportar SVG",
+        actionsPrefill: "Revisa y envía",
+        retry: "Reintentar",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "URL de marco de Figma",
+        figmaUrlDescription:
+          "Importa un marco o archivo desde un enlace de Figma.",
+        figmaUrlLabel: "URL de marco o archivo de Figma",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Comprobando la conexión con Figma…",
+        figmaConnected: "Figma conectado",
+        figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
+        figmaTokenLabel: "Token de acceso de Figma",
+        figmaTokenDocs: "Obtener un token",
+        figmaTokenPlaceholder: "Pega tu token de acceso personal de Figma",
+        figmaTokenDescription:
+          "Se guarda de forma segura para importaciones y chat. El token nunca se añade al chat.",
+        importFigmaUrl: "Importar desde Figma",
+        saveKeyAndImport: "Guardar clave e importar",
+        figmaUrlSuccess: "Importado desde Figma.",
+        errors: {
+          figmaUrlRequired: "Pega una URL de marco o archivo de Figma.",
+          invalidFigmaUrl: "Introduce una URL válida de figma.com.",
+          figmaImportFailed: "No se pudo importar desde Figma",
+        },
+      },
+    },
+  },
+  "fr-FR": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Frame Figma détectée",
+        fileDetected: "Fichier Figma détecté",
+        connected: "Connecté",
+        connectedLast4: "Connecté ••••{{last4}}",
+        checkingConnection: "Vérification de la connexion Figma…",
+        connectionCheckFailed: "Impossible de vérifier la connexion Figma",
+        connectFailed: "Impossible de connecter Figma",
+        connectDescription:
+          "Connectez-vous une fois pour importer, inspecter ou réutiliser ce lien Figma dans le chat.",
+        tokenLabel: "Jeton d’accès Figma",
+        tokenPlaceholder: "Collez le jeton d’accès Figma",
+        connecting: "Connexion…",
+        connect: "Connecter",
+        getToken: "Obtenir un jeton",
+        importFrame: "Importer la frame",
+        chooseFrame: "Choisir une frame",
+        inspect: "Inspecter",
+        exportSvg: "Exporter SVG",
+        actionsPrefill: "Vérifiez puis envoyez",
+        retry: "Réessayer",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "URL de frame Figma",
+        figmaUrlDescription:
+          "Importez une frame ou un fichier depuis un lien Figma.",
+        figmaUrlLabel: "URL de frame ou de fichier Figma",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Vérification de la connexion Figma…",
+        figmaConnected: "Figma connecté",
+        figmaConnectedWithSuffix: "Figma connecté · ••••{{suffix}}",
+        figmaTokenLabel: "Jeton d’accès Figma",
+        figmaTokenDocs: "Obtenir un jeton",
+        figmaTokenPlaceholder: "Collez votre jeton d’accès personnel Figma",
+        figmaTokenDescription:
+          "Enregistré de façon sécurisée pour les imports et le chat. Le jeton n’est jamais ajouté au chat.",
+        importFigmaUrl: "Importer depuis Figma",
+        saveKeyAndImport: "Enregistrer la clé et importer",
+        figmaUrlSuccess: "Importé depuis Figma.",
+        errors: {
+          figmaUrlRequired: "Collez une URL de frame ou de fichier Figma.",
+          invalidFigmaUrl: "Saisissez une URL figma.com valide.",
+          figmaImportFailed: "Impossible d’importer depuis Figma",
+        },
+      },
+    },
+  },
+  "de-DE": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Figma-Frame erkannt",
+        fileDetected: "Figma-Datei erkannt",
+        connected: "Verbunden",
+        connectedLast4: "Verbunden ••••{{last4}}",
+        checkingConnection: "Figma-Verbindung wird geprüft…",
+        connectionCheckFailed: "Figma-Verbindung konnte nicht geprüft werden",
+        connectFailed: "Figma konnte nicht verbunden werden",
+        connectDescription:
+          "Einmal verbinden, um diesen Figma-Link im Chat zu importieren, zu prüfen oder wiederzuverwenden.",
+        tokenLabel: "Figma-Zugriffstoken",
+        tokenPlaceholder: "Figma-Zugriffstoken einfügen",
+        connecting: "Verbindung wird hergestellt…",
+        connect: "Verbinden",
+        getToken: "Token abrufen",
+        importFrame: "Frame importieren",
+        chooseFrame: "Frame wählen",
+        inspect: "Prüfen",
+        exportSvg: "SVG exportieren",
+        actionsPrefill: "Prüfen und senden",
+        retry: "Erneut versuchen",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma-Frame-URL",
+        figmaUrlDescription:
+          "Frame oder Datei über einen Figma-Link importieren.",
+        figmaUrlLabel: "Figma-Frame- oder Datei-URL",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Figma-Verbindung wird geprüft…",
+        figmaConnected: "Figma verbunden",
+        figmaConnectedWithSuffix: "Figma verbunden · ••••{{suffix}}",
+        figmaTokenLabel: "Figma-Zugriffstoken",
+        figmaTokenDocs: "Token abrufen",
+        figmaTokenPlaceholder: "Persönliches Figma-Zugriffstoken einfügen",
+        figmaTokenDescription:
+          "Sicher für Figma-Importe und Agent-Chat gespeichert. Das Token wird nie zum Chat hinzugefügt.",
+        importFigmaUrl: "Aus Figma importieren",
+        saveKeyAndImport: "Schlüssel speichern und importieren",
+        figmaUrlSuccess: "Aus Figma importiert.",
+        errors: {
+          figmaUrlRequired: "Figma-Frame- oder Datei-URL einfügen.",
+          invalidFigmaUrl: "Gültige figma.com-URL eingeben.",
+          figmaImportFailed: "Import aus Figma fehlgeschlagen",
+        },
+      },
+    },
+  },
+  "ja-JP": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Figma フレームを検出しました",
+        fileDetected: "Figma ファイルを検出しました",
+        connected: "接続済み",
+        connectedLast4: "接続済み ••••{{last4}}",
+        checkingConnection: "Figma 接続を確認中…",
+        connectionCheckFailed: "Figma 接続を確認できませんでした",
+        connectFailed: "Figma に接続できませんでした",
+        connectDescription:
+          "一度接続すると、この Figma リンクをチャットでインポート、確認、再利用できます。",
+        tokenLabel: "Figma アクセストークン",
+        tokenPlaceholder: "Figma アクセストークンを貼り付け",
+        connecting: "接続中…",
+        connect: "接続",
+        getToken: "トークンを取得",
+        importFrame: "フレームをインポート",
+        chooseFrame: "フレームを選択",
+        inspect: "確認",
+        exportSvg: "SVG をエクスポート",
+        actionsPrefill: "確認して送信",
+        retry: "再試行",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma フレーム URL",
+        figmaUrlDescription:
+          "Figma リンクからフレームまたはファイルをインポートします。",
+        figmaUrlLabel: "Figma フレームまたはファイル URL",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Figma 接続を確認中…",
+        figmaConnected: "Figma 接続済み",
+        figmaConnectedWithSuffix: "Figma 接続済み · ••••{{suffix}}",
+        figmaTokenLabel: "Figma アクセストークン",
+        figmaTokenDocs: "トークンを取得",
+        figmaTokenPlaceholder: "Figma 個人アクセストークンを貼り付け",
+        figmaTokenDescription:
+          "Figma インポートとエージェントチャット用に安全に保存されます。トークンはチャットに追加されません。",
+        importFigmaUrl: "Figma からインポート",
+        saveKeyAndImport: "キーを保存してインポート",
+        figmaUrlSuccess: "Figma からインポートしました。",
+        errors: {
+          figmaUrlRequired:
+            "Figma フレームまたはファイル URL を貼り付けてください。",
+          invalidFigmaUrl: "有効な figma.com URL を入力してください。",
+          figmaImportFailed: "Figma からインポートできませんでした",
+        },
+      },
+    },
+  },
+  "ko-KR": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Figma 프레임 감지됨",
+        fileDetected: "Figma 파일 감지됨",
+        connected: "연결됨",
+        connectedLast4: "연결됨 ••••{{last4}}",
+        checkingConnection: "Figma 연결 확인 중…",
+        connectionCheckFailed: "Figma 연결을 확인할 수 없습니다",
+        connectFailed: "Figma에 연결할 수 없습니다",
+        connectDescription:
+          "한 번 연결하면 채팅에서 이 Figma 링크를 가져오고 검사하거나 재사용할 수 있습니다.",
+        tokenLabel: "Figma 액세스 토큰",
+        tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
+        connecting: "연결 중…",
+        connect: "연결",
+        getToken: "토큰 받기",
+        importFrame: "프레임 가져오기",
+        chooseFrame: "프레임 선택",
+        inspect: "검사",
+        exportSvg: "SVG 내보내기",
+        actionsPrefill: "검토 후 보내기",
+        retry: "다시 시도",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma 프레임 URL",
+        figmaUrlDescription: "Figma 링크에서 프레임이나 파일을 가져옵니다.",
+        figmaUrlLabel: "Figma 프레임 또는 파일 URL",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Figma 연결 확인 중…",
+        figmaConnected: "Figma 연결됨",
+        figmaConnectedWithSuffix: "Figma 연결됨 · ••••{{suffix}}",
+        figmaTokenLabel: "Figma 액세스 토큰",
+        figmaTokenDocs: "토큰 받기",
+        figmaTokenPlaceholder: "Figma 개인 액세스 토큰 붙여넣기",
+        figmaTokenDescription:
+          "Figma 가져오기와 에이전트 채팅에 안전하게 저장됩니다. 토큰은 채팅에 추가되지 않습니다.",
+        importFigmaUrl: "Figma에서 가져오기",
+        saveKeyAndImport: "키 저장 후 가져오기",
+        figmaUrlSuccess: "Figma에서 가져왔습니다.",
+        errors: {
+          figmaUrlRequired: "Figma 프레임 또는 파일 URL을 붙여넣으세요.",
+          invalidFigmaUrl: "유효한 figma.com URL을 입력하세요.",
+          figmaImportFailed: "Figma에서 가져올 수 없습니다",
+        },
+      },
+    },
+  },
+  "pt-BR": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Frame do Figma detectado",
+        fileDetected: "Arquivo do Figma detectado",
+        connected: "Conectado",
+        connectedLast4: "Conectado ••••{{last4}}",
+        checkingConnection: "Verificando conexão com o Figma…",
+        connectionCheckFailed:
+          "Não foi possível verificar a conexão com o Figma",
+        connectFailed: "Não foi possível conectar o Figma",
+        connectDescription:
+          "Conecte uma vez para importar, inspecionar ou reutilizar este link do Figma no chat.",
+        tokenLabel: "Token de acesso do Figma",
+        tokenPlaceholder: "Cole o token de acesso do Figma",
+        connecting: "Conectando…",
+        connect: "Conectar",
+        getToken: "Obter token",
+        importFrame: "Importar frame",
+        chooseFrame: "Escolher frame",
+        inspect: "Inspecionar",
+        exportSvg: "Exportar SVG",
+        actionsPrefill: "Revise e envie",
+        retry: "Tentar novamente",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "URL de frame do Figma",
+        figmaUrlDescription: "Importe um frame ou arquivo de um link do Figma.",
+        figmaUrlLabel: "URL de frame ou arquivo do Figma",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Verificando conexão com o Figma…",
+        figmaConnected: "Figma conectado",
+        figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
+        figmaTokenLabel: "Token de acesso do Figma",
+        figmaTokenDocs: "Obter token",
+        figmaTokenPlaceholder: "Cole seu token de acesso pessoal do Figma",
+        figmaTokenDescription:
+          "Salvo com segurança para importações e chat. O token nunca é adicionado ao chat.",
+        importFigmaUrl: "Importar do Figma",
+        saveKeyAndImport: "Salvar chave e importar",
+        figmaUrlSuccess: "Importado do Figma.",
+        errors: {
+          figmaUrlRequired: "Cole uma URL de frame ou arquivo do Figma.",
+          invalidFigmaUrl: "Insira uma URL válida do figma.com.",
+          figmaImportFailed: "Não foi possível importar do Figma",
+        },
+      },
+    },
+  },
+  "hi-IN": {
+    chat: {
+      figmaLink: {
+        frameDetected: "Figma frame मिला",
+        fileDetected: "Figma file मिली",
+        connected: "कनेक्टेड",
+        connectedLast4: "कनेक्टेड ••••{{last4}}",
+        checkingConnection: "Figma कनेक्शन जाँचा जा रहा है…",
+        connectionCheckFailed: "Figma कनेक्शन जाँचा नहीं जा सका",
+        connectFailed: "Figma कनेक्ट नहीं हो सका",
+        connectDescription:
+          "इस Figma link को chat में import, inspect या reuse करने के लिए एक बार connect करें।",
+        tokenLabel: "Figma एक्सेस टोकन",
+        tokenPlaceholder: "Figma access token paste करें",
+        connecting: "कनेक्ट हो रहा है…",
+        connect: "कनेक्ट करें",
+        getToken: "Token पाएँ",
+        importFrame: "Frame import करें",
+        chooseFrame: "Frame चुनें",
+        inspect: "Inspect करें",
+        exportSvg: "SVG export करें",
+        actionsPrefill: "जाँचें, फिर भेजें",
+        retry: "फिर कोशिश करें",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "Figma फ़्रेम URL",
+        figmaUrlDescription: "Figma link से frame या file import करें।",
+        figmaUrlLabel: "Figma frame या file URL",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "Figma कनेक्शन जाँचा जा रहा है…",
+        figmaConnected: "Figma कनेक्टेड",
+        figmaConnectedWithSuffix: "Figma कनेक्टेड · ••••{{suffix}}",
+        figmaTokenLabel: "Figma एक्सेस टोकन",
+        figmaTokenDocs: "Token पाएँ",
+        figmaTokenPlaceholder: "अपना Figma personal access token paste करें",
+        figmaTokenDescription:
+          "Figma imports और agent chat के लिए सुरक्षित रूप से सहेजा जाता है। Token chat में कभी नहीं जोड़ा जाता।",
+        importFigmaUrl: "Figma से import करें",
+        saveKeyAndImport: "Key save करके import करें",
+        figmaUrlSuccess: "Figma से import हो गया।",
+        errors: {
+          figmaUrlRequired: "Figma frame या file URL paste करें।",
+          invalidFigmaUrl: "Valid figma.com URL दर्ज करें।",
+          figmaImportFailed: "Figma से import नहीं हो सका",
+        },
+      },
+    },
+  },
+  "ar-SA": {
+    chat: {
+      figmaLink: {
+        frameDetected: "تم اكتشاف إطار Figma",
+        fileDetected: "تم اكتشاف ملف Figma",
+        connected: "متصل",
+        connectedLast4: "متصل ••••{{last4}}",
+        checkingConnection: "جار التحقق من اتصال Figma…",
+        connectionCheckFailed: "تعذر التحقق من اتصال Figma",
+        connectFailed: "تعذر توصيل Figma",
+        connectDescription:
+          "اتصل مرة واحدة لاستيراد رابط Figma هذا أو فحصه أو إعادة استخدامه عبر الدردشة.",
+        tokenLabel: "رمز وصول Figma",
+        tokenPlaceholder: "الصق رمز وصول Figma",
+        connecting: "جار الاتصال…",
+        connect: "اتصال",
+        getToken: "الحصول على رمز",
+        importFrame: "استيراد الإطار",
+        chooseFrame: "اختيار إطار",
+        inspect: "فحص",
+        exportSvg: "تصدير SVG",
+        actionsPrefill: "راجع ثم أرسل",
+        retry: "إعادة المحاولة",
+      },
+    },
+    designEditor: {
+      import: {
+        figmaUrlTitle: "رابط إطار Figma",
+        figmaUrlDescription: "استورد إطارا أو ملفا من رابط Figma.",
+        figmaUrlLabel: "رابط إطار أو ملف Figma",
+        figmaUrlPlaceholder: "https://www.figma.com/design/…",
+        figmaConnectionChecking: "جار التحقق من اتصال Figma…",
+        figmaConnected: "Figma متصل",
+        figmaConnectedWithSuffix: "Figma متصل · ••••{{suffix}}",
+        figmaTokenLabel: "رمز وصول Figma",
+        figmaTokenDocs: "الحصول على رمز",
+        figmaTokenPlaceholder: "الصق رمز وصول Figma الشخصي",
+        figmaTokenDescription:
+          "يحفظ بأمان لاستيراد Figma ودردشة الوكيل. لا يضاف الرمز إلى الدردشة أبدا.",
+        importFigmaUrl: "استيراد من Figma",
+        saveKeyAndImport: "حفظ المفتاح والاستيراد",
+        figmaUrlSuccess: "تم الاستيراد من Figma.",
+        errors: {
+          figmaUrlRequired: "الصق رابط إطار أو ملف Figma.",
+          invalidFigmaUrl: "أدخل رابط figma.com صالحا.",
+          figmaImportFailed: "تعذر الاستيراد من Figma",
         },
       },
     },
@@ -11571,6 +12800,7 @@ const designFramePresetsOverrides = {
           watch: "手表",
           paper: "纸张",
           socialMedia: "社交媒体",
+          adUnit: "广告单元",
         },
       },
     },
@@ -11587,6 +12817,7 @@ const designFramePresetsOverrides = {
           watch: "Reloj",
           paper: "Papel",
           socialMedia: "Redes sociales",
+          adUnit: "Unidad de anuncio",
         },
       },
     },
@@ -11603,6 +12834,7 @@ const designFramePresetsOverrides = {
           watch: "Montre",
           paper: "Papier",
           socialMedia: "Réseaux sociaux",
+          adUnit: "Unité publicitaire",
         },
       },
     },
@@ -11619,6 +12851,7 @@ const designFramePresetsOverrides = {
           watch: "Uhr",
           paper: "Papier",
           socialMedia: "Soziale Medien",
+          adUnit: "Anzeigenformat",
         },
       },
     },
@@ -11635,6 +12868,7 @@ const designFramePresetsOverrides = {
           watch: "ウォッチ",
           paper: "用紙",
           socialMedia: "ソーシャルメディア",
+          adUnit: "広告ユニット",
         },
       },
     },
@@ -11651,6 +12885,7 @@ const designFramePresetsOverrides = {
           watch: "시계",
           paper: "용지",
           socialMedia: "소셜 미디어",
+          adUnit: "광고 단위",
         },
       },
     },
@@ -11667,6 +12902,7 @@ const designFramePresetsOverrides = {
           watch: "Relógio",
           paper: "Papel",
           socialMedia: "Redes sociais",
+          adUnit: "Unidade de anúncio",
         },
       },
     },
@@ -11683,6 +12919,7 @@ const designFramePresetsOverrides = {
           watch: "वॉच",
           paper: "पेपर",
           socialMedia: "सोशल मीडिया",
+          adUnit: "विज्ञापन इकाई",
         },
       },
     },
@@ -11699,6 +12936,7 @@ const designFramePresetsOverrides = {
           watch: "الساعة",
           paper: "الورق",
           socialMedia: "وسائل التواصل الاجتماعي",
+          adUnit: "وحدة إعلانية",
         },
       },
     },
@@ -13399,11 +14637,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["zh-TW"],
       designTokenImportOverrides["zh-TW"],
       designImportOverrides["zh-TW"],
+      designFigmaConnectionOverrides["zh-TW"],
       designModeFeatureOverrides["zh-TW"],
       designCanvasFeatureOverrides["zh-TW"],
       designShapeToolOverrides["zh-TW"],
       designPublicShareOverrides["zh-TW"],
       designVisualEditOverrides["zh-TW"],
+      designTemplateFeatureOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
@@ -13419,11 +14659,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["zh-CN"],
       designTokenImportOverrides["zh-CN"],
       designImportOverrides["zh-CN"],
+      designFigmaConnectionOverrides["zh-CN"],
       designModeFeatureOverrides["zh-CN"],
       designCanvasFeatureOverrides["zh-CN"],
       designShapeToolOverrides["zh-CN"],
       designPublicShareOverrides["zh-CN"],
       designVisualEditOverrides["zh-CN"],
+      designTemplateFeatureOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
       designFillStylesComingSoonOverrides["zh-CN"],
       designFramePresetsOverrides["zh-CN"],
@@ -13492,11 +14734,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["es-ES"],
       designTokenImportOverrides["es-ES"],
       designImportOverrides["es-ES"],
+      designFigmaConnectionOverrides["es-ES"],
       designModeFeatureOverrides["es-ES"],
       designCanvasFeatureOverrides["es-ES"],
       designShapeToolOverrides["es-ES"],
       designPublicShareOverrides["es-ES"],
       designVisualEditOverrides["es-ES"],
+      designTemplateFeatureOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
       designFillStylesComingSoonOverrides["es-ES"],
       designFramePresetsOverrides["es-ES"],
@@ -13567,11 +14811,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["fr-FR"],
       designTokenImportOverrides["fr-FR"],
       designImportOverrides["fr-FR"],
+      designFigmaConnectionOverrides["fr-FR"],
       designModeFeatureOverrides["fr-FR"],
       designCanvasFeatureOverrides["fr-FR"],
       designShapeToolOverrides["fr-FR"],
       designPublicShareOverrides["fr-FR"],
       designVisualEditOverrides["fr-FR"],
+      designTemplateFeatureOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
       designFillStylesComingSoonOverrides["fr-FR"],
       designFramePresetsOverrides["fr-FR"],
@@ -13642,11 +14888,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["de-DE"],
       designTokenImportOverrides["de-DE"],
       designImportOverrides["de-DE"],
+      designFigmaConnectionOverrides["de-DE"],
       designModeFeatureOverrides["de-DE"],
       designCanvasFeatureOverrides["de-DE"],
       designShapeToolOverrides["de-DE"],
       designPublicShareOverrides["de-DE"],
       designVisualEditOverrides["de-DE"],
+      designTemplateFeatureOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
       designFillStylesComingSoonOverrides["de-DE"],
       designFramePresetsOverrides["de-DE"],
@@ -13717,11 +14965,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["ja-JP"],
       designTokenImportOverrides["ja-JP"],
       designImportOverrides["ja-JP"],
+      designFigmaConnectionOverrides["ja-JP"],
       designModeFeatureOverrides["ja-JP"],
       designCanvasFeatureOverrides["ja-JP"],
       designShapeToolOverrides["ja-JP"],
       designPublicShareOverrides["ja-JP"],
       designVisualEditOverrides["ja-JP"],
+      designTemplateFeatureOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
       designFillStylesComingSoonOverrides["ja-JP"],
       designFramePresetsOverrides["ja-JP"],
@@ -13793,11 +15043,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["ko-KR"],
       designTokenImportOverrides["ko-KR"],
       designImportOverrides["ko-KR"],
+      designFigmaConnectionOverrides["ko-KR"],
       designModeFeatureOverrides["ko-KR"],
       designCanvasFeatureOverrides["ko-KR"],
       designShapeToolOverrides["ko-KR"],
       designPublicShareOverrides["ko-KR"],
       designVisualEditOverrides["ko-KR"],
+      designTemplateFeatureOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
       designFillStylesComingSoonOverrides["ko-KR"],
       designFramePresetsOverrides["ko-KR"],
@@ -13867,11 +15119,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["pt-BR"],
       designTokenImportOverrides["pt-BR"],
       designImportOverrides["pt-BR"],
+      designFigmaConnectionOverrides["pt-BR"],
       designModeFeatureOverrides["pt-BR"],
       designCanvasFeatureOverrides["pt-BR"],
       designShapeToolOverrides["pt-BR"],
       designPublicShareOverrides["pt-BR"],
       designVisualEditOverrides["pt-BR"],
+      designTemplateFeatureOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
       designFillStylesComingSoonOverrides["pt-BR"],
       designFramePresetsOverrides["pt-BR"],
@@ -13942,11 +15196,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["hi-IN"],
       designTokenImportOverrides["hi-IN"],
       designImportOverrides["hi-IN"],
+      designFigmaConnectionOverrides["hi-IN"],
       designModeFeatureOverrides["hi-IN"],
       designCanvasFeatureOverrides["hi-IN"],
       designShapeToolOverrides["hi-IN"],
       designPublicShareOverrides["hi-IN"],
       designVisualEditOverrides["hi-IN"],
+      designTemplateFeatureOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
       designFillStylesComingSoonOverrides["hi-IN"],
       designFramePresetsOverrides["hi-IN"],
@@ -14017,11 +15273,13 @@ export const messagesByLocale = {
       designLeftRailOverrides["ar-SA"],
       designTokenImportOverrides["ar-SA"],
       designImportOverrides["ar-SA"],
+      designFigmaConnectionOverrides["ar-SA"],
       designModeFeatureOverrides["ar-SA"],
       designCanvasFeatureOverrides["ar-SA"],
       designShapeToolOverrides["ar-SA"],
       designPublicShareOverrides["ar-SA"],
       designVisualEditOverrides["ar-SA"],
+      designTemplateFeatureOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
       designFillStylesComingSoonOverrides["ar-SA"],
       designFramePresetsOverrides["ar-SA"],

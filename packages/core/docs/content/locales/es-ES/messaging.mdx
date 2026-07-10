@@ -1,11 +1,15 @@
 ---
 title: "Mensajería"
-description: "Hable con su agente desde Slack, correo electrónico, Telegram o WhatsApp: el mismo agente, la misma memoria, las mismas herramientas."
+description: "Hable con su agente desde Slack, Microsoft Teams, interacciones de Discord, correo electrónico, Telegram o WhatsApp."
 ---
 
 # Mensajería
 
-Conecta tu agente a Slack, correo electrónico, Telegram o WhatsApp para que puedas chatear con él desde las aplicaciones que ya usas. Es el mismo agente (la misma memoria, las mismas herramientas, los mismos subprocesos), pero al que se puede acceder desde más lugares.
+Conecta tu agente a Slack, Microsoft Teams, interacciones de Discord, correo electrónico, Telegram o WhatsApp. Es el mismo agente, con la misma memoria, herramientas e historial.
+
+> **Compatibilidad exacta:** Teams valida los JWT oficiales de Bot Framework y responde en la conversación de origen. Discord admite comandos de barra mediante interacciones HTTP con verificación Ed25519 y respuesta diferida; no recibe mensajes normales del servidor ni mensajes directos sin un runtime Gateway. Telegram conserva `message_thread_id` y WhatsApp usa el `wamid` entrante para respuestas contextuales.
+>
+> Teams requiere `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` y `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. Discord requiere `DISCORD_APPLICATION_ID` y `DISCORD_PUBLIC_KEY`. Telegram requiere `TELEGRAM_WEBHOOK_SECRET`, y WhatsApp requiere `WHATSAPP_APP_SECRET`, además de sus credenciales existentes.
 
 > **¿Estás usando la plantilla de Despacho?** Todo esto está conectado para ti en **Configuración → Mensajería**. Haga clic para conectar cada plataforma; no necesita leer el resto de esta página a menos que esté personalizando o creando su propia plantilla. Ver [Dispatch](/docs/dispatch) o [Dispatch template reference](/docs/template-dispatch).
 
@@ -78,7 +82,6 @@ Conecta tu agente a Slack, correo electrónico, Telegram o WhatsApp para que pue
    - `chat:write`: permite al agente enviar mensajes
    - `app_mentions:read`: permite al agente ver cuándo se menciona @ (opcional)
    - `im:history`: permite al agente leer los mensajes directos que se le envían
-   - `assistant:write` — opcional; permite que Slack muestre el estado nativo "está pensando..." en los hilos del asistente
    - `users:read.email` — opcional; ayuda a plantillas como Mail a verificar el correo electrónico del remitente Slack para verificar la identidad de la cola de borradores
 3. Haga clic en **Instalar en el espacio de trabajo** en la parte superior de esa página. Slack le dará un **Token de usuario de bot OAuth** que comienza con `xoxb-`. Cópialo.
 4. Vaya a **Información básica** en la barra lateral y copie el **Secreto de firma**.
@@ -123,11 +126,82 @@ y `link_shared` al controlador de despliegue de clips.
 
 ### Consejos
 
-- **Menciones de canales**: el bot solo responde en los canales cuando se @-menciona, para evitar ruido.
-- **DM**: cada DM se trata como una conversación privada con el agente.
-- **Misma identidad, todos los canales**: si un usuario de Slack tiene el mismo correo electrónico que un usuario registrado en su aplicación, el agente lo trata como a la misma persona.
+- **Menciones de canales**: use una @mención para iniciar el trabajo. Las respuestas sin mención solo continúan mientras ese hilo exacto tenga trabajo activo.
+- **Mensajes directos**: los mensajes directos personales aceptados son conversaciones privadas y requieren un miembro verificado de la organización o una identidad de Slack vinculada.
+- **Identidad**: los mensajes directos pueden vincular un correo de Slack verificado al mismo usuario de la aplicación; los canales administrados usan su identidad de servicio y política.
 - **Listas permitidas de producción**: configure `SLACK_ALLOWED_TEAM_IDS` y, para aplicaciones Slack compartidas, `SLACK_ALLOWED_API_APP_IDS` para que un espacio de trabajo inesperado no pueda reutilizar un secreto de firma válido.
 - **La aplicación Clips se despliega**: los clips Agent-Native instalables para Slack utilizan `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` y `/api/slack/oauth/callback`. Cada espacio de trabajo Slack conectado obtiene su propio token de bot cifrado en `app_secrets`; `SLACK_BOT_TOKEN` es solo un respaldo heredado de un único espacio de trabajo.
+
+### Add to Slack administrado
+
+OAuth administrado es la configuración recomendada. En **Configuración →
+Mensajería**, seleccione **Agent manifest** para descargar el archivo específico
+del host `agent-native-slack-manifest.json` e impórtelo en **App Manifest** de
+Slack. El manifiesto activa la experiencia actual `agent_view` y una pestaña
+**Messages** editable para mensajes directos. Verifique estos alcances de bot:
+
+El icono de la aplicación no forma parte del manifiesto. En **Basic Information
+→ Display Information**, cargue el icono de Agent Native para que el selector de
+Agents coincida con la marca del producto. Puede usar el `icon-512.svg` público
+de la aplicación como origen y convertirlo a un formato de carga admitido por
+Slack si es necesario.
+
+```text
+assistant:write
+app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+files:read
+   groups:history
+   groups:read
+   im:history
+im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+users:read
+users:read.email
+```
+
+Configure OAuth Redirect URL como
+`https://your-app.example.com/_agent-native/integrations/slack/oauth/callback`,
+Event Subscriptions Request URL como
+`https://your-app.example.com/_agent-native/integrations/slack/webhook` e
+Interactivity Request URL como
+`https://your-app.example.com/_agent-native/integrations/slack/interactions`.
+Suscríbase a `app_home_opened`, `app_context_changed`, `app_mention`,
+`message.channels`, `message.groups`, `message.im` y `message.mpim`.
+Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` y
+`SLACK_SIGNING_SECRET`; después, en **Configuración → Mensajería**, pulse
+**Add to Slack**. Cada instalación guarda su token cifrado y usa claves de
+conversación separadas por espacio, aplicación, canal e hilo.
+
+Reinstale la aplicación de Slack después de cambiar el manifiesto, los alcances,
+los eventos, Agent view o la pestaña Messages. `app_home_opened` detecta cuándo se
+abre el DM, `app_context_changed` aporta el contexto visible en Slack y
+`message.im` entrega los mensajes directos. Los administradores de Slack pueden
+ocultar los agentes instalados para toda la organización y cada usuario puede
+ocultarlos de su propia barra superior. Si la instalación funciona pero el agente
+no aparece, revise esos controles o ábralo desde **Tools → Apps**.
+
+Los mensajes directos personales de Slack solo se aceptan de un miembro
+verificado de la organización de Agent Native o de una identidad de Slack ya
+vinculada. Las políticas y los presupuestos del principal de servicio del canal
+son independientes.
+
+Las respuestas sin mención solo dirigen un hilo con una tarea activa; el resto
+de la conversación del canal no invoca al agente. Se carga un contexto acotado
+con reacciones y referencias de archivo, y una tarjeta nativa muestra el plan,
+el progreso, cancelar y aprobar/rechazar. Los mensajes directos usan la identidad
+personal; los canales administrados usan una identidad de servicio explícita y
+políticas para invitados, Slack Connect y modelo. La memoria del canal es explícita,
+aislada y nunca automática. Las rutinas creadas allí vuelven al mismo Slack. Los
+presupuestos diarios o mensuales por organización, solicitante y canal se aplican
+con linaje de auditoría. `assistant:write` habilita los eventos de contexto de
+Agent View; `chat:write` permite las respuestas y las actualizaciones de estado
+en directo.
 
 ## Configurar Telegrama {#telegram}
 
@@ -435,7 +509,9 @@ POST /_agent-native/integrations/telegram/setup
 | Correo electrónico | `EMAIL_AGENT_ADDRESS`, más uno de `RESEND_API_KEY` o `SENDGRID_API_KEY`      | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | WhatsApp           | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
-Todas las credenciales residen en env vars: nunca la base de datos, nunca el código fuente. Utilice la configuración de la barra lateral UI o el panel ambiental de su proveedor de hosting.
+Las credenciales de integración se resuelven primero desde secretos con ámbito del propietario de la integración (usuario, organización y después espacio de trabajo); las variables de entorno de despliegue son una alternativa para instalaciones locales o deliberadamente de un solo tenant. La UI de configuración guarda secretos con ámbito; los valores nunca se devuelven al navegador ni se guardan en el código fuente.
+
+Los adaptadores de runtime integrados son **Slack**, **Telegram**, **WhatsApp Cloud API** y correo electrónico basado en webhooks de proveedor (Resend o SendGrid). Discord y Microsoft Teams no son conectables hasta implementar y registrar un adaptador verificado.
 
 ### Subprocesos e identidad {#threading-and-identity}
 
@@ -481,13 +557,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +583,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +614,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

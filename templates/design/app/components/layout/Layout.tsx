@@ -22,6 +22,10 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
+import {
+  FigmaLinkComposerBubble,
+  useDetectedFigmaComposerLink,
+} from "../editor/FigmaLinkComposerBubble";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 
@@ -58,6 +62,10 @@ export function Layout({ children }: LayoutProps) {
   const isDesignEditor = location.pathname.startsWith("/design/");
   const showMobileTopBar = !isDesignEditor;
   const browserTabId = getBrowserTabId();
+  const {
+    link: detectedFigmaComposerLink,
+    onComposerTextChange: handleComposerTextChange,
+  } = useDetectedFigmaComposerLink();
 
   // Bind chat to the currently-open design. Same pattern as slides — the
   // route is `/design/:id` for the editor and `/present/:id` for preview
@@ -121,7 +129,7 @@ export function Layout({ children }: LayoutProps) {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             <div className="agent-layout-main-surface design-editor-main-surface flex h-full flex-1 flex-col overflow-hidden">
               <main className="agent-native-app-main flex-1 overflow-hidden">
                 {children}
@@ -151,8 +159,14 @@ export function Layout({ children }: LayoutProps) {
           showScopeBadge={false}
           browserTabId={browserTabId}
           threadFooterSlot={designQuestionsWaitingSlot}
+          onComposerTextChange={handleComposerTextChange}
+          composerSlot={
+            detectedFigmaComposerLink ? (
+              <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
+            ) : null
+          }
         >
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             {!isDesignEditor && mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"
