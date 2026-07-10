@@ -22,11 +22,20 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import {
+  builderCmsQualifiedId,
+  type BuilderCmsSourceEntry,
+} from "./_builder-cms-source-adapter.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
 import { nanoid } from "./_property-utils.js";
+
+const BUILDER_FIELD_REFRESH_MINIMUM_LIMIT = 500;
+
+type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 
 function parseSourceValues(
   value: string | null | undefined,
@@ -40,6 +49,60 @@ function parseSourceValues(
   } catch {
     return {};
   }
+}
+
+function hasSourceFieldValue(
+  row: Pick<SourceRow, "sourceValuesJson">,
+  sourceFieldKey: string,
+) {
+  return Object.prototype.hasOwnProperty.call(
+    parseSourceValues(row.sourceValuesJson),
+    sourceFieldKey,
+  );
+}
+
+function mergeBuilderFieldIntoSourceRows(args: {
+  rows: SourceRow[];
+  entries: BuilderCmsSourceEntry[];
+  sourceTable: string;
+  sourceFieldKey: string;
+  now: string;
+}) {
+  const entriesById = new Map(args.entries.map((entry) => [entry.id, entry]));
+  const entriesByQualifiedId = new Map(
+    args.entries.map((entry) => [
+      builderCmsQualifiedId({
+        sourceTable: args.sourceTable,
+        entryId: entry.id,
+      }),
+      entry,
+    ]),
+  );
+  let missingRows = 0;
+  let matchedMissingRows = 0;
+  const rows = args.rows.map((row) => {
+    if (hasSourceFieldValue(row, args.sourceFieldKey)) return row;
+    missingRows += 1;
+    const entry =
+      entriesById.get(row.sourceRowId) ??
+      entriesByQualifiedId.get(row.sourceQualifiedId);
+    if (!entry) return row;
+    matchedMissingRows += 1;
+    return {
+      ...row,
+      sourceValuesJson: JSON.stringify({
+        ...parseSourceValues(row.sourceValuesJson),
+        [args.sourceFieldKey]: Object.prototype.hasOwnProperty.call(
+          entry.sourceValues,
+          args.sourceFieldKey,
+        )
+          ? entry.sourceValues[args.sourceFieldKey]
+          : null,
+      }),
+      updatedAt: args.now,
+    };
+  });
+  return { rows, missingRows, matchedMissingRows };
 }
 
 export function sourceFieldPropertyValuesFromRows(
@@ -338,16 +401,75 @@ export default defineAction({
     }
     const isSecondary = federationRole === "secondary";
 
-    const sourceRows = isSecondary
+    let sourceRows = isSecondary
       ? []
       : await db
-          .select({
-            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
-            documentId: schema.contentDatabaseSourceRows.documentId,
-            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-          })
+          .select()
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+    const shouldRefreshBuilderField =
+      !isSecondary &&
+      source.sourceType === "builder-cms" &&
+      sourceRows.some((row) => !hasSourceFieldValue(row, field.sourceFieldKey));
+    if (shouldRefreshBuilderField) {
+      // Read before writing so a Builder outage cannot leave behind a cleanly
+      // reported but empty property. Start at zero even when the source's
+      // broader refresh is incremental: the stored rows we are backfilling
+      // begin with that first page.
+      const builderRead = await readBuilderCmsContentEntries({
+        model: source.sourceTable,
+        fieldPaths: [field.sourceFieldKey],
+        limit: Math.max(BUILDER_FIELD_REFRESH_MINIMUM_LIMIT, sourceRows.length),
+        offset: 0,
+      });
+      if (builderRead.state !== "live") {
+        throw new Error(
+          builderRead.message ??
+            "Builder CMS could not refresh this field. No property was created.",
+        );
+      }
+      if (sourceRows.length > 0 && builderRead.entries.length === 0) {
+        throw new Error(
+          "Builder CMS returned no entries for this source. No property was created; refresh the source and try again.",
+        );
+      }
+      const merged = mergeBuilderFieldIntoSourceRows({
+        rows: sourceRows,
+        entries: builderRead.entries,
+        sourceTable: source.sourceTable,
+        sourceFieldKey: field.sourceFieldKey,
+        now,
+      });
+      if (merged.matchedMissingRows === 0) {
+        throw new Error(
+          "Builder CMS entries did not match the stored source rows. No property was created; refresh the source and try again.",
+        );
+      }
+      if (
+        merged.matchedMissingRows < merged.missingRows &&
+        builderRead.entries.length >= builderRead.progress.requestedLimit
+      ) {
+        throw new Error(
+          "Builder CMS could not refresh this field for every stored source row within the read limit. No property was created; refresh the source and try again.",
+        );
+      }
+      const refreshedRows = merged.rows.filter((row, index) => {
+        return row.sourceValuesJson !== sourceRows[index]?.sourceValuesJson;
+      });
+      if (refreshedRows.length > 0) {
+        await db
+          .insert(schema.contentDatabaseSourceRows)
+          .values(refreshedRows)
+          .onConflictDoUpdate({
+            target: schema.contentDatabaseSourceRows.id,
+            set: {
+              sourceValuesJson: sql`excluded.source_values_json`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          });
+      }
+      sourceRows = merged.rows;
+    }
     const builderMetadata = builderMetadataForSourceField({
       sourceFieldKey: field.sourceFieldKey,
       sourceMetadataJson: source.metadataJson,

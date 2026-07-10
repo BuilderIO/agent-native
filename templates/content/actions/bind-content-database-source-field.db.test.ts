@@ -8,8 +8,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { and, eq, inArray } from "drizzle-orm";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -32,10 +40,14 @@ beforeAll(async () => {
   await plugin(undefined as any);
   bindAction = (await import("./bind-content-database-source-field.js"))
     .default;
-  addSourceFieldPropertyAction = (
-    await import("./add-content-database-source-field-property.js")
-  ).default;
+  const addSourceFieldPropertyModule =
+    await import("./add-content-database-source-field-property.js");
+  addSourceFieldPropertyAction = addSourceFieldPropertyModule.default;
 }, 60000);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
@@ -203,6 +215,121 @@ async function tagValue(documentId: string, propertyId: string) {
   return row ? (JSON.parse(row.valueJson) as unknown) : undefined;
 }
 
+async function seedStaleBuilderTopicsSnapshot() {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const suffix = `${++counter}_${Math.random().toString(36).slice(2, 7)}`;
+  const databaseId = `db_stale_topics_${suffix}`;
+  const databaseDocId = `doc_${databaseId}`;
+  const sourceId = `src_stale_topics_${suffix}`;
+  const fieldId = `field_stale_topics_${suffix}`;
+  const rows = [
+    {
+      entryId: `entry_a_${suffix}`,
+      itemId: `item_a_${suffix}`,
+      documentId: `doc_a_${suffix}`,
+      title: "First article",
+    },
+    {
+      entryId: `entry_b_${suffix}`,
+      itemId: `item_b_${suffix}`,
+      documentId: `doc_b_${suffix}`,
+      title: "Second article",
+    },
+  ];
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "Stale Builder topics DB",
+      createdAt: now,
+      updatedAt: now,
+    },
+    ...rows.map((row) => ({
+      id: row.documentId,
+      ownerEmail: OWNER,
+      title: row.title,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Stale Builder topics DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values(
+    rows.map((row, position) => ({
+      id: row.itemId,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: row.documentId,
+      position,
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "Builder blog",
+    sourceTable: "blog-article",
+    metadataJson: JSON.stringify({
+      builderModelFields: [
+        {
+          name: "topics",
+          label: "Topics",
+          type: "list",
+          inputType: "tags",
+          options: ["Agent Native", "Developer Experience"],
+        },
+      ],
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: fieldId,
+    ownerEmail: OWNER,
+    sourceId,
+    propertyId: null,
+    localFieldKey: "data.topics",
+    sourceFieldKey: "data.topics",
+    sourceFieldLabel: "Topics",
+    sourceFieldType: "list",
+    mappingType: "property",
+    writeOwner: "source",
+    readOnly: 0,
+    provenance: "Builder model field",
+    freshness: "fresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values(
+    rows.map((row) => ({
+      id: `source_row_${row.entryId}`,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: row.itemId,
+      documentId: row.documentId,
+      sourceRowId: row.entryId,
+      sourceQualifiedId: `builder-cms://blog-article/${row.entryId}`,
+      sourceDisplayKey: row.title,
+      sourceValuesJson: JSON.stringify({ "data.title": row.title }),
+      createdAt: now,
+      updatedAt: now,
+    })),
+  );
+
+  return { databaseId, databaseDocId, sourceId, fieldId, rows, now };
+}
+
 describe("bind-content-database-source-field (row-union)", () => {
   it("backfills only the bound source's rows into the column", async () => {
     const f = await seedRowUnion();
@@ -346,6 +473,179 @@ describe("bind-content-database-source-field (row-union)", () => {
     expect(field.propertyId).toBeNull();
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBeUndefined();
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBe("Beta");
+  });
+});
+
+describe("add-content-database-source-field-property Builder refresh", () => {
+  it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const readBuilderEntries = vi
+      .spyOn(
+        await import("./_builder-cms-read-client.js"),
+        "readBuilderCmsContentEntries",
+      )
+      .mockResolvedValue({
+        state: "live" as const,
+        entries: [
+          {
+            id: f.rows[0].entryId,
+            model: "blog-article",
+            title: f.rows[0].title,
+            urlPath: "/first-article",
+            updatedAt: f.now,
+            sourceValues: { "data.topics": ["Agent Native"] },
+          },
+          {
+            id: f.rows[1].entryId,
+            model: "blog-article",
+            title: f.rows[1].title,
+            urlPath: "/second-article",
+            updatedAt: f.now,
+            sourceValues: { "data.topics": ["Developer Experience"] },
+          },
+        ],
+        fetchedAt: f.now,
+        message: null,
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 2,
+          fetchedEntryCount: 2,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api" as const,
+        },
+      });
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).toHaveBeenCalledOnce();
+    expect(readBuilderEntries).toHaveBeenCalledWith({
+      model: "blog-article",
+      fieldPaths: ["data.topics"],
+      limit: 500,
+      offset: 0,
+    });
+    expect(result.itemValues).toEqual([
+      {
+        itemId: f.rows[0].itemId,
+        documentId: f.rows[0].documentId,
+        value: ["agent-native"],
+      },
+      {
+        itemId: f.rows[1].itemId,
+        documentId: f.rows[1].documentId,
+        value: ["developer-experience"],
+      },
+    ]);
+
+    const db = getDb();
+    const sourceRows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    expect(
+      sourceRows.map((row) => {
+        return JSON.parse(row.sourceValuesJson)["data.topics"];
+      }),
+    ).toEqual([["Agent Native"], ["Developer Experience"]]);
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    const mappedFields = await db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, f.sourceId),
+          eq(
+            schema.contentDatabaseSourceFields.propertyId,
+            result.property.definition.id,
+          ),
+        ),
+      );
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        eq(
+          schema.documentPropertyValues.propertyId,
+          result.property.definition.id,
+        ),
+      );
+    expect(properties).toHaveLength(1);
+    expect(mappedFields).toHaveLength(1);
+    expect(propertyValues).toHaveLength(2);
+  });
+
+  it("leaves no property, mapping, values, or snapshot mutation when the Builder read fails", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    ).mockResolvedValue({
+      state: "error",
+      entries: [],
+      fetchedAt: f.now,
+      message: "Builder CMS read failed for test.",
+      progress: {
+        requestedLimit: 500,
+        pageSize: 100,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "builder-api",
+      },
+    });
+
+    await expect(
+      asOwner(() =>
+        addSourceFieldPropertyAction.run({
+          documentId: f.databaseDocId,
+          sourceFieldId: f.fieldId,
+        }),
+      ),
+    ).rejects.toThrow("Builder CMS read failed for test.");
+
+    const db = getDb();
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    const [field] = await db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fieldId));
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        inArray(
+          schema.documentPropertyValues.documentId,
+          f.rows.map((row) => row.documentId),
+        ),
+      );
+    const sourceRows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    expect(properties).toHaveLength(0);
+    expect(field.propertyId).toBeNull();
+    expect(propertyValues).toHaveLength(0);
+    expect(
+      sourceRows.every(
+        (row) => !("data.topics" in JSON.parse(row.sourceValuesJson)),
+      ),
+    ).toBe(true);
   });
 });
 
