@@ -1,5 +1,4 @@
 ---
-"@agent-native/desktop-app": minor
 "@agent-native/core": patch
 ---
 
