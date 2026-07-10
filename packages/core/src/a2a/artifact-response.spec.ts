@@ -554,6 +554,44 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("rejects an off-origin URL from a get-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
+  it("rejects an off-origin URL from a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
   it("allows database and row page URLs returned by get-content-database", () => {
     const text = appendA2AArtifactLinks(
       [
@@ -588,6 +626,39 @@ describe("appendA2AArtifactLinks", () => {
       "Row: https://content.agent-native.com/page/request_doc",
     );
     expect(text).not.toContain("could not verify");
+  });
+
+  it("rejects off-origin database and row URL candidates", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the design asks database.",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            url: "https://untrusted.example.com/page/database_doc",
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                url: "https://untrusted.example.com/page/request_doc",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain("https://content.agent-native.com/page/request_doc");
+    expect(text).not.toContain("https://untrusted.example.com/page/");
   });
 
   it("does not treat an unavailable get-content-database result as document proof", () => {

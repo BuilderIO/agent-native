@@ -294,6 +294,7 @@ function addContentDatabaseReadArtifacts(
   if (database) {
     addDocumentReadArtifact(documents, database, {
       allowWithoutUrl: true,
+      requireContentOrigin: true,
       additionalUrlCandidates: resultUrls,
     });
   } else {
@@ -302,6 +303,7 @@ function addContentDatabaseReadArtifacts(
     if (parsed.available !== false) {
       addDocumentReadArtifact(documents, parsed, {
         allowWithoutUrl: true,
+        requireContentOrigin: true,
       });
     }
   }
@@ -313,6 +315,7 @@ function addContentDatabaseReadArtifacts(
     if (!document) continue;
     addDocumentReadArtifact(documents, document, {
       allowWithoutUrl: true,
+      requireContentOrigin: true,
       additionalUrlCandidates: [
         stringValue(itemRecord?.url),
         stringValue(itemRecord?.urlPath),
@@ -530,6 +533,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       const document = asRecord(parsed.document);
       addDocumentReadArtifact(documents, document ?? parsed, {
         allowWithoutUrl: true,
+        requireContentOrigin: true,
         additionalUrlCandidates: document
           ? [
               stringValue(parsed.url),
