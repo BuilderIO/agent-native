@@ -1427,27 +1427,6 @@
   top: 10px;
 }
 
-.code-agents-suggestions {
-  align-self: stretch;
-  width: 100%;
-  display: grid;
-}
-
-.code-agents-suggestions button {
-  height: 34px;
-  border: 0;
-  border-top: 1px solid hsl(var(--border) / 0.65);
-  background: transparent;
-  color: hsl(var(--muted-foreground) / 0.72);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.code-agents-suggestions button:hover {
-  color: hsl(var(--foreground));
-}
-
 .code-agents-button,
 .code-agents-button--primary,
 .code-agents-icon-button {

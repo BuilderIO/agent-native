@@ -188,7 +188,7 @@ type CodeAgentRunMode = "plan" | "auto";
 interface CodeAgentSearchResult {
   run: CodeAgentRun;
   match: string;
-  matchType: "Recent" | "Session" | "Transcript";
+  matchType: "Recent" | "Task" | "Transcript";
   rank: number;
 }
 
@@ -564,7 +564,7 @@ export default function CodeAgentsApp({
       setBuilderConnectMessage(result.ok ? null : message);
       if (result.ok) {
         toast("Builder.io connected", {
-          description: "Code can now use Builder credits.",
+          description: "Agent can now use Builder credits.",
         });
       } else {
         toast("Builder.io connect did not finish", {
@@ -1045,7 +1045,7 @@ export default function CodeAgentsApp({
 
   async function controlRun(command: CodeAgentControlCommand) {
     if (!selectedRunId) {
-      toast("Select a session first", { duration: 1800 });
+      toast("Select a task first", { duration: 1800 });
       return;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
@@ -1061,7 +1061,7 @@ export default function CodeAgentsApp({
         selectedPermissionMode,
       );
     } catch (err) {
-      toast("Could not control the session", {
+      toast("Could not control the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1101,7 +1101,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not retry the session", {
+      toast("Could not retry the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1137,7 +1137,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not re-run the session", {
+      toast("Could not re-run the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1163,7 +1163,7 @@ export default function CodeAgentsApp({
       ) ?? selectedGoal;
     const prompt = normalizePromptForSelectedGoal(typedGoal, preparedPrompt);
     if (!prompt) {
-      toast("Enter a coding task first", { duration: 1800 });
+      toast("Describe an outcome first", { duration: 1800 });
       return;
     }
     setCreatingRun(true);
@@ -1206,7 +1206,7 @@ export default function CodeAgentsApp({
       }
       await loadTranscript(result.run.id, true);
     } catch (err) {
-      toast("Could not start the session", {
+      toast("Could not start the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1313,14 +1313,14 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast(pinned ? "Session unpinned" : "Session pinned", {
+      toast(pinned ? "Task unpinned" : "Task pinned", {
         duration: 1600,
       });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast(pinned ? "Could not unpin session" : "Could not pin session", {
+      toast(pinned ? "Could not unpin task" : "Could not pin task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1354,12 +1354,12 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast("Session renamed", { duration: 1600 });
+      toast("Task renamed", { duration: 1600 });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast("Could not rename session", {
+      toast("Could not rename task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1373,10 +1373,10 @@ export default function CodeAgentsApp({
     Boolean(selectedRun);
 
   return (
-    <section className="code-agents-surface" aria-label="Agent-Native Code">
+    <section className="code-agents-surface" aria-label="Agent workspace">
       <aside
         className="code-agents-rail"
-        aria-label="Agent-Native Code goals and sessions"
+        aria-label="Agent tasks and navigation"
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-title-block">
@@ -1388,11 +1388,11 @@ export default function CodeAgentsApp({
                 className="code-agents-title-icon"
               />
             )}
-            <h1>Code</h1>
+            <h1>Agent</h1>
           </div>
         </div>
 
-        <div className="code-agents-nav-list" aria-label="Code navigation">
+        <div className="code-agents-nav-list" aria-label="Agent navigation">
           <button
             type="button"
             className={`code-agents-nav-link${
@@ -1430,13 +1430,13 @@ export default function CodeAgentsApp({
         </div>
 
         <div className="code-agents-run-list">
-          <p className="code-agents-rail-label">Sessions</p>
+          <p className="code-agents-rail-label">Tasks</p>
           {loading ? (
             <RunListSkeleton />
           ) : runs.length === 0 ? (
             <div className="code-agents-empty-rail">
               <IconClock size={18} strokeWidth={1.7} />
-              <p>No sessions yet.</p>
+              <p>No tasks yet.</p>
             </div>
           ) : (
             <GroupedRunList
@@ -1468,11 +1468,11 @@ export default function CodeAgentsApp({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">Session</p>
+                <p className="code-agents-kicker">Task</p>
                 <h2>
                   {getRunTitle(selectedRun) ??
                     (selectedRunId
-                      ? `Session ${selectedRunId}`
+                      ? `Task ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
               </div>
@@ -1557,9 +1557,9 @@ export default function CodeAgentsApp({
                     <IconAlertCircle size={17} strokeWidth={1.8} />
                     <span>
                       {status === "unauthorized"
-                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
+                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see tasks.`
                         : (error ??
-                          `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
+                          `${selectedGoal.surfaceLabel} is not reporting tasks yet.`)}
                     </span>
                   </div>
                 )}
@@ -1596,7 +1596,7 @@ export default function CodeAgentsApp({
                   />
                 ) : (
                   <div className="code-agents-start">
-                    <h2>What should we build?</h2>
+                    <h2>What outcome do you want?</h2>
                     {providerGate.blocked && (
                       <ProviderGateNotice
                         description={providerGate.description}
@@ -1634,17 +1634,6 @@ export default function CodeAgentsApp({
                         onChoose={chooseProjectFolder}
                       />
                     )}
-                    <div className="code-agents-suggestions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedGoalId("task");
-                          seedNewPrompt("Review the current changes");
-                        }}
-                      >
-                        Review the current changes
-                      </button>
-                    </div>
                   </div>
                 )}
               </>
@@ -1703,7 +1692,7 @@ function ProjectFolderPicker({
         >
           <SelectTrigger
             className="code-agents-project-select"
-            aria-label="Select coding folder"
+            aria-label="Select working folder"
           >
             <SelectValue
               placeholder={loading ? "Loading folders..." : "Choose folder"}
@@ -1911,8 +1900,8 @@ function CodeAgentComposer({
         type="button"
         onClick={onStop}
         className="code-agents-composer-stop-button"
-        aria-label="Stop session"
-        title="Stop session (Esc)"
+        aria-label="Stop task"
+        title="Stop task (Esc)"
       >
         <IconPlayerStop size={14} strokeWidth={1.9} />
       </button>
@@ -2437,7 +2426,7 @@ function buildSearchRunResults(
         {
           run,
           match: transcriptMatch ?? getSearchMatchSnippet(runText, tokens),
-          matchType: transcriptMatch ? "Transcript" : "Session",
+          matchType: transcriptMatch ? "Transcript" : "Task",
           rank: titleMatch ? 0 : sessionMatch ? 1 : 2,
         },
       ];
@@ -2694,7 +2683,7 @@ function RunRailItem({
             onKeyDown={handleRenameKeyDown}
             onBlur={commitRename}
             autoFocus
-            aria-label="Rename session"
+            aria-label="Rename task"
           />
         </div>
       ) : (
@@ -2735,8 +2724,8 @@ function RunRailItem({
               className={`code-agents-run-menu${
                 pinned ? " code-agents-run-menu--pinned" : ""
               }`}
-              aria-label="Session options"
-              title="Session options"
+              aria-label="Task options"
+              title="Task options"
             >
               {pinned ? (
                 <IconPinned size={13} strokeWidth={1.8} />
@@ -3065,8 +3054,8 @@ function MobileConnectorPanel({
         </p>
         <h2>Agent Native mobile</h2>
         <p>
-          Scan the QR code to open Sessions on your phone, then pair this Mac to
-          start and continue local Code work from mobile.
+          Scan the QR code to open tasks on your phone, then pair this Mac to
+          start and continue local Agent work from mobile.
         </p>
       </div>
 
@@ -3111,7 +3100,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile Sessions"
+              title="Open Agent Native mobile tasks"
               bgColor="#ffffff"
               fgColor="#111111"
             />
@@ -3261,11 +3250,11 @@ function RunDetailCard({
     return (
       <div className="code-agents-detail code-agents-detail--empty">
         <IconRoute size={30} strokeWidth={1.5} />
-        <h3>{selectedRunId ? "Session link ready" : "No session selected"}</h3>
+        <h3>{selectedRunId ? "Task link ready" : "No task selected"}</h3>
         <p>
           {selectedRunId
-            ? `Open ${goal.surfaceLabel} to load the linked slash-command session.`
-            : `Start ${goal.slashCommand} or select a session to review transcript events, artifacts, and follow-ups.`}
+            ? `Open ${goal.surfaceLabel} to load the linked task.`
+            : `Start ${goal.slashCommand} or select a task to review progress, outcomes, and follow-ups.`}
         </p>
         <button
           type="button"
@@ -3405,8 +3394,8 @@ function RunDetailCard({
           <div className="code-agents-approval-callout">
             <IconPlayerPlay size={16} strokeWidth={1.8} />
             <div>
-              <strong>Session paused</strong>
-              <span>Resume when you are ready for Code to continue.</span>
+              <strong>Task paused</strong>
+              <span>Resume when you are ready for Agent to continue.</span>
             </div>
             <button
               type="button"
@@ -3701,8 +3690,8 @@ function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
       type="button"
       onClick={onStop}
       className="code-agents-composer-stop-button"
-      aria-label="Stop session"
-      title="Stop session (Esc)"
+      aria-label="Stop task"
+      title="Stop task (Esc)"
     >
       <IconPlayerStop size={14} strokeWidth={1.9} />
     </button>
@@ -3870,7 +3859,7 @@ function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
 function getRunSubtitle(run: CodeAgentRun): string {
   if (run.subtitle) return run.subtitle;
   if (isMigrationRun(run)) return run.sourceRoot;
-  return run.goalId ? `${run.goalId} session` : "Agent-Native Code session";
+  return run.goalId ? `${run.goalId} task` : "Agent task";
 }
 
 function getRunDetails(
@@ -3997,7 +3986,7 @@ function cleanRunLabel(value: unknown): string | null {
 
 function formatRunSourceLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "local" || normalized === "code") return "Local Code";
+  if (normalized === "local" || normalized === "code") return "Local Agent";
   if (
     normalized === "agent-team" ||
     normalized === "agent-teams" ||

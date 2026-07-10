@@ -82,6 +82,15 @@ export { fetchHubServers } from "./hub-client.js";
 export { isMcpToolAllowedForRequest } from "./visibility.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
+  classifyMcpToolCall,
+  evaluateMcpToolCallPolicy,
+  type McpToolCallClassification,
+  type McpToolEffect,
+  type McpToolFamily,
+  type McpToolInvocationPolicy,
+  type McpToolPolicyDecision,
+} from "./tool-policy.js";
+export {
   configureScreenMemory,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
@@ -120,13 +129,22 @@ import {
   type McpActionResult,
 } from "./app-result.js";
 import type { McpClientManager, McpTool } from "./manager.js";
+import {
+  evaluateMcpToolCallPolicy,
+  type McpToolInvocationPolicy,
+} from "./tool-policy.js";
+
+export interface McpActionEntryOptions {
+  invocationPolicy?: McpToolInvocationPolicy;
+}
 
 export function mcpToolsToActionEntries(
   manager: McpClientManager,
+  options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
-    entries[tool.name] = mcpToolToActionEntry(manager, tool);
+    entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;
 }
@@ -159,6 +177,7 @@ export function syncMcpActionEntries(
 function mcpToolToActionEntry(
   manager: McpClientManager,
   tool: McpTool,
+  options: McpActionEntryOptions = {},
 ): ActionEntry {
   return {
     tool: {
@@ -167,7 +186,7 @@ function mcpToolToActionEntry(
     },
     http: false,
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
-    run: async (args: Record<string, string>) => {
+    run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
       // into the LLM's visible tool list, reject invocation here so we never
       // execute a user's credentials on behalf of another user.
@@ -177,6 +196,20 @@ function mcpToolToActionEntry(
           args,
           `Error: MCP tool ${tool.name} is not available in the current request scope.`,
         );
+      }
+      if (options.invocationPolicy) {
+        const decision = evaluateMcpToolCallPolicy(
+          options.invocationPolicy,
+          tool,
+          args,
+        );
+        if (!decision.allowed) {
+          return buildMcpErrorActionResult(
+            tool,
+            args,
+            `Error: MCP tool ${tool.name} is unavailable in read-only mode: ${decision.reason}.`,
+          );
+        }
       }
       try {
         const result = await manager.callTool(tool.name, args);

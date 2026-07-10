@@ -44,6 +44,7 @@ import {
   buildMergedConfig,
   McpClientManager,
   mcpToolsToActionEntries,
+  type McpToolInvocationPolicy,
 } from "../mcp-client/index.js";
 import {
   readAgentsBundleFromFs,
@@ -256,7 +257,12 @@ export async function executeCodeAgentRun(
   );
   const mcpManager = await startCodeAgentMcpManager(existing.id);
   if (mcpManager) {
-    Object.assign(actions, mcpToolsToActionEntries(mcpManager));
+    Object.assign(
+      actions,
+      mcpToolsToActionEntries(mcpManager, {
+        invocationPolicy: codeAgentMcpInvocationPolicy(permissionMode),
+      }),
+    );
   }
   actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
@@ -532,6 +538,14 @@ export async function executeCodeAgentRun(
     await mcpManager?.stop().catch(() => undefined);
     void running;
   }
+}
+
+export function codeAgentMcpInvocationPolicy(
+  permissionMode: CodeAgentPermissionMode,
+): McpToolInvocationPolicy {
+  return {
+    mode: permissionMode === "read-only" ? "read-only" : "allow-all",
+  };
 }
 
 async function executeCodexCliRun(options: {

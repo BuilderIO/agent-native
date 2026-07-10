@@ -265,10 +265,10 @@ export const AGENT_MODEL_CONFIG = {
       "gpt-5-6-luna",
       "gemini-3-1-pro",
       "gemini-3-5-flash",
-      // Keep Flash-Lite reserved for the dedicated transcription endpoint.
-      // The gateway's underlying Vertex preview model can be unavailable even
-      // while the public id remains accepted, which otherwise leaves chat with
-      // a bare stop/error event that cannot recover.
+      // Flash-Lite is a transcription-only public id. Advertising it as an
+      // agent-chat option routes through a Vertex preview model whose
+      // availability can lapse while the id remains accepted, leaving chat
+      // with a bare stop/error event that cannot recover.
     ],
   },
   anthropic: {

@@ -861,18 +861,14 @@ export default function AppSettings({
           {frameSettings && (
             <div className="settings-code-tab-card">
               <div className="settings-code-tab-copy">
-                <span className="settings-mode-card-title">Code tab</span>
+                <span className="settings-mode-card-title">Agent</span>
                 <span className="settings-mode-card-status">
-                  Show Agent-Native Code in the sidebar.
+                  Show Agent in the sidebar footer.
                 </span>
               </div>
               <label
                 className="settings-toggle"
-                title={
-                  frameSettings.showCodeTab
-                    ? "Hide the Code tab"
-                    : "Show the Code tab"
-                }
+                title={frameSettings.showCodeTab ? "Hide Agent" : "Show Agent"}
               >
                 <input
                   type="checkbox"
@@ -1042,10 +1038,10 @@ export default function AppSettings({
                   <div className="settings-app-row">
                     <div className="settings-app-info">
                       <span className="settings-app-name">
-                        Code editing frame
+                        Agent task frame
                       </span>
                       <span className="settings-app-url">
-                        Chat + CLI sidebar for code editing
+                        Agent tasks with chat + CLI
                       </span>
                     </div>
                     <div className="settings-app-actions">

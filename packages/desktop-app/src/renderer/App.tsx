@@ -134,7 +134,7 @@ export default function App() {
   const [editingSidebarAppId, setEditingSidebarAppId] = useState<string | null>(
     null,
   );
-  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(false);
+  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
@@ -167,7 +167,7 @@ export default function App() {
     window.electronAPI.frame
       .load()
       .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
-      .catch(() => setShowCodeAgentsTab(false));
+      .catch(() => setShowCodeAgentsTab(true));
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
@@ -289,7 +289,7 @@ export default function App() {
       setShowAddApp(false);
       toast(`Building ${result.app.name}`, {
         description:
-          "The app is already in your sidebar. Desktop will open it as soon as the coding agent and dev server are ready.",
+          "The app is already in your sidebar. Desktop will open it as soon as the agent and dev server are ready.",
         duration: 5000,
       });
     },
@@ -924,7 +924,7 @@ export default function App() {
           )}
           <div className="tabbar-strip">
             <div className="tab tab--active tab--locked">
-              <span className="tab-label">Code</span>
+              <span className="tab-label">Agent</span>
             </div>
           </div>
         </div>
