@@ -114,7 +114,8 @@ async function deleteGoogleEventForBooking({
   if (!ownerEmail) return;
 
   try {
-    await googleCalendar.deleteEvent(booking.googleEventId, ownerEmail, {
+    const account = await googleCalendar.getDefaultAccountSelection(ownerEmail);
+    await googleCalendar.deleteEvent(booking.googleEventId, account, {
       sendUpdates: "none",
     });
   } catch (error) {
@@ -1016,6 +1017,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
+        const account =
+          await googleCalendar.getDefaultAccountSelection(hostEmail);
         const descParts: string[] = [
           `Booking by ${attendeeName} (${attendeeEmail})`,
         ];
@@ -1050,7 +1053,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           location: meetingLink || "",
           allDay: false,
           source: "google",
-          accountEmail: hostEmail,
+          accountEmail: account.accountEmail,
           attendees: buildBookingEventAttendees({
             attendeeEmail,
             attendeeName,
@@ -1060,6 +1063,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           updatedAt: now,
         };
         const result = await googleCalendar.createEvent(calEvent, {
+          account,
           addGoogleMeet: conferencing?.type === "google_meet",
           sendUpdates: "all",
         });

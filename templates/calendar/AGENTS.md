@@ -75,6 +75,10 @@ Detailed event, availability, booking, storage, and UI rules live in
 - `navigate` moves the UI to calendar, event, availability, booking, and settings
   views.
 - Use actions for full event details and availability calculations.
+- Preserve `accountEmail` on every Google event write. When more than one
+  Google account is connected, pass the chosen account to `create-event`, and
+  pass the event's returned `accountEmail` to `update-event`, `delete-event`,
+  and `rsvp-event`. These actions target that account's primary calendar.
 
 ## Skills
 

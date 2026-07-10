@@ -84,11 +84,13 @@ import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   dateTimeInTimezoneToIso,
   getLocalTimezone,
 } from "@/lib/event-form-utils";
+import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
 
@@ -330,6 +332,7 @@ export default function CalendarView() {
 
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
+  const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
   const { data: rawOverlayPeople } = useOverlayPeople();
@@ -393,6 +396,28 @@ export default function CalendarView() {
     () => (draftEvent ? [draftEvent.id] : []),
     [draftEvent],
   );
+
+  useEffect(() => {
+    if (!eventDraft || !defaultAccountEmail) return;
+    const resolvedAccountEmail = resolveEventAccountEmail(
+      googleStatus.data?.accounts ?? [],
+      eventDraft.accountEmail,
+    );
+    if (
+      !resolvedAccountEmail ||
+      eventDraft.accountEmail === resolvedAccountEmail
+    ) {
+      return;
+    }
+    const nextDraft = { ...eventDraft, accountEmail: resolvedAccountEmail };
+    setEventDraft(nextDraft);
+    persistCalendarDraft(nextDraft);
+  }, [
+    defaultAccountEmail,
+    eventDraft,
+    googleStatus.data?.accounts,
+    setEventDraft,
+  ]);
 
   // Warm the adjacent ranges so j/k (and the chevron buttons) feel instant.
   // Borrowed from the mail template's background-warm pattern — fire-and-forget
@@ -621,7 +646,7 @@ export default function CalendarView() {
           ? undefined
           : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
         location,
-        accountEmail: draft.accountEmail,
+        accountEmail: draft.accountEmail ?? defaultAccountEmail,
         allDay: draft.allDay ?? false,
         transparency:
           eventType === "workingLocation"
@@ -653,11 +678,18 @@ export default function CalendarView() {
           const createdEventId = result?.id;
           if (createdEventId) {
             const undo = () => {
-              deleteEvent.mutate({
-                id: createdEventId,
-                scope: "single",
-                sendUpdates: "none",
-              });
+              deleteEvent.mutate(
+                buildDeleteEventMutationInput(
+                  {
+                    id: createdEventId,
+                    accountEmail:
+                      result.accountEmail ??
+                      draft.accountEmail ??
+                      defaultAccountEmail,
+                  },
+                  { scope: "single", sendUpdates: "none" },
+                ),
+              );
             };
             setUndoAction(undo);
           }
@@ -682,7 +714,15 @@ export default function CalendarView() {
         },
       });
     },
-    [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft, t],
+    [
+      createEvent,
+      defaultAccountEmail,
+      deleteEvent,
+      eventDraft,
+      selectedDate,
+      setEventDraft,
+      t,
+    ],
   );
 
   const updateDraftEvent = useCallback(
@@ -841,12 +881,11 @@ export default function CalendarView() {
           };
 
       deleteEvent.mutate(
-        {
-          id: ev.id,
+        buildDeleteEventMutationInput(ev, {
           scope: "single",
           ...guestNotification,
           removeOnly,
-        },
+        }),
         {
           onSuccess: () => {
             if (sidebarEvent?.id === ev.id) setSidebarEvent(null);
@@ -966,6 +1005,7 @@ export default function CalendarView() {
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
+        accountEmail: event.accountEmail,
         start: oldStartISO,
         end: oldEndISO,
         sendUpdates: "none",
@@ -981,6 +1021,7 @@ export default function CalendarView() {
     updateEvent.mutate(
       {
         id: eventId,
+        accountEmail: event.accountEmail,
         ...updates,
         ...guestNotification,
       },
@@ -1046,6 +1087,7 @@ export default function CalendarView() {
       const undo = () => {
         updateEvent.mutate({
           id: eventId,
+          accountEmail: event.accountEmail,
           start: oldStartISO,
           end: oldEndISO,
           sendUpdates: "none",
@@ -1061,6 +1103,7 @@ export default function CalendarView() {
       updateEvent.mutate(
         {
           id: eventId,
+          accountEmail: event.accountEmail,
           ...updates,
           ...guestNotification,
         },
@@ -1135,6 +1178,7 @@ export default function CalendarView() {
         endTimeZone: timezone,
         allDay: false,
         eventType: "default",
+        accountEmail: defaultAccountEmail,
         createdAt: now,
         updatedAt: now,
       };
@@ -1143,7 +1187,14 @@ export default function CalendarView() {
       setEventDraft(draft);
       setQuickEditEventId(calendarDraftEventId(draftId));
     },
-    [settings, settingsQuery, t, setSelectedDate, setEventDraft],
+    [
+      defaultAccountEmail,
+      settings,
+      settingsQuery,
+      t,
+      setSelectedDate,
+      setEventDraft,
+    ],
   );
 
   // Command palette natural-language quick create (e.g. "lunch with Sam
@@ -1197,6 +1248,7 @@ export default function CalendarView() {
         endTimeZone: timezone,
         allDay: false,
         eventType: "default",
+        accountEmail: defaultAccountEmail,
         createdAt: now,
         updatedAt: now,
       };
@@ -1205,7 +1257,15 @@ export default function CalendarView() {
       setEventDraft(draft);
       setQuickEditEventId(calendarDraftEventId(draftId));
     },
-    [settings, settingsQuery, t, setSelectedDate, setViewMode, setEventDraft],
+    [
+      defaultAccountEmail,
+      settings,
+      settingsQuery,
+      t,
+      setSelectedDate,
+      setViewMode,
+      setEventDraft,
+    ],
   );
 
   const handleQuickEditSave = useCallback(
@@ -1231,7 +1291,12 @@ export default function CalendarView() {
             })
           : { sendUpdates: "none" as const };
         if (!guestNotification) return;
-        updateEvent.mutate({ id: eventId, ...updates, ...guestNotification });
+        updateEvent.mutate({
+          id: eventId,
+          accountEmail: event?.accountEmail,
+          ...updates,
+          ...guestNotification,
+        });
       }
     },
     [events, updateDraftEvent, promptGuestNotification, updateEvent],
@@ -1253,7 +1318,12 @@ export default function CalendarView() {
           })
         : { sendUpdates: "none" as const };
       if (!guestNotification) return;
-      updateEvent.mutate({ id: eventId, ...updates, ...guestNotification });
+      updateEvent.mutate({
+        id: eventId,
+        accountEmail: event?.accountEmail,
+        ...updates,
+        ...guestNotification,
+      });
     },
     [events, updateDraftEvent, promptGuestNotification, updateEvent],
   );
@@ -1272,12 +1342,13 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (!ev || ev.title === "(No title)") {
-        deleteEvent.mutate({
-          id: eventId,
-          scope: "single",
-          sendUpdates: "none",
-        });
+      if (ev?.title === "(No title)") {
+        deleteEvent.mutate(
+          buildDeleteEventMutationInput(ev, {
+            scope: "single",
+            sendUpdates: "none",
+          }),
+        );
       }
     },
     [discardDraftEvent, events, deleteEvent],
@@ -1743,6 +1814,7 @@ export default function CalendarView() {
                 visibility: snapshot.visibility,
                 reminders: snapshot.reminders,
                 remindersUseDefault: snapshot.remindersUseDefault,
+                accountEmail: snapshot.accountEmail,
                 outOfOfficeProperties: snapshot.outOfOfficeProperties,
                 focusTimeProperties: snapshot.focusTimeProperties,
                 workingLocationProperties: snapshot.workingLocationProperties,
@@ -1754,7 +1826,7 @@ export default function CalendarView() {
               setSidebarEvent(null);
             }
             deleteEvent.mutate(
-              { id: eventId, ...options },
+              buildDeleteEventMutationInput(snapshot, options),
               {
                 onSuccess: () => {
                   setUndoAction(undo);
