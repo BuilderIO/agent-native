@@ -11,12 +11,15 @@ import {
   pathForView,
   viewForPath,
 } from "@shared/navigation";
+import { useLocation } from "react-router";
 
 import { TAB_ID } from "@/lib/tab-id";
 
 export type { NavigateCommand, NavigationState };
 
 export function useNavigationState() {
+  const location = useLocation();
+
   useAgentRouteState<NavigationState, NavigateCommand & { _writeId?: string }>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
@@ -31,10 +34,14 @@ export function useNavigationState() {
         fieldId: params.get("field") ?? undefined,
       };
     },
-    getCommandPath: (command) =>
-      routerPath(
-        buildNavigatePath(command.path || pathForView(command.view), command),
-      ),
+    getCommandPath: (command) => {
+      const currentParams = new URLSearchParams(location.search);
+      return routerPath(
+        buildNavigatePath(command.path || pathForView(command.view), command, {
+          includeDone: parseIncludeDoneParam(currentParams.get("includeDone")),
+        }),
+      );
+    },
   });
 }
 

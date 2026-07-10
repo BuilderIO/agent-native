@@ -73,12 +73,24 @@ export function pathForView(view?: string): string {
 export function buildNavigatePath(
   basePath: string,
   command: NavigateCommand,
+  current?: Pick<NavigationState, "includeDone">,
 ): string {
   const params = new URLSearchParams();
   if (command.taskId) params.set("task", command.taskId);
   if (command.inboxItemId) params.set("inboxItem", command.inboxItemId);
   if (command.fieldId) params.set("field", command.fieldId);
-  if (command.includeDone) params.set("includeDone", INCLUDE_DONE_QUERY_VALUE);
+  const includeDone =
+    command.includeDone !== undefined
+      ? command.includeDone
+      : navigatesToTasks(basePath) && current?.includeDone === true;
+  if (includeDone) params.set("includeDone", INCLUDE_DONE_QUERY_VALUE);
   const query = params.toString();
   return query ? `${basePath}?${query}` : basePath;
+}
+
+function navigatesToTasks(basePath: string): boolean {
+  return (
+    basePath === VIEW_ROUTES.tasks ||
+    basePath.startsWith(`${VIEW_ROUTES.tasks}/`)
+  );
 }

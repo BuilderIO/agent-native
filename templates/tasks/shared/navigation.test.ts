@@ -26,6 +26,32 @@ describe("shared navigation", () => {
     ).toBe("/tasks?task=abc&includeDone=true");
   });
 
+  it("preserves the show-completed filter when navigating within tasks", () => {
+    expect(
+      buildNavigatePath("/tasks", { taskId: "abc" }, { includeDone: true }),
+    ).toBe("/tasks?task=abc&includeDone=true");
+    expect(
+      buildNavigatePath("/tasks", { taskId: "abc" }, { includeDone: false }),
+    ).toBe("/tasks?task=abc");
+    expect(
+      buildNavigatePath(
+        "/inbox",
+        { inboxItemId: "in-1" },
+        { includeDone: true },
+      ),
+    ).toBe("/inbox?inboxItem=in-1");
+  });
+
+  it("honors an explicit includeDone=false over the current filter", () => {
+    expect(
+      buildNavigatePath(
+        "/tasks",
+        { taskId: "abc", includeDone: false },
+        { includeDone: true },
+      ),
+    ).toBe("/tasks?task=abc");
+  });
+
   it("builds inbox URLs with selection", () => {
     expect(buildNavigatePath("/inbox", {})).toBe("/inbox");
     expect(buildNavigatePath("/inbox", { inboxItemId: "in-1" })).toBe(
