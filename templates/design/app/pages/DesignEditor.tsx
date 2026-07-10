@@ -16717,10 +16717,18 @@ function DesignEditor() {
         return;
       }
       if (!targetFileId || !canEditDesign) return;
+      // The pending-local map is the synchronous write-through source for
+      // same-task/repeated operations. React query/collab mirrors can lag one
+      // render behind a just-completed paste even after its save is already
+      // observable from another request; rebasing a second paste on that stale
+      // mirror makes its history `before` skip the first clone, so one undo
+      // removes both. Prefer the pending snapshot exactly like primitive and
+      // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
-        targetFileId === activeFile?.id
+        pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
+        (targetFileId === activeFile?.id
           ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
+          : (getScreenContent(targetFileId) ?? ""));
       if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
       const styleSnapshots = entries.map(

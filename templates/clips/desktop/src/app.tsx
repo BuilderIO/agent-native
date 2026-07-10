@@ -1164,6 +1164,7 @@ export function App() {
         });
       }
       startMeetingNotes(meeting);
+      hidePopover();
     },
     [startMeetingNotes],
   );

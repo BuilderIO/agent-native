@@ -314,10 +314,8 @@ test.describe("editor keyboard layer clipboard", () => {
       (html) => {
         expect(count(html, 'data-agent-native-layer-name="Copy Card"')).toBe(2);
         expect(count(html, ">Nested CTA<")).toBe(2);
-        expect(count(html, 'data-agent-native-node-id="source-card"')).toBe(1);
-        expect(
-          count(html, 'data-agent-native-node-id="source-card-child"'),
-        ).toBe(1);
+        expect(actualNodeIdCount(html, "source-card")).toBe(1);
+        expect(actualNodeIdCount(html, "source-card-child")).toBe(1);
         expect(allNodeIdsAreUnique(html)).toBe(true);
       },
     );
@@ -418,7 +416,7 @@ test.describe("editor keyboard layer clipboard", () => {
         expect(count(html, 'data-agent-native-layer-name="Source Peer"')).toBe(
           2,
         );
-        expect(count(html, 'data-agent-native-node-id="source-peer"')).toBe(1);
+        expect(actualNodeIdCount(html, "source-peer")).toBe(1);
         expect(allNodeIdsAreUnique(html)).toBe(true);
       },
     );
@@ -762,13 +760,24 @@ function count(value: string, needle: string): number {
 }
 
 function allNodeIdsAreUnique(html: string): boolean {
-  const markupOnly = html
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+  const markupOnly = htmlWithoutRawTextBodies(html);
   const ids = Array.from(
     markupOnly.matchAll(/data-agent-native-node-id="([^"]+)"/g),
   ).map((match) => match[1]);
   return ids.length === new Set(ids).size;
+}
+
+function actualNodeIdCount(html: string, nodeId: string): number {
+  return count(
+    htmlWithoutRawTextBodies(html),
+    `data-agent-native-node-id="${nodeId}"`,
+  );
+}
+
+function htmlWithoutRawTextBodies(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
 }
 
 function cssString(value: string) {

@@ -334,7 +334,7 @@ test("add duplicate undo and redo keep the created screen selected and visible",
     await page.goto(appPath(`/design/${designId}?view=overview`));
     await gotoEditor(page, designId);
     const world = page.locator("[data-multi-screen-canvas-world]");
-    const surface = world.locator("..");
+    const surface = world.locator("xpath=..");
     const observed = await page.evaluate(() => {
       const target = document.querySelector("[data-multi-screen-canvas-world]");
       (window as any).__qaCameraTransforms = [];
