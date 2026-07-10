@@ -476,10 +476,12 @@ ação para que UI e o agente compartilhem a mesma capacidade.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,

@@ -15,11 +15,10 @@ agent-native collaboration model.
 ## Vision {#vision}
 
 Editing alongside the agent feels like working in a collaborative editor with
-a coworker who is both instant and tireless:
-
-If you just need the UI to refresh when the agent or another user writes to SQL, you don't need any of this — use [`useDbSync`](/docs/client). This page is for character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
-
-This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-free merging), **TipTap** (rich text editor), and **polling-based sync** (works in all deployment environments including serverless and edge).
+a coworker who is both instant and tireless. This is built on three
+battle-tested technologies: **Yjs** (CRDT for conflict-free merging),
+**TipTap** (rich text editor), and **polling-based sync** (works in all
+deployment environments including serverless and edge).
 
 - **CRDT merging** — Concurrent edits from humans and agents merge without
   conflicts. You type in one paragraph; the agent rewrites another; both
@@ -31,6 +30,12 @@ This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-fr
   positions, selections, or the undo stack.
 - **Works everywhere** — Any SQL database Drizzle supports (SQLite, Postgres).
   Any hosting target Nitro supports, including serverless and edge.
+
+<Callout tone="info">
+
+**Just need the UI to refresh, not character-level co-editing?** Use [`useDbSync`](/docs/client#usedbsync) instead — it's for reacting to SQL writes from the agent or other users. This page covers real-time character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
+
+</Callout>
 
 ## Architecture {#architecture}
 
@@ -126,21 +131,18 @@ Collab update events travel via two paths:
 
 - **SSE fast-path** — The client subscribes to `/_agent-native/poll-events`
   (the same `EventSource` used by `useDbSync`). Collab update events arrive
-  push-style, typically in tens of milliseconds. While SSE is healthy the
-  poll loop relaxes to a slow cadence (~12 s by default).
-- **Polling fallback** — `/_agent-native/poll?since=N` is polled every 2 s
-  when SSE is unavailable. This makes collaboration work on any deployment
-  target — including serverless functions where persistent connections are
-  impossible and different invocations can handle different requests.
+  push-style, and the poll loop relaxes to a slow cadence while SSE is healthy.
+- **Polling fallback** — `/_agent-native/poll?since=N` is polled on a fixed
+  interval when SSE is unavailable. This makes collaboration work on any
+  deployment target — including serverless functions where persistent
+  connections are impossible and different invocations can handle different
+  requests.
 
-Local Yjs updates are debounced and coalesced with `Y.mergeUpdates` (~80 ms)
-before being sent to the server, reducing keystroke-level network traffic.
-The batch is flushed immediately on `visibilitychange` or `pagehide`. A
-state-vector diff (`GET /:docId/state?stateVector=…`) is fetched only on
-reconnect, ring-buffer overflow, or every 15th poll cycle — not on every
-cycle.
-
-Network errors use exponential backoff with jitter, capped at ~15 s.
+Local Yjs updates are debounced and coalesced with `Y.mergeUpdates` before
+being sent to the server, reducing keystroke-level network traffic, and the
+batch is flushed immediately on `visibilitychange` or `pagehide`. See
+[Transport and performance](#transport) for the exact intervals, state-vector
+refetch cadence, and backoff values.
 
 <Diagram id="doc-block-1h873p8" title="Two edit paths, one merge" summary={"Human keystrokes flow Y.Doc → server → SSE. Agent edits go through SQL: the action bumps updatedAt, the lead client reconciles, then the change re-enters Yjs."}>
 
@@ -258,7 +260,7 @@ export default createCollabPlugin({
 ### 4. Use the client hook
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { generateTabId, useCollaborativeDoc } from "@agent-native/core/client";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -316,7 +318,7 @@ User identity is derived from the session email. The framework provides `emailTo
 Templates can add a comments system with threaded discussions on documents. The content template's comments system includes a full implementation with:
 
 - `document_comments` SQL table (threads, replies, resolved status)
-- The content template's REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions. Custom templates implement their own equivalent endpoints against the core `POST /_agent-native/collab/:docId/search-replace` route.
+- Comment create and list run through the `add-comment` / `list-comments` actions; the content template also exposes REST routes for update/delete at `/api/comments/:id`. Custom templates can implement their own equivalent endpoints, and comment anchors resolve against the document body through the core `POST /_agent-native/collab/:docId/search-replace` route.
 - Comments sidebar with threaded view and reply UI
 - Resolve/unresolve threads
 - **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
