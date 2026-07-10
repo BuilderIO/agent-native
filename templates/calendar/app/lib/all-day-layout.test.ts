@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getAllDaySpan,
+  groupAdjacentAllDayPlacements,
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "./all-day-layout";
@@ -80,5 +81,44 @@ describe("all-day layout", () => {
       workingLocations: [workingLocation],
       regularEvents: [ordinaryEvent],
     });
+  });
+
+  it("groups adjacent placements with the same visual identity", () => {
+    const layout = layoutAllDayEvents(
+      [
+        event("home-mon", "2026-07-06", "2026-07-07", "workingLocation"),
+        event("home-tue", "2026-07-07", "2026-07-08", "workingLocation"),
+        event("office-wed", "2026-07-08", "2026-07-09", "workingLocation"),
+      ],
+      days,
+    );
+
+    const groups = groupAdjacentAllDayPlacements(
+      layout.placements,
+      ({ event: placementEvent }) =>
+        placementEvent.id.startsWith("home") ? "home" : "office",
+    );
+
+    expect(groups.map((group) => group.map(({ event }) => event.id))).toEqual([
+      ["home-mon", "home-tue"],
+      ["office-wed"],
+    ]);
+  });
+
+  it("does not join matching placements separated by a visible day", () => {
+    const layout = layoutAllDayEvents(
+      [
+        event("home-mon", "2026-07-06", "2026-07-07", "workingLocation"),
+        event("home-wed", "2026-07-08", "2026-07-09", "workingLocation"),
+      ],
+      days,
+    );
+
+    const groups = groupAdjacentAllDayPlacements(
+      layout.placements,
+      () => "home",
+    );
+
+    expect(groups).toHaveLength(2);
   });
 });

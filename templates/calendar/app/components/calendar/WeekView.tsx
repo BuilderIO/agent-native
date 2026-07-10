@@ -1,6 +1,11 @@
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled, IconMapPin } from "@tabler/icons-react";
+import {
+  IconAlertTriangleFilled,
+  IconBuilding,
+  IconHome,
+  IconMapPin,
+} from "@tabler/icons-react";
 import {
   startOfWeek,
   endOfWeek,
@@ -33,6 +38,7 @@ import {
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import {
+  groupAdjacentAllDayPlacements,
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "@/lib/all-day-layout";
@@ -595,7 +601,10 @@ export const WeekView = memo(function WeekView({
   isLoading = false,
 }: WeekViewProps) {
   const t = useT();
-  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
+  const workingLocationLabels = useMemo(
+    () => createWorkingLocationDisplayLabels(t),
+    [t],
+  );
   const { setFocusedEvent } = useCalendarSetters();
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
@@ -668,6 +677,22 @@ export const WeekView = memo(function WeekView({
     () => layoutAllDayEvents(workingLocations, days),
     [days, workingLocations],
   );
+  const workingLocationGroups = useMemo(
+    () =>
+      groupAdjacentAllDayPlacements(
+        workingLocationLayout.placements,
+        ({ event }) =>
+          [
+            event.accountEmail,
+            event.overlayEmail,
+            event.ownerColor,
+            getEventDisplayColor(event, prefs),
+            getWorkingLocationChipLabel(event, workingLocationLabels),
+            JSON.stringify(event.workingLocationProperties ?? {}),
+          ].join(":"),
+      ),
+    [prefs, workingLocationLabels, workingLocationLayout.placements],
+  );
   const regularAllDayLayout = useMemo(() => {
     return layoutAllDayEvents(regularEvents, days);
   }, [days, regularEvents]);
@@ -696,10 +721,10 @@ export const WeekView = memo(function WeekView({
   const hasWorkingLocations = workingLocationLayout.rowCount > 0;
   const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
   const hasAnyAllDay = hasWorkingLocations || hasRegularAllDayEvents;
-  const workingLocationRowHeight = 18;
+  const workingLocationRowHeight = 16;
   const allDayRowHeight = 20;
   const workingLocationLaneHeight = hasWorkingLocations
-    ? workingLocationLayout.rowCount * workingLocationRowHeight + 4
+    ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
     : 0;
   const laneSeparatorHeight =
     hasWorkingLocations && hasRegularAllDayEvents ? 1 : 0;
@@ -947,17 +972,6 @@ export const WeekView = memo(function WeekView({
               className="relative shrink-0 border-r border-border"
               style={{ width: `${GUTTER_WIDTH}px` }}
             >
-              {hasWorkingLocations && (
-                <div
-                  className="absolute right-2 flex items-center text-muted-foreground"
-                  style={{ top: "4px" }}
-                >
-                  <IconMapPin aria-hidden="true" className="size-3" />
-                  <span className="sr-only">
-                    {t("eventForm.workingLocation")}
-                  </span>
-                </div>
-              )}
               {hasRegularAllDayEvents && (
                 <span
                   className="absolute right-2 text-[10px] text-muted-foreground"
@@ -990,77 +1004,118 @@ export const WeekView = memo(function WeekView({
               )}
 
               <div data-working-location-lane className="contents">
-                {workingLocationLayout.placements.map(
-                  ({ event, startCol, endCol, row }) => {
-                    const color = getEventDisplayColor(event, prefs);
-                    const colCount = days.length;
-                    const leftPct = (startCol / colCount) * 100;
-                    const widthPct = ((endCol - startCol + 1) / colCount) * 100;
-                    const title = getWorkingLocationChipLabel(
-                      event,
-                      workingLocationLabels,
-                    );
-                    const ariaTitle = getWorkingLocationTitle(
-                      event,
-                      workingLocationLabels,
-                    );
+                {workingLocationGroups.map((group) => {
+                  const firstPlacement = group[0];
+                  const lastPlacement = group[group.length - 1];
+                  const groupKey = group.map(({ event }) => event.id).join(":");
+                  const colCount = days.length;
+                  const groupLeftPct =
+                    (firstPlacement.startCol / colCount) * 100;
+                  const groupWidthPct =
+                    ((lastPlacement.endCol - firstPlacement.startCol + 1) /
+                      colCount) *
+                    100;
+                  const groupColor = getEventDisplayColor(
+                    firstPlacement.event,
+                    prefs,
+                  );
 
-                    return (
-                      <EventDetailPopover
-                        key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
-                        event={event}
-                        onDelete={onDeleteEvent}
-                        isDraft={draftEventIds.includes(event.id)}
-                        defaultOpen={quickEditEventId === event.id}
-                        onTitleSave={onQuickEditSave}
-                        onDismissNew={onQuickEditCancel}
-                        onDraftUpdate={onDraftUpdate}
-                        onDraftCreate={onDraftCreate}
-                        onDraftDiscard={onDraftDiscard}
-                      >
-                        <button
-                          className={cn(
-                            "absolute flex items-center gap-1 truncate rounded-sm px-1.5 text-left text-[10px] font-medium text-foreground transition-opacity hover:opacity-80",
-                            event.ownerColor && "pr-3.5",
-                          )}
-                          aria-label={
-                            event.ownerName || event.overlayEmail
-                              ? `${ariaTitle}, ${
-                                  event.ownerName || event.overlayEmail
-                                }'s calendar`
-                              : ariaTitle
-                          }
-                          style={{
-                            top: `${row * workingLocationRowHeight + 3}px`,
-                            left: `${leftPct}%`,
-                            width: `calc(${widthPct}% - 4px)`,
-                            height: `${workingLocationRowHeight - 4}px`,
-                            backgroundColor: color
-                              ? `${color}1f`
-                              : "hsl(var(--muted))",
-                            borderLeft: `2px solid ${
-                              color ?? "hsl(var(--muted-foreground))"
-                            }`,
-                            marginLeft: "2px",
-                          }}
-                        >
-                          <IconMapPin
-                            aria-hidden="true"
-                            className="size-2.5 shrink-0 opacity-70"
-                          />
-                          <span className="truncate">{title}</span>
-                          {event.ownerColor && (
-                            <span
-                              aria-hidden="true"
-                              className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                              style={{ backgroundColor: event.ownerColor }}
-                            />
-                          )}
-                        </button>
-                      </EventDetailPopover>
-                    );
-                  },
-                )}
+                  return (
+                    <div key={groupKey} className="contents">
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute rounded-full opacity-35"
+                        style={{
+                          top: `${firstPlacement.row * workingLocationRowHeight + 7}px`,
+                          left: `calc(${groupLeftPct}% + 4px)`,
+                          width: `calc(${groupWidthPct}% - 8px)`,
+                          height: "3px",
+                          backgroundColor: groupColor,
+                        }}
+                      />
+                      {group.map(({ event, startCol, endCol, row }, index) => {
+                        const colCount = days.length;
+                        const leftPct = (startCol / colCount) * 100;
+                        const widthPct =
+                          ((endCol - startCol + 1) / colCount) * 100;
+                        const title = getWorkingLocationChipLabel(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const ariaTitle = getWorkingLocationTitle(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const WorkingLocationIcon =
+                          event.workingLocationProperties?.type === "homeOffice"
+                            ? IconHome
+                            : event.workingLocationProperties?.type ===
+                                "officeLocation"
+                              ? IconBuilding
+                              : IconMapPin;
+
+                        return (
+                          <EventDetailPopover
+                            key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                            event={event}
+                            onDelete={onDeleteEvent}
+                            isDraft={draftEventIds.includes(event.id)}
+                            defaultOpen={quickEditEventId === event.id}
+                            onTitleSave={onQuickEditSave}
+                            onDismissNew={onQuickEditCancel}
+                            onDraftUpdate={onDraftUpdate}
+                            onDraftCreate={onDraftCreate}
+                            onDraftDiscard={onDraftDiscard}
+                          >
+                            <button
+                              className={cn(
+                                "group/working-location-day absolute z-10 flex items-center px-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1",
+                              )}
+                              aria-label={
+                                event.ownerName || event.overlayEmail
+                                  ? `${ariaTitle}, ${
+                                      event.ownerName || event.overlayEmail
+                                    }'s calendar`
+                                  : ariaTitle
+                              }
+                              style={{
+                                top: `${row * workingLocationRowHeight + 1}px`,
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                                height: `${workingLocationRowHeight - 2}px`,
+                              }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-x-0.5 inset-y-0 rounded-sm opacity-0 transition-opacity group-hover/working-location-day:opacity-100"
+                                style={{
+                                  backgroundColor: `color-mix(in srgb, ${groupColor} 14%, transparent)`,
+                                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${groupColor} 22%, transparent)`,
+                                }}
+                              />
+                              {index === 0 && (
+                                <span
+                                  className="relative inline-flex h-3.5 max-w-full items-center gap-0.5 rounded-sm px-1 text-[10px] font-medium leading-none text-foreground"
+                                  style={{
+                                    backgroundColor: `color-mix(in srgb, ${groupColor} 18%, hsl(var(--background)))`,
+                                    boxShadow: `0 0 0 1px color-mix(in srgb, ${groupColor} 28%, transparent)`,
+                                  }}
+                                >
+                                  <WorkingLocationIcon
+                                    aria-hidden="true"
+                                    className="size-2.5 shrink-0"
+                                    style={{ color: groupColor }}
+                                  />
+                                  <span className="truncate">{title}</span>
+                                </span>
+                              )}
+                            </button>
+                          </EventDetailPopover>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
 
               <div data-all-day-event-lane className="contents">

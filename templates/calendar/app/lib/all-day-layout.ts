@@ -18,6 +18,8 @@ export interface AllDayLayout {
   rowCount: number;
 }
 
+export type AllDayPlacementGroup = AllDayPlacement[];
+
 export function partitionAllDayEvents(events: CalendarEvent[]) {
   const workingLocations: CalendarEvent[] = [];
   const regularEvents: CalendarEvent[] = [];
@@ -91,4 +93,34 @@ export function layoutAllDayEvents(
   }
 
   return { placements, rowCount: rows.length };
+}
+
+/** Group visually adjacent placements while preserving each event's click target. */
+export function groupAdjacentAllDayPlacements(
+  placements: AllDayPlacement[],
+  getGroupKey: (placement: AllDayPlacement) => string,
+): AllDayPlacementGroup[] {
+  const sorted = [...placements].sort(
+    (a, b) => a.row - b.row || a.startCol - b.startCol,
+  );
+  const groups: AllDayPlacementGroup[] = [];
+
+  for (const placement of sorted) {
+    const previousGroup = groups[groups.length - 1];
+    const previousPlacement = previousGroup?.[previousGroup.length - 1];
+    const isAdjacent =
+      previousPlacement?.row === placement.row &&
+      previousPlacement.endCol + 1 === placement.startCol;
+    const isSameGroup =
+      previousPlacement !== undefined &&
+      getGroupKey(previousPlacement) === getGroupKey(placement);
+
+    if (previousGroup && isAdjacent && isSameGroup) {
+      previousGroup.push(placement);
+    } else {
+      groups.push([placement]);
+    }
+  }
+
+  return groups;
 }
