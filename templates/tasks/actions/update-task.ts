@@ -1,19 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
-import {
-  getTask,
-  requireUserEmail,
-  updateTask,
-} from "../server/tasks/store.js";
+import { patchTask, requireUserEmail } from "../server/tasks/store.js";
 import { listTaskFieldValues } from "../server/custom-fields/task-fields.js";
 import {
   fieldValueInputSchema,
   parseJsonArg,
 } from "../server/custom-fields/schema.js";
-import {
-  updateCustomFieldValues,
-  type FieldValueInput,
-} from "../server/custom-fields/values/store.js";
+import type { FieldValueInput } from "../server/custom-fields/values/store.js";
 
 type FieldValuePatch = {
   fieldId: string;
@@ -50,24 +43,15 @@ export default defineAction({
       throw new Error("Provide at least one of title, done, or fieldValues.");
     }
 
-    const hasTaskPatch = args.title !== undefined || args.done !== undefined;
-    const task = hasTaskPatch
-      ? await updateTask({
-          ownerEmail,
-          id: args.taskId,
-          title: args.title,
-          done: args.done,
-        })
-      : await getTask({ ownerEmail, id: args.taskId });
-
-    if (!task) throw new Error("Task not found.");
+    const task = await patchTask({
+      ownerEmail,
+      id: args.taskId,
+      title: args.title,
+      done: args.done,
+      fieldValues: args.fieldValues,
+    });
 
     if (args.fieldValues !== undefined) {
-      await updateCustomFieldValues({
-        ownerEmail,
-        taskId: args.taskId,
-        values: args.fieldValues,
-      });
       const fields = await listTaskFieldValues({
         ownerEmail,
         taskId: args.taskId,

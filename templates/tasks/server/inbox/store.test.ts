@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import {
+  bulkDeleteInboxItems,
   createInboxItem,
   deleteInboxItem,
   listInboxItems,
@@ -68,7 +69,9 @@ describe("inbox store", () => {
       now: "2026-06-22T10:00:00.000Z",
     });
 
-    const aliceItems = await listInboxItems({ ownerEmail: "alice@example.com" });
+    const aliceItems = await listInboxItems({
+      ownerEmail: "alice@example.com",
+    });
     expect(aliceItems.map((item) => item.id)).toEqual(["a1"]);
   });
 
@@ -132,7 +135,9 @@ describe("inbox store", () => {
     });
     expect(task).not.toHaveProperty("promotedToTask");
 
-    const inboxAfter = await listInboxItems({ ownerEmail: "alice@example.com" });
+    const inboxAfter = await listInboxItems({
+      ownerEmail: "alice@example.com",
+    });
     expect(inboxAfter).toHaveLength(0);
 
     const tasks = await listTasks({ ownerEmail: "alice@example.com" });
@@ -178,5 +183,24 @@ describe("inbox store", () => {
         title: "Nope",
       }),
     ).rejects.toThrow(/not found/i);
+  });
+
+  it("rolls back bulk deletes when any inbox item id is missing", async () => {
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "Keep me",
+      id: "i1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+
+    await expect(
+      bulkDeleteInboxItems({
+        ownerEmail: "alice@example.com",
+        inboxItemIds: ["i1", "missing"],
+      }),
+    ).rejects.toThrow(/not found/i);
+
+    const items = await listInboxItems({ ownerEmail: "alice@example.com" });
+    expect(items).toHaveLength(1);
   });
 });

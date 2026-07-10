@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { deleteTask } = vi.hoisted(() => ({
-  deleteTask: vi.fn(),
+const { bulkDeleteTasks } = vi.hoisted(() => ({
+  bulkDeleteTasks: vi.fn(),
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
-  deleteTask,
+  bulkDeleteTasks,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -16,7 +16,7 @@ import bulkDeleteTasksAction from "./bulk-delete-tasks.js";
 
 describe("bulk-delete-tasks", () => {
   beforeEach(() => {
-    deleteTask.mockReset();
+    bulkDeleteTasks.mockReset();
   });
 
   describe("schema", () => {
@@ -33,22 +33,17 @@ describe("bulk-delete-tasks", () => {
   });
 
   describe("run", () => {
-    it("deletes each task", async () => {
-      deleteTask.mockResolvedValue(undefined);
+    it("deletes tasks atomically", async () => {
+      bulkDeleteTasks.mockResolvedValue({ ok: true, deleted: 2 });
 
       const result = await bulkDeleteTasksAction.run(
         { taskIds: ["t1", "t2"] },
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(deleteTask).toHaveBeenCalledTimes(2);
-      expect(deleteTask).toHaveBeenNthCalledWith(1, {
+      expect(bulkDeleteTasks).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
-        id: "t1",
-      });
-      expect(deleteTask).toHaveBeenNthCalledWith(2, {
-        ownerEmail: "alice@example.com",
-        id: "t2",
+        taskIds: ["t1", "t2"],
       });
       expect(result).toEqual({ ok: true, deleted: 2 });
     });

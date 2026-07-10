@@ -1,14 +1,18 @@
 import type { StoredItem } from "../db/schema.js";
+import { getDb } from "../db/index.js";
+import { runTransaction } from "../db/transaction.js";
 import { type Task, toTask } from "../tasks/store.js";
 import {
+  assertStoredItemsExist,
   createStoredItem,
+  deleteStoredItem,
+  deleteStoredItemInTx,
   getStoredItem,
   listStoredItems,
-  updateStoredItem,
-  deleteStoredItem,
-  reorderStoredItems,
   promoteStoredItemToTask,
+  reorderStoredItems,
   requireUserEmail,
+  updateStoredItem,
 } from "../stored-items/store.js";
 
 export { requireUserEmail };
@@ -71,6 +75,30 @@ export async function deleteInboxItem(input: {
   id: string;
 }): Promise<void> {
   await deleteStoredItem({ ...input, promotedToTask: false });
+}
+
+export async function bulkDeleteInboxItems(input: {
+  ownerEmail: string;
+  inboxItemIds: string[];
+}): Promise<{ ok: true; deleted: number }> {
+  await assertStoredItemsExist({
+    ownerEmail: input.ownerEmail,
+    ids: input.inboxItemIds,
+    promotedToTask: false,
+    notFoundMessage: "Stored item not found.",
+  });
+
+  runTransaction(getDb(), (tx) => {
+    for (const id of input.inboxItemIds) {
+      deleteStoredItemInTx(tx, {
+        ownerEmail: input.ownerEmail,
+        id,
+        promotedToTask: false,
+      });
+    }
+  });
+
+  return { ok: true, deleted: input.inboxItemIds.length };
 }
 
 export async function reorderInboxItems(input: {

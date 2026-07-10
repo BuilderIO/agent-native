@@ -19,6 +19,110 @@ import { getStoredItem } from "../../stored-items/store.js";
 
 export type { FieldValue, FieldValueInput } from "../types.js";
 
+export type PreparedFieldValuePatch = {
+  field: FieldDefinition;
+  value: FieldValue | null;
+};
+
+export async function prepareCustomFieldValuePatches(input: {
+  ownerEmail: string;
+  taskId: string;
+  values: Array<{ fieldId: string; value: FieldValueInput }>;
+}): Promise<Map<string, PreparedFieldValuePatch>> {
+  if (input.values.length === 0) {
+    return new Map();
+  }
+
+  const task = await getStoredItem({
+    ownerEmail: input.ownerEmail,
+    id: input.taskId,
+    promotedToTask: true,
+  });
+  if (!task) throw new Error("Task not found.");
+
+  const db = getDb();
+  const fields = await db
+    .select()
+    .from(customFields)
+    .where(
+      and(
+        eq(customFields.ownerEmail, input.ownerEmail),
+        inArray(
+          customFields.id,
+          input.values.map((value) => value.fieldId),
+        ),
+      ),
+    );
+
+  const fieldsById = new Map(
+    fields.map((field) => [field.id, parseField(field)]),
+  );
+  const normalizedValues = new Map<string, PreparedFieldValuePatch>();
+  for (const value of input.values) {
+    const field = fieldsById.get(value.fieldId);
+    if (!field) throw new Error("Custom field not found.");
+    let normalizedValue: FieldValue | null;
+    const shaped = parseFieldValueShape(value.value);
+    if (isEmptyFieldValue(shaped)) {
+      normalizedValue = null;
+    } else {
+      validateFieldValue(field, shaped);
+      normalizedValue = normalizeFieldValue(field, shaped);
+    }
+    normalizedValues.set(value.fieldId, {
+      field,
+      value: normalizedValue,
+    });
+  }
+
+  return normalizedValues;
+}
+
+export function applyCustomFieldValuePatchesInTx(
+  tx: TransactionDb,
+  input: {
+    ownerEmail: string;
+    taskId: string;
+    patches: Map<string, PreparedFieldValuePatch>;
+    updatedAt: string;
+  },
+): void {
+  for (const normalized of input.patches.values()) {
+    if (normalized.value === null) {
+      deleteCustomFieldValues(
+        {
+          ownerEmail: input.ownerEmail,
+          taskId: input.taskId,
+          fieldId: normalized.field.id,
+        },
+        tx,
+      );
+      continue;
+    }
+
+    const valueJson = JSON.stringify(normalized.value);
+    tx.insert(customFieldValues)
+      .values({
+        id: createRecordId("cfv"),
+        fieldId: normalized.field.id,
+        taskId: input.taskId,
+        valueJson,
+        ownerEmail: input.ownerEmail,
+        createdAt: input.updatedAt,
+        updatedAt: input.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: [
+          customFieldValues.ownerEmail,
+          customFieldValues.taskId,
+          customFieldValues.fieldId,
+        ],
+        set: { valueJson, updatedAt: input.updatedAt },
+      })
+      .run();
+  }
+}
+
 export async function getCustomFieldValue(input: {
   ownerEmail: string;
   taskId: string;
@@ -88,89 +192,17 @@ export async function updateCustomFieldValues(input: {
   values: Array<{ fieldId: string; value: FieldValueInput }>;
   now?: string;
 }): Promise<void> {
-  if (input.values.length === 0) return;
+  const patches = await prepareCustomFieldValuePatches(input);
+  if (patches.size === 0) return;
 
-  const task = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.taskId,
-    promotedToTask: true,
-  });
-  if (!task) throw new Error("Task not found.");
-
-  const db = getDb();
-  const fields = await db
-    .select()
-    .from(customFields)
-    .where(
-      and(
-        eq(customFields.ownerEmail, input.ownerEmail),
-        inArray(
-          customFields.id,
-          input.values.map((value) => value.fieldId),
-        ),
-      ),
-    );
-
-  const fieldsById = new Map(
-    fields.map((field) => [field.id, parseField(field)]),
-  );
   const updatedAt = timestamp(input.now);
-  const normalizedValues = new Map<
-    string,
-    { field: FieldDefinition; value: FieldValue | null }
-  >();
-  for (const value of input.values) {
-    const field = fieldsById.get(value.fieldId);
-    if (!field) throw new Error("Custom field not found.");
-    let normalizedValue: FieldValue | null;
-    const shaped = parseFieldValueShape(value.value);
-    if (isEmptyFieldValue(shaped)) {
-      normalizedValue = null;
-    } else {
-      validateFieldValue(field, shaped);
-      normalizedValue = normalizeFieldValue(field, shaped);
-    }
-    normalizedValues.set(value.fieldId, {
-      field,
-      value: normalizedValue,
+  runTransaction(getDb(), (tx) => {
+    applyCustomFieldValuePatchesInTx(tx, {
+      ownerEmail: input.ownerEmail,
+      taskId: input.taskId,
+      patches,
+      updatedAt,
     });
-  }
-
-  runTransaction(db, (tx) => {
-    for (const normalized of normalizedValues.values()) {
-      if (normalized.value === null) {
-        deleteCustomFieldValues(
-          {
-            ownerEmail: input.ownerEmail,
-            taskId: input.taskId,
-            fieldId: normalized.field.id,
-          },
-          tx,
-        );
-        continue;
-      }
-
-      const valueJson = JSON.stringify(normalized.value);
-      tx.insert(customFieldValues)
-        .values({
-          id: createRecordId("cfv"),
-          fieldId: normalized.field.id,
-          taskId: input.taskId,
-          valueJson,
-          ownerEmail: input.ownerEmail,
-          createdAt: updatedAt,
-          updatedAt,
-        })
-        .onConflictDoUpdate({
-          target: [
-            customFieldValues.ownerEmail,
-            customFieldValues.taskId,
-            customFieldValues.fieldId,
-          ],
-          set: { valueJson, updatedAt },
-        })
-        .run();
-    }
   });
 }
 

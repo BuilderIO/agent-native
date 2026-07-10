@@ -9,6 +9,7 @@ import {
   deleteCustomField,
   getCustomField,
   listCustomFields,
+  reorderCustomFields,
   updateCustomField,
 } from "./store.js";
 import {
@@ -128,6 +129,62 @@ describe("custom fields store", () => {
     );
     expect(rawByFieldId.get(estimate.id)).toBe(3.5);
     expect(rawByFieldId.get(tags.id)).toEqual(["opt_frontend", "opt_backend"]);
+  });
+
+  it("upserts repeated custom field values for the same task", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Task",
+      id: "task-1",
+    });
+    const estimate = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+    });
+
+    await updateCustomFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+      values: [{ fieldId: estimate.id, value: 2 }],
+    });
+    await updateCustomFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+      values: [{ fieldId: estimate.id, value: 5 }],
+    });
+
+    const fields = await listTaskFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+    });
+    expect(fields.find((field) => field.id === estimate.id)?.value).toBe(5);
+    expect(
+      listCustomFieldValues({
+        ownerEmail: "alice@example.com",
+        taskIds: ["task-1"],
+        fieldId: estimate.id,
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("rejects invalid select option ids", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Ship F2",
+      id: "task-1",
+    });
+    const tags = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Tags",
+      type: "multi_select",
+      config: {
+        options: [
+          { id: "opt_frontend", name: "Frontend", color: "blue" },
+          { id: "opt_backend", name: "Backend", color: "green" },
+        ],
+      },
+    });
 
     await expect(
       updateCustomFieldValues({
@@ -218,7 +275,9 @@ describe("custom fields store", () => {
       taskId: "task-1",
     });
     expect(result.find((field) => field.id === estimate.id)?.value).toBe(1);
-    expect(result.find((field) => field.id === confidence.id)?.value).toBe(12.3);
+    expect(result.find((field) => field.id === confidence.id)?.value).toBe(
+      12.3,
+    );
     expect(result.find((field) => field.id === budget.id)?.value).toBe(12.34);
   });
 
@@ -345,17 +404,16 @@ describe("custom fields store", () => {
       title: "Priority",
       type: "single_select",
       config: {
-        options: [
-          { name: "High" },
-          { name: "High!" },
-        ],
+        options: [{ name: "High" }, { name: "High!" }],
       },
     });
 
-    expect("options" in field.config ? field.config.options : []).toMatchObject([
-      { id: "opt_high", name: "High" },
-      { id: "opt_high_2", name: "High!" },
-    ]);
+    expect("options" in field.config ? field.config.options : []).toMatchObject(
+      [
+        { id: "opt_high", name: "High" },
+        { id: "opt_high_2", name: "High!" },
+      ],
+    );
 
     await expect(
       updateCustomField({
@@ -369,5 +427,25 @@ describe("custom fields store", () => {
         },
       }),
     ).rejects.toThrow(/duplicated/i);
+  });
+
+  it("rejects duplicate ids when reordering custom fields", async () => {
+    const first = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      type: "text",
+    });
+    const second = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      type: "text",
+    });
+
+    await expect(
+      reorderCustomFields({
+        ownerEmail: "alice@example.com",
+        fieldIds: [first.id, first.id, second.id],
+      }),
+    ).rejects.toThrow(/duplicates/i);
   });
 });

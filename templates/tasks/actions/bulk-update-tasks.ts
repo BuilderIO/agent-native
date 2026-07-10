@@ -1,14 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
-import { requireUserEmail, updateTask } from "../server/tasks/store.js";
+import { requireUserEmail, bulkUpdateTasks } from "../server/tasks/store.js";
 
 export default defineAction({
-  description: "Update multiple tasks with the same title and/or completion patch.",
+  description:
+    "Update multiple tasks with the same title and/or completion patch.",
   schema: z.object({
-    taskIds: z
-      .array(z.string())
-      .min(1)
-      .describe("Task ids to update"),
+    taskIds: z.array(z.string()).min(1).describe("Task ids to update"),
     title: z.string().min(1).optional().describe("New title for every task"),
     done: z.boolean().optional().describe("Completion state for every task"),
   }),
@@ -18,17 +16,12 @@ export default defineAction({
       throw new Error("Provide at least one of title or done.");
     }
 
-    const tasks = [];
-    for (const id of args.taskIds) {
-      tasks.push(
-        await updateTask({
-          ownerEmail,
-          id,
-          title: args.title,
-          done: args.done,
-        }),
-      );
-    }
+    const tasks = await bulkUpdateTasks({
+      ownerEmail,
+      taskIds: args.taskIds,
+      title: args.title,
+      done: args.done,
+    });
 
     return { tasks };
   },

@@ -3,12 +3,16 @@ import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { getStoredItem } from "../stored-items/store.js";
 import { createInboxItem, updateInboxItem } from "../inbox/store.js";
 import {
+  bulkDeleteTasks,
+  bulkUpdateTasks,
   createTask,
   deleteTask,
   listTasks,
+  patchTask,
   reorderTasks,
   updateTask,
 } from "./store.js";
+import { createCustomField } from "../custom-fields/store.js";
 
 vi.mock("../db/index.js", () => ({
   getDb: () => testDb,
@@ -191,5 +195,74 @@ describe("task store", () => {
       includeDone: true,
     });
     expect(allTasks.map((task) => task.id)).toEqual(["t3", "t2", "t1"]);
+  });
+
+  it("rolls back bulk updates when any task id is missing", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Keep incomplete",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+
+    await expect(
+      bulkUpdateTasks({
+        ownerEmail: "alice@example.com",
+        taskIds: ["t1", "missing"],
+        done: true,
+      }),
+    ).rejects.toThrow(/not found/i);
+
+    const tasks = await listTasks({
+      ownerEmail: "alice@example.com",
+      includeDone: true,
+    });
+    expect(tasks[0]?.done).toBe(false);
+  });
+
+  it("rolls back bulk deletes when any task id is missing", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Keep me",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+
+    await expect(
+      bulkDeleteTasks({
+        ownerEmail: "alice@example.com",
+        taskIds: ["t1", "missing"],
+      }),
+    ).rejects.toThrow(/not found/i);
+
+    const tasks = await listTasks({ ownerEmail: "alice@example.com" });
+    expect(tasks).toHaveLength(1);
+  });
+
+  it("rolls back task and field patches together", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Original",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    const field = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+      config: { precision: 0, positiveOnly: true },
+    });
+
+    await expect(
+      patchTask({
+        ownerEmail: "alice@example.com",
+        id: "t1",
+        title: "Updated",
+        fieldValues: [{ fieldId: field.id, value: -1 }],
+      }),
+    ).rejects.toThrow(/positive/i);
+
+    const task = await listTasks({ ownerEmail: "alice@example.com" });
+    expect(task[0]?.title).toBe("Original");
   });
 });

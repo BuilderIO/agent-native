@@ -1,7 +1,7 @@
 import { and, asc, eq, min } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { tasks, type StoredItem } from "../db/schema.js";
-import { runTransaction } from "../db/transaction.js";
+import { runTransaction, type TransactionDb } from "../db/transaction.js";
 
 /**
  * Storage layer on the unified `tasks` table.
@@ -177,6 +177,78 @@ export async function deleteStoredItem(input: {
         eq(tasks.promotedToTask, input.promotedToTask),
       ),
     );
+}
+
+export async function assertStoredItemsExist(input: {
+  ownerEmail: string;
+  ids: string[];
+  promotedToTask: boolean;
+  notFoundMessage?: string;
+}): Promise<void> {
+  for (const id of input.ids) {
+    const item = await getStoredItem({
+      ownerEmail: input.ownerEmail,
+      id,
+      promotedToTask: input.promotedToTask,
+    });
+    if (!item) {
+      throw new Error(input.notFoundMessage ?? "Stored item not found.");
+    }
+  }
+}
+
+export function updateStoredItemInTx(
+  tx: TransactionDb,
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+    title?: string;
+    done?: boolean;
+    now: string;
+  },
+): void {
+  const patch: Partial<typeof tasks.$inferInsert> = {
+    updatedAt: input.now,
+  };
+
+  if (input.title !== undefined) {
+    patch.title = assertNonEmptyTitle(input.title, "Title cannot be empty.");
+  }
+
+  if (input.promotedToTask && input.done !== undefined) {
+    patch.done = input.done;
+  }
+
+  tx.update(tasks)
+    .set(patch)
+    .where(
+      and(
+        eq(tasks.id, input.id),
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+      ),
+    )
+    .run();
+}
+
+export function deleteStoredItemInTx(
+  tx: TransactionDb,
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+  },
+): void {
+  tx.delete(tasks)
+    .where(
+      and(
+        eq(tasks.id, input.id),
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+      ),
+    )
+    .run();
 }
 
 export async function reorderStoredItems(input: {

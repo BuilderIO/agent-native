@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { updateTask } = vi.hoisted(() => ({
-  updateTask: vi.fn(),
+const { bulkUpdateTasks } = vi.hoisted(() => ({
+  bulkUpdateTasks: vi.fn(),
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
-  updateTask,
+  bulkUpdateTasks,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -16,7 +16,7 @@ import bulkUpdateTasksAction from "./bulk-update-tasks.js";
 
 describe("bulk-update-tasks", () => {
   beforeEach(() => {
-    updateTask.mockReset();
+    bulkUpdateTasks.mockReset();
   });
 
   describe("schema", () => {
@@ -56,12 +56,12 @@ describe("bulk-update-tasks", () => {
           { userEmail: "alice@example.com", caller: "cli" },
         ),
       ).rejects.toThrow(/title or done/i);
-      expect(updateTask).not.toHaveBeenCalled();
+      expect(bulkUpdateTasks).not.toHaveBeenCalled();
     });
 
-    it("updates each task in order", async () => {
-      updateTask
-        .mockResolvedValueOnce({
+    it("updates each task atomically", async () => {
+      bulkUpdateTasks.mockResolvedValue([
+        {
           id: "t1",
           title: "One",
           done: true,
@@ -69,8 +69,8 @@ describe("bulk-update-tasks", () => {
           ownerEmail: "alice@example.com",
           createdAt: "2026-06-22T10:00:00.000Z",
           updatedAt: "2026-06-22T11:00:00.000Z",
-        })
-        .mockResolvedValueOnce({
+        },
+        {
           id: "t2",
           title: "Two",
           done: true,
@@ -78,23 +78,17 @@ describe("bulk-update-tasks", () => {
           ownerEmail: "alice@example.com",
           createdAt: "2026-06-22T10:00:00.000Z",
           updatedAt: "2026-06-22T11:00:00.000Z",
-        });
+        },
+      ]);
 
       const result = await bulkUpdateTasksAction.run(
         { taskIds: ["t1", "t2"], done: true },
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(updateTask).toHaveBeenCalledTimes(2);
-      expect(updateTask).toHaveBeenNthCalledWith(1, {
+      expect(bulkUpdateTasks).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
-        id: "t1",
-        title: undefined,
-        done: true,
-      });
-      expect(updateTask).toHaveBeenNthCalledWith(2, {
-        ownerEmail: "alice@example.com",
-        id: "t2",
+        taskIds: ["t1", "t2"],
         title: undefined,
         done: true,
       });

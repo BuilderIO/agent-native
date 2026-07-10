@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { deleteInboxItem } = vi.hoisted(() => ({
-  deleteInboxItem: vi.fn(),
+const { bulkDeleteInboxItems } = vi.hoisted(() => ({
+  bulkDeleteInboxItems: vi.fn(),
 }));
 
 vi.mock("../server/inbox/store.js", () => ({
-  deleteInboxItem,
+  bulkDeleteInboxItems,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -16,7 +16,7 @@ import bulkDeleteInboxItemsAction from "./bulk-delete-inbox-items.js";
 
 describe("bulk-delete-inbox-items", () => {
   beforeEach(() => {
-    deleteInboxItem.mockReset();
+    bulkDeleteInboxItems.mockReset();
   });
 
   describe("schema", () => {
@@ -35,22 +35,17 @@ describe("bulk-delete-inbox-items", () => {
   });
 
   describe("run", () => {
-    it("deletes each inbox item", async () => {
-      deleteInboxItem.mockResolvedValue(undefined);
+    it("deletes inbox items atomically", async () => {
+      bulkDeleteInboxItems.mockResolvedValue({ ok: true, deleted: 2 });
 
       const result = await bulkDeleteInboxItemsAction.run(
         { inboxItemIds: ["in-1", "in-2"] },
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(deleteInboxItem).toHaveBeenCalledTimes(2);
-      expect(deleteInboxItem).toHaveBeenNthCalledWith(1, {
+      expect(bulkDeleteInboxItems).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
-        id: "in-1",
-      });
-      expect(deleteInboxItem).toHaveBeenNthCalledWith(2, {
-        ownerEmail: "alice@example.com",
-        id: "in-2",
+        inboxItemIds: ["in-1", "in-2"],
       });
       expect(result).toEqual({ ok: true, deleted: 2 });
     });

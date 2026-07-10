@@ -1,13 +1,24 @@
 import type { StoredItem } from "../db/schema.js";
-import { deleteCustomFieldValues } from "../custom-fields/values/store.js";
+import { getDb } from "../db/index.js";
+import { runTransaction } from "../db/transaction.js";
+import type { FieldValueInput } from "../custom-fields/types.js";
 import {
+  applyCustomFieldValuePatchesInTx,
+  deleteCustomFieldValues,
+  prepareCustomFieldValuePatches,
+  updateCustomFieldValues,
+} from "../custom-fields/values/store.js";
+import {
+  assertStoredItemsExist,
   createStoredItem,
+  deleteStoredItem,
+  deleteStoredItemInTx,
   getStoredItem,
   listStoredItems,
-  updateStoredItem,
-  deleteStoredItem,
   reorderStoredItems,
   requireUserEmail,
+  updateStoredItem,
+  updateStoredItemInTx,
 } from "../stored-items/store.js";
 
 export { requireUserEmail };
@@ -67,6 +78,125 @@ export async function updateTask(input: {
   return toTask(item);
 }
 
+export async function patchTask(input: {
+  ownerEmail: string;
+  id: string;
+  title?: string;
+  done?: boolean;
+  fieldValues?: Array<{ fieldId: string; value: FieldValueInput }>;
+  now?: string;
+}): Promise<Task> {
+  const hasTaskPatch = input.title !== undefined || input.done !== undefined;
+  const hasFieldPatch = input.fieldValues !== undefined;
+
+  if (!hasTaskPatch && !hasFieldPatch) {
+    throw new Error("Provide at least one of title, done, or fieldValues.");
+  }
+
+  if (hasTaskPatch && hasFieldPatch) {
+    await assertStoredItemsExist({
+      ownerEmail: input.ownerEmail,
+      ids: [input.id],
+      promotedToTask: true,
+      notFoundMessage: "Task not found.",
+    });
+
+    const patches = await prepareCustomFieldValuePatches({
+      ownerEmail: input.ownerEmail,
+      taskId: input.id,
+      values: input.fieldValues!,
+    });
+    const timestamp = input.now ?? new Date().toISOString();
+
+    runTransaction(getDb(), (tx) => {
+      updateStoredItemInTx(tx, {
+        ownerEmail: input.ownerEmail,
+        id: input.id,
+        promotedToTask: true,
+        title: input.title,
+        done: input.done,
+        now: timestamp,
+      });
+      applyCustomFieldValuePatchesInTx(tx, {
+        ownerEmail: input.ownerEmail,
+        taskId: input.id,
+        patches,
+        updatedAt: timestamp,
+      });
+    });
+
+    const task = await getTask({ ownerEmail: input.ownerEmail, id: input.id });
+    if (!task) throw new Error("Task not found.");
+    return task;
+  }
+
+  if (hasTaskPatch) {
+    return updateTask({
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      title: input.title,
+      done: input.done,
+      now: input.now,
+    });
+  }
+
+  const task = await getTask({ ownerEmail: input.ownerEmail, id: input.id });
+  if (!task) throw new Error("Task not found.");
+
+  await updateCustomFieldValues({
+    ownerEmail: input.ownerEmail,
+    taskId: input.id,
+    values: input.fieldValues!,
+    now: input.now,
+  });
+  return task;
+}
+
+export async function bulkUpdateTasks(input: {
+  ownerEmail: string;
+  taskIds: string[];
+  title?: string;
+  done?: boolean;
+  now?: string;
+}): Promise<Task[]> {
+  if (input.title === undefined && input.done === undefined) {
+    throw new Error("Provide at least one of title or done.");
+  }
+
+  await assertStoredItemsExist({
+    ownerEmail: input.ownerEmail,
+    ids: input.taskIds,
+    promotedToTask: true,
+    notFoundMessage: "Task not found.",
+  });
+
+  const timestamp = input.now ?? new Date().toISOString();
+  runTransaction(getDb(), (tx) => {
+    for (const id of input.taskIds) {
+      updateStoredItemInTx(tx, {
+        ownerEmail: input.ownerEmail,
+        id,
+        promotedToTask: true,
+        title: input.title,
+        done: input.done,
+        now: timestamp,
+      });
+    }
+  });
+
+  const tasks = [];
+  for (const id of input.taskIds) {
+    const item = await getStoredItem({
+      ownerEmail: input.ownerEmail,
+      id,
+      promotedToTask: true,
+    });
+    if (!item) throw new Error("Task not found.");
+    tasks.push(toTask(item));
+  }
+  return tasks;
+}
+
 export async function deleteTask(input: {
   ownerEmail: string;
   id: string;
@@ -76,6 +206,31 @@ export async function deleteTask(input: {
     taskId: input.id,
   });
   await deleteStoredItem({ ...input, promotedToTask: true });
+}
+
+export async function bulkDeleteTasks(input: {
+  ownerEmail: string;
+  taskIds: string[];
+}): Promise<{ ok: true; deleted: number }> {
+  await assertStoredItemsExist({
+    ownerEmail: input.ownerEmail,
+    ids: input.taskIds,
+    promotedToTask: true,
+    notFoundMessage: "Task not found.",
+  });
+
+  runTransaction(getDb(), (tx) => {
+    for (const id of input.taskIds) {
+      deleteCustomFieldValues({ ownerEmail: input.ownerEmail, taskId: id }, tx);
+      deleteStoredItemInTx(tx, {
+        ownerEmail: input.ownerEmail,
+        id,
+        promotedToTask: true,
+      });
+    }
+  });
+
+  return { ok: true, deleted: input.taskIds.length };
 }
 
 export async function reorderTasks(input: {

@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getTask, updateTask, updateCustomFieldValues, listTaskFieldValues } =
-  vi.hoisted(() => ({
-    getTask: vi.fn(),
-    updateTask: vi.fn(),
-    updateCustomFieldValues: vi.fn(),
-    listTaskFieldValues: vi.fn(),
-  }));
+const { patchTask, listTaskFieldValues } = vi.hoisted(() => ({
+  patchTask: vi.fn(),
+  listTaskFieldValues: vi.fn(),
+}));
 
 vi.mock("../server/tasks/store.js", () => ({
-  getTask,
-  updateTask,
+  patchTask,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -21,17 +17,11 @@ vi.mock("../server/custom-fields/task-fields.js", () => ({
   listTaskFieldValues,
 }));
 
-vi.mock("../server/custom-fields/values/store.js", () => ({
-  updateCustomFieldValues,
-}));
-
 import updateTaskAction from "./update-task.js";
 
 describe("update-task", () => {
   beforeEach(() => {
-    getTask.mockReset();
-    updateTask.mockReset();
-    updateCustomFieldValues.mockReset();
+    patchTask.mockReset();
     listTaskFieldValues.mockReset();
   });
 
@@ -75,11 +65,11 @@ describe("update-task", () => {
           { userEmail: "alice@example.com", caller: "cli" },
         ),
       ).rejects.toThrow(/title, done, or fieldValues/i);
-      expect(updateTask).not.toHaveBeenCalled();
+      expect(patchTask).not.toHaveBeenCalled();
     });
 
     it("updates an owned task", async () => {
-      updateTask.mockResolvedValue({
+      patchTask.mockResolvedValue({
         id: "t1",
         title: "Updated",
         done: true,
@@ -94,17 +84,18 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(updateTask).toHaveBeenCalledWith({
+      expect(patchTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: undefined,
         done: true,
+        fieldValues: undefined,
       });
       expect(result).toMatchObject({ id: "t1", done: true });
     });
 
     it("updates custom field values through the task action", async () => {
-      getTask.mockResolvedValue({
+      patchTask.mockResolvedValue({
         id: "t1",
         title: "Task",
         done: false,
@@ -113,7 +104,6 @@ describe("update-task", () => {
         createdAt: "2026-06-22T10:00:00.000Z",
         updatedAt: "2026-06-22T10:00:00.000Z",
       });
-      updateCustomFieldValues.mockResolvedValue(undefined);
       listTaskFieldValues.mockResolvedValue([
         { id: "fld-1", title: "Estimate", type: "number", value: 3 },
       ]);
@@ -123,14 +113,12 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(getTask).toHaveBeenCalledWith({
+      expect(patchTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
-      });
-      expect(updateCustomFieldValues).toHaveBeenCalledWith({
-        ownerEmail: "alice@example.com",
-        taskId: "t1",
-        values: [{ fieldId: "fld-1", value: 3 }],
+        title: undefined,
+        done: undefined,
+        fieldValues: [{ fieldId: "fld-1", value: 3 }],
       });
       expect(listTaskFieldValues).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
@@ -143,20 +131,7 @@ describe("update-task", () => {
     });
 
     it("updates title and custom field values in one call", async () => {
-      getTask.mockResolvedValue({
-        id: "t1",
-        title: "Task",
-        done: false,
-        sortOrder: 0,
-        ownerEmail: "alice@example.com",
-        createdAt: "2026-06-22T10:00:00.000Z",
-        updatedAt: "2026-06-22T10:00:00.000Z",
-      });
-      updateCustomFieldValues.mockResolvedValue(undefined);
-      listTaskFieldValues.mockResolvedValue([
-        { id: "fld-1", title: "Estimate", type: "number", value: 3 },
-      ]);
-      updateTask.mockResolvedValue({
+      patchTask.mockResolvedValue({
         id: "t1",
         title: "Updated",
         done: false,
@@ -165,6 +140,9 @@ describe("update-task", () => {
         createdAt: "2026-06-22T10:00:00.000Z",
         updatedAt: "2026-06-22T11:00:00.000Z",
       });
+      listTaskFieldValues.mockResolvedValue([
+        { id: "fld-1", title: "Estimate", type: "number", value: 3 },
+      ]);
 
       const result = await updateTaskAction.run(
         {
@@ -175,16 +153,12 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(updateCustomFieldValues).toHaveBeenCalledWith({
-        ownerEmail: "alice@example.com",
-        taskId: "t1",
-        values: [{ fieldId: "fld-1", value: 3 }],
-      });
-      expect(updateTask).toHaveBeenCalledWith({
+      expect(patchTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: "Updated",
         done: undefined,
+        fieldValues: [{ fieldId: "fld-1", value: 3 }],
       });
       expect(result).toMatchObject({
         id: "t1",

@@ -268,6 +268,9 @@ export async function reorderCustomFields(input: {
   });
   const existingIds = new Set(existing.map((field) => field.id));
 
+  if (new Set(input.fieldIds).size !== input.fieldIds.length) {
+    throw new Error("fieldIds must not contain duplicates.");
+  }
   if (input.fieldIds.length !== existingIds.size) {
     throw new Error("fieldIds must include every field exactly once.");
   }

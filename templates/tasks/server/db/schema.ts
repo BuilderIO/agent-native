@@ -1,4 +1,10 @@
-import { integer, now, table, text } from "@agent-native/core/db/schema";
+import {
+  integer,
+  now,
+  table,
+  text,
+  uniqueIndex,
+} from "@agent-native/core/db/schema";
 
 export const tasks = table("tasks", {
   id: text("id").primaryKey(),
@@ -27,19 +33,29 @@ export const customFields = table("custom_fields", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-export const customFieldValues = table("custom_field_values", {
-  id: text("id").primaryKey(),
-  fieldId: text("field_id").notNull(),
-  taskId: text("task_id").notNull(),
-  valueJson: text("value_json").notNull(),
-  ownerEmail: text("owner_email").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const customFieldValues = table(
+  "custom_field_values",
+  {
+    id: text("id").primaryKey(),
+    fieldId: text("field_id").notNull(),
+    taskId: text("task_id").notNull(),
+    valueJson: text("value_json").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (values) => ({
+    uniqueTaskField: uniqueIndex(
+      "idx_custom_field_values_unique_task_field",
+    ).on(values.ownerEmail, values.taskId, values.fieldId),
+  }),
+);
 
 export const userConfig = table("user_config", {
   ownerEmail: text("owner_email").primaryKey(),
-  taskCardFieldIdsJson: text("task_card_field_ids_json").notNull().default("[]"),
+  taskCardFieldIdsJson: text("task_card_field_ids_json")
+    .notNull()
+    .default("[]"),
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
