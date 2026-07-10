@@ -805,6 +805,109 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     });
   });
 
+  it("uses current Builder metadata when it changes during the field refresh", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    await db
+      .update(schema.contentDatabaseSourceFields)
+      .set({ sourceFieldType: "text" })
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fieldId));
+
+    let notifyBuilderReadStarted: () => void = () => {};
+    const builderReadStarted = new Promise<void>((resolve) => {
+      notifyBuilderReadStarted = resolve;
+    });
+    let releaseBuilderRead: () => void = () => {};
+    const builderReadReleased = new Promise<void>((resolve) => {
+      releaseBuilderRead = resolve;
+    });
+    vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    ).mockImplementation(async () => {
+      notifyBuilderReadStarted();
+      await builderReadReleased;
+      return {
+        state: "live" as const,
+        entries: f.rows.map((row) => ({
+          id: row.entryId,
+          model: "blog-article",
+          title: row.title,
+          urlPath: `/${row.entryId}`,
+          updatedAt: f.now,
+          sourceValues: { "data.topics": "Current Choice" },
+        })),
+        fetchedAt: f.now,
+        message: null,
+        progress: {
+          requestedLimit: 500,
+          pageSize: 100,
+          startOffset: 0,
+          nextOffset: 2,
+          fetchedEntryCount: 2,
+          hasMore: false,
+          partial: false,
+          readMode: "builder-api" as const,
+        },
+      };
+    });
+
+    const addPromise = asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+    await builderReadStarted;
+
+    await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          builderModelFields: [
+            {
+              name: "topics",
+              label: "Topics",
+              type: "string",
+              inputType: "select",
+              options: ["Current Choice", "Second Choice"],
+            },
+          ],
+        }),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    releaseBuilderRead();
+
+    const result = await addPromise;
+    expect(result.property.definition.type).toBe("select");
+    expect(result.property.definition.options.options).toEqual([
+      { id: "current-choice", name: "Current Choice", color: "blue" },
+      { id: "second-choice", name: "Second Choice", color: "green" },
+    ]);
+    expect(result.itemValues).toEqual(
+      f.rows.map((row) => ({
+        itemId: row.itemId,
+        documentId: row.documentId,
+        value: "current-choice",
+      })),
+    );
+
+    const [property] = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        eq(
+          schema.documentPropertyDefinitions.id,
+          result.property.definition.id,
+        ),
+      );
+    expect(property.type).toBe("select");
+    expect(JSON.parse(property.optionsJson)).toEqual(
+      result.property.definition.options,
+    );
+  });
+
   it("leaves every local write untouched when Builder omits a stored row", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     vi.spyOn(

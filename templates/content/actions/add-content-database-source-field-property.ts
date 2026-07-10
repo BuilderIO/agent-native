@@ -442,6 +442,21 @@ export default defineAction({
       if (currentField.mappingType === "title") {
         throw new Error("The title source field is already mapped to Name.");
       }
+      if (currentField.sourceId !== source.id) {
+        throw new Error("Source field does not belong to this database.");
+      }
+      const [currentSource] = await tx
+        .select()
+        .from(schema.contentDatabaseSources)
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, source.id),
+            eq(schema.contentDatabaseSources.databaseId, database.id),
+          ),
+        );
+      if (!currentSource) {
+        throw new Error("Source field does not belong to this database.");
+      }
 
       let sourceRows = isSecondary
         ? []
@@ -508,7 +523,7 @@ export default defineAction({
 
       const builderMetadata = builderMetadataForSourceField({
         sourceFieldKey: currentField.sourceFieldKey,
-        sourceMetadataJson: source.metadataJson,
+        sourceMetadataJson: currentSource.metadataJson,
       });
       const type = propertyTypeForSourceField(
         currentField.sourceFieldType,
@@ -572,7 +587,7 @@ export default defineAction({
       await tx
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })
-        .where(eq(schema.contentDatabaseSources.id, source.id));
+        .where(eq(schema.contentDatabaseSources.id, currentSource.id));
 
       const itemValues = sourceFieldPropertyValuesFromRows(
         sourceRows,
