@@ -5,12 +5,16 @@ const isConnectedMock = vi.hoisted(() => vi.fn());
 const getAuthStatusMock = vi.hoisted(() => vi.fn());
 const getEventMock = vi.hoisted(() => vi.fn());
 const updateEventMock = vi.hoisted(() => vi.fn());
+const createEventMock = vi.hoisted(() => vi.fn());
+const deleteEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/lib/google-calendar.js", () => ({
   isConnected: isConnectedMock,
   getAuthStatus: getAuthStatusMock,
   getEvent: getEventMock,
   updateEvent: updateEventMock,
+  createEvent: createEventMock,
+  deleteEvent: deleteEventMock,
 }));
 
 vi.mock("../server/lib/event-guest-notifications.js", () => ({
@@ -24,6 +28,28 @@ vi.mock("../server/lib/event-video-conferencing.js", () => ({
 
 import action from "./update-event";
 
+function recurringWorkingLocationEvent() {
+  return {
+    id: "google-instance-20260707",
+    recurringEventId: "working-location-series",
+    title: "Office",
+    description: "",
+    location: "Pier 57",
+    start: "2026-07-07",
+    end: "2026-07-08",
+    allDay: true,
+    source: "google",
+    accountEmail: "owner@example.com",
+    eventType: "workingLocation",
+    workingLocationProperties: {
+      type: "officeLocation",
+      officeLocation: { label: "Pier 57", buildingId: "nyc" },
+    },
+    createdAt: "2026-07-06T00:00:00.000Z",
+    updatedAt: "2026-07-06T00:00:00.000Z",
+  };
+}
+
 describe("update-event working locations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -32,6 +58,11 @@ describe("update-event working locations", () => {
     updateEventMock.mockResolvedValue({
       htmlLink: "https://calendar.google.com/event",
     });
+    createEventMock.mockResolvedValue({
+      id: "working-location-override",
+      htmlLink: "https://calendar.google.com/override",
+    });
+    deleteEventMock.mockResolvedValue(undefined);
   });
 
   it("patches working-location metadata on existing Google working-location events", async () => {
@@ -91,26 +122,8 @@ describe("update-event working locations", () => {
     expect(updateEventMock.mock.calls[0]?.[1]).not.toHaveProperty("location");
   });
 
-  it("updates one recurring instance by its instance id and clears office labels for Home", async () => {
-    getEventMock.mockResolvedValue({
-      id: "google-instance-20260707",
-      recurringEventId: "working-location-series",
-      title: "Office",
-      description: "",
-      location: "Pier 57",
-      start: "2026-07-07",
-      end: "2026-07-08",
-      allDay: true,
-      source: "google",
-      accountEmail: "owner@example.com",
-      eventType: "workingLocation",
-      workingLocationProperties: {
-        type: "officeLocation",
-        officeLocation: { label: "Pier 57", buildingId: "nyc" },
-      },
-      createdAt: "2026-07-06T00:00:00.000Z",
-      updatedAt: "2026-07-06T00:00:00.000Z",
-    });
+  it("replaces one recurring working-location instance with a single-day override", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
 
     await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
       action.run({
@@ -122,17 +135,89 @@ describe("update-event working locations", () => {
       }),
     );
 
-    expect(updateEventMock).toHaveBeenCalledWith(
-      "instance-20260707",
+    expect(createEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        start: "2026-07-07",
+        end: "2026-07-08",
+        allDay: true,
+        eventType: "workingLocation",
         workingLocationProperties: {
           type: "homeOffice",
           homeOffice: {},
         },
       }),
-      expect.objectContaining({ scope: "single" }),
     );
-    expect(updateEventMock.mock.calls[0]?.[1]).not.toHaveProperty("location");
+    expect(createEventMock.mock.calls[0]?.[0]).not.toHaveProperty("recurrence");
+    expect(createEventMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "recurringEventId",
+    );
+    expect(deleteEventMock).toHaveBeenCalledWith(
+      "instance-20260707",
+      "owner@example.com",
+      { scope: "single" },
+    );
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("removes the replacement if cancelling the recurring instance fails", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+    const cancellationError = new Error("Google rejected cancellation");
+    deleteEventMock
+      .mockRejectedValueOnce(cancellationError)
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          scope: "single",
+        }),
+      ),
+    ).rejects.toThrow("Google rejected cancellation");
+
+    expect(deleteEventMock).toHaveBeenNthCalledWith(
+      2,
+      "working-location-override",
+      "owner@example.com",
+      { scope: "single" },
+    );
+  });
+
+  it("does not cancel the original instance when Google omits the replacement id", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+    createEventMock.mockResolvedValue({});
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          scope: "single",
+        }),
+      ),
+    ).rejects.toThrow("Google did not return an id");
+
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects mixed edits for a single recurring working-location occurrence", async () => {
+    getEventMock.mockResolvedValue(recurringWorkingLocationEvent());
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-instance-20260707",
+          workingLocationType: "homeOffice",
+          colorId: "2",
+          scope: "single",
+        }),
+      ),
+    ).rejects.toThrow("Change the working location separately");
+
+    expect(createEventMock).not.toHaveBeenCalled();
+    expect(deleteEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
   });
 
   it("drops incompatible office metadata when switching to a custom location", async () => {

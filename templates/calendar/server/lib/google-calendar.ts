@@ -1080,12 +1080,15 @@ export async function createEvent(
     throw new Error("Out of office and focus time events must be timed.");
   }
 
-  const body: any = {
-    summary: event.title,
-    description: event.description,
-    location: event.location,
-    ...buildDateRange(event),
-  };
+  const body: any =
+    event.eventType === "workingLocation"
+      ? buildDateRange(event)
+      : {
+          summary: event.title,
+          description: event.description,
+          location: event.location,
+          ...buildDateRange(event),
+        };
   applyEventOptions(body, event);
   if (event.attachments !== undefined) {
     body.attachments = event.attachments;

@@ -572,6 +572,47 @@ describe("calendar event creation", () => {
       undefined,
     );
   });
+
+  it("lets Google derive the summary for working-location events", async () => {
+    await createEvent({
+      id: "",
+      title: "Neighborhood cafe",
+      description: "",
+      location: "",
+      start: "2026-07-08",
+      end: "2026-07-09",
+      allDay: true,
+      source: "google",
+      accountEmail: "steve@example.com",
+      transparency: "transparent",
+      visibility: "public",
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "customLocation",
+        customLocation: { label: "Neighborhood cafe" },
+      },
+      createdAt: "2026-07-08T00:00:00.000Z",
+      updatedAt: "2026-07-08T00:00:00.000Z",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+      }),
+      undefined,
+    );
+    const body = calendarInsertEventMock.mock.calls[0]?.[2];
+    expect(body).not.toHaveProperty("summary");
+    expect(body).not.toHaveProperty("description");
+    expect(body).not.toHaveProperty("location");
+  });
 });
 
 describe("calendar recurring event updates", () => {

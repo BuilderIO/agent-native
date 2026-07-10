@@ -67,6 +67,16 @@ function mergeAttendees(
   return Array.from(merged.values());
 }
 
+function workingLocationTitle(
+  properties: NonNullable<CalendarEvent["workingLocationProperties"]>,
+): string {
+  if (properties.type === "homeOffice") return "Home";
+  if (properties.type === "officeLocation") {
+    return properties.officeLocation?.label || "Office";
+  }
+  return properties.customLocation?.label || "Working location";
+}
+
 export default defineAction({
   description:
     "Update a Google Calendar event. Supports title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
@@ -390,15 +400,101 @@ export default defineAction({
       };
     }
 
-    const result = await googleCalendar.updateEvent(googleEventId, updates, {
-      sendUpdates:
-        args.sendUpdates ??
-        (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
-          ? "all"
-          : undefined),
-      addGoogleMeet: args.addGoogleMeet,
-      scope: args.scope,
-    });
+    let result: Awaited<ReturnType<typeof googleCalendar.updateEvent>>;
+    let returnedGoogleEventId = googleEventId;
+    const replaceRecurringWorkingLocation =
+      hasWorkingLocationPatch &&
+      (args.scope ?? "single") === "single" &&
+      existingEvent?.recurringEventId &&
+      updates.workingLocationProperties;
+
+    if (replaceRecurringWorkingLocation) {
+      const hasUnsupportedReplacementPatch =
+        args.title !== undefined ||
+        args.description !== undefined ||
+        args.start !== undefined ||
+        args.end !== undefined ||
+        args.startTimeZone !== undefined ||
+        args.endTimeZone !== undefined ||
+        args.allDay !== undefined ||
+        args.status !== undefined ||
+        args.colorId !== undefined ||
+        args.attachments !== undefined ||
+        args.reminders !== undefined ||
+        args.reminderMinutes !== undefined ||
+        args.remindersUseDefault !== undefined ||
+        args.addGoogleMeet === true ||
+        args.addZoom === true ||
+        args.recurrence !== undefined ||
+        args.attendees !== undefined ||
+        args.addAttendees !== undefined ||
+        args.notificationMessage !== undefined;
+      if (hasUnsupportedReplacementPatch) {
+        throw new Error(
+          "Change the working location separately from other event fields for a single recurring occurrence.",
+        );
+      }
+      const now = new Date().toISOString();
+      const replacement = await googleCalendar.createEvent({
+        id: "",
+        title: workingLocationTitle(updates.workingLocationProperties!),
+        description: "",
+        start: existingEvent!.start,
+        end: existingEvent!.end,
+        startTimeZone: existingEvent!.startTimeZone,
+        endTimeZone: existingEvent!.endTimeZone,
+        location: "",
+        allDay: existingEvent!.allDay,
+        source: "google",
+        accountEmail,
+        colorId: existingEvent!.colorId,
+        transparency: "transparent",
+        visibility: "public",
+        status: "confirmed",
+        eventType: "workingLocation",
+        workingLocationProperties: updates.workingLocationProperties,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (!replacement.id) {
+        throw new Error(
+          "Google did not return an id for the working location.",
+        );
+      }
+      try {
+        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
+          scope: "single",
+        });
+      } catch (error) {
+        try {
+          await googleCalendar.deleteEvent(replacement.id, accountEmail, {
+            scope: "single",
+          });
+        } catch (cleanupError) {
+          console.error(
+            "Failed to clean up a working-location replacement after the original occurrence could not be cancelled.",
+            cleanupError,
+          );
+        }
+        throw error;
+      }
+      returnedGoogleEventId = replacement.id;
+      result = {
+        htmlLink: replacement.htmlLink,
+        meetLink: replacement.meetLink,
+        conferenceData: replacement.conferenceData,
+      };
+    } else {
+      result = await googleCalendar.updateEvent(googleEventId, updates, {
+        sendUpdates:
+          args.sendUpdates ??
+          (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
+            ? "all"
+            : undefined),
+        addGoogleMeet: args.addGoogleMeet,
+        scope: args.scope,
+      });
+    }
 
     const returnedPatch: Partial<CalendarEvent> = {};
     if (result.htmlLink) returnedPatch.htmlLink = result.htmlLink;
@@ -433,7 +529,7 @@ export default defineAction({
 
     return {
       success: true,
-      id: `google-${googleEventId}`,
+      id: `google-${returnedGoogleEventId}`,
       accountEmail,
       updated: updatedKeys,
       htmlLink: result.htmlLink,
