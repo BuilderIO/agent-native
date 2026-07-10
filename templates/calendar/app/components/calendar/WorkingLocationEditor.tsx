@@ -57,7 +57,7 @@ export function WorkingLocationEditor({
     setType(getWorkingLocationType(event));
     setLabels(initialLabels(event));
     setScope("single");
-  }, [event.id, event.location, event.workingLocationProperties]);
+  }, [currentLabel, currentType, event.id]);
 
   const label = type === "homeOffice" ? "" : labels[type];
   const isValid = type === "homeOffice" || label.trim().length > 0;

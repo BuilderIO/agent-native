@@ -326,9 +326,15 @@ export function useUpdateEvent() {
         workingLocationLabel,
         ...optimisticData
       } = newData;
+      const hasWorkingLocationUpdate =
+        workingLocationType !== undefined || workingLocationLabel !== undefined;
       queryClient.setQueriesData<CalendarEvent[]>(
         { queryKey: ["action", "list-events"] },
         (old) => {
+          // A working-location change can alter the visual grouping of several
+          // days. Keep the editor mounted until Google confirms the write so a
+          // rejected request does not appear to save and then snap back.
+          if (hasWorkingLocationUpdate) return old;
           const target = old?.find((event) => event.id === optimisticData.id);
           return old?.map((e) => {
             const matchesScope =
@@ -337,9 +343,6 @@ export function useUpdateEvent() {
                 !!target?.recurringEventId &&
                 e.recurringEventId === target.recurringEventId);
             if (!matchesScope) return e;
-            const hasWorkingLocationUpdate =
-              workingLocationType !== undefined ||
-              workingLocationLabel !== undefined;
             const nextWorkingLocationType =
               workingLocationType ?? getWorkingLocationType(e);
             const nextWorkingLocationLabel =

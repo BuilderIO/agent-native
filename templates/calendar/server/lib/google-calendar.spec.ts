@@ -12,6 +12,7 @@ const calendarListEventsMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
+const calendarUpdateEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock("./google-api.js", () => ({
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: vi.fn(),
   calendarPatchEvent: calendarPatchEventMock,
+  calendarUpdateEvent: calendarUpdateEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
 }));
 
@@ -639,13 +641,24 @@ describe("calendar working-location updates", () => {
         },
       },
     ]);
-    calendarPatchEventMock.mockResolvedValue({
+    calendarUpdateEventMock.mockResolvedValue({
       id: "working-location-1",
       htmlLink: "https://calendar.google.com/event",
     });
   });
 
-  it("omits generic location when patching native working-location properties", async () => {
+  it("updates working locations as complete status-event resources", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "working-location-1",
+      summary: "Home",
+      eventType: "workingLocation",
+      start: { date: "2026-07-08" },
+      end: { date: "2026-07-09" },
+      visibility: "public",
+      transparency: "transparent",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+    });
+
     await updateEvent("working-location-1", {
       accountEmail: "steve@example.com",
       location: "Pier 57",
@@ -655,18 +668,21 @@ describe("calendar working-location updates", () => {
       },
     });
 
-    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+    expect(calendarUpdateEventMock).toHaveBeenCalledWith(
       "access-token",
       "primary",
       "working-location-1",
-      {
+      expect.objectContaining({
+        eventType: "workingLocation",
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
         workingLocationProperties: {
           type: "officeLocation",
           officeLocation: { label: "Pier 57" },
         },
-      },
-      expect.any(Object),
+      }),
     );
+    expect(calendarPatchEventMock).not.toHaveBeenCalled();
   });
 });
 

@@ -29,6 +29,7 @@ import {
   calendarInsertEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
+  calendarUpdateEvent,
   peopleGetProfile,
 } from "./google-api.js";
 import {
@@ -1224,18 +1225,30 @@ export async function updateEvent(
     requestBody.conferenceData = createGoogleMeetRequest();
   }
 
-  const response = await calendarPatchEvent(
-    client.accessToken,
-    "primary",
-    targetEventId,
-    requestBody,
-    {
-      sendUpdates: options?.sendUpdates,
-      conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
-      supportsAttachments:
-        eventPatch.attachments !== undefined ? true : undefined,
-    },
-  );
+  // Google validates status events as complete resources during updates. A
+  // partial PATCH can reject otherwise valid working-location changes because
+  // required eventType/start/end fields are absent from the request body.
+  const response = eventPatch.workingLocationProperties
+    ? await calendarUpdateEvent(client.accessToken, "primary", targetEventId, {
+        ...(await calendarGetEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+        )),
+        ...requestBody,
+      })
+    : await calendarPatchEvent(
+        client.accessToken,
+        "primary",
+        targetEventId,
+        requestBody,
+        {
+          sendUpdates: options?.sendUpdates,
+          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          supportsAttachments:
+            eventPatch.attachments !== undefined ? true : undefined,
+        },
+      );
 
   return {
     htmlLink: response?.htmlLink || undefined,
