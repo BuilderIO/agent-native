@@ -1586,15 +1586,12 @@ export function createIntegrationsPlugin(
               );
             }
           }
-          const resources = await loadResourcesForPrompt(
-            owner,
-            true,
-            options?.appId,
-          );
-          const systemPrompt = baseSystemPrompt + resources;
           const result = await handleWebhook(event, {
             adapter,
-            systemPrompt,
+            // The processor reloads scoped resources immediately before the
+            // agent run. Avoid doing that work on the acknowledgement path,
+            // where providers such as Discord enforce a 3-second deadline.
+            systemPrompt: baseSystemPrompt,
             actions,
             model,
             apiKey: getApiKey(),

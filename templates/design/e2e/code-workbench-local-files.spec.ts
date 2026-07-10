@@ -88,6 +88,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
     bridgeUrl: manifest.bridgeUrl,
     rootPath,
     routeManifest: manifest,
+    paths: ["/"],
     navigate: false,
     publicReadOnly: false,
   });
