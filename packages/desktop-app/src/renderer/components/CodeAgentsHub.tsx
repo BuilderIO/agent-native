@@ -17,6 +17,7 @@ const agentNativeIconUrl = new URL(
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
+  isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
   refreshKey?: number;
   onOpenSettings?: () => void;
@@ -41,6 +42,7 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
 
 export default function CodeAgentsHub({
   apps,
+  isActive = true,
   openRequest,
   refreshKey = 0,
   onOpenSettings,
@@ -290,6 +292,7 @@ export default function CodeAgentsHub({
     <CodeAgentsApp
       apps={apps}
       host={host}
+      isActive={isActive}
       openRequest={openRequest}
       refreshKey={refreshKey}
       brandIconUrl={agentNativeIconUrl}
@@ -299,7 +302,7 @@ export default function CodeAgentsHub({
           <AppWebview
             app={toAppDefinition(app)}
             appConfig={app}
-            isActive
+            isActive={isActive}
             urlParams={urlParams}
             refreshKey={appRefreshKey}
           />

@@ -828,6 +828,66 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("materializes a new thread before saving a passive voice transcript", async () => {
+    let putCount = 0;
+    const scope: ChatThreadScope = {
+      type: "brain-source",
+      id: "source-1",
+      label: "Source one",
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/forked-thread" && init?.method === "PUT") {
+        putCount += 1;
+        return putCount === 1
+          ? new Response(JSON.stringify({ error: "Thread not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            })
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        return jsonResponse({ id: "forked-thread" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "voice-thread-test", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await hook!.saveThreadData("forked-thread", {
+        threadData: JSON.stringify({ messages: [{ id: "voice-1" }] }),
+        title: "Open sources",
+        preview: "Opening Sources.",
+        messageCount: 1,
+      });
+    });
+
+    expect(putCount).toBe(2);
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/chat/threads" && init?.method === "POST",
+    );
+    expect(JSON.parse(createCall![1]!.body as string)).toEqual({
+      id: "forked-thread",
+      title: "Open sources",
+      scope,
+    });
+  });
+
   it("moves a saved thread to the top of the local recency order", async () => {
     const olderThread: ChatThreadSummary = {
       id: "thread-1",

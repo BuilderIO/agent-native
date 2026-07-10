@@ -13,17 +13,21 @@ metadata:
 
 # Voice Transcription
 
-Click-to-toggle microphone inside the sidebar composer turns speech into
-text. Users configure live transcription separately from AI cleanup in
-Settings → Voice Transcription. The feature is available in every template
-that renders `TiptapComposer`.
+The microphone inside the sidebar composer offers two distinct paths:
+editable dictation and an opt-in realtime speech-to-speech agent session.
+Users configure dictation separately from AI cleanup in Settings → Voice
+Transcription. Both paths are available in every template that renders the
+shared agent sidebar.
 
 ## UX rules
 
 - **Always show the mic alongside the send button.** Cursor replaces send
   with mic when the composer is empty; their users complain. We keep both
   visible — Lovable does the same.
-- **Click-to-toggle, not push-to-talk.** More forgiving in a sidebar, avoids
+- **Ask before switching modes.** The mic opens a shadcn popover offering
+  **Start voice mode** and **Keep dictating**; never silently replace the
+  established dictation behavior.
+- **Dictation is click-to-toggle, not push-to-talk.** More forgiving in a sidebar, avoids
   host-app hotkey clashes. Keyboard shortcut is `Cmd/Ctrl+Shift+M` and
   `Escape` cancels mid-recording.
 - **Transcript lands in the composer, editable, never auto-sent.** Insert at
@@ -33,6 +37,37 @@ that renders `TiptapComposer`.
 - **Icon:** Tabler `IconMicrophone` (idle) / `IconPlayerStopFilled` (recording).
   Never use a sparkle or robot icon.
 - **Errors via inline alert or toast, never `window.alert`.**
+
+## Realtime speech mode
+
+Realtime speech mode is a full-duplex OpenAI Realtime WebRTC session, separate
+from the dictation providers below. It requires the authenticated user's
+`OPENAI_API_KEY`, uses the server-owned `gpt-realtime-2.1` session
+configuration, and keeps the key out of browser code.
+
+- Starting voice mode collapses the chat into a persistent bottom-end speech
+  orb. The orb stays visible above the chat even when the chat opens
+  automatically. Clicking it shows or hides chat without ending the session;
+  ending the session is a separate, explicit control.
+- The orb's compact waveform must reflect actual microphone or assistant audio
+  activity. It is an audio-level indicator, not a decorative animation.
+- Semantic VAD keeps listening, starts responses automatically, and supports
+  barge-in while the agent is speaking.
+- Function calls must cross the authenticated realtime tool bridge and enter
+  `executeAgentToolCall`. Never call `ActionEntry.run` directly: that bypasses
+  schema validation, approvals, audit/journal behavior, timeouts, redaction,
+  and mutation refreshes.
+- Preserve the active browser-tab id in request context so `set-url`,
+  `set-search-params`, `view-screen`, and tab-scoped application state affect
+  the app the user is actually speaking to.
+- Do not persist audio or interim transcript deltas. Append completed user and
+  assistant utterances as ordinary text messages to the exact chat thread
+  captured when the session starts. Ending voice mode opens that chat so the
+  user can continue over text. Store only compact lifecycle and latest context
+  at `application_state["realtime-voice-session"]`; delete it when the session
+  ends.
+- Missing-key failures should open Settings focused on the user-scoped
+  `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 
 ## Source And Cleanup
 
@@ -80,11 +115,14 @@ Default behavior:
 | --------------------------------------------------------------------- | --------------------------------------------------- |
 | `packages/core/src/client/composer/useVoiceDictation.ts`              | Provider-routing hook (MediaRecorder / Web Speech)  |
 | `packages/core/src/client/composer/VoiceButton.tsx`                   | Mic button + live amplitude + cancel overlay        |
+| `packages/core/src/client/composer/RealtimeVoiceMode.tsx`            | Opt-in popover + persistent speech orb              |
+| `packages/core/src/client/composer/useRealtimeVoiceMode.tsx`         | WebRTC lifecycle, provider events, and tool bridge  |
 | `packages/core/src/client/composer/TiptapComposer.tsx`                | Wires the hook, insertion, and keyboard shortcut    |
 | `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings  |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
 | `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
+| `packages/core/src/server/realtime-voice.ts`                          | Authenticated OpenAI SDP and action-tool routes     |
 | `packages/core/src/transcription/builder-transcription.ts`            | Builder proxy transcription client                  |
 | `packages/core/src/voice/`                                            | Shared voice context pack, prompt, and replacement helpers |
 | `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level provider key registration           |
@@ -139,4 +177,6 @@ Templates can:
 - Don't call transcription providers from the client — go through `/_agent-native/transcribe-voice` so the user's secret stays server-side.
 - Don't remove the cancel affordance — mic permission abuse paranoia is real.
 - Don't auto-submit the transcript — users always edit before sending.
+- Don't route realtime tool calls around the central guarded agent executor.
+- Don't persist realtime audio or put provider keys in SDP/session payloads.
 - Don't copy Cursor's "hide send when empty" pattern — it confuses users.

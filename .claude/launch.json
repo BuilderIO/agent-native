@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "packages/docs", "dev"],
+      "port": 3000
+    },
+    {
       "name": "plan",
       "runtimeExecutable": "env",
       "runtimeArgs": [

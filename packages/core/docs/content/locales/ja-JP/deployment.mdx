@@ -452,3 +452,11 @@ export default createAgentChatPlugin({
 ## マルチインスタンスの展開 {#multi-instance}
 
 エージェント ネイティブ アプリは、Drizzle 経由ですべての状態を SQL に保存し、[polling](/docs/key-concepts#polling-sync) 経由で UI をデータベースと同期します。ファイル システムの状態、スティッキー セッション、メモリ内キャッシュはありません。つまり、マルチインスタンスおよびサーバーレスのデプロイメントはすぐに機能し、すべてのインスタンスを同じ `DATABASE_URL` にポイントすると、それらは自動的に収束します。 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) および [Portability](/docs/key-concepts#hosting-agnostic) を参照してください。
+
+## 次のステップ
+
+- [**Database**](/docs/database#production) — 最初の本番デプロイ前に永続 SQL バックエンドを選択します
+- [**Security**](/docs/security) — このページで参照されている本番チェックリストとオプトイン フラグ
+- [**Authentication**](/docs/authentication) — 選択した認証モードの OAuth 資格情報と環境変数
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` の単一オリジン ビルドを支えるワークスペース モデル
+- [**Frames**](/docs/frames) — 本番 UI 編集における埋め込みエージェント パネルと Builder.io クラウド フレームの違い

@@ -133,7 +133,7 @@ describe("useDbSync", () => {
     _resetSyncTransportRegistryForTests();
   });
 
-  it("broadly invalidates active queries for action events", async () => {
+  it("broadly invalidates active queries once for action events", async () => {
     const result = await renderWithEvent({
       version: 1,
       source: "action",
@@ -144,8 +144,7 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
-    expect(result.queryClient.calls).toContainEqual(undefined);
-    expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(result.queryClient.calls).toEqual([undefined]);
   });
 
   it("can scope the broad action invalidate away from expensive query keys", async () => {
@@ -189,7 +188,7 @@ describe("useDbSync", () => {
     const broadCall = queryClient.calls.find((call) => call?.predicate);
     expect(broadCall?.predicate?.(queryClient.queries[0])).toBe(false);
     expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toEqual([broadCall]);
   });
 
   it("can suppress action-query invalidation for high-volume background actions", async () => {
@@ -250,7 +249,7 @@ describe("useDbSync", () => {
     );
   });
 
-  it("keeps framework invalidations for mixed suppressed and unsuppressed batches", async () => {
+  it("uses one broad invalidation for mixed suppressed and unsuppressed action batches", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -299,9 +298,7 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    expect(queryClient.calls).toContainEqual(undefined);
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
-    expect(queryClient.calls).toContainEqual({ queryKey: ["extension"] });
+    expect(queryClient.calls).toEqual([undefined]);
   });
 
   it("keeps non-action events on targeted framework invalidations", async () => {
@@ -396,7 +393,8 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toContainEqual(undefined);
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["action"] });
     expect(queryClient.calls).toContainEqual({ queryKey: ["app-state"] });
     expect(queryClient.calls).toContainEqual({
       queryKey: ["navigate-command"],
@@ -532,8 +530,7 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    expect(queryClient.calls).toContainEqual(undefined);
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(queryClient.calls).toEqual([undefined]);
   });
 
   it("backs off polling after repeated failures and resets on success", async () => {
@@ -602,6 +599,81 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("polls at 15s while idle and switches immediately to 2s for an active agent run", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    function AdaptiveProbe() {
+      useDbSync({ queryClient, sseUrl: false, pauseWhenHidden: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    const pollCallCount = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    await act(async () => {
+      root.render(<AdaptiveProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(pollCallCount()).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(13_000);
+    });
+    expect(pollCallCount()).toBe(2);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "thread-1" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pollCallCount()).toBe(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(pollCallCount()).toBe(4);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "thread-1" },
+        }),
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(pollCallCount()).toBe(4);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(13_000);
+    });
+    expect(pollCallCount()).toBe(5);
   });
 
   it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
@@ -821,8 +893,10 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    // useDbSync received the action event.
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    // useDbSync received the action event and issued the single broad
+    // invalidation; it no longer repeats a second ["action"] invalidation.
+    expect(queryClient.calls).toContainEqual(undefined);
+    expect(queryClient.calls).not.toContainEqual({ queryKey: ["action"] });
     // useScreenRefreshKey received the screen-refresh event.
     expect(capturedScreenKey).toBe(1);
   });

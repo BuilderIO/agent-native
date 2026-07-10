@@ -17,7 +17,7 @@ Una aplicación que lo captura todo: grabaciones de pantalla, notas de reuniones
   />
 </WireframeBlock>
 
-Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero el agente es un editor de primera clase en todas las superficies, y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para el agente: pegue un enlace normal para compartir de Clips en un agente y este podrá "escuchar" la transcripción como texto y "ver" marcos de pantalla con marca de tiempo como imágenes; no se necesita video sin formato. La visualización de cuadros funciona en cualquier agente con capacidad de imagen (ChatGPT, Código Claude, Cursor, Codex); Los chats web de solo texto aún obtienen la transcripción completa y pueden tomar un fotograma que usted cargue.
+Grabaciones de pantalla asíncronas, notas de reuniones sincronizadas con el calendario y dictado por pulsación para hablar, todo en una sola aplicación: el agente es un editor de primera clase en cada superficie y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para los agentes: pegue un enlace público de Clips o un enlace temporal **Copiar para el agente** en un agente y podrá «oír» la transcripción como texto y «ver» como imágenes los fotogramas de pantalla con marca de tiempo, sin necesidad del vídeo original. La visualización de fotogramas funciona en cualquier agente con capacidad de imagen (ChatGPT, Claude Code, Cursor, Codex); los chats web de solo texto siguen recibiendo la transcripción completa y pueden usar un fotograma que usted cargue.
 
 <Diagram id="doc-block-cw43i6" title="Capturar, transcribir, reutilizar" summary={"Tres tipos de captura aterrizan en una biblioteca; el agente transcribe, titula y resume, luego cada transcripción se puede buscar y compartir."}>
 
@@ -83,7 +83,7 @@ Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero
 - **Obtenga un título, un resumen y marcadores de capítulo generados automáticamente** para cada grabación: el agente los completa y los mantiene actualizados.
 - **Busca en todas las transcripciones**: grabaciones de pantalla, reuniones y dictados, todo en una sola biblioteca. "Busque el clip donde analizamos el plan de implementación".
 - **Compartir clips** con permisos por clip (público, de equipo, privado). El seguimiento de enlaces y los comentarios encadenados también funcionan.
-- **Vista previa de clips públicos en Slack** con un despliegue reproducible estilo Loom después del
+- **Vista previa de clips públicos en Slack** con un despliegue de vídeo reproducible después de que el
   workspace instala tu aplicación Clips Slack.
 - **Capture registros del navegador con la extensión de Chrome.** Las grabaciones del navegador pueden
   adjunte registros de consola redactados y obtenga metadatos/XHR, lo cual es útil para
@@ -508,7 +508,7 @@ Las rutas en UI se encuentran en `templates/clips/app/routes/`: la aplicación a
 
 ### Clave actions
 
-Cada operación invocable por el agente es un archivo TypeScript en `templates/clips/actions/`, montado automáticamente en `POST /_agent-native/actions/:name` y ejecutable desde CLI como `pnpm action <name>`. Hay ~80 actions; las agrupaciones útiles:
+Cada operación invocable por el agente es un archivo TypeScript en `templates/clips/actions/`, montado automáticamente en `POST /_agent-native/actions/:name` y ejecutable desde CLI como `pnpm action <name>`. Hay unas 100 acciones; las agrupaciones útiles:
 
 - **Ciclo de vida de grabación**: `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Transcripción e IA** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` y `finalize-meeting` son llamadas de canalización de medios del lado del servidor; la mayoría de las otras funciones de IA se delegan en el chat del agente).

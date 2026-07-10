@@ -120,10 +120,10 @@ Select text and hit Cmd+I to focus the agent with that selection pre-loaded — 
 
 Content can round-trip documents through local files without cloning or running
 the Content app locally. It feels like Obsidian for MDX: files stay inspectable
-and editable, while the app gives you a rich editor, agent actions, sharing, and
-custom blocks. Open `/local-files`, choose a folder in your browser or Agent
-Native Desktop, and export the current document tree as Markdown/MDX under
-`content/`.
+and editable on disk, while the app gives you a rich editor, agent actions,
+sharing, and custom blocks. Open
+`/local-files`, choose a folder in your browser or Agent Native Desktop, and
+export the current document tree as Markdown/MDX under `content/`.
 
 Each exported file contains frontmatter for document metadata (`id`, `title`,
 `parentId`, `position`, favorite/search/visibility flags, and `updatedAt`) plus
@@ -142,9 +142,8 @@ truth instead of SQL documents. Add `agent-native.json` to a repo, set
 `content/`, and `resources/`. The standard Content editor then populates its
 left sidebar from those local `.md`/`.mdx` files and writes edits back to the
 selected file through the normal document actions. Use this for repo-first docs,
-blogs, resource libraries, or Obsidian-style personal content with MDX-powered
-components; switch back to database mode when you want hosted collaboration and
-SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
+blogs, resource libraries, or an Obsidian-style personal MDX-powered notes vault; switch back to
+database mode when you want hosted collaboration and SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
 standalone repo layout, configuration, custom MDX components, local
 `extensions/` widgets, and production safety guide.
 
@@ -225,8 +224,7 @@ workspace, but the editor can render them and the agent can generate or update
 their source without cloning the Content app. A minimal workspace component can
 be:
 
-```tsx
-// components/ImpactCounter.tsx
+```tsx filename="components/ImpactCounter.tsx"
 import { useState } from "react";
 
 export function ImpactCounter({
@@ -671,3 +669,11 @@ The four places to look when changing behavior:
 - **`shared/notion-markdown.ts`** — markdown-to-Notion-blocks conversion. Extend this if you add new block types that need to round-trip through Notion.
 
 The agent can make all of these changes itself — ask it to "add a tags column to documents and expose it in the sidebar" and it will update the schema, migrate, wire the UI, and write the action.
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Local File Mode**](/docs/local-file-mode) — the standalone repo layout, config, and production safety guide
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline documents share with other collaborative surfaces
+- [**Sharing**](/docs/sharing) — the share-grant model documents build on

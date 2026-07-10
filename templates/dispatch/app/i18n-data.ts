@@ -271,9 +271,12 @@ const enUS = {
       agents: "Agents",
       vault: "Vault",
       audit: "Audit",
+      operations: "Operations",
     },
     pages: {
       also: "Also",
+      monitoring: "Monitoring",
+      database: "Database",
       workspaceShortcutsAria: "Workspace shortcuts",
       deliveryQueue: "Delivery queue",
       failedLastHour: "{{count}} failed in the last hour",
@@ -300,7 +303,13 @@ type PartialMessages = {
         managed?: Partial<Messages["messaging"]["managed"]> &
           Record<string, unknown>;
       } & Record<string, unknown>
-    : Partial<Messages[K]> & Record<string, unknown>;
+    : K extends "dispatch"
+      ? {
+          nav?: Partial<Messages["dispatch"]["nav"]> & Record<string, unknown>;
+          pages?: Partial<Messages["dispatch"]["pages"]> &
+            Record<string, unknown>;
+        } & Record<string, unknown>
+      : Partial<Messages[K]> & Record<string, unknown>;
 };
 
 function mergeMessages(overrides: PartialMessages): Messages {
@@ -635,9 +644,12 @@ export const messagesByLocale = {
         agents: "代理",
         vault: "保险库",
         audit: "审计",
+        operations: "运营",
       },
       pages: {
         also: "还有",
+        monitoring: "监控",
+        database: "数据库",
         workspaceShortcutsAria: "工作区快捷入口",
         deliveryQueue: "投递队列",
         failedLastHour: "过去一小时失败 {{count}} 次",
@@ -941,9 +953,12 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Bóveda",
         audit: "Auditoría",
+        operations: "Operaciones",
       },
       pages: {
         also: "También",
+        monitoring: "Monitorización",
+        database: "Base de datos",
         workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
         deliveryQueue: "Cola de entrega",
         failedLastHour: "{{count}} fallos en la última hora",
@@ -1248,9 +1263,12 @@ export const messagesByLocale = {
         agents: "Agents",
         vault: "Coffre",
         audit: "Audit",
+        operations: "Opérations",
       },
       pages: {
         also: "Aussi",
+        monitoring: "Surveillance",
+        database: "Base de données",
         workspaceShortcutsAria: "Raccourcis de l’espace de travail",
         deliveryQueue: "File de livraison",
         failedLastHour: "{{count}} échecs au cours de la dernière heure",
@@ -1544,9 +1562,12 @@ export const messagesByLocale = {
         agents: "Agenten",
         vault: "Tresor",
         audit: "Audit",
+        operations: "Betrieb",
       },
       pages: {
         also: "Außerdem",
+        monitoring: "Überwachung",
+        database: "Datenbank",
         workspaceShortcutsAria: "Workspace-Kurzbefehle",
         deliveryQueue: "Zustellungswarteschlange",
         failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
@@ -1837,9 +1858,12 @@ export const messagesByLocale = {
         agents: "エージェント",
         vault: "ボールト",
         audit: "監査",
+        operations: "運用",
       },
       pages: {
         also: "その他",
+        monitoring: "監視",
+        database: "データベース",
         workspaceShortcutsAria: "ワークスペースのショートカット",
         deliveryQueue: "配信キュー",
         failedLastHour: "過去 1 時間で {{count}} 件失敗",
@@ -2127,9 +2151,12 @@ export const messagesByLocale = {
         agents: "에이전트",
         vault: "볼트",
         audit: "감사",
+        operations: "운영",
       },
       pages: {
         also: "또한",
+        monitoring: "모니터링",
+        database: "데이터베이스",
         workspaceShortcutsAria: "워크스페이스 바로가기",
         deliveryQueue: "전달 대기열",
         failedLastHour: "지난 1시간 동안 {{count}}건 실패",
@@ -2429,9 +2456,12 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Cofre",
         audit: "Auditoria",
+        operations: "Operações",
       },
       pages: {
         also: "Também",
+        monitoring: "Monitoramento",
+        database: "Banco de dados",
         workspaceShortcutsAria: "Atalhos do espaço de trabalho",
         deliveryQueue: "Fila de entrega",
         failedLastHour: "{{count}} falhas na última hora",
@@ -2714,9 +2744,12 @@ export const messagesByLocale = {
         agents: "एजेंट",
         vault: "वॉल्ट",
         audit: "ऑडिट",
+        operations: "संचालन",
       },
       pages: {
         also: "और भी",
+        monitoring: "निगरानी",
+        database: "डेटाबेस",
         workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
         deliveryQueue: "डिलीवरी कतार",
         failedLastHour: "पिछले घंटे में {{count}} विफल",
@@ -3037,9 +3070,12 @@ export const messagesByLocale = {
         agents: "الوكلاء",
         vault: "الخزنة",
         audit: "التدقيق",
+        operations: "التشغيل",
       },
       pages: {
         also: "أيضًا",
+        monitoring: "المراقبة",
+        database: "قاعدة البيانات",
         workspaceShortcutsAria: "اختصارات مساحة العمل",
         deliveryQueue: "قائمة انتظار التسليم",
         failedLastHour: "{{count}} فشل خلال الساعة الماضية",

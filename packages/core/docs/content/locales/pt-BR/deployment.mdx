@@ -452,3 +452,11 @@ Consulte [Frames](/docs/frames) para saber mais sobre o painel de agente incorpo
 ## Implantações de múltiplas instâncias {#multi-instance}
 
 Os aplicativos nativos do agente armazenam todo o estado em SQL com Drizzle e sincronizam o UI via [polling](/docs/key-concepts#polling-sync) com o banco de dados – sem estado do sistema de arquivos, sem sessões fixas, sem caches na memória. Isso significa que implantações de múltiplas instâncias e sem servidor funcionam imediatamente: aponte cada instância para o mesmo `DATABASE_URL` e elas convergem automaticamente. Consulte [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) e [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Próximos passos
+
+- [**Database**](/docs/database#production) — escolha um backend SQL persistente antes da primeira implantação em produção
+- [**Security**](/docs/security) — a lista de verificação de produção e os sinalizadores opcionais mencionados nesta página
+- [**Authentication**](/docs/authentication) — credenciais OAuth e variáveis de ambiente para o modo de autenticação escolhido
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — o modelo de espaço de trabalho por trás da compilação de origem única do `deploy`
+- [**Frames**](/docs/frames) — o painel de agente incorporado em comparação com o quadro de nuvem da Builder.io para edições da UI de produção

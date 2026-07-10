@@ -114,9 +114,25 @@ export {
 } from "../agent/index.js";
 export {
   actionsToEngineTools,
+  executeAgentToolCall,
   getOwnerActiveApiKey,
   runAgentLoop,
+  type AgentToolCallExecutionResult,
+  type ExecuteAgentToolCallOptions,
 } from "../agent/production-agent.js";
+export {
+  mountRealtimeVoiceRoutes,
+  realtimeVoiceSafetyIdentifier,
+  REALTIME_VOICE_MAX_SDP_BYTES,
+  REALTIME_VOICE_MAX_TOOL_BODY_BYTES,
+  REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+  REALTIME_VOICE_SESSION_PATH,
+  REALTIME_VOICE_TOOL_PATH,
+  type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceRequestContext,
+  type RealtimeVoiceToolExecutionRequest,
+  type RealtimeVoiceToolExecutionResult,
+} from "./realtime-voice.js";
 export {
   getStoredModelForEngine,
   resolveEngine,

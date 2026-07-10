@@ -51,8 +51,11 @@ Un `Processor` es un **observador/guarda** interno de bucle para la ejecución d
 
 </Diagram>
 
-> [!WARNING]
-> Un procesador es **configuración**, no una herramienta, no una acción y no una creación DSL. Los procesadores solo observan, mutan su propio estado de alcance de flujo y `abort()`. Nunca definen el comportamiento de la aplicación, reemplazan a actions ni aparecen en el modelo. Las operaciones de la aplicación pertenecen a [actions](/docs/actions).
+<Callout id="doc-block-proc1cfg" tone="warning">
+
+Un procesador es **configuración**, no una herramienta, no una acción y no una creación DSL. Los procesadores solo observan, mutan su propio estado de alcance de flujo y `abort()`. Nunca definen el comportamiento de la aplicación, reemplazan a actions ni aparecen en el modelo. Las operaciones de la aplicación pertenecen a [actions](/docs/actions).
+
+</Callout>
 
 ## Los ganchos {#hooks}
 
@@ -133,10 +136,13 @@ await runAgentLoop({
 
 **Gasto general cero cuando no se utiliza.** El bucle crea la cadena de procesadores solo cuando se suministra al menos un procesador; cuando `processors` se omite o está vacío, no se ejecuta ningún código de costura y el bucle no se modifica byte por byte. Los enlaces se ejecutan en orden de registro y pueden ser sincronizados o asíncronos.
 
-> [!NOTE]
-> La costura a nivel de bucle es el entregable hoy y los subagentes, A2A, MCP y las pruebas pueden llamarla directamente. Pasar `processors` a través del controlador de chat HTTP (para que un solucionador por solicitud pueda configurarlos sin llamar directamente a `runAgentLoop`) es una práctica práctica que aún no está cableada: configure los procesadores en el sitio de llamadas de `runAgentLoop` por ahora.
+<Callout id="doc-block-proc1note" tone="info">
 
-## Relacionado
+La costura a nivel de bucle es el entregable hoy y los subagentes, A2A, MCP y las pruebas pueden llamarla directamente. Pasar `processors` a través del controlador de chat HTTP (para que un solucionador por solicitud pueda configurarlos sin llamar directamente a `runAgentLoop`) es una práctica práctica que aún no está cableada: configure los procesadores en el sitio de llamadas de `runAgentLoop` por ahora.
+
+</Callout>
+
+## Qué sigue
 
 - [**Durable Resume**](/docs/durable-resume): cómo el bucle sobrevive a las interrupciones sin volver a ejecutar los efectos secundarios completados.
 - [**Custom Agents & Teams**](/docs/agent-teams): los subagentes ejecutan el mismo bucle y pueden llevar sus propios procesadores.

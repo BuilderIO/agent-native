@@ -451,3 +451,11 @@ agent-native 的核心功能之一是代理可以修改应用程序的源代码 
 ## 多实例部署 {#multi-instance}
 
 代理本机应用程序通过 Drizzle 将所有状态存储在 SQL 中，并通过 [polling](/docs/key-concepts#polling-sync) 与数据库同步 UI — 无文件系统状态、无粘性会话、无内存缓存。这意味着多实例和无服务器部署开箱即用：将每个实例指向同一个 `DATABASE_URL`，它们会自动聚合。请参阅 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 和 [Portability](/docs/key-concepts#hosting-agnostic)。
+
+## 下一步
+
+- [**Database**](/docs/database#production) — 在首次生产部署前选择持久化 SQL 后端
+- [**Security**](/docs/security) — 本页提到的生产检查清单和可选标志
+- [**Authentication**](/docs/authentication) — 所选身份验证模式的 OAuth 凭据和环境变量
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 单源构建背后的工作区模型
+- [**Frames**](/docs/frames) — 用于生产 UI 编辑的嵌入式代理面板与 Builder.io 云框架

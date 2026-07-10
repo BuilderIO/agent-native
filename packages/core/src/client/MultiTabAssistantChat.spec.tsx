@@ -129,6 +129,7 @@ vi.mock("./AssistantChat.js", async () => {
       const props = _props as {
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
+        selectedEffort?: string;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -143,7 +144,10 @@ vi.mock("./AssistantChat.js", async () => {
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
       return (
-        <div data-testid="assistant-chat">
+        <div
+          data-testid="assistant-chat"
+          data-reasoning-effort={props.selectedEffort}
+        >
           {props.emptyStateAddon}
           {props.composerSlot}
         </div>
@@ -236,6 +240,33 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("defaults reasoning to medium", () => {
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
+  });
+
+  it("migrates persisted legacy auto reasoning to medium", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:legacy-medium-test",
+      JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="legacy-medium-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -1000,6 +1031,56 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     });
 
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("does not restore a transient thread after the user selected another one", async () => {
+    threadMocks.activeThreadId = "thread-2";
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Other thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+  });
+
+  it("restores a transient thread while its captured thread is still active", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-1");
   });
 
   it("replays an agent-task open request sent before the lazy panel mounted", async () => {

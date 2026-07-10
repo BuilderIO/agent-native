@@ -127,8 +127,8 @@ export default function Sidebar({
             className={`sidebar-item${isCodeAgentsActive ? " sidebar-item--active" : ""}`}
             tabIndex={-1}
             onClick={onCodeAgentsClick}
-            title="Agent-Native Code"
-            aria-label="Agent-Native Code"
+            title="Agent"
+            aria-label="Agent"
             aria-current={isCodeAgentsActive ? "page" : undefined}
           >
             <span className="icon-wrapper">
@@ -139,7 +139,7 @@ export default function Sidebar({
                 className="sidebar-agent-native-icon"
               />
             </span>
-            <span className="item-label">Code</span>
+            <span className="item-label">Agent</span>
           </button>
         )}
         {onSettingsClick && (

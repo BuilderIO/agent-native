@@ -136,8 +136,7 @@ pnpm install
 
 然后定义持久操作：
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -488,12 +487,11 @@ iframe/picker 模式，以及较低级别的桥 APIs。
 聊天需要丰富UI时的小部件结果，并且仅在用户时添加全屏
 需要浏览、比较、配置或协作持久对象。
 
-## 相关文档 {#related-docs}
+## 下一步 {#related-docs}
 
-- [Actions](/docs/actions) — 定义一次无头操作。
-- [Native 聊天界面](/docs/native-chat-ui) — 在聊天中呈现键入的操作结果。
-- [Drop-in Agent](/docs/drop-in-agent) — 安装聊天、侧边栏或面板表面。
-- [Component API](/docs/components) — 较低级别的 React 聊天/作曲片段。
-- [Embedding SDK](/docs/embedding-sdk) — 将 Agent-Native 添加到现有应用。
-- [External Agents](/docs/external-agents) — 将 MCP 兼容主机连接到应用。
-- [A2A Protocol](/docs/a2a-protocol) — 从其他座席呼叫座席。
+- [**Actions**](/docs/actions) — 只需定义一次操作；上述每个界面都会调用同一个操作
+- [**Native 聊天界面**](/docs/native-chat-ui) — 在聊天中将类型化的 action 结果呈现为表格、图表和卡片
+- [**Generative UI**](/docs/generative-ui) — 在聊天中生成临时或持久化的沙盒 UI
+- [**Automation-First Apps**](/docs/pure-agent-apps) — 面向作业、队列、脚本和外部代理的完整无浏览器模式
+- [**External Agents**](/docs/external-agents) — 将 MCP 兼容主机连接到应用
+- [**A2A Protocol**](/docs/a2a-protocol) — 从其他 Agent-Native 应用调用代理

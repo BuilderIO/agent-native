@@ -452,3 +452,11 @@ export default createAgentChatPlugin({
 ## 다중 인스턴스 배포 {#multi-instance}
 
 에이전트 네이티브 앱은 Drizzle를 통해 SQL에 모든 상태를 저장하고 [polling](/docs/key-concepts#polling-sync)를 통해 UI를 데이터베이스와 동기화합니다. 파일 시스템 상태, 고정 세션, 메모리 내 캐시가 없습니다. 이는 다중 인스턴스 및 서버리스 배포가 즉시 작동한다는 것을 의미합니다. 모든 인스턴스가 동일한 `DATABASE_URL`를 가리키면 자동으로 수렴됩니다. [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 및 [Portability](/docs/key-concepts#hosting-agnostic)를 참조하세요.
+
+## 다음 단계
+
+- [**Database**](/docs/database#production) — 첫 프로덕션 배포 전에 영구 SQL 백엔드를 선택합니다
+- [**Security**](/docs/security) — 이 페이지에서 언급한 프로덕션 체크리스트와 선택적 플래그입니다
+- [**Authentication**](/docs/authentication) — 선택한 인증 모드의 OAuth 자격 증명과 환경 변수입니다
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy`의 단일 오리진 빌드 기반이 되는 워크스페이스 모델입니다
+- [**Frames**](/docs/frames) — 프로덕션 UI 편집을 위한 내장 에이전트 패널과 Builder.io 클라우드 프레임의 차이입니다

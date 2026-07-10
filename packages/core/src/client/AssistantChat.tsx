@@ -18,7 +18,7 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
   IconMessage,
   IconX,
-  IconPlayerStop,
+  IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
   IconRefresh,
@@ -146,6 +146,10 @@ import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
 import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
 import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
 import { PastedTextChip } from "./composer/PastedTextChip.js";
+import {
+  appendRealtimeVoiceTranscriptToRepository,
+  realtimeVoiceTranscriptRegistry,
+} from "./composer/realtime-voice-transcript.js";
 import {
   TiptapComposer,
   type ComposerSubmitIntent,
@@ -352,6 +356,27 @@ function activeRunMatchesThread(
   threadId: string | undefined,
 ): boolean {
   return Boolean(threadId && state?.threadId === threadId && state.runId);
+}
+
+export function assistantMessageRunId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { runId?: unknown }; runId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.runId === "string"
+    ? metadata.custom.runId
+    : typeof metadata?.runId === "string"
+      ? metadata.runId
+      : undefined;
+}
+
+export function shouldAcceptRunError(args: {
+  errorRunId?: string;
+  activeRunId?: string;
+  latestAssistantRunId?: string;
+}): boolean {
+  if (!args.errorRunId) return true;
+  const expectedRunId = args.activeRunId ?? args.latestAssistantRunId;
+  return !expectedRunId || args.errorRunId === expectedRunId;
 }
 
 function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
@@ -1111,6 +1136,46 @@ export function resolveAssistantChatRunningStatusLabel({
   if (isAutoResuming) return "Resuming";
   if (isReconnecting && hasReconnectContent) return "Still working";
   return "Thinking";
+}
+
+function contentHasVisibleReasoning(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const candidate = part as { type?: unknown; text?: unknown };
+    return (
+      candidate.type === "reasoning" &&
+      typeof candidate.text === "string" &&
+      candidate.text.trim().length > 0
+    );
+  });
+}
+
+export function shouldShowGlobalRunningStatus({
+  showRunningInUI,
+  runningActivityLabel,
+  latestMessage,
+  reconnectContent,
+}: {
+  showRunningInUI: boolean;
+  runningActivityLabel: string | null | undefined;
+  latestMessage: unknown;
+  reconnectContent: readonly ContentPart[];
+}): boolean {
+  if (!showRunningInUI) return false;
+  if (runningActivityLabel) return true;
+
+  const message =
+    latestMessage && typeof latestMessage === "object"
+      ? (latestMessage as { role?: unknown; content?: unknown })
+      : null;
+  const latestMessageHasReasoning =
+    message?.role === "assistant" &&
+    contentHasVisibleReasoning(message.content);
+
+  return (
+    !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
+  );
 }
 
 type QueuedMessage = {
@@ -2219,6 +2284,32 @@ const AssistantChatInner = forwardRef<
     [threadRuntime],
   );
 
+  const appendRealtimeVoiceTranscript = useCallback(
+    (
+      transcript: Parameters<typeof realtimeVoiceTranscriptRegistry.publish>[0],
+    ) => {
+      if (isRestoring || isRunning) return false;
+      const result = appendRealtimeVoiceTranscriptToRepository(
+        exportCleanThreadRepo(),
+        transcript,
+      );
+      if (!result.appended) return true;
+      threadRuntime.import(ensureMessageMetadata(result.repository));
+      return true;
+    },
+    [exportCleanThreadRepo, isRestoring, isRunning, threadRuntime],
+  );
+
+  useEffect(() => {
+    const transcriptThreadId = threadId ?? tabId;
+    if (!transcriptThreadId) return;
+    return realtimeVoiceTranscriptRegistry.register({
+      threadId: transcriptThreadId,
+      active: isActiveComposer,
+      append: appendRealtimeVoiceTranscript,
+    });
+  }, [appendRealtimeVoiceTranscript, isActiveComposer, tabId, threadId]);
+
   const appendThreadMessage = useCallback(
     (message: Parameters<typeof threadRuntime.append>[0]) => {
       try {
@@ -3220,6 +3311,16 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:loop-limit", handler);
   }, [tabId]);
 
+  const latestAssistantRunId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== "assistant") continue;
+      const runId = assistantMessageRunId(message);
+      if (runId) return runId;
+    }
+    return undefined;
+  }, [messages]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as RunErrorInfo & {
@@ -3227,6 +3328,19 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
+      const activeRun = getActiveRun();
+      const activeRunId = activeRunMatchesThread(activeRun, threadId)
+        ? activeRun?.runId
+        : undefined;
+      if (
+        !shouldAcceptRunError({
+          errorRunId: detail.runId,
+          activeRunId,
+          latestAssistantRunId,
+        })
+      ) {
+        return;
+      }
       const stopped = userStoppedRunRef.current;
       if (
         stopped &&
@@ -3246,7 +3360,7 @@ const AssistantChatInner = forwardRef<
     };
     window.addEventListener("agent-chat:run-error", handler);
     return () => window.removeEventListener("agent-chat:run-error", handler);
-  }, [tabId]);
+  }, [latestAssistantRunId, tabId, threadId]);
 
   // Real activity means the next chunk has started. Surface longer-lived
   // activity such as "Still generating image" so active-run reconnects do not
@@ -4148,6 +4262,12 @@ const AssistantChatInner = forwardRef<
   );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    latestMessage,
+    reconnectContent: visibleReconnectContent,
+  });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
@@ -4608,7 +4728,7 @@ const AssistantChatInner = forwardRef<
                                 />
                               </MessageScrollerItem>
                             )}
-                          {showRunningInUI && (
+                          {showGlobalRunningStatus && (
                             <MessageScrollerItem>
                               <RunningActivityStatus
                                 label={runningStatusLabel}
@@ -4838,6 +4958,7 @@ const AssistantChatInner = forwardRef<
                             providerConnectStatusEnabled={
                               providerStatusChecksEnabled
                             }
+                            voiceEnabled
                             draftScope={threadId || tabId}
                             interceptBuildRequestsForBuilder
                             onAttachmentError={setComposerError}
@@ -4856,13 +4977,14 @@ const AssistantChatInner = forwardRef<
                                         <button
                                           type="button"
                                           onClick={() => stopActiveRun()}
-                                          className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
+                                          aria-label="Stop response"
+                                          className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         >
-                                          <IconPlayerStop className="h-3.5 w-3.5" />
+                                          <IconPlayerStopFilled className="h-3 w-3" />
                                         </button>
                                       </TooltipTrigger>
                                       <TooltipContent>
-                                        Stop generating
+                                        Stop response
                                       </TooltipContent>
                                     </Tooltip>
                                   )}

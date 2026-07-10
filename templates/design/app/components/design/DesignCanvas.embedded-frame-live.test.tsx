@@ -258,4 +258,61 @@ describe("DesignCanvas live embedded-frame offset", () => {
       container.remove();
     }
   });
+
+  it("reloads edit mode when a runtime update introduces executable scripts", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const initial =
+      "<!doctype html><html><head></head><body><main>Static direction</main></body></html>";
+    const alpine =
+      '<!doctype html><html><head><script>window.__runtimeStarted = true;</script><style>[x-cloak]{display:none!important}</style></head><body x-data="{ ready: true }" x-cloak><main x-show="ready">Interactive app</main></body></html>';
+    const render = (content: string, revision: string) => (
+      <DesignCanvas
+        content={content}
+        contentKey="script-aware-runtime-replacement"
+        runtimeReplacementContent={content}
+        runtimeReplacementKey={revision}
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        editMode
+      />
+    );
+
+    try {
+      await act(async () => root.render(render(initial, "revision-1")));
+      const staticIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(staticIframe?.srcdoc).toContain("Static direction");
+
+      await act(async () => root.render(render(alpine, "revision-2")));
+      const alpineIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+
+      expect(alpineIframe).not.toBe(staticIframe);
+      expect(alpineIframe?.srcdoc).toContain("__runtimeStarted");
+      expect(alpineIframe?.srcdoc).toContain("x-cloak");
+      expect(alpineIframe?.srcdoc).toContain("Interactive app");
+
+      const visualEdit = alpine.replace(
+        "Interactive app",
+        "Updated interactive app",
+      );
+      await act(async () => root.render(render(visualEdit, "revision-3")));
+      const visualEditIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(visualEditIframe).toBe(alpineIframe);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
 });

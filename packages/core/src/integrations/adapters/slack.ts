@@ -5,6 +5,7 @@ import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { getIntegrationRequestContext } from "../../server/request-context.js";
+import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
@@ -41,6 +42,8 @@ export interface SlackAdapterOptions {
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
   /** Override active-thread detection for hosted adapters/tests. */
   isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
+  /** Override one-shot clarification-window consumption for tests. */
+  consumeAwaitingInput?: (incoming: IncomingMessage) => Promise<boolean>;
 }
 
 /**
@@ -268,10 +271,24 @@ export function slackAdapter(
         };
 
         if (isThreadReply) {
+          // An ordinary thread reply is narrowly admitted when either work is
+          // still queued or the same Slack user is answering a fresh
+          // integration-originated clarification. Consuming the latter is a
+          // conditional SQL delete, so concurrent replies cannot both reopen
+          // the agent and unrelated channel messages remain ignored.
+          const answeredClarification = options.consumeAwaitingInput
+            ? await options.consumeAwaitingInput(partialIncoming)
+            : options.isThreadActive
+              ? false
+              : await consumeIntegrationAwaitingInput({
+                  platform: "slack",
+                  externalThreadId,
+                  requesterId: e.user,
+                });
           const active = options.isThreadActive
             ? await options.isThreadActive(partialIncoming)
             : await hasActivePendingTask("slack", externalThreadId);
-          if (!active) return null;
+          if (!active && !answeredClarification) return null;
         }
 
         const token = await resolveBotToken(partialIncoming);
@@ -1295,6 +1312,7 @@ async function startSlackRunProgress(
   if (typeof streamTs !== "string") return null;
   const tasks = new Map<string, { title: string; status: string }>();
   const toolTaskIds = new Map<string, string>();
+  const agentTaskIds = new Map<string, string>();
   tasks.set("agent-native:context", {
     title: "Understand the request",
     status: "in_progress",
@@ -1443,7 +1461,9 @@ async function startSlackRunProgress(
           status: event.isError ? "error" : "complete",
         });
       } else if (event.type === "agent_call") {
-        const id = taskId("agent", event.agent);
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
         const status =
           event.status === "start"
             ? "in_progress"
@@ -1453,6 +1473,25 @@ async function startSlackRunProgress(
         const title = `Ask ${shortTaskTitle(event.agent)}`;
         tasks.set(id, { title, status });
         await append({ type: "task_update", id, title, status });
+      } else if (event.type === "agent_call_progress") {
+        // A2A calls can stay healthy for minutes. Keep the same native Slack
+        // task card alive with each real downstream poll rather than creating
+        // a new card per tick or leaving the user with a stale spinner.
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
+        const title = `Ask ${shortTaskTitle(event.agent)}`;
+        const details = event.detail
+          ? shortTaskTitle(event.detail)
+          : `Still ${event.state} after ${event.elapsedSeconds}s`;
+        tasks.set(id, { title, status: "in_progress" });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status: "in_progress",
+          details,
+        });
       } else if (event.type === "activity") {
         await append({
           type: "task_update",

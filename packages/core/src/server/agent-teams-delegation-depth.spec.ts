@@ -54,6 +54,9 @@ vi.mock("./request-context.js", () => ({
 }));
 
 const OWNER = "owner@example.com";
+// The first import loads the full agent runtime. On a saturated CI worker it
+// can exceed Vitest's default 5s even though the spawn itself is immediate.
+const FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS = 15_000;
 
 function baseSpawnOptions() {
   return {
@@ -80,16 +83,20 @@ describe("agent-teams delegation-depth guardrail", () => {
   });
 
   // (i) within-limit spawn still works ───────────────────────────────────────
-  it("allows a top-level spawn and records the child at depth 1", async () => {
-    const { spawnTask } = await import("./agent-teams.js");
+  it(
+    "allows a top-level spawn and records the child at depth 1",
+    async () => {
+      const { spawnTask } = await import("./agent-teams.js");
 
-    const task = await spawnTask(baseSpawnOptions());
+      const task = await spawnTask(baseSpawnOptions());
 
-    expect(task.status).toBe("running");
-    expect(task.delegationDepth).toBe(1);
-    expect(enqueueAgentTeamRunMock).toHaveBeenCalledTimes(1);
-    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
-  });
+      expect(task.status).toBe("running");
+      expect(task.delegationDepth).toBe(1);
+      expect(enqueueAgentTeamRunMock).toHaveBeenCalledTimes(1);
+      expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
+    },
+    FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS,
+  );
 
   it("allows a depth-1 sub-agent to spawn a depth-2 sub-agent (still within MAX=2)", async () => {
     const { spawnTask } = await import("./agent-teams.js");

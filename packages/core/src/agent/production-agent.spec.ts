@@ -34,6 +34,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
+  resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -84,6 +85,24 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("resolveAgentRequestReasoningEffort", () => {
+  it("defaults missing reasoning to Medium", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
+    ).toBe("medium");
+  });
+
+  it("preserves explicit none through the production request path", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({
+        model: "claude-sonnet-5",
+        requestEffort: "none",
+        configuredEffort: "high",
+      }),
+    ).toBe("none");
+  });
+});
 
 describe("resolveSkillReferenceContent", () => {
   it("does not resolve scope: dev codebase skills for runtime agent references", async () => {
@@ -5393,6 +5412,12 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(2);
     expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "clear",
+      "text",
+      "done",
+    ]);
     const textEvents = events.filter((e) => e.type === "text");
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toBe("Recovered answer.");
@@ -5437,6 +5462,16 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "clear",
+      "thinking",
+      "clear",
+      "thinking",
+      "clear",
+      "text",
+      "done",
+    ]);
   });
 
   it("adapts each empty-response retry: raises maxOutputTokens and steps reasoning effort down a tier", async () => {

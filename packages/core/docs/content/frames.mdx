@@ -156,6 +156,11 @@ sidebar inside the iframe instead, so you can preview exactly what end users see
 
 ## Integrated terminal and CLI switching {#cli-terminal}
 
+This needs a code-capable frame connected — Agent Native Desktop, the local dev
+frame, or the Builder.io cloud frame. A plain scaffolded app running `pnpm dev`
+on its own shows the code-required dialog instead of a terminal; see
+[Running it](#running) below.
+
 In development the panel includes an embedded terminal (`AgentTerminal`, also
 from `@agent-native/core/client`) backed by a PTY server. You can run a real
 coding CLI right beside the app and switch between them; the terminal restarts
@@ -233,3 +238,14 @@ code:
   endpoint (whose payload key is still `devMode`), and the `agent-chat.mode`
   settings key are unchanged.
 - `useDevMode()` remains as a deprecated alias for `useCodeMode()`.
+
+## What's next
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` /
+  `<AgentSidebar>` and send messages from your own UI.
+- [**Agent-Native Code UI**](/docs/code-agents-ui) — the coding-tool list and
+  workspace UI code mode adds.
+- [**Harness Agents**](/docs/harness-agents) — run Claude Code, Codex, or Pi as
+  the agent instead of the built-in chat loop.
+- [**Getting Started**](/docs/getting-started) — scaffold your first app and
+  see the embedded panel running.

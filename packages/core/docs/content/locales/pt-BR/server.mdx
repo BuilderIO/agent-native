@@ -96,8 +96,7 @@ server/routes/
 
 Cada rota exporta um `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -137,8 +136,7 @@ Use a opção `http` da action para moldar o acesso HTTP direto: actions são `P
 
 Para um endpoint de status somente leitura, mantenha-o como uma action:
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -171,8 +169,7 @@ o que aconteceu. Para transformações estreitas do lado do servidor que intenci
 ferramentas, histórico de bate-papo ou estado de execução, use `completeText()` como um escape explícito
 hachurada.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -237,8 +234,7 @@ Actions montado pela estrutura é executado automaticamente com contexto de soli
 
 Os plug-ins ficam no `server/plugins/` e são executados na inicialização. Use-os para migrações, configuração de provedores, trabalhos recorrentes, adaptadores de integração e configuração de plug-ins de estrutura.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -416,8 +412,11 @@ A entrada webhooks deve verificar, persistir e retornar rapidamente. O trabalho 
 
 </Diagram>
 
-> [!WARNING]
-> Não confie em promessas inesperadas após retornar uma resposta — hosts sem servidor congelam a execução. Consulte [Messaging](/docs/messaging) para ver a fila de integração canônica.
+<Callout tone="warning">
+  Não confie em promessas inesperadas após retornar uma resposta — hosts sem
+  servidor congelam a execução. Consulte [Messaging](/docs/messaging) para ver a
+  fila de integração canônica.
+</Callout>
 
 ## Avançado: Escotilhas de Fuga {#advanced-escape-hatches}
 
@@ -459,3 +458,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## Próximos passos
+
+- [**Actions**](/docs/actions) — a superfície de operação padrão; use uma rota personalizada apenas quando ela não se encaixar
+- [**Banco de dados**](/docs/database) — o padrão `getDb()`/`schema` importado por rotas personalizadas e actions
+- [**Segurança**](/docs/security#access-guards) — `accessFilter`/`assertAccess` e o modelo completo de escopo de dados
+- [**Mensagens**](/docs/messaging) — o padrão canônico de fila de integração para webhooks recebidos
+- [**Protocolo MCP**](/docs/mcp-protocol) — o endpoint `/_agent-native/mcp` que este servidor monta automaticamente

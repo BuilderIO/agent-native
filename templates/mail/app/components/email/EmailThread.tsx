@@ -2204,8 +2204,9 @@ function PlainTextBody({
 
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
-// Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
-const IFRAME_BG_DARK = "#17181a";
+// Let normalized dark-mode emails inherit the message card's themed surface.
+// The iframe and its document are transparent, so theme token changes stay in sync.
+const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
 // ─── Color utilities for dark-mode email processing ─────────────────────────

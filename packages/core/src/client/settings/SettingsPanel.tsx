@@ -3177,6 +3177,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "agent",
         label: "Agent",
         icon: IconBrain,
+        group: "agent",
         keywords: "agent model llm limits voice automations",
         searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
         content: (
@@ -3193,6 +3194,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "connections",
         label: "Connections",
         icon: IconPlugConnected,
+        group: "agent",
         keywords: "connections secrets integrations email browser usage",
         searchEntries: buildSectionSearchEntries(CONNECTION_SETTINGS_SECTIONS),
         content: (
@@ -3209,6 +3211,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "organization",
         label: "Organization",
         icon: IconUsersGroup,
+        group: "workspace",
         keywords: "organization org team members invites collaborators",
         content: (
           <div className="mx-auto w-full max-w-2xl">
@@ -3220,6 +3223,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         id: "workspace",
         label: "Workspace",
         icon: IconCloud,
+        group: "workspace",
         keywords: "workspace account hosting database uploads auth",
         searchEntries: buildSectionSearchEntries(WORKSPACE_SETTINGS_SECTIONS),
         content: (

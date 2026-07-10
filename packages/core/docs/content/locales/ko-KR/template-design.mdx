@@ -11,7 +11,7 @@ Design은 에이전트 기반 HTML 프로토타이핑 스튜디오입니다. 에
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>제품 출시 페이지</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>생성된 HTML 프로토타입</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>히어로를 더 밀도 있게 만들고 CTA를 더 명확하게 하세요.</span><div style='flex:1'></div><button class='primary'>수정 적용</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>제품 출시 페이지</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Agent-Native로 더 빠르게 출시하세요</strong><span class='wf-muted' style='max-width:70%'>프롬프트에서 작동하는 프로토타입을 생성한 다음 그 자리에서 다듬으세요.</span><button class='primary'>시작하기</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>히어로를 더 밀도 있게 만들고 CTA를 더 명확하게 하세요.</span><div style='flex:1'></div><button class='primary'>수정 적용</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -133,6 +133,8 @@ pnpm dev
 ### 데이터 모델
 
 모든 데이터는 Drizzle ORM를 통해 SQL에 있습니다. 스키마: `templates/design/server/db/schema.ts`. 디자인 및 디자인 시스템은 표준 `ownableColumns`와 일치하는 프레임워크 공유 테이블을 전달하므로 사용자별/조직별 공유 모델에 속합니다.
+
+아래 표는 디자인, 파일, 템플릿, 버전, 디자인 시스템이라는 핵심 소유 가능 리소스를 다룹니다. 같은 스키마의 다른 7개 테이블은 핵심 리소스 모델이 아니라 이 문서의 다른 부분에서 설명하는 기능을 지원합니다. `design_localhost_connections`와 `design_localhost_write_grants`(localhost 소스 모드), `component_index`(컴포넌트 인덱싱), `motion_timeline`(모션), `design_state`(편집기 상태 스냅샷), `design_fusion_edits`(전체 앱 Fusion 모드), `design_review_snapshot`(리뷰 스냅샷)입니다.
 
 | 테이블                                   | 무엇을 담고 있는지                                                                                                                   |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

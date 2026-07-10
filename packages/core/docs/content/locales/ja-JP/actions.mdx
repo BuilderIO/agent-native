@@ -11,7 +11,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 - **タイプセーフ React フック** — フロントエンドの `useActionQuery("name")` および `useActionMutation("name")`、タイプはスキーマから推論されます。
 - **命令型クライアント呼び出し** — フックが適合しない場合の `callAction("name", params)`。
 - **フレームワーク トランスポート** — これらのフックの背後にあるフレームワークによって自動マウントされ、外部 HTTP クライアントが利用できます。
-- **MCP ツール** — Claude、ChatGPT カスタム MCP アプリ、Claude デスクトップ/コード、カーソル、Codex、およびその他の MCP クライアントに公開されます。
+- **MCP ツール** — Claude、ChatGPT カスタム MCP アプリ、Claude デスクトップ/コード、カーソル、Codex、およびその他の MCP ホストに公開されます。
 - **A2A ツール** — A2A 経由で他のエージェント ネイティブ アプリによって呼び出されます。
 - **A CLI コマンド** — スクリプト作成および開発ループ用の `pnpm action <name>`。
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-`link` を CLI および非 UI MCP クライアントのフォールバックとして保持します。これは、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名付き埋め込み開始セッション、移植対制御フレーム レンダリング、`ui/*` ホスト ブリッジ、CSP、および高さクランプ) は、[External Agents](/docs/external-agents#mcp-app-bridge) によって所有されています。
+`link` を CLI および非 UI MCP ホストのフォールバックとして保持します。これは、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名付き埋め込み開始セッション、移植対制御フレーム レンダリング、`ui/*` ホスト ブリッジ、CSP、および高さクランプ) は、[External Agents](/docs/external-agents#mcp-app-bridge) によって所有されています。
 
 ## 標準 actions {#standard-actions}
 

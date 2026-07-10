@@ -6,6 +6,7 @@ import type { AgentHarnessAdapter, AgentHarnessEvent } from "./types.js";
 const mocks = vi.hoisted(() => ({
   startRun: vi.fn(),
   saveAgentHarnessSession: vi.fn(),
+  getAgentHarnessSession: vi.fn(),
   updateAgentHarnessSession: vi.fn(),
   markAgentHarnessSessionStopped: vi.fn(),
 }));
@@ -16,6 +17,7 @@ vi.mock("../run-manager.js", () => ({
 
 vi.mock("./store.js", () => ({
   saveAgentHarnessSession: mocks.saveAgentHarnessSession,
+  getAgentHarnessSession: mocks.getAgentHarnessSession,
   updateAgentHarnessSession: mocks.updateAgentHarnessSession,
   markAgentHarnessSessionStopped: mocks.markAgentHarnessSessionStopped,
 }));
@@ -26,6 +28,7 @@ describe("startAgentHarnessRun", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.saveAgentHarnessSession.mockResolvedValue({});
+    mocks.getAgentHarnessSession.mockResolvedValue({ pendingApproval: null });
     mocks.updateAgentHarnessSession.mockResolvedValue({});
     mocks.markAgentHarnessSessionStopped.mockResolvedValue({});
   });

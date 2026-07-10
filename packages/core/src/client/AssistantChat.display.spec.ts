@@ -22,6 +22,7 @@ import { clearActiveRun, getActiveRun } from "./active-run-state.js";
 import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
+  assistantMessageRunId,
   assistantUiRecoverableRenderErrorKind,
   dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
@@ -34,6 +35,8 @@ import {
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  shouldAcceptRunError,
+  shouldShowGlobalRunningStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
@@ -99,6 +102,42 @@ describe("latestNonRecoveryUserMessageText", () => {
 
     expect(latestNonRecoveryUserMessageText(messages)).toBe(
       "Build a CS operations tool",
+    );
+  });
+});
+
+describe("shouldAcceptRunError", () => {
+  it("rejects an identified error from an older run", () => {
+    expect(
+      shouldAcceptRunError({
+        errorRunId: "run-old",
+        latestAssistantRunId: "run-current",
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts errors from the active run", () => {
+    expect(
+      shouldAcceptRunError({
+        errorRunId: "run-current",
+        activeRunId: "run-current",
+        latestAssistantRunId: "run-old",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts errors without a run id", () => {
+    expect(shouldAcceptRunError({ latestAssistantRunId: "run-current" })).toBe(
+      true,
+    );
+  });
+
+  it("reads live and persisted assistant run ids", () => {
+    expect(
+      assistantMessageRunId({ metadata: { custom: { runId: "run-live" } } }),
+    ).toBe("run-live");
+    expect(assistantMessageRunId({ metadata: { runId: "run-saved" } })).toBe(
+      "run-saved",
     );
   });
 });
@@ -923,6 +962,60 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         hasReconnectContent: false,
       }),
     ).toBe("Thinking");
+  });
+});
+
+describe("shouldShowGlobalRunningStatus", () => {
+  it("hides the duplicate generic status while reasoning is visibly streaming", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a specific tool activity ahead of visible reasoning", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Querying submissions",
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("hides the duplicate status while reconnect reasoning is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: null,
+        reconnectContent: [
+          { type: "reasoning", text: "Resuming the same thought." },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the generic status before any visible reasoning arrives", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: null,
+        reconnectContent: [],
+      }),
+    ).toBe(true);
   });
 });
 

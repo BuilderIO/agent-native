@@ -19,8 +19,10 @@ import {
   IconCheck,
   IconClock,
   IconCode,
+  IconBrandChrome,
   IconCopy,
   IconDeviceMobile,
+  IconDeviceDesktop,
   IconDots,
   IconExternalLink,
   IconFolder,
@@ -105,8 +107,12 @@ import type {
 } from "./types.js";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import {
@@ -175,6 +181,8 @@ export type CodeAgentsRenderAppSurface = (input: {
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
+  /** Whether the host surface is currently visible to the user. */
+  isActive?: boolean;
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
@@ -188,7 +196,7 @@ type CodeAgentRunMode = "plan" | "auto";
 interface CodeAgentSearchResult {
   run: CodeAgentRun;
   match: string;
-  matchType: "Recent" | "Session" | "Transcript";
+  matchType: "Recent" | "Task" | "Transcript";
   rank: number;
 }
 
@@ -199,6 +207,15 @@ interface CodeAgentHostMetadata {
     label?: string;
     configuredProviders?: string[];
     missingEnvVars?: string[];
+  };
+  computerControl?: {
+    available: boolean;
+    desktop: { accessibility: boolean; screenRecording: string };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
   };
   error?: string;
 }
@@ -211,13 +228,14 @@ const CODE_AGENT_RUN_MODES: Array<{
   {
     id: "plan",
     label: "Plan",
-    description: "Read the workspace and propose a plan before editing.",
+    description:
+      "Inspect the workspace and connected apps, then propose a plan without taking actions.",
   },
   {
     id: "auto",
     label: "Auto",
     description:
-      "Edit, run checks, and only pause for destructive file, git, or data operations.",
+      "Edit, run checks, and operate connected apps; pause for destructive or sensitive actions.",
   },
 ];
 
@@ -282,6 +300,7 @@ const codeAgentComposerRootStyle = {
 export default function CodeAgentsApp({
   apps,
   host,
+  isActive = true,
   openRequest,
   refreshKey = 0,
   brandIconUrl,
@@ -532,21 +551,25 @@ export default function CodeAgentsApp({
   useEffect(() => {
     if (!host.getHostMetadata) return;
     let cancelled = false;
-    void host
-      .getHostMetadata()
-      .then((result) => {
-        if (!cancelled) setHostMetadata(result);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setHostMetadata({
-            status: "unavailable",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      });
+    const refresh = () => {
+      void host.getHostMetadata!()
+        .then((result) => {
+          if (!cancelled) setHostMetadata(result);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setHostMetadata({
+              status: "unavailable",
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 5_000);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [host, refreshKey]);
 
@@ -564,7 +587,7 @@ export default function CodeAgentsApp({
       setBuilderConnectMessage(result.ok ? null : message);
       if (result.ok) {
         toast("Builder.io connected", {
-          description: "Code can now use Builder credits.",
+          description: "Agent can now use Builder credits.",
         });
       } else {
         toast("Builder.io connect did not finish", {
@@ -806,6 +829,7 @@ export default function CodeAgentsApp({
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
   useEffect(() => {
+    if (!isActive) return;
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key?.toLowerCase() !== "n") return;
       if (e.altKey || e.shiftKey) return;
@@ -814,7 +838,7 @@ export default function CodeAgentsApp({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [isActive]);
 
   async function selectProjectFolder(pathValue: string) {
     if (!pathValue) return;
@@ -1045,7 +1069,7 @@ export default function CodeAgentsApp({
 
   async function controlRun(command: CodeAgentControlCommand) {
     if (!selectedRunId) {
-      toast("Select a session first", { duration: 1800 });
+      toast("Select a task first", { duration: 1800 });
       return;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
@@ -1061,7 +1085,7 @@ export default function CodeAgentsApp({
         selectedPermissionMode,
       );
     } catch (err) {
-      toast("Could not control the session", {
+      toast("Could not control the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1101,7 +1125,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not retry the session", {
+      toast("Could not retry the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1137,7 +1161,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not re-run the session", {
+      toast("Could not re-run the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1163,7 +1187,7 @@ export default function CodeAgentsApp({
       ) ?? selectedGoal;
     const prompt = normalizePromptForSelectedGoal(typedGoal, preparedPrompt);
     if (!prompt) {
-      toast("Enter a coding task first", { duration: 1800 });
+      toast("Describe an outcome first", { duration: 1800 });
       return;
     }
     setCreatingRun(true);
@@ -1206,7 +1230,7 @@ export default function CodeAgentsApp({
       }
       await loadTranscript(result.run.id, true);
     } catch (err) {
-      toast("Could not start the session", {
+      toast("Could not start the task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1313,14 +1337,14 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast(pinned ? "Session unpinned" : "Session pinned", {
+      toast(pinned ? "Task unpinned" : "Task pinned", {
         duration: 1600,
       });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast(pinned ? "Could not unpin session" : "Could not pin session", {
+      toast(pinned ? "Could not unpin task" : "Could not pin task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1354,12 +1378,12 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast("Session renamed", { duration: 1600 });
+      toast("Task renamed", { duration: 1600 });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast("Could not rename session", {
+      toast("Could not rename task", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1373,10 +1397,10 @@ export default function CodeAgentsApp({
     Boolean(selectedRun);
 
   return (
-    <section className="code-agents-surface" aria-label="Agent-Native Code">
+    <section className="code-agents-surface" aria-label="Agent workspace">
       <aside
         className="code-agents-rail"
-        aria-label="Agent-Native Code goals and sessions"
+        aria-label="Agent tasks and navigation"
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-title-block">
@@ -1388,11 +1412,11 @@ export default function CodeAgentsApp({
                 className="code-agents-title-icon"
               />
             )}
-            <h1>Code</h1>
+            <h1>Agent</h1>
           </div>
         </div>
 
-        <div className="code-agents-nav-list" aria-label="Code navigation">
+        <div className="code-agents-nav-list" aria-label="Agent navigation">
           <button
             type="button"
             className={`code-agents-nav-link${
@@ -1430,13 +1454,13 @@ export default function CodeAgentsApp({
         </div>
 
         <div className="code-agents-run-list">
-          <p className="code-agents-rail-label">Sessions</p>
+          <p className="code-agents-rail-label">Tasks</p>
           {loading ? (
             <RunListSkeleton />
           ) : runs.length === 0 ? (
             <div className="code-agents-empty-rail">
               <IconClock size={18} strokeWidth={1.7} />
-              <p>No sessions yet.</p>
+              <p>No tasks yet.</p>
             </div>
           ) : (
             <GroupedRunList
@@ -1468,13 +1492,14 @@ export default function CodeAgentsApp({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">Session</p>
+                <p className="code-agents-kicker">Task</p>
                 <h2>
                   {getRunTitle(selectedRun) ??
                     (selectedRunId
-                      ? `Session ${selectedRunId}`
+                      ? `Task ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
+                <AgentCapabilitySummary metadata={hostMetadata} />
               </div>
               <div className="code-agents-toolbar-actions">
                 {canOpenTerminal && (
@@ -1550,102 +1575,99 @@ export default function CodeAgentsApp({
               />
             ) : (
               <>
-                {status !== "ok" && (
-                  <div
-                    className={`code-agents-callout code-agents-callout--${status}`}
-                  >
-                    <IconAlertCircle size={17} strokeWidth={1.8} />
-                    <span>
-                      {status === "unauthorized"
-                        ? `Open ${selectedGoal.surfaceLabel} and sign in to see sessions.`
-                        : (error ??
-                          `${selectedGoal.surfaceLabel} is not reporting sessions yet.`)}
-                    </span>
-                  </div>
-                )}
-
-                {selectedRun ? (
-                  <RunDetailCard
-                    host={host}
-                    run={selectedRun}
-                    selectedRunId={selectedRunId}
-                    goal={selectedGoal}
-                    transcriptEvents={transcriptEvents}
-                    transcriptLoading={transcriptLoading}
-                    transcriptError={transcriptError}
-                    permissionMode={selectedPermissionMode}
-                    modelSelection={selectedModelSelection}
-                    modelOptions={modelOptions}
-                    updatingPermissionMode={updatingPermissionMode}
-                    onPermissionModeChange={changeSelectedPermissionMode}
-                    onModelSelectionChange={setModelSelection}
-                    onOpenWorkbench={() => setWorkbenchOpen(true)}
-                    onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
-                    onResume={() => controlRun("resume")}
-                    onStop={() => controlRun("stop")}
-                    onApprove={() => controlRun("approve")}
-                    onApproveAlways={() => controlRun("approve-always")}
-                    onDeny={() => controlRun("deny")}
-                    onRetry={host.retryRun ? retrySelectedRun : undefined}
-                    onRerun={host.rerunRun ? rerunSelectedRun : undefined}
-                    builderConnecting={builderConnecting}
-                    builderConnectMessage={builderConnectMessage}
-                    onConnectBuilder={connectBuilderProvider}
-                    onOpenSettings={onOpenSettings}
-                    onConnectProvider={connectBuilderProvider}
-                  />
+                {loading ? (
+                  <OverviewSkeleton />
                 ) : (
-                  <div className="code-agents-start">
-                    <h2>What should we build?</h2>
-                    {providerGate.blocked && (
-                      <ProviderGateNotice
-                        description={providerGate.description}
-                        connecting={builderConnecting}
-                        message={builderConnectMessage}
+                  <>
+                    {status !== "ok" && (
+                      <div
+                        className={`code-agents-callout code-agents-callout--${status}`}
+                      >
+                        <IconAlertCircle size={17} strokeWidth={1.8} />
+                        <span>
+                          {status === "unauthorized"
+                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see tasks.`
+                            : (error ??
+                              `${selectedGoal.surfaceLabel} is not reporting tasks yet.`)}
+                        </span>
+                      </div>
+                    )}
+
+                    {selectedRun ? (
+                      <RunDetailCard
+                        host={host}
+                        run={selectedRun}
+                        selectedRunId={selectedRunId}
+                        goal={selectedGoal}
+                        transcriptEvents={transcriptEvents}
+                        transcriptLoading={transcriptLoading}
+                        transcriptError={transcriptError}
+                        permissionMode={selectedPermissionMode}
+                        modelSelection={selectedModelSelection}
+                        modelOptions={modelOptions}
+                        updatingPermissionMode={updatingPermissionMode}
+                        onPermissionModeChange={changeSelectedPermissionMode}
+                        onModelSelectionChange={setModelSelection}
+                        onOpenWorkbench={() => setWorkbenchOpen(true)}
+                        onOpenTerminal={
+                          canOpenTerminal ? openTerminal : undefined
+                        }
+                        onResume={() => controlRun("resume")}
+                        onStop={() => controlRun("stop")}
+                        onApprove={() => controlRun("approve")}
+                        onApproveAlways={() => controlRun("approve-always")}
+                        onDeny={() => controlRun("deny")}
+                        onRetry={host.retryRun ? retrySelectedRun : undefined}
+                        onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+                        builderConnecting={builderConnecting}
+                        builderConnectMessage={builderConnectMessage}
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
+                        onConnectProvider={connectBuilderProvider}
                       />
+                    ) : (
+                      <div className="code-agents-start">
+                        <h2>What outcome do you want?</h2>
+                        {providerGate.blocked && (
+                          <ProviderGateNotice
+                            description={providerGate.description}
+                            connecting={builderConnecting}
+                            message={builderConnectMessage}
+                            onConnectBuilder={connectBuilderProvider}
+                            onOpenSettings={onOpenSettings}
+                          />
+                        )}
+                        <NewSessionComposer
+                          prompt={newPrompt}
+                          promptSeed={newPromptSeed}
+                          inputRef={newPromptRef}
+                          creating={creatingRun}
+                          permissionMode={newRunPermissionMode}
+                          modelSelection={selectedModelSelection}
+                          modelOptions={modelOptions}
+                          slashCommands={slashCommands}
+                          disabled={providerGate.blocked}
+                          onPromptChange={setNewPrompt}
+                          onPermissionModeChange={setNewRunPermissionMode}
+                          onModelSelectionChange={setModelSelection}
+                          onSlashCommand={handleSlashCommand}
+                          onSubmit={createRunFromPrompt}
+                          onConnectProvider={connectBuilderProvider}
+                        />
+                        {(projects.length > 0 || canChooseProjectFolder) && (
+                          <ProjectFolderPicker
+                            variant="bar"
+                            projects={projects}
+                            selectedPath={selectedProjectPath}
+                            loading={loadingProjects}
+                            canChoose={canChooseProjectFolder}
+                            onSelect={selectProjectFolder}
+                            onChoose={chooseProjectFolder}
+                          />
+                        )}
+                      </div>
                     )}
-                    <NewSessionComposer
-                      prompt={newPrompt}
-                      promptSeed={newPromptSeed}
-                      inputRef={newPromptRef}
-                      creating={creatingRun}
-                      permissionMode={newRunPermissionMode}
-                      modelSelection={selectedModelSelection}
-                      modelOptions={modelOptions}
-                      slashCommands={slashCommands}
-                      disabled={providerGate.blocked}
-                      onPromptChange={setNewPrompt}
-                      onPermissionModeChange={setNewRunPermissionMode}
-                      onModelSelectionChange={setModelSelection}
-                      onSlashCommand={handleSlashCommand}
-                      onSubmit={createRunFromPrompt}
-                      onConnectProvider={connectBuilderProvider}
-                    />
-                    {(projects.length > 0 || canChooseProjectFolder) && (
-                      <ProjectFolderPicker
-                        variant="bar"
-                        projects={projects}
-                        selectedPath={selectedProjectPath}
-                        loading={loadingProjects}
-                        canChoose={canChooseProjectFolder}
-                        onSelect={selectProjectFolder}
-                        onChoose={chooseProjectFolder}
-                      />
-                    )}
-                    <div className="code-agents-suggestions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedGoalId("task");
-                          seedNewPrompt("Review the current changes");
-                        }}
-                      >
-                        Review the current changes
-                      </button>
-                    </div>
-                  </div>
+                  </>
                 )}
               </>
             )}
@@ -1653,6 +1675,59 @@ export default function CodeAgentsApp({
         )}
       </main>
     </section>
+  );
+}
+
+function AgentCapabilitySummary({
+  metadata,
+}: {
+  metadata: CodeAgentHostMetadata | null;
+}) {
+  const control = metadata?.computerControl;
+  const desktopReady = Boolean(
+    control?.available &&
+    control.desktop.accessibility &&
+    control.desktop.screenRecording === "granted",
+  );
+  const chromeReady = Boolean(
+    control?.available &&
+    control.browser.nativeHostInstalled &&
+    control.browser.extensionBundled &&
+    control.browser.connected,
+  );
+  return (
+    <div
+      className="code-agents-capabilities"
+      aria-label="Agent capabilities"
+      title="Auto can operate connected apps. Stop immediately releases task control."
+    >
+      <span className="code-agents-capability code-agents-capability--ready">
+        <IconCode size={13} strokeWidth={1.8} />
+        Code ready
+      </span>
+      <span
+        className={`code-agents-capability${chromeReady ? " code-agents-capability--ready" : ""}`}
+        title={
+          chromeReady
+            ? "The Chrome extension is connected and ready for this task."
+            : "Load the bundled Chrome extension to enable browser control."
+        }
+      >
+        <IconBrandChrome size={13} strokeWidth={1.8} />
+        {chromeReady ? "Chrome available" : "Chrome setup"}
+      </span>
+      <span
+        className={`code-agents-capability${desktopReady ? " code-agents-capability--ready" : ""}`}
+        title={
+          desktopReady
+            ? "Desktop Accessibility and Screen Recording permissions are ready."
+            : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
+        }
+      >
+        <IconDeviceDesktop size={13} strokeWidth={1.8} />
+        {desktopReady ? "Desktop ready" : "Desktop setup"}
+      </span>
+    </div>
   );
 }
 
@@ -1703,7 +1778,7 @@ function ProjectFolderPicker({
         >
           <SelectTrigger
             className="code-agents-project-select"
-            aria-label="Select coding folder"
+            aria-label="Select working folder"
           >
             <SelectValue
               placeholder={loading ? "Loading folders..." : "Choose folder"}
@@ -1853,41 +1928,7 @@ function CodeAgentComposer({
   onStop?: () => void;
   onConnectProvider?: () => void;
 }) {
-  const composerModelGroups = useMemo(
-    () => modelOptionsToComposerGroups(modelOptions),
-    [modelOptions],
-  );
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel = normalizedModel.model ?? "auto";
-  const selectedEngine = normalizedModel.engine ?? "auto";
-  const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "auto",
-  );
-
-  const handleModelChange = useCallback(
-    (model: string, engine: string) => {
-      if (engine === "auto" && model === "auto") {
-        onModelSelectionChange({ effort: selectedEffort });
-        return;
-      }
-      onModelSelectionChange({
-        engine,
-        model,
-        effort: selectedEffort,
-      });
-    },
-    [onModelSelectionChange, selectedEffort],
-  );
-
-  const handleEffortChange = useCallback(
-    (effort: CodeAgentReasoningEffort) => {
-      onModelSelectionChange({
-        ...normalizedModel,
-        effort: normalizeReasoningEffort(effort),
-      });
-    },
-    [normalizedModel, onModelSelectionChange],
-  );
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
@@ -1895,12 +1936,17 @@ function CodeAgentComposer({
     [],
   );
 
-  const modeControl = (
+  const advancedControls = (
     <div className="code-agents-composer-mode-slot">
       <RunModeSelect
         value={permissionMode}
         onChange={onPermissionModeChange}
         compact
+      />
+      <AgentAdvancedMenu
+        modelSelection={normalizedModel}
+        modelOptions={modelOptions}
+        onModelSelectionChange={onModelSelectionChange}
       />
     </div>
   );
@@ -1911,8 +1957,8 @@ function CodeAgentComposer({
         type="button"
         onClick={onStop}
         className="code-agents-composer-stop-button"
-        aria-label="Stop session"
-        title="Stop session (Esc)"
+        aria-label="Stop task"
+        title="Stop task (Esc)"
       >
         <IconPlayerStop size={14} strokeWidth={1.9} />
       </button>
@@ -1936,14 +1982,8 @@ function CodeAgentComposer({
         promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
       }
       initialTextKey={promptSeed}
-      toolbarSlot={modeControl}
+      toolbarSlot={advancedControls}
       actionButton={stopButton}
-      availableModels={composerModelGroups}
-      selectedModel={selectedModel}
-      selectedEngine={selectedEngine}
-      selectedEffort={selectedEffort}
-      onModelChange={handleModelChange}
-      onEffortChange={handleEffortChange}
       modelStatusChecksEnabled={false}
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
@@ -1963,51 +2003,6 @@ function CodeAgentComposer({
       onConnectProvider={onConnectProvider}
     />
   );
-}
-
-function modelOptionsToComposerGroups(models: CodeAgentModelOption[]): Array<{
-  engine: string;
-  label: string;
-  models: string[];
-  configured: boolean;
-}> {
-  const groups = new Map<
-    string,
-    {
-      engine: string;
-      label: string;
-      models: string[];
-      configured: boolean;
-    }
-  >();
-
-  for (const option of models) {
-    const label = providerLabelForModel(option);
-    const key = `${option.engine}:${label}`;
-    const configured = option.configured !== false;
-    const group = groups.get(key) ?? {
-      engine: option.engine,
-      label,
-      models: [],
-      configured,
-    };
-    if (!group.models.includes(option.model)) {
-      group.models.push(option.model);
-    }
-    group.configured = group.configured || configured;
-    groups.set(key, group);
-  }
-
-  return [...groups.values()];
-}
-
-function providerLabelForModel(option: CodeAgentModelOption): string {
-  const model = option.model.toLowerCase();
-  if (option.engine === "auto" || model === "auto") return option.engineLabel;
-  if (model.startsWith("claude-")) return "Anthropic";
-  if (model.startsWith("gpt-") || model.startsWith("o")) return "OpenAI";
-  if (model.startsWith("gemini-")) return "Gemini";
-  return option.engineLabel === "Builder.io" ? "More" : option.engineLabel;
 }
 
 function buildCodeAgentSlashCommands(
@@ -2437,7 +2432,7 @@ function buildSearchRunResults(
         {
           run,
           match: transcriptMatch ?? getSearchMatchSnippet(runText, tokens),
-          matchType: transcriptMatch ? "Transcript" : "Session",
+          matchType: transcriptMatch ? "Transcript" : "Task",
           rank: titleMatch ? 0 : sessionMatch ? 1 : 2,
         },
       ];
@@ -2694,7 +2689,7 @@ function RunRailItem({
             onKeyDown={handleRenameKeyDown}
             onBlur={commitRename}
             autoFocus
-            aria-label="Rename session"
+            aria-label="Rename task"
           />
         </div>
       ) : (
@@ -2735,8 +2730,8 @@ function RunRailItem({
               className={`code-agents-run-menu${
                 pinned ? " code-agents-run-menu--pinned" : ""
               }`}
-              aria-label="Session options"
-              title="Session options"
+              aria-label="Task options"
+              title="Task options"
             >
               {pinned ? (
                 <IconPinned size={13} strokeWidth={1.8} />
@@ -3065,8 +3060,8 @@ function MobileConnectorPanel({
         </p>
         <h2>Agent Native mobile</h2>
         <p>
-          Scan the QR code to open Sessions on your phone, then pair this Mac to
-          start and continue local Code work from mobile.
+          Scan the QR code to open tasks on your phone, then pair this Mac to
+          start and continue local Agent work from mobile.
         </p>
       </div>
 
@@ -3111,7 +3106,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile Sessions"
+              title="Open Agent Native mobile tasks"
               bgColor="#ffffff"
               fgColor="#111111"
             />
@@ -3261,11 +3256,11 @@ function RunDetailCard({
     return (
       <div className="code-agents-detail code-agents-detail--empty">
         <IconRoute size={30} strokeWidth={1.5} />
-        <h3>{selectedRunId ? "Session link ready" : "No session selected"}</h3>
+        <h3>{selectedRunId ? "Task link ready" : "No task selected"}</h3>
         <p>
           {selectedRunId
-            ? `Open ${goal.surfaceLabel} to load the linked slash-command session.`
-            : `Start ${goal.slashCommand} or select a session to review transcript events, artifacts, and follow-ups.`}
+            ? `Open ${goal.surfaceLabel} to load the linked task.`
+            : `Start ${goal.slashCommand} or select a task to review progress, outcomes, and follow-ups.`}
         </p>
         <button
           type="button"
@@ -3405,8 +3400,8 @@ function RunDetailCard({
           <div className="code-agents-approval-callout">
             <IconPlayerPlay size={16} strokeWidth={1.8} />
             <div>
-              <strong>Session paused</strong>
-              <span>Resume when you are ready for Code to continue.</span>
+              <strong>Task paused</strong>
+              <span>Resume when you are ready for Agent to continue.</span>
             </div>
             <button
               type="button"
@@ -3537,11 +3532,6 @@ function TranscriptPanel({
       hideCredentialMessages ? "hide" : "show",
     ].join(":");
   }, [events, hideCredentialMessages, run.id]);
-  const composerGroups = useMemo(
-    () => modelOptionsToComposerGroups(modelOptions),
-    [modelOptions],
-  );
-
   return (
     <div className="code-agents-transcript">
       {error && (
@@ -3572,31 +3562,22 @@ function TranscriptPanel({
           externalStreaming={runIsActive}
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
-            <CodeAgentChatComposerSlot
-              permissionMode={permissionMode}
-              onPermissionModeChange={onPermissionModeChange}
-            />
+            <div className="code-agents-chat-composer-slot">
+              <RunModeSelect
+                value={permissionMode}
+                onChange={onPermissionModeChange}
+                compact
+              />
+              <AgentAdvancedMenu
+                modelSelection={normalizedModel}
+                modelOptions={modelOptions}
+                onModelSelectionChange={onModelSelectionChange}
+              />
+            </div>
           }
           composerExtraActionButton={
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          availableModels={composerGroups}
-          onModelChange={(model, engine) => {
-            if (engine === "auto" && model === "auto") {
-              onModelSelectionChange({ effort: selectedEffort });
-              return;
-            }
-            onModelSelectionChange({ engine, model, effort: selectedEffort });
-          }}
-          onEffortChange={(effort) => {
-            onModelSelectionChange({
-              ...normalizedModel,
-              effort: normalizeReasoningEffort(effort),
-            });
-          }}
           onConnectProvider={onConnectProvider}
         />
       )}
@@ -3677,21 +3658,87 @@ function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
   );
 }
 
-function CodeAgentChatComposerSlot({
-  permissionMode,
-  onPermissionModeChange,
+function AgentAdvancedMenu({
+  modelSelection,
+  modelOptions,
+  onModelSelectionChange,
 }: {
-  permissionMode: CodeAgentPermissionMode;
-  onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
+  modelSelection: CodeAgentModelSelection;
+  modelOptions: CodeAgentModelOption[];
+  onModelSelectionChange: (value: CodeAgentModelSelection) => void;
 }) {
+  const selectedModel = modelSelection.model ?? "auto";
+  const selectedEngine = modelSelection.engine ?? "auto";
+  const selectedEffort = normalizeReasoningEffort(
+    modelSelection.effort ?? "auto",
+  );
+
   return (
-    <div className="code-agents-chat-composer-slot">
-      <RunModeSelect
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        compact
-      />
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="code-agents-composer-advanced-trigger"
+          aria-label="Advanced task settings"
+          title="Advanced task settings"
+        >
+          <IconSettings size={15} strokeWidth={1.8} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="code-agents-composer-advanced-menu"
+        align="start"
+        side="top"
+      >
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Model</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
+            {modelOptions.map((option) => (
+              <DropdownMenuCheckboxItem
+                key={`${option.engine}:${option.model}`}
+                checked={
+                  selectedEngine === option.engine &&
+                  selectedModel === option.model
+                }
+                disabled={option.configured === false}
+                onSelect={() =>
+                  onModelSelectionChange({
+                    engine: option.engine,
+                    model: option.model,
+                    effort: selectedEffort,
+                  })
+                }
+              >
+                {option.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <span>Reasoning</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
+            {CODE_AGENT_REASONING_EFFORTS.map((effort) => (
+              <DropdownMenuCheckboxItem
+                key={effort.id}
+                checked={selectedEffort === effort.id}
+                onSelect={() =>
+                  onModelSelectionChange({
+                    ...modelSelection,
+                    effort: effort.id,
+                  })
+                }
+              >
+                {effort.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -3701,8 +3748,8 @@ function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
       type="button"
       onClick={onStop}
       className="code-agents-composer-stop-button"
-      aria-label="Stop session"
-      title="Stop session (Esc)"
+      aria-label="Stop task"
+      title="Stop task (Esc)"
     >
       <IconPlayerStop size={14} strokeWidth={1.9} />
     </button>
@@ -3784,6 +3831,19 @@ function RunListSkeleton() {
       <div className="code-agents-run-skeleton" />
       <div className="code-agents-run-skeleton" />
     </>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div
+      className="code-agents-overview-skeleton"
+      role="status"
+      aria-label="Loading agent workspace"
+    >
+      <div className="code-agents-overview-skeleton__title" />
+      <div className="code-agents-overview-skeleton__composer" />
+    </div>
   );
 }
 
@@ -3870,7 +3930,7 @@ function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
 function getRunSubtitle(run: CodeAgentRun): string {
   if (run.subtitle) return run.subtitle;
   if (isMigrationRun(run)) return run.sourceRoot;
-  return run.goalId ? `${run.goalId} session` : "Agent-Native Code session";
+  return run.goalId ? `${run.goalId} task` : "Agent task";
 }
 
 function getRunDetails(
@@ -3997,7 +4057,7 @@ function cleanRunLabel(value: unknown): string | null {
 
 function formatRunSourceLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "local" || normalized === "code") return "Local Code";
+  if (normalized === "local" || normalized === "code") return "Local Agent";
   if (
     normalized === "agent-team" ||
     normalized === "agent-teams" ||

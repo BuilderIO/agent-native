@@ -141,8 +141,7 @@ pnpm install
 
 Definieren Sie dann den dauerhaften Betrieb:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -496,12 +495,11 @@ Halten Sie den Vertrag klein: Definieren Sie dauerhafte Operationen als actions,
 Widget-Ergebnisse, wenn der Chat umfangreiches UI benötigt, und Vollbildanzeigen nur hinzufügen, wenn Benutzer
 müssen persistente Objekte durchsuchen, vergleichen, konfigurieren oder zusammenarbeiten.
 
-## Verwandte Dokumente {#related-docs}
+## Wie geht es weiter? {#related-docs}
 
-- [Actions](/docs/actions) – Definieren Sie den Headless-Vorgang einmal.
-- [Native Chat-Oberfläche](/docs/native-chat-ui) – typisierte Aktionsergebnisse im Chat rendern.
-- [Drop-in Agent](/docs/drop-in-agent) – Chat-, Seitenleisten- oder Bedienfeldoberflächen bereitstellen.
-- [Component API](/docs/components) – React Chat-/Komponistenstücke auf niedrigerer Ebene.
-- [Embedding SDK](/docs/embedding-sdk) – Agent-Native zu einer vorhandenen App hinzufügen.
-- [External Agents](/docs/external-agents) – MCP-kompatible Hosts mit einer App verbinden.
-- [A2A Protocol](/docs/a2a-protocol) – Agenten von anderen Agenten anrufen.
+- [**Actions**](/docs/actions) – Definieren Sie den Vorgang einmal; jede Oberfläche oben ruft denselben auf
+- [**Native Chat-Oberfläche**](/docs/native-chat-ui) – Typisierte Aktionsergebnisse als Tabellen, Diagramme und Karten im Chat rendern
+- [**Generative UI**](/docs/generative-ui) – Temporäre oder persistierte Sandbox-UI direkt im Chat generieren
+- [**Automation-First Apps**](/docs/pure-agent-apps) – Das vollständige browserlose Muster für Jobs, Warteschlangen, Skripte und externe Agenten
+- [**External Agents**](/docs/external-agents) – MCP-kompatible Hosts mit einer App verbinden
+- [**A2A Protocol**](/docs/a2a-protocol) – Agenten aus anderen Agent-Native-Apps aufrufen

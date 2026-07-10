@@ -1,13 +1,13 @@
 ---
 title: "Compartir y privacidad"
-description: "Compartir al estilo Google Docs, integrado en el marco. Cada recurso creado por el usuario (documentos, paneles, diseños, presentaciones, clips, grabaciones, formularios) obtiene el mismo modelo privado de forma predeterminada con un recurso compartido constante UI."
+description: "Uso compartido familiar y coherente, integrado en el framework. Cada recurso creado por el usuario —documentos, paneles, diseños, presentaciones, clips, grabaciones y formularios— obtiene el mismo modelo privado de forma predeterminada con una interfaz de uso compartido coherente."
 ---
 
 # Compartir y privacidad
 
 Cada recurso que un usuario crea en una aplicación nativa del agente (un documento, un panel, un diseño, una presentación, una grabación de pantalla, una transcripción de una reunión, un formulario, un enlace de reserva) es **privado para el creador de forma predeterminada**. Otras personas solo lo ven cuando el creador lo comparte explícitamente o cambia su visibilidad a `org` o `public`.
 
-Se ve y funciona como Google Docs. El mismo botón para compartir, el mismo cuadro de diálogo, el mismo modelo de visibilidad de tres niveles, las mismas subvenciones por usuario/por organización, en todas las plantillas, sin reinvención por aplicación.
+Es un modelo de uso compartido familiar en todas partes: el mismo botón, el mismo cuadro de diálogo, el mismo modelo de visibilidad de tres niveles y las mismas concesiones por usuario y organización, en todas las plantillas y sin reinventarlo para cada aplicación.
 
 ## Por qué un modelo {#why}
 
@@ -92,7 +92,7 @@ Cada plantilla que almacena trabajos escritos por usuarios utiliza este modelo. 
 - **Contenido** — documentos
 - **Diapositivas**: presentaciones
 - **Diseño**: diseños y recursos
-- **Clips**: grabaciones de pantalla (estilo Loom)
+- **Clips**: grabaciones de pantalla
 - **Plan** — visual plans and PR recaps
 - **Formularios**: definiciones de formulario
 - **Calendario**: enlaces a eventos y reservas
@@ -115,7 +115,7 @@ Cada recurso que se puede compartir tiene un botón para compartir en su encabez
 
 - Selector de visibilidad (`Private` / `Organization` / `Public link`).
 - Autocompletar "Agregar personas o equipos": busque usuarios en la organización o pegue un correo electrónico.
-- Una casilla de verificación `Notificar people` al estilo de Google Docs para concesiones de correo electrónico individuales.
+- Una casilla de verificación `Notificar a las personas` para concesiones individuales por correo electrónico.
 - Una lista de concesiones actuales con selectores de roles y un control de eliminación.
 - Un botón de copiar-enlace que respeta la visibilidad actual.
 
@@ -270,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Una llamada de registro en `server/db/index.ts`:
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -315,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Compartir se basa en el modelo de alcance de datos más amplio del marco: el acceso de lista/lectura/escritura a tablas propias pasa por `accessFilter()` / `resolveAccess()` / `assertAccess()`, y los recursos etiquetados con `org_id` son invisibles en todas las organizaciones. Consulte [Security → Data Scoping](/docs/security#data-scoping) para conocer el proceso completo, la protección de CI y la superficie de amenazas.
 
-## Ver también {#see-also}
+## Qué sigue {#see-also}
 
-- [Security & Data Scoping](/docs/security): el filtro de acceso y el modelo de propiedad en el que se basa el uso compartido.
-- [Authentication](/docs/authentication): sesiones, organizaciones y cómo la identidad fluye en el contexto de la solicitud.
-- [Extensions](/docs/extensions#sharing): compartir en la superficie de la miniaplicación en espacio aislado.
-- [Creating Templates](/docs/creating-templates): conectar `ownableColumns` al esquema de una nueva plantilla.
+- [**Seguridad — Ámbito de datos**](/docs/security#data-scoping) — el modelo de filtro de acceso y propiedad en el que se basa el uso compartido
+- [**Autenticación**](/docs/authentication) — sesiones, organizaciones y cómo fluye la identidad al contexto de la solicitud
+- [**Extensiones**](/docs/extensions#sharing) — uso compartido en la superficie de miniaplicaciones aisladas
+- [**Creación de plantillas**](/docs/creating-templates) — conexión de `ownableColumns` al esquema de una plantilla nueva

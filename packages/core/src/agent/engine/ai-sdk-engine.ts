@@ -175,7 +175,8 @@ function googleThinkingBudget(effort: string) {
  */
 function gemini3ThinkingLevel(effort: string): string {
   if (effort === "low") return "low";
-  // medium/high/xhigh/max all map to the strongest available level for Gemini 3
+  if (effort === "medium") return "medium";
+  // high/xhigh/max map to the strongest available level for Gemini 3.
   return "high";
 }
 
@@ -309,12 +310,15 @@ class AISDKEngine implements AgentEngine {
     );
     if (reasoningEffort) {
       if (this.provider === "anthropic") {
+        const explicitThinking = (
+          providerOpts.anthropic as { thinking?: unknown } | undefined
+        )?.thinking;
         providerOpts.anthropic = {
           ...((providerOpts.anthropic as object) ?? {}),
-          thinking: (
-            providerOpts.anthropic as { thinking?: unknown } | undefined
-          )?.thinking ?? { type: "adaptive" },
-          outputConfig: { effort: reasoningEffort },
+          thinking: explicitThinking ?? { type: "adaptive" },
+          ...(explicitThinking
+            ? {}
+            : { outputConfig: { effort: reasoningEffort } }),
         };
       } else if (this.provider === "openai") {
         providerOpts.openai = {

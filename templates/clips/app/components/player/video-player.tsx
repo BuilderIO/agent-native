@@ -47,6 +47,10 @@ import { cn } from "@/lib/utils";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
+import {
+  PlaybackCommentOverlay,
+  type PlaybackComment,
+} from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
@@ -168,7 +172,7 @@ export interface VideoPlayerProps {
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
   editsJson?: string | null;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: PlaybackComment[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
   transcriptSegments?: { startMs: number; endMs: number; text: string }[];
@@ -1416,6 +1420,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         hasPlaybackStarted &&
         currentSegment ? (
           <CaptionsOverlay text={currentSegment.text} />
+        ) : null}
+
+        {/* Timestamped comments */}
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+          <PlaybackCommentOverlay comments={comments} currentMs={currentMs} />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}

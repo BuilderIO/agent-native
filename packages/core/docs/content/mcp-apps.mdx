@@ -5,7 +5,7 @@ description: "Author and embed interactive MCP App UIs inside Claude, ChatGPT, a
 
 # MCP Apps
 
-**This page: inline UIs in Claude/ChatGPT.** Authoring MCP App resources and the embed bridge that renders a real app route inside a compatible host's chat. This page is also the single home for the **client support matrix** ([below](#client-support)).
+**This page: inline UIs in Claude/ChatGPT.** Authoring MCP App resources and the embed bridge that renders a real app route inside a compatible host's chat. This page is also the single home for the **host support matrix** ([below](#client-support)).
 
 | If you want to…                                              | Read                                     |
 | ------------------------------------------------------------ | ---------------------------------------- |
@@ -13,7 +13,7 @@ description: "Author and embed interactive MCP App UIs inside Claude, ChatGPT, a
 | Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)         |
 | Build inline UIs that render in Claude/ChatGPT               | **This page** — MCP Apps                 |
 | Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui)     |
-| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol)       |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Server](/docs/mcp-protocol)         |
 
 MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compatible hosts — Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam, and Cursor — render interactive UIs inline in chat. In agent-native apps, every MCP App is a **real React route**, not a separate plain-HTML widget.
 
@@ -95,22 +95,6 @@ Do not hand-write one-off plain HTML MCP Apps for product UI; if the action need
 
 </Diagram>
 
-```ts
-import { embedApp } from "@agent-native/core";
-
-export default defineAction({
-  // ...description, schema, run, link...
-  mcpApp: {
-    resource: embedApp({
-      title: "Review draft",
-      description: "Open the generated draft in the real Mail compose UI.",
-      iframeTitle: "Agent-Native Mail",
-      openLabel: "Open in Mail",
-    }),
-  },
-});
-```
-
 <AnnotatedCode
   id="doc-block-exq36i"
   title="The mcpApp resource config"
@@ -159,7 +143,7 @@ MCP App embeds are route embeds, not separate mini-products. `embedApp()` starts
       <strong>Claude web</strong
       ><span class="diagram-pill accent">single-frame transplant</span
       ><small class="diagram-muted"
-        >hydrates signed app HTML in Claude's iframe, then direct`ui/_` host
+        >hydrates signed app HTML in Claude's iframe, then direct `ui/*` host
         bridge</small
       >
     </div>
@@ -167,7 +151,7 @@ MCP App embeds are route embeds, not separate mini-products. `embedApp()` starts
       <strong>ChatGPT web</strong
       ><span class="diagram-pill accent">controlled route iframe</span
       ><small class="diagram-muted"
-        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        >`window.openai` host APIs · `agentNative.mcpHost.*` postMessage
         relay</small
       >
     </div>
@@ -214,19 +198,17 @@ MCP App embeds are route embeds, not separate mini-products. `embedApp()` starts
 
 Claude web uses a single-frame transplant path: the resource document fetches the signed app HTML and hydrates it inside Claude's MCP App iframe because Claude does not reliably allow app-owned child iframes or external frame navigation. ChatGPT web gets a controlled route iframe because its Apps bridge gives us stable `window.openai` host APIs and bounded height control. All paths point at the same signed app route and render the normal route and React components. Design embedded routes so a reload with the same signed URL reconstructs the same view.
 
-For same-app `open_app({ embed: true })`, the framework mints the embed-start ticket during the original tool call and stores the signed start URL in hidden tool metadata. Custom actions can return `embedStartUrl` for the same fast path; the MCP layer strips that ticket-bearing URL from model-visible `structuredContent` and normal open-link metadata. When no embed start URL is present, the resource falls back to the app-only `create_embed_session` helper. This keeps production hosts that restrict iframe-initiated tool calls on the direct route without leaking one-time app session URLs into the transcript. If a user reopens an old chat after a one-time start ticket has expired, the start route returns a small refresh page and posts `agentNative.embedSessionExpired` to the wrapper; `embedApp()` clears the stale start URL and mints a fresh ticket through `create_embed_session` when it still has the original app route.
+A few bridge mechanics worth knowing:
 
-ChatGPT gets a dedicated compatibility path through `window.openai`: the launch document reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly, then calls `create_embed_session` via `window.openai.callTool(...)`. Standard MCP Apps hosts use the `ui/*` JSON-RPC bridge. Directly hydrated routes can call `ui/update-model-context`, `ui/message`, `ui/open-link`, and `ui/request-display-mode` through the host bridge helpers. Claude's transplanted route uses the same direct `ui/*` host bridge after hydration. When the ChatGPT or explicit diagnostic iframe path is used, the wrapper relays the same host actions over `agentNative.mcpHost.*` postMessage requests. Keep the result shape identical for both paths: return a focused `link` and concise structured content.
-
-Do not set standard `_meta.ui.domain` to an app URL. MCP Apps treats that field as host-specific: Claude validates `{hash}.claudemcpcontent.com`-style sandbox domains, while ChatGPT uses its own `openai/widgetDomain` metadata. Omit `ui.domain` unless you are deliberately emitting a host-specific value; the host will choose a default sandbox origin.
-
-Extension pages keep their sandbox in MCP chat embeds without navigating a second route iframe. Normal app usage renders `/_agent-native/extensions/:id/render` as a sandboxed child iframe. In MCP chat bridge mode the framework renders the same extension document as sandboxed `srcDoc` inside the route iframe, avoiding host `frame-ancestors` / `X-Frame-Options` failures while preserving `sandbox="allow-scripts allow-forms"`.
-
-The resource shell owns the outer host size. `embedApp({ height })` defaults to `560px`, clamps the shell to `320-900px`, and reserves `44px` for the small toolbar, so the route viewport is `height - 44px`. Keep embedded app routes internally scrollable and let the launcher report that bounded intrinsic height rather than the full document height; otherwise host auto-resize can turn a normal app page into a very tall chat artifact. A changed shell only affects new MCP App resources and new tool calls. Old ChatGPT/Claude conversation frames can keep the previous resource behavior, so verify sizing with a fresh inline render before judging a fix.
+- **Embed-start tickets are reused, not re-minted, when possible.** For same-app `open_app({ embed: true })`, the framework mints the embed-start ticket during the original tool call and stores the signed start URL in hidden tool metadata. Custom actions can return `embedStartUrl` for the same fast path; the MCP layer strips that ticket-bearing URL from model-visible `structuredContent` and normal open-link metadata. When no embed start URL is present, the resource falls back to the app-only `create_embed_session` helper — this keeps production hosts that restrict iframe-initiated tool calls on the direct route without leaking one-time app session URLs into the transcript. If a user reopens an old chat after a one-time start ticket has expired, the start route returns a small refresh page and posts `agentNative.embedSessionExpired` to the wrapper; `embedApp()` clears the stale start URL and mints a fresh ticket through `create_embed_session` when it still has the original app route.
+- **ChatGPT's compatibility path** reads `toolInput`, `toolOutput`, and `toolResponseMetadata` directly through `window.openai`, then calls `create_embed_session` via `window.openai.callTool(...)`. Standard MCP Apps hosts use the `ui/*` JSON-RPC bridge instead — directly hydrated routes call `ui/update-model-context`, `ui/message`, `ui/open-link`, and `ui/request-display-mode` through the host bridge helpers, and Claude's transplanted route uses that same direct `ui/*` bridge after hydration. When the ChatGPT or explicit diagnostic iframe path is used, the wrapper relays the same host actions over `agentNative.mcpHost.*` postMessage requests instead. Keep the result shape identical for both paths: return a focused `link` and concise structured content.
+- **Don't set standard `_meta.ui.domain` to an app URL.** MCP Apps treats that field as host-specific: Claude validates `{hash}.claudemcpcontent.com`-style sandbox domains, while ChatGPT uses its own `openai/widgetDomain` metadata. Omit `ui.domain` unless you are deliberately emitting a host-specific value; the host will choose a default sandbox origin.
+- **Extension pages keep their sandbox** in MCP chat embeds without navigating a second route iframe. Normal app usage renders `/_agent-native/extensions/:id/render` as a sandboxed child iframe; in MCP chat bridge mode the framework renders the same extension document as sandboxed `srcDoc` inside the route iframe, avoiding host `frame-ancestors` / `X-Frame-Options` failures while preserving `sandbox="allow-scripts allow-forms"`.
+- **The resource shell owns the outer host size.** `embedApp({ height })` defaults to `560px`, clamps the shell to `320-900px`, and reserves `44px` for the small toolbar, so the route viewport is `height - 44px`. Keep embedded app routes internally scrollable and let the launcher report that bounded intrinsic height rather than the full document height — otherwise host auto-resize can turn a normal app page into a very tall chat artifact. A changed shell only affects new MCP App resources and new tool calls; old ChatGPT/Claude conversation frames can keep the previous resource behavior, so verify sizing with a fresh inline render before judging a fix.
 
 ### Embed modes {#embed-modes}
 
-Claude uses the single-frame transplant path by default. You can also force it in other hosts with `embedMode: "transplant"` or `frame: "transplant"` when debugging host module-loading behavior. You can force the nested diagnostic iframe with `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, or `frame: "iframe"`. If the iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user can retry inline, open a freshly minted embed session through the host, or use the visible route URL. Keep the action's `link` target useful on its own because it is still the universal escape hatch.
+Claude uses the single-frame transplant path by default. You can also force it in other hosts with `embedMode: "transplant"` when debugging host module-loading behavior, or force the nested diagnostic iframe with `embedMode: "iframe"`. `embedMode` is the canonical option name; `renderMode`, `frame`, and `nested: true` (for the iframe case) are recognized aliases kept for compatibility — prefer `embedMode` in new code. If the iframe is blocked, `embedApp()` replaces it with an open-app fallback: the user can retry inline, open a freshly minted embed session through the host, or use the visible route URL. Keep the action's `link` target useful on its own because it is still the universal escape hatch.
 
 When testing Claude through ngrok, use a production build (`npx @agent-native/core@latest build` then `npx @agent-native/core@latest start`) or a deployed preview/production URL. Claude's single-frame transplant path works with production asset chunks; raw Vite dev modules such as `/app/root.tsx` can be protected by app auth and fail dynamic imports from the Claude resource origin.
 
@@ -249,7 +231,7 @@ Embedded routes can use `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `r
 
 Display mode is best-effort. The in-app `McpAppRenderer` currently reports an inline web host context and an inline-only display mode; external hosts may honor larger display requests, ignore them, or reply with an unsupported-mode error. Always keep the inline route usable.
 
-## Client support and caching {#client-support}
+## Host support and caching {#client-support}
 
 The current official MCP Apps client list includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support still varies by plan, release channel, and client version, so check the [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). ChatGPT custom MCP apps are available through developer mode for Business and Enterprise/Edu workspaces on ChatGPT web; see OpenAI's [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) notes.
 
@@ -261,9 +243,9 @@ Claude and ChatGPT can cache tool and resource metadata for an existing custom c
 
 Test MCP Apps with the lightweight fixtures around `embedApp()` and `McpAppRenderer`; they cover CSP, host context, app launch, and bridge message behavior without needing a real external host. When validating ChatGPT or Claude web, trigger a fresh tool call after shell changes and measure the visible iframe. Previously rendered frames in the same conversation may still show cached height or launch behavior.
 
-## Related {#related}
+## What's next {#whats-next}
 
 - [External Agents](/docs/external-agents) — connecting Claude, ChatGPT, Codex, and Cursor to hosted apps; MCP Apps compatibility matrix; catalog tiers; deep links.
-- [MCP Protocol](/docs/mcp-protocol) — the auto-mounted MCP server, auth, tools, and `ask-agent`.
+- [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server, auth, tools, and `ask-agent`.
 - [Actions](/docs/actions) — `defineAction`, the `link` builder, `publicAgent`.
 - [Generative UI](/docs/generative-ui) — generated inline UI inside the app's own chat.

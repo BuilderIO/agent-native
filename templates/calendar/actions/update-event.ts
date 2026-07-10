@@ -246,10 +246,10 @@ export default defineAction({
 
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
-      existingEvent ??= await googleCalendar.getEvent(
-        googleEventId,
+      existingEvent ??= await googleCalendar.getEvent(googleEventId, {
+        ownerEmail,
         accountEmail,
-      );
+      });
       return existingEvent;
     };
 
@@ -297,6 +297,7 @@ export default defineAction({
     }
 
     const result = await googleCalendar.updateEvent(googleEventId, updates, {
+      account: { ownerEmail, accountEmail },
       sendUpdates:
         args.sendUpdates ??
         (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
