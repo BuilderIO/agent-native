@@ -163,7 +163,7 @@ interface SandboxRunResult {
 }
 ```
 
-## The default: `LocalChildProcessAdapter` {#default}
+### The default: `LocalChildProcessAdapter` {#default}
 
 Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "local-child-process"`). It preserves the historical `run-code` behavior byte-for-byte:
 
@@ -173,10 +173,13 @@ Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "
 - A timeout sends `SIGTERM`, then `SIGKILL` after a 2s grace period.
 - Temp files are cleaned up best-effort after the run.
 
-> [!WARNING]
-> The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes. Run `run-code` in a standard Node.js environment, or register a remote adapter — see [Edge and serverless](#edge-serverless).
+<Callout id="doc-block-adap1def" tone="warning">
 
-## Selecting an adapter {#selection}
+The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes. Run `run-code` in a standard Node.js environment, or register a remote adapter — see [Edge and serverless](#edge-serverless).
+
+</Callout>
+
+### Selecting an adapter {#selection}
 
 Resolution order — an explicitly registered adapter wins; otherwise the env var selects a built-in; otherwise the local default is used:
 
@@ -184,7 +187,7 @@ Resolution order — an explicitly registered adapter wins; otherwise the env va
 registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 ```
 
-### `AGENT_NATIVE_SANDBOX` env var {#env}
+#### `AGENT_NATIVE_SANDBOX` env var {#env}
 
 Selects a built-in adapter by id. Currently only `local` (the default) is wired; unknown values fall back to local rather than failing the run.
 
@@ -192,7 +195,7 @@ Selects a built-in adapter by id. Currently only `local` (the default) is wired;
 AGENT_NATIVE_SANDBOX=local   # the default — explicit
 ```
 
-### `registerSandboxAdapter()` {#register}
+#### `registerSandboxAdapter()` {#register}
 
 A host process overrides the backend for all subsequent `run-code` invocations through the seam's `index.ts` — for example, to run every call in a remote container:
 
@@ -214,7 +217,7 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 // Pass `null` to clear the override and fall back to env-var / default resolution.
 ```
 
-## The seam for a durable runner {#durable}
+### The seam for a durable runner {#durable}
 
 This interface is deliberately the seam for a future remote/durable sandbox. A remote or durable adapter (Docker, a Vercel-Sandbox-style runner, or a queued background worker) would:
 
