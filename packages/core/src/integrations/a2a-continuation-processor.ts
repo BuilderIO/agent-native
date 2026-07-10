@@ -398,8 +398,14 @@ async function deliverA2AContinuationResponse(
       agent: continuation.agentName,
       status,
     });
-    await progress.complete(message);
-    return;
+    try {
+      await progress.complete(message);
+      return;
+    } catch {
+      // A resumed Slack stream can no longer be finalized (for example when
+      // chat.stopStream rejects). Preserve the final answer with the same
+      // thread reply fallback used by the initial webhook run.
+    }
   }
   await adapter.sendResponse(message, continuation.incoming, {
     placeholderRef: continuation.placeholderRef ?? undefined,

@@ -265,6 +265,48 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
+  it("falls back to a thread reply when finalizing a resumed Slack stream fails", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => {
+      throw new Error("chat.stopStream rejected");
+    });
+    const resumedAdapter = adapter(sendResponse);
+    resumedAdapter.resumeRunProgress = vi.fn(async () => ({
+      ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      onEvent: vi.fn(async () => undefined),
+      complete,
+    }));
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", resumedAdapter]]),
+    });
+
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "https://slides.agent-native.test/deck/deck-qa",
+      }),
+    );
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "https://slides.agent-native.test/deck/deck-qa",
+      }),
+      expect.objectContaining({ platform: "slack" }),
+      { placeholderRef: undefined },
+    );
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
   it("expands relative URLs against the agent public base, not the A2A endpoint", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(
