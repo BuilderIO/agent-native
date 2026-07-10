@@ -366,7 +366,9 @@ describe("integration webhook handler", () => {
 
   it("returns the deferred acknowledgement when beforeProcess handles the interaction", async () => {
     const incoming = createIncoming(1007);
-    incoming.responseContext = { interactionToken: "interaction-token-example" };
+    incoming.responseContext = {
+      interactionToken: "interaction-token-example",
+    };
     const adapter = {
       ...createAdapter(),
       capabilities: { deferredWebhookResponse: true },

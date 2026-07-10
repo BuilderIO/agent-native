@@ -176,10 +176,11 @@ describe("telegramAdapter getStatus", () => {
     process.env.TELEGRAM_BOT_TOKEN = "123:abc";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({ ok: true, result: { username: "example_bot" } }),
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, result: { username: "example_bot" } }),
+          ),
       ),
     );
 

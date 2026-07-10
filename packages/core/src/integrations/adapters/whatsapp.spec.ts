@@ -95,9 +95,7 @@ describe("whatsappAdapter parseIncomingMessage", () => {
       from: "15551234567",
       timestamp: "1700000000",
     });
-    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual([
-      "15551234567",
-    ]);
+    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual(["15551234567"]);
   });
 
   it("returns null for malformed JSON", async () => {

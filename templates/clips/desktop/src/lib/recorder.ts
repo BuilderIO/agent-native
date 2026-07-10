@@ -3378,9 +3378,6 @@ async function startRecordingInner(
       } catch (err) {
         console.error("[clips-recorder] openExternal failed:", err);
       }
-      invoke("hide_finalizing").catch((err) =>
-        console.error("[clips-recorder] hide_finalizing failed:", err),
-      );
       await recorderStopped;
       // Recorder has fully stopped and flushed its trailing chunk — this is the
       // true end of recorded content. Everything after (transcript, thumbnail,
@@ -3498,7 +3495,6 @@ async function startRecordingInner(
       await invoke("hide_recording_chrome").catch((err) =>
         console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
       );
-      await invoke("set_recording_state", { active: false }).catch(() => {});
 
       // Wait for any in-flight chunk uploads to settle before sending the
       // final chunk. Otherwise the server could finalize before the last

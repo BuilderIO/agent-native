@@ -602,16 +602,14 @@ describe("integration webhook handler engine resolution", () => {
         },
       }),
     });
-    getThreadMappingMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        platform: "telegram",
-        externalThreadId: "555",
-        internalThreadId: "thread-existing",
-        platformContext: { chatId: 555 },
-        createdAt: 1,
-        updatedAt: 2,
-      });
+    getThreadMappingMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      platform: "telegram",
+      externalThreadId: "555",
+      internalThreadId: "thread-existing",
+      platformContext: { chatId: 555 },
+      createdAt: 1,
+      updatedAt: 2,
+    });
     const adapter = {
       ...createAdapter(),
       platform: "telegram",
