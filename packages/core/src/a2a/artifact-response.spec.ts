@@ -534,6 +534,141 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("allows a Content URL proven by a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("allows database and row page URLs returned by get-content-database", () => {
+    const text = appendA2AArtifactLinks(
+      [
+        "Database: https://content.agent-native.com/page/database_doc",
+        "Row: https://content.agent-native.com/page/request_doc",
+      ].join("\n"),
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "Database: https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain(
+      "Row: https://content.agent-native.com/page/request_doc",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("does not treat an unavailable get-content-database result as document proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Database: https://content.agent-native.com/page/database_missing",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            available: false,
+            reason: "not_found",
+            databaseId: "database_123",
+            documentId: "database_missing",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("database_missing");
+  });
+
+  it("allows a canonical document URL paired with its ID by a generic read action", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("does not let a generic read result prove a mismatched document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_real",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
+  });
+
+  it("does not let a generic write result prove a document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "publish-unrelated-resource",
+          result: JSON.stringify({
+            documentId: "doc_fake",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
+  });
+
   it("allows artifact URLs proven by a downstream call-agent artifact block", () => {
     const text = appendA2AArtifactLinks(
       [
