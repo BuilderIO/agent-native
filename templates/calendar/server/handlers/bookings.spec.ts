@@ -238,4 +238,24 @@ describe("booking calendar account provenance", () => {
       "alice@example.com",
     );
   });
+
+  it("prefers a resolved booking-link host over a legacy owner placeholder", async () => {
+    vi.mocked(googleCalendar.getDefaultAccountSelection).mockResolvedValue({
+      ownerEmail: "alice@example.com",
+      accountEmail: "primary@example.com",
+    });
+
+    await resolveBookingCalendarAccount({
+      booking: {
+        slug: "alice-meeting",
+        ownerEmail: "local@localhost",
+        calendarAccountId: null,
+      },
+      hostEmail: "alice@example.com",
+    });
+
+    expect(googleCalendar.getDefaultAccountSelection).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
+  });
 });

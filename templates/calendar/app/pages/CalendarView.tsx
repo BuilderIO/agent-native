@@ -1343,7 +1343,7 @@ export default function CalendarView() {
   );
 
   const handleQuickEditCancel = useCallback(
-    (eventId: string) => {
+    (eventId: string, accountEmail?: string) => {
       setQuickEditEventId(null);
       if (calendarDraftIdFromEventId(eventId)) {
         discardDraftEvent(eventId);
@@ -1361,7 +1361,8 @@ export default function CalendarView() {
           buildDeleteEventMutationInput(
             {
               id: eventId,
-              accountEmail: ev?.accountEmail ?? defaultAccountEmail,
+              accountEmail:
+                ev?.accountEmail ?? accountEmail ?? defaultAccountEmail,
             },
             {
               scope: "single",

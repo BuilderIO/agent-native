@@ -60,7 +60,7 @@ interface WeekViewProps {
     title: string,
     accountEmail?: string,
   ) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -290,7 +290,7 @@ interface WeekEventCardProps {
     title: string,
     accountEmail?: string,
   ) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: WeekViewProps["onDraftUpdate"];
   onDraftCreate?: WeekViewProps["onDraftCreate"];
   onDraftDiscard?: WeekViewProps["onDraftDiscard"];

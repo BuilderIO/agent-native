@@ -462,7 +462,7 @@ interface EventDetailPopoverProps {
   /** Called when the title is changed and should be persisted */
   onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
-  onDismissNew?: (eventId: string) => void;
+  onDismissNew?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {
@@ -1269,7 +1269,7 @@ export function EventDetailPopover({
           (!trimmedTitle || trimmedTitle === "(No title)") &&
           onDismissNew
         ) {
-          onDismissNew(event.id);
+          onDismissNew(event.id, event.accountEmail);
         }
 
         setEditingField(null);

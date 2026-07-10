@@ -109,8 +109,8 @@ export async function resolveBookingCalendarAccount({
   hostEmail?: string;
 }) {
   const ownerEmail =
-    booking.ownerEmail ||
     hostEmail ||
+    booking.ownerEmail ||
     (await getBookingLinkOwnerEmail(booking.slug));
   if (!ownerEmail) return;
 

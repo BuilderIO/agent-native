@@ -55,7 +55,7 @@ interface DayViewProps {
     title: string,
     accountEmail?: string,
   ) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -219,7 +219,7 @@ interface DayEventCardProps {
     title: string,
     accountEmail?: string,
   ) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   onDraftUpdate?: DayViewProps["onDraftUpdate"];
   onDraftCreate?: DayViewProps["onDraftCreate"];
   onDraftDiscard?: DayViewProps["onDraftDiscard"];
