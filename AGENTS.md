@@ -71,6 +71,12 @@ step is still pending. Use `🔴` only when blocked on user input.
   have a safe way to call it directly through the provider API substrate. If an
   app stores provider credentials on resource/share rows, add a scoped resolver
   that preserves those access checks before exposing raw provider requests.
+- Treat Clay as a credentialed GTM provider API, not as a messaging channel.
+  Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
+  the optional local Clay CLI/MCP plugin has a separate browser-login session
+  and must not be required, auto-installed, or vendored by default. Its public
+  repository currently declares no license. Use n8n and Zapier as
+  automation/workflow or remote MCP connections rather than provider presets.
 - For composable workspace workflows, prefer many focused headless or small-UI
   mini-apps that discover and call each other over A2A instead of one oversized
   app. Pass artifact ids, URLs, and bounded summaries between apps instead of

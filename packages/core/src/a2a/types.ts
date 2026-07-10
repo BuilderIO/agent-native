@@ -158,4 +158,6 @@ export interface A2AConfig {
   handler?: A2AHandler;
   apiKeyEnv?: string;
   streaming?: boolean;
+  /** Route async A2A work through the app's durable background worker when available. */
+  durableBackgroundRuns?: boolean;
 }

@@ -49,7 +49,7 @@ describe("slackAdapter", () => {
       slackAdapter().parseIncomingMessage(slackEvent({ team_id: "T999" })),
     ).rejects.toMatchObject({
       statusCode: 401,
-      statusMessage: "Slack workspace allowlist is not configured",
+      statusMessage: "Slack workspace is not connected",
     });
   });
 
@@ -61,7 +61,7 @@ describe("slackAdapter", () => {
       slackAdapter().parseIncomingMessage(slackEvent({ team_id: "T999" })),
     ).rejects.toMatchObject({
       statusCode: 401,
-      statusMessage: "Slack workspace allowlist is not configured",
+      statusMessage: "Slack workspace is not connected",
     });
   });
 
@@ -75,13 +75,521 @@ describe("slackAdapter", () => {
 
     expect(parsed).toMatchObject({
       platform: "slack",
-      externalThreadId: "C123:123.456",
+      externalThreadId: "A123:T999:C123:123.456",
       text: "ship it",
       senderId: "U123",
     });
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("SLACK_ALLOWED_TEAM_IDS not set"),
     );
+  });
+
+  it("uses workspace and app ids in the canonical thread key", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const first = await slackAdapter().parseIncomingMessage(
+      slackEvent({ team_id: "T111", api_app_id: "A111" }),
+    );
+    const second = await slackAdapter().parseIncomingMessage(
+      slackEvent({ team_id: "T222", api_app_id: "A111" }),
+    );
+
+    expect(first?.externalThreadId).toBe("A111:T111:C123:123.456");
+    expect(second?.externalThreadId).toBe("A111:T222:C123:123.456");
+    expect(first?.externalThreadId).not.toBe(second?.externalThreadId);
+  });
+
+  it("ignores ambient channel messages and inactive thread replies", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const isThreadActive = vi.fn(async () => false);
+    const adapter = slackAdapter({ isThreadActive });
+
+    await expect(
+      adapter.parseIncomingMessage(
+        slackEvent({
+          event: {
+            type: "message",
+            channel: "C123",
+            channel_type: "channel",
+            user: "U123",
+            text: "ambient chatter",
+            ts: "123.456",
+          },
+        }),
+      ),
+    ).resolves.toBeNull();
+    expect(isThreadActive).not.toHaveBeenCalled();
+
+    await expect(
+      adapter.parseIncomingMessage(
+        slackEvent({
+          event: {
+            type: "message",
+            channel: "C123",
+            channel_type: "channel",
+            user: "U123",
+            text: "steer the active task",
+            thread_ts: "111.222",
+            ts: "123.456",
+          },
+        }),
+      ),
+    ).resolves.toBeNull();
+    expect(isThreadActive).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: "A123:T123:C123:111.222",
+        triggerKind: "thread_reply",
+      }),
+    );
+  });
+
+  it("accepts ordinary replies only for an active workspace-qualified thread", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const isThreadActive = vi.fn(async () => true);
+
+    const parsed = await slackAdapter({ isThreadActive }).parseIncomingMessage(
+      slackEvent({
+        event: {
+          type: "message",
+          channel: "C123",
+          channel_type: "channel",
+          user: "U123",
+          text: "change the output format",
+          thread_ts: "111.222",
+          ts: "123.456",
+        },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "change the output format",
+      triggerKind: "thread_reply",
+      threadRef: "111.222",
+      replyRef: "123.456",
+    });
+  });
+
+  it("accepts Agent View direct messages and preserves same-workspace app context", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({
+        event: {
+          type: "message",
+          channel: "D123",
+          channel_type: "im",
+          user: "U123",
+          text: "summarize what I am viewing",
+          ts: "123.456",
+          app_context: {
+            entities: [
+              {
+                type: "slack#/types/channel_id",
+                value: "C999",
+                team_id: "T123",
+              },
+              {
+                type: "slack#/types/channel_id",
+                value: "COTHER",
+                team_id: "T999",
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      externalThreadId: "A123:T123:D123:123.456",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        activeContextChannelId: "C999",
+        agentContext: [
+          {
+            type: "slack#/types/channel_id",
+            value: "C999",
+            teamId: "T123",
+          },
+        ],
+      },
+    });
+  });
+
+  it("preserves Slack's canonical permalink for the source thread", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const parsed = new URL(String(url));
+        expect(parsed.pathname).toBe("/api/chat.getPermalink");
+        expect(parsed.searchParams.get("channel")).toBe("C123");
+        expect(parsed.searchParams.get("message_ts")).toBe("111.222");
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              permalink:
+                "https://example-workspace.slack.com/archives/C123/p111222?thread_ts=111.222&cid=C123",
+            }),
+          ),
+        );
+      }),
+    );
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({
+        event: {
+          type: "app_mention",
+          channel: "C123",
+          user: "U123",
+          text: "<@BOT> add this design ask",
+          thread_ts: "111.222",
+          ts: "123.456",
+        },
+      }),
+    );
+
+    expect(parsed?.sourceUrl).toBe(
+      "https://example-workspace.slack.com/archives/C123/p111222?thread_ts=111.222&cid=C123",
+    );
+    expect(parsed?.platformContext.threadPermalink).toBe(parsed?.sourceUrl);
+  });
+
+  it("ignores non-Slack permalink responses", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              permalink: "https://example.invalid/archives/C123/p123456",
+            }),
+          ),
+      ),
+    );
+
+    const parsed = await slackAdapter().parseIncomingMessage(slackEvent());
+
+    expect(parsed?.sourceUrl).toBeUndefined();
+    expect(parsed?.platformContext.threadPermalink).toBeUndefined();
+  });
+
+  it("uses the exact managed installation token instead of the legacy env token", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "legacy-token";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    const resolveBotToken = vi.fn(async () => "managed-token");
+    const authorizations: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const authorization = new Headers(init?.headers).get("authorization");
+        if (authorization) authorizations.push(authorization);
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+
+    const parsed = await slackAdapter({ resolveBotToken }).parseIncomingMessage(
+      slackEvent(),
+    );
+    await slackAdapter({ resolveBotToken }).sendResponse(
+      { text: "done", platformContext: {} },
+      parsed!,
+    );
+
+    expect(resolveBotToken).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: "T123" }),
+    );
+    expect(authorizations).toContain("Bearer managed-token");
+    expect(authorizations).not.toContain("Bearer legacy-token");
+  });
+
+  it("hydrates bounded thread context, reactions, file references, and trust", async () => {
+    const calls: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        calls.push(parsed);
+        if (parsed.pathname.endsWith("/conversations.replies")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              messages: Array.from({ length: 20 }, (_, index) => ({
+                user: `U${index}`,
+                text: `${index}:${"x".repeat(2_100)}`,
+                ts: `${100 + index}.000`,
+                reactions: [{ name: "eyes", count: index + 1 }],
+                files:
+                  index === 19
+                    ? [
+                        {
+                          id: "F123",
+                          name: "brief.pdf",
+                          mimetype: "application/pdf",
+                          size: 42,
+                          permalink: "https://example.slack.com/files/F123",
+                          url_private_download:
+                            "https://files.slack.com/files-pri/F123/download",
+                        },
+                      ]
+                    : [],
+              })),
+            }),
+          );
+        }
+        if (parsed.pathname.endsWith("/conversations.info")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              channel: {
+                name: "launch-room",
+                is_private: true,
+                is_ext_shared: true,
+              },
+            }),
+          );
+        }
+        if (parsed.pathname.endsWith("/users.info")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              user: {
+                is_restricted: true,
+                profile: {
+                  display_name: "Workspace guest",
+                  email: "guest@example.com",
+                },
+              },
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: false }));
+      }),
+    );
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    });
+
+    const hydrated = await adapter.hydrateIncomingMessage?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "summarize",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    const repliesCall = calls.find((call) =>
+      call.pathname.endsWith("/conversations.replies"),
+    );
+    expect(repliesCall?.searchParams.get("limit")).toBe("15");
+    expect(hydrated).toMatchObject({
+      senderName: "Workspace guest",
+      senderEmail: "guest@example.com",
+      senderVerified: true,
+      conversationType: "private_channel",
+      actorTrust: { memberType: "guest", verified: true },
+      platformContext: {
+        channelName: "launch-room",
+        isExternalShared: true,
+      },
+    });
+    expect(hydrated?.contextMessages).toHaveLength(15);
+    expect(hydrated?.contextMessages?.[0].text.startsWith("5:")).toBe(true);
+    expect(hydrated?.contextMessages?.[0].text).toHaveLength(2_000);
+    expect(hydrated?.contextMessages?.at(-1)).toMatchObject({
+      reactions: [{ name: "eyes", count: 20 }],
+      files: [
+        {
+          id: "F123",
+          name: "brief.pdf",
+          mimetype: "application/pdf",
+          size: 42,
+        },
+      ],
+    });
+    expect(hydrated?.files).toEqual([
+      expect.objectContaining({ id: "F123", name: "brief.pdf" }),
+    ]);
+  });
+
+  it("verifies Agent View channel access before hydrating its context into a DM", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        const method = parsed.pathname.split("/").at(-1)!;
+        const channel = parsed.searchParams.get("channel");
+        calls.push(`${method}:${channel ?? ""}`);
+        if (method === "conversations.info" && channel === "D123") {
+          return new Response(
+            JSON.stringify({ ok: true, channel: { is_im: true } }),
+          );
+        }
+        if (method === "conversations.info" && channel === "C999") {
+          return new Response(
+            JSON.stringify({ ok: true, channel: { name: "launch-room" } }),
+          );
+        }
+        if (method === "conversations.history" && channel === "C999") {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              messages: [
+                { user: "U456", text: "Launch is Friday", ts: "120.000" },
+              ],
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: false }));
+      }),
+    );
+
+    const hydrated = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).hydrateIncomingMessage?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:D123:123.456",
+      text: "summarize this",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: {
+        channelId: "D123",
+        threadTs: "123.456",
+        activeContextChannelId: "C999",
+      },
+    });
+
+    expect(calls.indexOf("conversations.info:C999")).toBeLessThan(
+      calls.indexOf("conversations.history:C999"),
+    );
+    expect(hydrated).toMatchObject({
+      conversationType: "dm",
+      platformContext: {
+        activeContextChannelId: "C999",
+        activeContextChannelName: "launch-room",
+      },
+      contextMessages: [
+        expect.objectContaining({
+          text: "[Active Slack context #launch-room] Launch is Friday",
+        }),
+      ],
+    });
+  });
+
+  it("streams native Slack task progress and stops with the final answer", async () => {
+    vi.useFakeTimers();
+    const requests: Array<{ method: string; body: Record<string, any> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        requests.push({
+          method,
+          body: init?.body ? JSON.parse(String(init.body)) : {},
+        });
+        return new Response(
+          JSON.stringify(
+            method === "chat.startStream"
+              ? { ok: true, ts: "999.000" }
+              : { ok: true },
+          ),
+        );
+      }),
+    );
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    });
+    const progress = await adapter.startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "build it",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    expect(progress).not.toBeNull();
+    await progress?.onEvent({
+      type: "tool_start",
+      tool: "create-report",
+      id: "call-1",
+      input: {},
+    } as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await progress?.onEvent({
+      type: "tool_done",
+      tool: "create-report",
+      id: "call-1",
+      result: "ok",
+    } as any);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await progress?.complete({
+      text: "Report complete.",
+      platformContext: {},
+    });
+
+    expect(requests[0]).toMatchObject({
+      method: "chat.startStream",
+      body: {
+        channel: "C123",
+        thread_ts: "111.222",
+        task_display_mode: "plan",
+      },
+    });
+    expect(
+      requests.filter((request) => request.method === "chat.appendStream"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.objectContaining({
+            chunks: [
+              expect.objectContaining({
+                type: "task_update",
+                status: "in_progress",
+              }),
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          body: expect.objectContaining({
+            chunks: [
+              expect.objectContaining({
+                type: "task_update",
+                status: "complete",
+              }),
+            ],
+          }),
+        }),
+      ]),
+    );
+    expect(
+      requests.find((request) => request.method === "chat.stopStream"),
+    ).toMatchObject({
+      method: "chat.stopStream",
+      body: {
+        channel: "C123",
+        ts: "999.000",
+        markdown_text: "Report complete.",
+      },
+    });
   });
 
   it("aborts hung Slack delivery requests", async () => {
@@ -325,7 +833,7 @@ function slackEvent(overrides: Record<string, unknown> = {}) {
         api_app_id: "A123",
         event_id: "Ev123",
         event: {
-          type: "message",
+          type: "app_mention",
           channel: "C123",
           user: "U123",
           text: "<@BOT> ship it",

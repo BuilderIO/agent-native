@@ -192,6 +192,9 @@ const messages = {
       successMessage: "Mensagem de sucesso",
       defaultSuccessMessage: "Obrigado! Sua resposta foi registrada.",
       redirectUrl: "URL de redirecionamento (opcional)",
+      anonymousResponses: "Respostas anônimas",
+      anonymousResponsesDescription:
+        "Não guardar endereços IP, identidade do respondente nem metadados de origem.",
       saveSettings: "Salvar configurações",
     },
     integrations: {

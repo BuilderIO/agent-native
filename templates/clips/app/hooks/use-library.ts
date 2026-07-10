@@ -34,7 +34,7 @@ export interface RecordingSummary {
 }
 
 export interface ListRecordingsArgs {
-  view?: "library" | "space" | "archive" | "trash" | "all";
+  view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;

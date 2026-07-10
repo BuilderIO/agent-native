@@ -89,6 +89,7 @@ When you open the app, the generated prototype is the center of the workspace, w
 ## What you can do with it
 
 - **Generate complete prototypes.** Describe the screen or page you need and the agent creates a working HTML document with Tailwind styling and Alpine interactions.
+- **Start from reusable templates.** Choose a sized starter for ads, one-pagers, landing pages, and more, or save any inline design as a template. A prompt refines the copied design while locked logo, background, and other fixed layers stay unchanged.
 - **Compare variants.** Start with multiple directions, pick the strongest one, then continue refining.
 - **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
 - **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
@@ -137,6 +138,9 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schem
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
 | `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
+| `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |
+| `design_template_files`                  | Snapshotted template files copied into a normal editable design when a user starts from a template                                               |
+| `design_template_shares`                 | Framework shares table for private, org, explicitly shared, and public template discovery                                                        |
 | `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
 | `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
 | `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |

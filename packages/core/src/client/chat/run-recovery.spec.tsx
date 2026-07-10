@@ -22,9 +22,9 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   }),
 }));
 
-import { RunErrorRecoveryCard } from "./run-recovery.js";
+import { BuilderSetupContent, RunErrorRecoveryCard } from "./run-recovery.js";
 
-describe("RunErrorRecoveryCard", () => {
+describe("run recovery surfaces", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -77,5 +77,27 @@ describe("RunErrorRecoveryCard", () => {
       expect.stringContaining("attempted_runs: run-1, run-2"),
     );
     expect(container.textContent).toContain("Copy failed");
+  });
+
+  it("keeps the AI setup prompt icon-free while disclosing API keys", async () => {
+    await act(async () => {
+      root.render(<BuilderSetupContent />);
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.querySelector("svg")).toBeNull();
+
+    const apiKeyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Use API key"),
+    );
+    expect(apiKeyButton).toBeDefined();
+
+    await act(async () => {
+      apiKeyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Use your own API key");
+    expect(container.querySelector("svg")).toBeNull();
   });
 });

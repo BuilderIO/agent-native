@@ -5,6 +5,7 @@ import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 const SCREEN_WIDTH = 320;
 const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
+const BREAKPOINT_FRAME_GAP = 24;
 
 export interface BoundsRect {
   left: number;
@@ -16,6 +17,138 @@ export interface BoundsRect {
 export interface ScreenViewportSize {
   width: number;
   height: number;
+}
+
+type ResponsiveLayoutScreen = {
+  id?: string;
+  metadata?: ScreenViewportSize;
+  breakpointWidths?: readonly number[];
+  layoutGroupId?: string;
+};
+
+export function getResponsiveScreenGroupSize(
+  screen: ResponsiveLayoutScreen,
+  primaryGeometry?: Partial<FrameGeometry>,
+): {
+  width: number;
+  height: number;
+} {
+  const baseWidth = Math.max(1, primaryGeometry?.width ?? SCREEN_WIDTH);
+  const baseHeight = Math.max(
+    1,
+    primaryGeometry?.height ??
+      getOverviewFrameHeight(baseWidth, screen.metadata),
+  );
+  const sourceWidth = Math.max(1, screen.metadata?.width ?? 1280);
+  const sourceHeight = Math.max(1, screen.metadata?.height ?? 2560);
+  const scale = baseWidth / sourceWidth;
+  const breakpoints = (screen.breakpointWidths ?? []).filter(
+    (width) => Number.isFinite(width) && width > 0,
+  );
+  return {
+    width:
+      baseWidth +
+      breakpoints.reduce(
+        (total, width) => total + BREAKPOINT_FRAME_GAP + width * scale,
+        0,
+      ),
+    height: Math.max(
+      baseHeight,
+      ...breakpoints.map(
+        (width) => width * (sourceHeight / sourceWidth) * scale,
+      ),
+    ),
+  };
+}
+
+/** Legacy three-column lineup with each cell reserving its complete responsive
+ * row. This prevents one generated variation's breakpoint frames from
+ * painting over the next variation while preserving the familiar grid. */
+export function getResponsiveInitialFrameGeometry(
+  index: number,
+  screens: readonly ResponsiveLayoutScreen[],
+  primaryGeometryById: Record<string, Partial<FrameGeometry> | undefined> = {},
+): FrameGeometry {
+  const columnCount = Math.min(3, Math.max(1, screens.length));
+  const column = index % columnCount;
+  const row = Math.floor(index / columnCount);
+  const primaryGeometryFor = (screen: ResponsiveLayoutScreen) =>
+    screen.id ? primaryGeometryById[screen.id] : undefined;
+  const sizes = screens.map((screen) =>
+    getResponsiveScreenGroupSize(screen, primaryGeometryFor(screen)),
+  );
+  const columnWidths = Array.from({ length: columnCount }, (_, columnIndex) =>
+    Math.max(
+      0,
+      ...sizes
+        .filter((_, screenIndex) => screenIndex % columnCount === columnIndex)
+        .map((size) => size.width),
+    ),
+  );
+  const rowCount = Math.ceil(screens.length / columnCount);
+  const rowHeights = Array.from({ length: rowCount }, (_, rowIndex) =>
+    Math.max(
+      0,
+      ...sizes
+        .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
+        .map((size) => size.height),
+    ),
+  );
+  const own = screens[index];
+  const ownGeometry = own ? primaryGeometryFor(own) : undefined;
+  const ownWidth = Math.max(1, ownGeometry?.width ?? SCREEN_WIDTH);
+  const ownHeight = Math.max(
+    1,
+    ownGeometry?.height ?? getOverviewFrameHeight(ownWidth, own?.metadata),
+  );
+  return {
+    x: columnWidths
+      .slice(0, column)
+      .reduce((total, width) => total + width + SCREEN_GAP, 0),
+    y: rowHeights
+      .slice(0, row)
+      .reduce(
+        (total, height) => total + height + FRAME_LABEL_HEIGHT + SCREEN_GAP,
+        0,
+      ),
+    width: ownWidth,
+    height: ownHeight,
+  };
+}
+
+const GENERATED_VARIANT_GAP = 96;
+
+/** The present-design-variants action's historical three-column placement.
+ * Matching this exactly distinguishes untouched generated lineups from a
+ * designer's intentional custom arrangement. */
+function getGeneratedVariantInitialFrameGeometry(
+  index: number,
+  screens: readonly ResponsiveLayoutScreen[],
+): FrameGeometry {
+  const columnCount = Math.min(3, Math.max(1, screens.length));
+  const column = index % columnCount;
+  const row = Math.floor(index / columnCount);
+  const sizes = screens.map((screen) => ({
+    width: Math.max(1, screen.metadata?.width ?? 1280),
+    height: Math.max(1, screen.metadata?.height ?? 900),
+  }));
+  const rowStart = row * columnCount;
+  const own = sizes[index]!;
+  return {
+    x: sizes
+      .slice(rowStart, rowStart + column)
+      .reduce((total, size) => total + size.width + GENERATED_VARIANT_GAP, 0),
+    y: Array.from({ length: row }, (_, rowIndex) =>
+      Math.max(
+        0,
+        ...sizes
+          .slice(rowIndex * columnCount, (rowIndex + 1) * columnCount)
+          .map((size) => size.height),
+      ),
+    ).reduce((total, height) => total + height + GENERATED_VARIANT_GAP, 0),
+    width: own.width,
+    height: own.height,
+  };
 }
 
 /** Canonical bottom-to-top screen stack. Persisted frame `z` wins; screens
@@ -131,7 +264,12 @@ export function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry): boolean {
 }
 
 export function resolveFrameGeometrySync(args: {
-  screens: ReadonlyArray<{ id: string; metadata?: ScreenViewportSize }>;
+  screens: ReadonlyArray<{
+    id: string;
+    metadata?: ScreenViewportSize;
+    breakpointWidths?: readonly number[];
+    layoutGroupId?: string;
+  }>;
   currentGeometryById: FrameGeometryById;
   persistedGeometryById:
     | Record<string, Partial<FrameGeometry> | undefined>
@@ -149,15 +287,94 @@ export function resolveFrameGeometrySync(args: {
   const next: FrameGeometryById = {};
   let changed = shouldNotifyParent;
 
+  const baseGeometryById = Object.fromEntries(
+    screens.map((screen) => [
+      screen.id,
+      persistedGeometryById?.[screen.id] ?? currentGeometryById[screen.id],
+    ]),
+  );
+
   screens.forEach((screen, index) => {
     const existing = currentGeometryById[screen.id];
     const persisted = persistedGeometryById?.[screen.id];
+    const legacyInitial = getInitialFrameGeometry(index, screen.metadata);
+    const layoutGroupScreens = screen.layoutGroupId
+      ? screens.filter(
+          (candidate) => candidate.layoutGroupId === screen.layoutGroupId,
+        )
+      : null;
+    const layoutGroupIndex = layoutGroupScreens?.findIndex(
+      (candidate) => candidate.id === screen.id,
+    );
+    const responsiveInitial =
+      layoutGroupScreens &&
+      layoutGroupIndex !== undefined &&
+      layoutGroupIndex >= 0
+        ? getResponsiveInitialFrameGeometry(
+            layoutGroupIndex,
+            layoutGroupScreens,
+            baseGeometryById,
+          )
+        : getResponsiveInitialFrameGeometry(index, screens, baseGeometryById);
+    const generatedVariantInitial =
+      layoutGroupScreens &&
+      layoutGroupIndex !== undefined &&
+      layoutGroupIndex >= 0
+        ? getGeneratedVariantInitialFrameGeometry(
+            layoutGroupIndex,
+            layoutGroupScreens,
+          )
+        : null;
+    const persistedUsesGeneratedVariantLineup =
+      Boolean(screen.breakpointWidths?.length) &&
+      generatedVariantInitial !== null &&
+      persisted?.x === generatedVariantInitial.x &&
+      persisted?.y === generatedVariantInitial.y &&
+      (responsiveInitial.x !== generatedVariantInitial.x ||
+        responsiveInitial.y !== generatedVariantInitial.y);
+    const existingUsesGeneratedVariantLineup =
+      !persisted &&
+      Boolean(screen.breakpointWidths?.length) &&
+      generatedVariantInitial !== null &&
+      existing?.x === generatedVariantInitial.x &&
+      existing?.y === generatedVariantInitial.y &&
+      (responsiveInitial.x !== generatedVariantInitial.x ||
+        responsiveInitial.y !== generatedVariantInitial.y);
+    const persistedUsesLegacyLineup =
+      Boolean(screen.breakpointWidths?.length) &&
+      (responsiveInitial.x !== legacyInitial.x ||
+        responsiveInitial.y !== legacyInitial.y) &&
+      persisted?.x === legacyInitial.x &&
+      persisted?.y === legacyInitial.y;
+    const existingUsesLegacyLineup =
+      !persisted &&
+      Boolean(screen.breakpointWidths?.length) &&
+      (responsiveInitial.x !== legacyInitial.x ||
+        responsiveInitial.y !== legacyInitial.y) &&
+      existing?.x === legacyInitial.x &&
+      existing?.y === legacyInitial.y;
     const resolved = {
-      ...getInitialFrameGeometry(index, screen.metadata),
+      ...responsiveInitial,
       ...persisted,
+      ...(persistedUsesLegacyLineup || persistedUsesGeneratedVariantLineup
+        ? { x: responsiveInitial.x, y: responsiveInitial.y }
+        : null),
     } as FrameGeometry;
-    next[screen.id] = persisted ? resolved : (existing ?? resolved);
+    next[screen.id] = persisted
+      ? resolved
+      : existingUsesLegacyLineup || existingUsesGeneratedVariantLineup
+        ? { ...existing, x: responsiveInitial.x, y: responsiveInitial.y }
+        : (existing ?? resolved);
     if (!existing) changed = true;
+    if (
+      persistedUsesLegacyLineup ||
+      existingUsesLegacyLineup ||
+      persistedUsesGeneratedVariantLineup ||
+      existingUsesGeneratedVariantLineup
+    ) {
+      changed = true;
+      shouldNotifyParent = true;
+    }
     if (persisted && !sameFrameGeometry(existing ?? resolved, resolved)) {
       changed = true;
       shouldNotifyParent = true;

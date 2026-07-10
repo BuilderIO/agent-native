@@ -20,7 +20,8 @@ export type FrameSizePresetCategoryKey =
   | "presentation"
   | "watch"
   | "paper"
-  | "socialMedia";
+  | "socialMedia"
+  | "adUnit";
 
 export interface FrameSizePreset {
   /** Product/device name — kept as a literal, never translated. */
@@ -90,12 +91,19 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
     presets: [{ name: "Apple Watch 45mm", width: 198, height: 242 }],
   },
   {
+    // Sized in 96dpi CSS pixels (this app's canvas/export unit — see
+    // createSinglePageRasterPdf), NOT the 72dpi point values Figma's own
+    // "Paper" preset list shows. Using point values here would author a
+    // canvas frame ~25% smaller than the real physical page once exported to
+    // PDF (612x792 "Letter"-as-points renders as a 6.375x8.25in page instead
+    // of true 8.5x11in). 816x1056 / 794x1123 are the standard 96dpi
+    // equivalents for US Letter and A4.
     key: "paper",
     presets: [
-      { name: "A4", width: 595, height: 842 },
-      { name: "A5", width: 420, height: 595 },
-      { name: "Letter", width: 612, height: 792 },
-      { name: "Tabloid", width: 792, height: 1224 },
+      { name: "Letter", width: 816, height: 1056 },
+      { name: "A4", width: 794, height: 1123 },
+      { name: "A5", width: 559, height: 794 },
+      { name: "Tabloid", width: 1056, height: 1632 },
     ],
   },
   {
@@ -106,6 +114,18 @@ export const FRAME_SIZE_PRESET_CATEGORIES: FrameSizePresetCategory[] = [
       { name: "X Post", width: 1200, height: 675 },
       { name: "Facebook Cover", width: 820, height: 312 },
       { name: "LinkedIn Cover", width: 1584, height: 396 },
+    ],
+  },
+  {
+    // Standard IAB ad-unit sizes, in CSS px (matches every other category's
+    // 96dpi-px convention above, and this app's PNG/PDF export pixel math).
+    key: "adUnit",
+    presets: [
+      { name: "Medium Rectangle", width: 300, height: 250 },
+      { name: "Leaderboard", width: 728, height: 90 },
+      { name: "Wide Skyscraper", width: 160, height: 600 },
+      { name: "Mobile Leaderboard", width: 320, height: 50 },
+      { name: "Billboard", width: 970, height: 250 },
     ],
   },
 ];

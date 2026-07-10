@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Frame,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -1317,7 +1318,20 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
   });
   await expectIframePaintStable(page, "stable-overview-paint");
   await page.keyboard.press("Escape");
-  await expect(page.locator("[data-draw-overlay]")).toHaveCount(0);
+  // The overview annotation surface is intentionally retained while hidden:
+  // keeping the same canvas node mounted preserves its bitmap/model across
+  // overview↔focused transitions and avoids the white/repaint flash this test
+  // exists to guard. Escape must make it inert and inaccessible, not destroy
+  // the retained surface.
+  await expect(page.locator("[data-draw-overlay]")).toHaveAttribute(
+    "aria-hidden",
+    "true",
+  );
+  await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
+  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
   await expect(shell).toBeVisible();
   await expect.poll(readIframeIdentity).toEqual({
     identity: "stable-overview-frame",
@@ -1656,6 +1670,61 @@ test("click text creates auto-width text and survives reload", async ({
   await expect
     .poll(async () => fileContent(page, "index.html"), { timeout: 20_000 })
     .toContain(text);
+});
+
+test("new empty text is one atomic undo step and cancel leaves the frame intact", async ({
+  page,
+}) => {
+  const card = await homeScreenCard(page);
+  const beforeBox = await card.boundingBox();
+  if (!beforeBox) throw new Error("no home screen card box");
+  const beforeCount = (await textPrimitiveSummaries(page, "index.html")).length;
+  const placeEmptyText = async () => {
+    await page.keyboard.press("t");
+    await expect(toolButton(page, "Text")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.mouse.click(
+      beforeBox.x + beforeBox.width * 0.42,
+      beforeBox.y + beforeBox.height * 0.42,
+    );
+    await waitForTextEditing(page);
+    await expect
+      .poll(
+        async () => (await textPrimitiveSummaries(page, "index.html")).length,
+      )
+      .toBe(beforeCount + 1);
+  };
+
+  await placeEmptyText();
+  let liveEditingFrame: Frame | null = null;
+  for (const frame of page.frames()) {
+    if (await frame.locator("[data-agent-native-text-editing]").count()) {
+      liveEditingFrame = frame;
+      break;
+    }
+  }
+  if (!liveEditingFrame) throw new Error("no active text-editing frame");
+  await liveEditingFrame
+    .locator("[data-agent-native-text-editing]")
+    .press(process.platform === "darwin" ? "Meta+Z" : "Control+Z");
+  await expect
+    .poll(async () => (await textPrimitiveSummaries(page, "index.html")).length)
+    .toBe(beforeCount);
+
+  await placeEmptyText();
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(async () => (await textPrimitiveSummaries(page, "index.html")).length)
+    .toBe(beforeCount);
+
+  const afterBox = await card.boundingBox();
+  expect(afterBox).not.toBeNull();
+  expect(afterBox!.x).toBeCloseTo(beforeBox.x, 1);
+  expect(afterBox!.y).toBeCloseTo(beforeBox.y, 1);
+  expect(afterBox!.width).toBeCloseTo(beforeBox.width, 1);
+  expect(afterBox!.height).toBeCloseTo(beforeBox.height, 1);
 });
 
 test("board text focuses immediately and uses editing chrome states", async ({

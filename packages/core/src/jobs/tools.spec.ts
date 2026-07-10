@@ -11,6 +11,7 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getIntegrationRequestContextMock = vi.hoisted(() => vi.fn());
 
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 
@@ -19,12 +20,19 @@ vi.mock("../resources/store.js", () => ({
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourceDelete: resourceDeleteMock,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
   SHARED_OWNER: "__shared__",
 }));
 
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
+  getIntegrationRequestContext: getIntegrationRequestContextMock,
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other
@@ -37,7 +45,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   };
 });
 
-const SHARED_OWNER = "__shared__";
+const SHARED_OWNER = "__organization__:org-1";
 
 function run(args: Record<string, unknown>): Promise<string> {
   const tools = createJobTools();
@@ -62,6 +70,7 @@ describe("manage-jobs tool", () => {
     vi.clearAllMocks();
     getRequestUserEmailMock.mockReturnValue("alice@example.com");
     getRequestOrgIdMock.mockReturnValue("org-1");
+    getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(true);
   });
@@ -88,7 +97,7 @@ describe("manage-jobs tool", () => {
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
-    it("creates a shared job by default, owned by SHARED_OWNER, stamped with creator + orgId", async () => {
+    it("creates a shared job in the active org partition", async () => {
       const out = JSON.parse(
         await run({
           action: "create",
@@ -125,6 +134,18 @@ describe("manage-jobs tool", () => {
       expect(resourcePutMock.mock.calls[0][0]).toBe("alice@example.com");
     });
 
+    it("partitions shared jobs by the active request org", async () => {
+      getRequestOrgIdMock.mockReturnValue("org-2");
+      await run({
+        action: "create",
+        name: "org-two-job",
+        schedule: "0 9 * * *",
+        instructions: "do it",
+      });
+
+      expect(resourcePutMock.mock.calls[0][0]).toBe("__organization__:org-2");
+    });
+
     it("honors runAs: shared when requested", async () => {
       await run({
         action: "create",
@@ -135,6 +156,36 @@ describe("manage-jobs tool", () => {
       });
       const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
       expect(meta.runAs).toBe("shared");
+    });
+
+    it("binds routines created from a messaging scope back to that channel", async () => {
+      getIntegrationRequestContextMock.mockReturnValue({
+        scopeId: "scope:slack:T1:C1",
+        incoming: {
+          platform: "slack",
+          tenantId: "T1",
+          threadRef: "123.456",
+          platformContext: { channelId: "C1" },
+        },
+      });
+
+      await run({
+        action: "create",
+        name: "channel-digest",
+        schedule: "0 9 * * *",
+        instructions: "Post the digest.",
+        model: "channel-model",
+      });
+
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta).toMatchObject({
+        originScopeId: "scope:slack:T1:C1",
+        deliveryPlatform: "slack",
+        deliveryDestination: "C1",
+        deliveryThreadRef: "123.456",
+        deliveryTenantId: "T1",
+        model: "channel-model",
+      });
     });
   });
 
@@ -318,7 +369,7 @@ describe("manage-jobs tool", () => {
 
   describe("list", () => {
     it("merges the caller's personal and shared jobs (org isolation: no other users')", async () => {
-      // resourceList is called for (caller, 'jobs/') and (SHARED_OWNER, 'jobs/').
+      // resourceList is called for the caller and active org partition.
       resourceListMock.mockImplementation(async (owner: string) => {
         if (owner === "alice@example.com") {
           return [{ owner: "alice@example.com", path: "jobs/personal.md" }];
@@ -361,6 +412,21 @@ describe("manage-jobs tool", () => {
 
       const jobs = JSON.parse(await run({ action: "list", scope: "personal" }));
       expect(jobs.map((j: any) => j.name)).toEqual(["personal"]);
+    });
+
+    it("never lists another org's shared partition", async () => {
+      resourceListMock.mockResolvedValue([]);
+
+      await run({ action: "list", scope: "shared" });
+
+      expect(resourceListMock).toHaveBeenCalledWith(
+        "__organization__:org-1",
+        "jobs/",
+      );
+      expect(resourceListMock).not.toHaveBeenCalledWith(
+        "__organization__:org-2",
+        "jobs/",
+      );
     });
 
     it("returns the empty-state message when there are no jobs", async () => {

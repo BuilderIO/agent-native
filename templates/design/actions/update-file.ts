@@ -12,6 +12,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withSourceFileWriteLock } from "../server/source-workspace.js";
+import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 
 function rowsAffected(result: unknown): number | undefined {
@@ -120,16 +122,19 @@ export default defineAction({
         });
       }
     }),
-  run: async ({
-    id,
-    content,
-    filename,
-    fileType,
-    syncCollab,
-    expectedVersionHash,
-    operationSource,
-    operationRevision,
-  }) => {
+  run: async (
+    {
+      id,
+      content,
+      filename,
+      fileType,
+      syncCollab,
+      expectedVersionHash,
+      operationSource,
+      operationRevision,
+    },
+    context,
+  ) => {
     // Path traversal guard on filename
     if (
       filename &&
@@ -148,6 +153,7 @@ export default defineAction({
       .select({
         id: schema.designFiles.id,
         designId: schema.designFiles.designId,
+        fileType: schema.designFiles.fileType,
       })
       .from(schema.designFiles)
       .innerJoin(
@@ -206,6 +212,7 @@ export default defineAction({
         const [persistedFile] = await db
           .select({
             content: schema.designFiles.content,
+            fileType: schema.designFiles.fileType,
             contentOperationSource: schema.designFiles.contentOperationSource,
             contentOperationRevision:
               schema.designFiles.contentOperationRevision,
@@ -221,6 +228,28 @@ export default defineAction({
 
         const persistedContentHash = sourceContentHash(persistedFile.content);
         persistedVersionHash = persistedContentHash;
+        const collabExists =
+          content !== undefined ? await hasCollabState(id) : false;
+        const liveContent =
+          content !== undefined && collabExists
+            ? await getText(id, "content")
+            : persistedFile.content;
+        if (content !== undefined) {
+          assertDesignHtmlEditIntegrity({
+            previousContent: liveContent,
+            nextContent: content,
+            fileType:
+              fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
+          });
+        }
+        if (
+          content !== undefined &&
+          context?.caller !== "frontend" &&
+          (fileType === "html" ||
+            liveContent.includes("data-agent-native-locked"))
+        ) {
+          assertLockedLayersPreserved(liveContent, content);
+        }
         const hasVersionedContentOperation =
           content !== undefined &&
           operationSource !== undefined &&
@@ -309,18 +338,6 @@ export default defineAction({
           expectedVersionHash !== undefined &&
           content !== undefined
         ) {
-          const collabExists = await hasCollabState(id);
-          let liveContent: string;
-          if (collabExists) {
-            liveContent = await getText(id, "content");
-          } else {
-            const [current] = await db
-              .select({ content: schema.designFiles.content })
-              .from(schema.designFiles)
-              .where(eq(schema.designFiles.id, id))
-              .limit(1);
-            liveContent = current?.content ?? "";
-          }
           const acceptedBaseHashes = new Set([
             expectedVersionHash,
             ...(sameSourceSuccessorHash ? [sameSourceSuccessorHash] : []),

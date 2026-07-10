@@ -8,6 +8,7 @@ export interface CreateWorkspaceProvidersOptions {
   localhostConnections: Array<{
     connectionId: string;
     label: string;
+    rootPath?: string;
   }>;
 }
 
@@ -30,6 +31,7 @@ export function createWorkspaceProviders(
       createLocalhostProvider({
         connectionId: connection.connectionId,
         label: connection.label,
+        rootPath: connection.rootPath,
         canEdit: options.canEdit,
         designId: options.designId,
       }),

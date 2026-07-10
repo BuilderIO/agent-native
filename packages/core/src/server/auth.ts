@@ -1982,8 +1982,8 @@ function createAuthGuardFn(): (
 // validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
 // which silently broke the zero-setup auto-sign-in on every fresh dev DB).
 const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
-// No fixed password: maybeAutoCreateDevSession mints a random one per DB
-// and prints it to the console once (see there).
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB and
+// never emits it to logs.
 
 // Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
 // legacy address as the dev account too, so the "any real users?" check
@@ -2058,15 +2058,12 @@ async function createAutoDevAccountForSession(
         return null;
       }
 
-      // Print the throwaway credential exactly once so the developer can
-      // sign back in manually after logout (auto-flow won't refire once the
-      // dev row exists). Local console only — never Sentry.
+      // Confirm the convenience path without emitting the generated email or
+      // password. Terminal output is frequently captured and shared in bug
+      // reports, CI artifacts, and remote development sessions.
       console.log(
-        `\n[agent-native] Local dev auto-login ready.\n` +
-          `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
-          `  password: ${devPassword}\n` +
-          `  (random, this DB only — needed to sign back in after logout.\n` +
-          `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+        "[agent-native] Local dev auto-login ready. " +
+          "Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.",
       );
 
       return { password: devPassword };
@@ -2110,10 +2107,9 @@ async function createAutoDevAccountForSession(
  *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
  *    in a directly-remote visitor (mirrors the desktop SSO broker).
  *  - **Random per-DB password.** The account password is freshly
- *    generated on creation and printed to the server console exactly
- *    once — there is no source-code-known credential. After logout the
- *    auto-flow won't refire (dev row exists), so signing back in uses
- *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *    generated on creation and never logged — there is no
+ *    source-code-known credential. After logout the auto-flow won't refire
+ *    (dev row exists); use normal signup or reset the local DB to start over.
  *  - **NODE_ENV.** Still gated on development/test.
  *
  * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely

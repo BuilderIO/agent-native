@@ -1400,7 +1400,7 @@ describe("database column sizing", () => {
         name: 300,
         number: 220,
       }),
-    ).toBe("300px 220px 180px 180px 180px 48px");
+    ).toBe("300px 220px 180px 180px 180px 36px");
   });
 });
 

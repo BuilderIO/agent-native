@@ -10,12 +10,14 @@ import {
   getAllScreenFrameEntries,
   getNextZoomStepDown,
   getNextZoomStepUp,
+  getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewZoomScale,
   MAX_SANE_SCREEN_ENTRY_ZOOM,
   MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM,
   resolveOverviewZoomBasisScreenId,
   resolveScreenEntryZoom,
+  shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
 } from "./design-editor/overview-camera";
@@ -487,6 +489,133 @@ describe("shouldResetExplicitOverviewZoomOnBasisChange — basis-identity invali
       }),
     ).toBe(true);
     expect(MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM).toBeGreaterThan(0);
+  });
+});
+
+describe("shouldDeferOverviewZoomCommand — zoom-hydration compounding fix", () => {
+  it("defers a zoom-bearing overview command until files have loaded", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("applies immediately once files have loaded", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("never defers a command with no zoom", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: false,
+        targetView: "overview",
+        filesLoaded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("never defers a single-screen zoom command (no canvas/display scale conversion involved)", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "single",
+        filesLoaded: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("overview zoom hydration is idempotent across reloads (regression: compounding zoom bug)", () => {
+  // Reproduces the field bug end to end using the real conversion helpers:
+  // a persisted DISPLAY zoom must survive N reload/hydration passes
+  // unchanged when no user interaction happens in between. The bug applied
+  // the persisted display zoom -> canvas-zoom conversion against the
+  // pre-load fallback scale (files not loaded yet: frameWidth/sourceWidth
+  // both fall back, scale = 320/1280 = 0.25), then displayed the result
+  // through the REAL scale once resolved — a different, inflated value that
+  // got re-persisted, compounding every reload by a factor of
+  // (realScale / fallbackScale).
+  const FALLBACK_SCALE = getOverviewZoomScale({
+    frameWidth: undefined,
+    sourceWidth: undefined,
+  });
+  const REAL_SCALE = getOverviewZoomScale({
+    frameWidth: 1123,
+    sourceWidth: 1280,
+  }); // an arbitrary real screen frame/source ratio, deliberately far from 0.25
+
+  /** Old (buggy) hydration: converts against whatever scale is live at the
+   *  moment the persisted display zoom is applied — the fallback, since this
+   *  ran before files loaded. */
+  function hydrateWithoutDeferral(persistedDisplayZoom: number): number {
+    const canvasZoomUnderFallback = getOverviewCanvasZoom(
+      persistedDisplayZoom,
+      FALLBACK_SCALE,
+    );
+    // The pin then displays through the REAL scale once screens load.
+    return getOverviewDisplayZoom(canvasZoomUnderFallback, REAL_SCALE);
+  }
+
+  /** Fixed hydration: shouldDeferOverviewZoomCommand withholds the
+   *  conversion until files (and therefore the real scale) are loaded, so
+   *  the conversion only ever runs once, against REAL_SCALE on both sides. */
+  function hydrateWithDeferral(persistedDisplayZoom: number): number {
+    const filesLoaded = true; // the retried application always waits for this
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded,
+      }),
+    ).toBe(false);
+    const canvasZoom = getOverviewCanvasZoom(persistedDisplayZoom, REAL_SCALE);
+    return getOverviewDisplayZoom(canvasZoom, REAL_SCALE);
+  }
+
+  it("demonstrates the bug: without deferral, repeated hydration compounds the displayed zoom", () => {
+    let zoom = 100;
+    const history = [zoom];
+    for (let i = 0; i < 4; i++) {
+      zoom = hydrateWithoutDeferral(zoom);
+      history.push(zoom);
+    }
+    // Each pass multiplies by the same (realScale / fallbackScale) factor —
+    // this is the exact mechanism behind the field report's 100 -> 351 ->
+    // 1211 -> 7088 -> 17152 style growth.
+    const factor = REAL_SCALE / FALLBACK_SCALE;
+    expect(factor).toBeGreaterThan(1);
+    for (let i = 1; i < history.length; i++) {
+      expect(history[i]).toBeCloseTo(history[i - 1] * factor, 5);
+    }
+    expect(history[history.length - 1]).toBeGreaterThan(history[0] * 10);
+  });
+
+  it("fix: with deferral, N reload/hydration passes leave the persisted zoom unchanged", () => {
+    const persisted = 100;
+    let zoom = persisted;
+    for (let i = 0; i < 6; i++) {
+      zoom = hydrateWithDeferral(zoom);
+      expect(zoom).toBeCloseTo(persisted, 9);
+    }
+  });
+
+  it("fix: idempotent for an arbitrary already-legitimate persisted zoom too, not just the default", () => {
+    for (const persisted of [37.5, 60, 256.25, 800]) {
+      let zoom = persisted;
+      for (let i = 0; i < 4; i++) {
+        zoom = hydrateWithDeferral(zoom);
+      }
+      expect(zoom).toBeCloseTo(persisted, 9);
+    }
   });
 });
 

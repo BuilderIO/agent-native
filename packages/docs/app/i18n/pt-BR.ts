@@ -21,6 +21,7 @@ const ptBR = {
   },
   footer: {
     download: "Baixar",
+    brand: "Marca",
     privacy: "Privacidade",
     terms: "Termos",
   },
@@ -1233,6 +1234,37 @@ const ptBR = {
         appImage: "Baixar AppImage",
         deb: "Baixar .deb",
         note: "O arquivo funciona sem FUSE. AppImage pode exigir FUSE 2 em algumas distribuições.",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "Recursos da marca",
+    title: "Logotipos do Agent-Native",
+    body: "Baixe os logotipos e símbolos oficiais para artigos, apresentações e projetos da comunidade. Os arquivos SVG permanecem nítidos em qualquer tamanho e aceitam fundos transparentes.",
+    horizontal: {
+      title: "Logotipo horizontal",
+      body: "A composição recomendada para cabeçalhos de artigos, sites, apresentações e outros espaços largos.",
+    },
+    symbol: {
+      title: "Símbolo",
+      body: "Use o símbolo isolado em avatares, ícones de aplicativos e espaços compactos.",
+    },
+    lightBackground: "Para fundos claros",
+    darkBackground: "Para fundos escuros",
+    downloadSvg: "Baixar SVG",
+    usage: {
+      title: "Uso da marca",
+      clear: {
+        title: "Mantenha a clareza",
+        body: "Preserve as proporções do logotipo e deixe espaço livre suficiente ao redor dele.",
+      },
+      contrast: {
+        title: "Escolha pelo contraste",
+        body: "Use a versão escura em fundos claros e a versão clara em fundos escuros.",
+      },
+      original: {
+        title: "Use a arte original",
+        body: "Não altere as cores, recorte, gire, estique ou reorganize o logotipo ou o símbolo.",
       },
     },
   },

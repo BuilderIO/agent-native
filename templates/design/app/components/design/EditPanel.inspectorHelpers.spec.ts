@@ -8,6 +8,7 @@ import {
   isLayerHiddenBySize,
   isTextElement,
   mixedElementFromSelection,
+  mergeOptimisticInteractionStateStyles,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -113,6 +114,20 @@ describe("isTextElement", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("mergeOptimisticInteractionStateStyles", () => {
+  it("keeps pending localhost state values visible over persisted styles", () => {
+    expect(
+      mergeOptimisticInteractionStateStyles(
+        { color: "rgb(0, 0, 0)", opacity: "0.5" },
+        { color: "rgb(255, 0, 0)" },
+      ),
+    ).toEqual({
+      color: "rgb(255, 0, 0)",
+      opacity: "0.5",
+    });
   });
 });
 

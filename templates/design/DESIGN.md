@@ -9,7 +9,7 @@ and later blend hosted/fusion sources without changing the artboard model.
 Design is overview-first for multi-screen work. Generation and broad updates
 should land in the screen overview: an infinite canvas where each screen is a
 static frame that can be selected, moved, resized, dropped, or duplicated.
-Use the frame's full-view button when a screen needs focused scrolling or
+Use the frame's Interact button when a screen needs focused scrolling or
 prototype interaction.
 
 Single-screen mode is the scroll/interact/edit surface for one rendered file. It

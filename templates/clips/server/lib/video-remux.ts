@@ -46,6 +46,53 @@ export interface SeekableResult {
   changed: boolean;
 }
 
+/**
+ * Build the ffmpeg command used by the explicit sparse-timeline repair path.
+ * The `fps` filter emits a constant frame rate, duplicating the most recent
+ * decoded frame across timestamp gaps while audio is mapped through and
+ * transcoded independently. H.264/AAC plus faststart gives mobile browsers a
+ * broadly playable result.
+ */
+export function timelineNormalizationFfmpegArgs(
+  inputPath: string,
+  outputPath: string,
+): string[] {
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    "-y",
+    "-fflags",
+    "+genpts",
+    "-i",
+    inputPath,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a?",
+    "-vf",
+    "fps=30",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "23",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+    outputPath,
+  ];
+}
+
 function ffmpegCommand(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   return resolveFfmpegStaticPath() ?? "ffmpeg";
@@ -267,6 +314,73 @@ export async function remuxWebmToSeekable(
     console.warn("[video-remux] webm remux failed, keeping original", {
       err: err instanceof Error ? err.message : String(err),
     });
+    return unchanged;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Normalize sparse or discontinuous video timestamps into a constant-frame-
+ * rate, faststart MP4. This is intentionally a full transcode rather than the
+ * normal lossless seekability repair: the fps filter must synthesize duplicate
+ * frames through source gaps so browsers keep advancing while continuous audio
+ * plays.
+ *
+ * Best-effort and non-destructive. Any missing ffmpeg support, decode/encode
+ * failure, invalid output, or audio-track loss returns the original bytes with
+ * `changed: false`; callers must not replace stored media in that case.
+ */
+export async function normalizeTimelineToMp4(input: {
+  mediaBytes: Uint8Array;
+  videoFormat: VideoFormat;
+}): Promise<SeekableResult> {
+  const unchanged: SeekableResult = {
+    bytes: input.mediaBytes,
+    changed: false,
+  };
+
+  if (input.mediaBytes.byteLength === 0) return unchanged;
+  if (!isFfmpegAvailable()) return unchanged;
+
+  const dir = await mkdtemp(join(tmpdir(), "clips-timeline-normalize-"));
+  const inputPath = join(dir, `input.${input.videoFormat}`);
+  const outputPath = join(dir, "output.mp4");
+
+  try {
+    const inputHasAudio = await probeHasAudioStream(
+      input.mediaBytes,
+      input.videoFormat,
+    );
+    await writeFile(inputPath, input.mediaBytes);
+    await withRemuxSlot(() =>
+      runFfmpeg(timelineNormalizationFfmpegArgs(inputPath, outputPath)),
+    );
+
+    const info = await stat(outputPath).catch(() => null);
+    if (!info || info.size === 0) return unchanged;
+
+    const out = new Uint8Array(await readFile(outputPath));
+    if (!hasPlayableMp4Metadata(out)) return unchanged;
+
+    if (inputHasAudio === true) {
+      const outputHasAudio = await probeHasAudioStream(out, "mp4");
+      if (outputHasAudio !== true) {
+        console.warn(
+          "[video-remux] timeline normalization dropped or could not verify audio; keeping original",
+        );
+        return unchanged;
+      }
+    }
+
+    return { bytes: out, changed: true };
+  } catch (err) {
+    console.warn(
+      "[video-remux] timeline normalization failed, keeping original",
+      {
+        err: err instanceof Error ? err.message : String(err),
+      },
+    );
     return unchanged;
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});

@@ -37,6 +37,7 @@ const BRAND_BLUE = "#00B5FF";
 const BRAND_MINT = "#48FFE4";
 const BG = "#000000";
 const FG = "#f5f5f5";
+const GRID_SIZE = 48;
 const DEFAULT_FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const ARABIC_FONT_FAMILY = `${OG_ARABIC_FONT_FAMILY}, ${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const DEFAULT_ACCENT_TEXT = "100% free and open source";
@@ -327,8 +328,8 @@ export function renderAgentNativeOgImageSvg(
       <stop stop-color="${BRAND_BLUE}"/>
       <stop offset="1" stop-color="${BRAND_MINT}"/>
     </linearGradient>
-    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
+    <pattern id="grid" width="${GRID_SIZE}" height="${GRID_SIZE}" patternUnits="userSpaceOnUse">
+      <path d="M 0 0.5 H ${GRID_SIZE} M 0.5 0 V ${GRID_SIZE}" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
     </pattern>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>

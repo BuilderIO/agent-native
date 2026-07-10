@@ -595,7 +595,10 @@ export async function readPlanLocalFolder(
     url: localPlanRoutePath(location.slug, location.repoPath),
     suggestedRepoPath: await defaultLocalPlanRepoPath(location.slug),
     mdx,
-    content: await parsePlanMdxFolder(mdx),
+    // Reading a local folder is a preview path, so preserve every valid block
+    // and render malformed authored blocks as warnings. Verification and import
+    // use the strict parser and still reject invalid source.
+    content: await parsePlanMdxFolder(mdx, { salvageInvalidBlocks: true }),
   };
 }
 

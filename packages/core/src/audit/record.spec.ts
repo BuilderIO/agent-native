@@ -3,9 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditEvent } from "./types.js";
 
 const insertAuditEvent = vi.fn<(e: AuditEvent) => Promise<void>>();
+const getIntegrationRequestContext = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
   insertAuditEvent: (e: AuditEvent) => insertAuditEvent(e),
+}));
+vi.mock("../server/request-context.js", () => ({
+  getIntegrationRequestContext,
 }));
 
 const { recordActionAudit } = await import("./record.js");
@@ -17,6 +21,7 @@ function lastEvent(): AuditEvent {
 beforeEach(() => {
   insertAuditEvent.mockReset();
   insertAuditEvent.mockResolvedValue(undefined);
+  getIntegrationRequestContext.mockReset();
   delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
 });
 
@@ -134,6 +139,52 @@ describe("recordActionAudit attribution", () => {
     expect(ev.visibility).toBe("org");
     expect(ev.orgId).toBe("org-1");
     expect(ev.summary).toBe("Edited doc d1");
+  });
+
+  it("preserves explicit private visibility for integration actions", async () => {
+    getIntegrationRequestContext.mockReturnValue({
+      taskId: "task-1",
+      incoming: { platform: "slack" },
+    });
+    await recordActionAudit({
+      config: {
+        target: () => ({
+          type: "destination",
+          id: "private-destination",
+          visibility: "private",
+        }),
+      },
+      args: {},
+      ctx: {
+        actionName: "send-platform-message",
+        caller: "tool",
+        userEmail: "service@example.com",
+        orgId: "org-1",
+      },
+      status: "success",
+    });
+
+    expect(lastEvent().visibility).toBe("private");
+  });
+
+  it("uses org visibility for integration actions without an explicit target policy", async () => {
+    getIntegrationRequestContext.mockReturnValue({
+      taskId: "task-1",
+      incoming: { platform: "slack" },
+    });
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "update-doc",
+        caller: "tool",
+        userEmail: "service@example.com",
+        orgId: "org-1",
+      },
+      status: "success",
+    });
+
+    expect(lastEvent().visibility).toBe("org");
   });
 
   it("captures redacted inputs by default and skips them when disabled", async () => {

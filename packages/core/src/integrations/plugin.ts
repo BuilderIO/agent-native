@@ -1,7 +1,15 @@
-import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  setResponseHeader,
+  getMethod,
+  getQuery,
+  sendRedirect,
+} from "h3";
 import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import { abortRun } from "../agent/run-manager.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -12,6 +20,13 @@ import {
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
+import {
+  decodeOAuthState,
+  encodeOAuthState,
+  oauthCallbackResponse,
+  oauthErrorPage,
+  resolveOAuthRedirectUri,
+} from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -19,22 +34,46 @@ import {
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
+import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
+import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
-import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
+import {
+  disconnectIntegrationInstallation,
+  listIntegrationInstallations,
+  resolveIntegrationTokenBundle,
+  updateIntegrationInstallation,
+  upsertIntegrationInstallation,
+} from "./installations-store.js";
+import {
+  forgetIntegrationMemory,
+  integrationMemoryActions,
+  listIntegrationMemory,
+  rememberForIntegrationScope,
+} from "./integration-memory.js";
+import {
+  extractBearerToken,
+  signInternalToken,
+  verifyInternalToken,
+} from "./internal-token.js";
 import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
+  getNextPendingTaskIdForThread,
+  insertPendingTask,
+  MAX_PENDING_TASK_ATTEMPTS,
   markTaskCompleted,
   markTaskFailed,
+  markTaskRetryable,
 } from "./pending-tasks-store.js";
 import {
   claimNextRemoteCommand,
@@ -71,12 +110,26 @@ import type {
   RemoteCommandKind,
   RemoteDevice,
 } from "./remote-types.js";
+import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
+import { buildSlackAgentManifest } from "./slack-manifest.js";
+import {
+  assertSlackInstallAccess,
+  buildSlackAuthorizeUrl,
+  exchangeSlackOAuthCode,
+  slackOAuthResponseToInstallation,
+  testSlackAuth,
+} from "./slack-oauth.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import type {
   PlatformAdapter,
   IntegrationsPluginOptions,
   IntegrationStatus,
+  IntegrationExecutionContext,
 } from "./types.js";
+import {
+  listIntegrationUsageBudgets,
+  saveIntegrationUsageBudget,
+} from "./usage-budget-store.js";
 import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -156,12 +209,14 @@ function getDefaultAdapters(): PlatformAdapter[] {
     slackAdapter(),
     telegramAdapter(),
     whatsappAdapter(),
+    microsoftTeamsAdapter(),
+    discordAdapter(),
     googleDocsAdapter(),
     emailAdapter(),
   ];
 }
 
-const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Telegram, WhatsApp, etc.).
+const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp, etc.).
 
 You have the same capabilities as the web chat agent. Use your tools to help the user.
 
@@ -547,6 +602,7 @@ export function createIntegrationsPlugin(
       // call-agent script not available — skip
     }
     const actions = {
+      ...integrationMemoryActions(),
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
@@ -1319,21 +1375,52 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
-          const resources = await loadResourcesForPrompt(
-            task.ownerEmail,
-            true,
-            options?.appId,
+          await runWithRequestContext(
+            {
+              userEmail: task.ownerEmail,
+              ...(task.orgId ? { orgId: task.orgId } : {}),
+              isIntegrationCaller: true,
+            },
+            async () => {
+              const resources = await loadResourcesForPrompt(
+                task.ownerEmail,
+                true,
+                options?.appId,
+                task.orgId,
+              );
+              await processIntegrationTask(task, {
+                adapter,
+                systemPrompt: baseSystemPrompt + resources,
+                actions,
+                model,
+                apiKey: getApiKey(),
+                engine: options?.engine,
+                ownerEmail: task.ownerEmail,
+                appId: options?.appId,
+              });
+            },
           );
-          await processIntegrationTask(task, {
-            adapter,
-            systemPrompt: baseSystemPrompt + resources,
-            actions,
-            model,
-            apiKey: getApiKey(),
-            engine: options?.engine,
-            ownerEmail: task.ownerEmail,
-          });
           await markTaskCompleted(taskId);
+          const nextTaskId = await getNextPendingTaskIdForThread(
+            task.platform,
+            task.externalThreadId,
+          );
+          if (nextTaskId) {
+            const nextToken = signInternalToken(nextTaskId);
+            void fetch(`${getBaseUrl(event)}${P}/process-task`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(nextToken ? { Authorization: `Bearer ${nextToken}` } : {}),
+              },
+              body: JSON.stringify({ taskId: nextTaskId }),
+            }).catch((err) => {
+              console.error(
+                "[integrations] Failed to dispatch queued thread turn:",
+                err,
+              );
+            });
+          }
           await processDueA2AContinuations({
             adapters: adapterMap,
             limit: 2,
@@ -1345,12 +1432,14 @@ export function createIntegrationsPlugin(
           });
           return { ok: true, taskId };
         } catch (err: any) {
-          await markTaskFailed(
-            taskId,
-            err?.message
-              ? String(err.message).slice(0, 1000)
-              : "processor failed",
-          );
+          const errorMessage = err?.message
+            ? String(err.message).slice(0, 1000)
+            : "processor failed";
+          if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
+            await markTaskFailed(taskId, errorMessage);
+          } else {
+            await markTaskRetryable(taskId, errorMessage);
+          }
           // Log the detail server-side; never return the raw error message
           // to the caller. Raw messages have leaked DB error codes, schema
           // names, and stack hints in the past (L3 in the webhook security
@@ -1418,6 +1507,522 @@ export function createIntegrationsPlugin(
           return { error: "Failed to process A2A continuation" };
         }
         return { ok: true, continuationId };
+      }),
+    );
+
+    // ─── Slack native action controls ─────────────────────────────
+    h3.use(
+      `${P}/slack/interactions`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const adapter = adapterMap.get("slack");
+        if (!adapter) {
+          setResponseStatus(event, 404);
+          return "ok";
+        }
+        // handleVerification caches the exact raw form bytes even though the
+        // body is not JSON; verifyWebhook then validates Slack's HMAC before
+        // any action value is parsed.
+        await adapter.handleVerification(event);
+        if (!(await adapter.verifyWebhook(event))) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid webhook signature" };
+        }
+        try {
+          const raw = String(event.context?.__rawBody ?? "");
+          const encoded = new URLSearchParams(raw).get("payload");
+          const payload = encoded ? JSON.parse(encoded) : null;
+          const action = payload?.actions?.[0];
+          const actionKind =
+            action?.action_id === "agent_native_approve"
+              ? "approve"
+              : action?.action_id === "agent_native_deny"
+                ? "deny"
+                : action?.action_id === "agent_native_cancel"
+                  ? "cancel"
+                  : null;
+          if (!actionKind || typeof action?.value !== "string") return "ok";
+          const requesterId = payload?.user?.id;
+          const teamId = payload?.team?.id ?? payload?.user?.team_id;
+          const channelId =
+            payload?.channel?.id ?? payload?.container?.channel_id;
+          const messageTs = payload?.container?.message_ts;
+          if (!requesterId || !teamId || !channelId || !messageTs) {
+            return "ok";
+          }
+          const control = await claimIntegrationControl({
+            id: action.value,
+            action: actionKind,
+            requesterId,
+            teamId,
+            apiAppId:
+              typeof payload?.api_app_id === "string" ? payload.api_app_id : "",
+            channelId,
+            messageTs,
+          });
+          if (!control) return "ok";
+          if (actionKind === "cancel") {
+            if (control.runId) abortRun(control.runId, "slack_cancel");
+            return "ok";
+          }
+          if (actionKind === "deny") return "ok";
+          if (!control.approvalKey) return "ok";
+
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const incoming = {
+            ...control.incoming,
+            text: "The requester approved the pending action. Continue the task.",
+            approvedToolCalls: [control.approvalKey],
+            timestamp: Date.now(),
+            platformContext: {
+              ...control.incoming.platformContext,
+              eventId: `control:${control.id}`,
+            },
+          };
+          await insertPendingTask({
+            id: taskId,
+            platform: incoming.platform,
+            externalThreadId: incoming.externalThreadId,
+            payload: JSON.stringify({ incoming }),
+            ownerEmail: control.ownerEmail,
+            orgId: control.orgId,
+            externalEventKey: `control:${control.id}`,
+          });
+          const processUrl = `${getBaseUrl(event)}${P}/process-task`;
+          const token = signInternalToken(taskId);
+          void fetch(processUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ taskId }),
+          }).catch((err) => {
+            console.error("[slack] Approval dispatch failed:", err);
+          });
+        } catch (err) {
+          console.error("[slack] Interaction handling failed:", err);
+        }
+        return "ok";
+      }),
+    );
+
+    // ─── Managed integration installations ───────────────────────
+    h3.use(
+      `${P}/installations`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+        const org = await getOrgContext(event).catch(() => null);
+        const actor = {
+          userEmail: session.email,
+          orgId: org?.orgId ?? session.orgId ?? null,
+          isOrgAdmin: org?.role === "owner" || org?.role === "admin",
+        };
+        if (method === "GET") {
+          const query = getQuery(event);
+          return {
+            installations: await listIntegrationInstallations(
+              actor,
+              typeof query.platform === "string" ? query.platform : undefined,
+            ),
+          };
+        }
+        const body = (await readBody(event)) as {
+          id?: unknown;
+          action?: unknown;
+        };
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) {
+          setResponseStatus(event, 400);
+          return { error: "installation id required" };
+        }
+        if (body.action === "disconnect") {
+          return {
+            installation: await disconnectIntegrationInstallation(id, actor),
+          };
+        }
+        if (body.action === "test") {
+          const installation = (
+            await listIntegrationInstallations(actor, "slack")
+          ).find((item) => item.id === id);
+          if (!installation) {
+            setResponseStatus(event, 404);
+            return { error: "installation not found" };
+          }
+          const bundle = await resolveIntegrationTokenBundle(
+            installation.platform,
+            installation.installationKey,
+          );
+          if (!bundle) {
+            const updated = await updateIntegrationInstallation(id, actor, {
+              health: "revoked",
+              status: "revoked",
+              lastError: "token_unavailable",
+              healthCheckedAt: Date.now(),
+            });
+            return { installation: updated };
+          }
+          const health = await testSlackAuth(bundle.accessToken);
+          const updated = await updateIntegrationInstallation(id, actor, {
+            health: health.health,
+            status: health.health === "revoked" ? "revoked" : "connected",
+            lastError: health.error,
+            healthCheckedAt: health.checkedAt,
+            ...(health.ok ? { lastHealthyAt: health.checkedAt } : {}),
+          });
+          return { installation: updated };
+        }
+        setResponseStatus(event, 400);
+        return { error: "unsupported installation action" };
+      }),
+    );
+
+    h3.use(
+      `${P}/scopes`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        if (method === "GET") {
+          const query = getQuery(event);
+          return {
+            scopes: await listIntegrationScopes(access, {
+              platform:
+                typeof query.platform === "string" ? query.platform : undefined,
+              tenantId:
+                typeof query.tenantId === "string" ? query.tenantId : undefined,
+            }),
+          };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        try {
+          const body = (await readBody(event)) as Parameters<
+            typeof saveIntegrationScope
+          >[0];
+          return { scope: await saveIntegrationScope(body, access) };
+        } catch (err) {
+          setResponseStatus(event, 400);
+          return {
+            error: err instanceof Error ? err.message : "invalid scope",
+          };
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/budgets`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        if (method === "GET") {
+          return { budgets: await listIntegrationUsageBudgets(access) };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        try {
+          const body = (await readBody(event)) as Parameters<
+            typeof saveIntegrationUsageBudget
+          >[0];
+          return {
+            budget: await saveIntegrationUsageBudget(body, access),
+          };
+        } catch (err) {
+          setResponseStatus(event, 400);
+          return {
+            error: err instanceof Error ? err.message : "invalid budget",
+          };
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/memory`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        const query = getQuery(event);
+        const body =
+          method === "POST"
+            ? ((await readBody(event)) as Record<string, unknown>)
+            : null;
+        const scopeId =
+          typeof query.scopeId === "string"
+            ? query.scopeId
+            : typeof body?.scopeId === "string"
+              ? body.scopeId
+              : "";
+        const scope = (await listIntegrationScopes(access)).find(
+          (item) => item.id === scopeId,
+        );
+        if (!scope) {
+          setResponseStatus(event, 404);
+          return { error: "integration scope not found" };
+        }
+        if (method === "GET") {
+          return { memories: await listIntegrationMemory(scope.id) };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        if (body?.action === "remember") {
+          return {
+            memory: await rememberForIntegrationScope(
+              {
+                name: String(body.name ?? ""),
+                description: String(body.description ?? ""),
+                content: String(body.content ?? ""),
+              },
+              scope.id,
+            ),
+          };
+        }
+        if (body?.action === "forget") {
+          return {
+            memory: await forgetIntegrationMemory(
+              { name: String(body.name ?? "") },
+              scope.id,
+            ),
+          };
+        }
+        setResponseStatus(event, 400);
+        return { error: "unsupported memory action" };
+      }),
+    );
+
+    // ─── Managed Slack OAuth ──────────────────────────────────────
+    h3.use(
+      `${P}/slack/manifest`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const oauthRedirectUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/oauth/callback`,
+        );
+        const eventsRequestUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/webhook`,
+        );
+        const interactivityRequestUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/interactions`,
+        );
+        if (
+          !oauthRedirectUrl ||
+          !eventsRequestUrl ||
+          !interactivityRequestUrl
+        ) {
+          setResponseStatus(event, 400);
+          return { error: "Slack manifest URLs are not allowed." };
+        }
+        setResponseHeader(
+          event,
+          "content-disposition",
+          'attachment; filename="agent-native-slack-manifest.json"',
+        );
+        return buildSlackAgentManifest({
+          oauthRedirectUrl,
+          eventsRequestUrl,
+          interactivityRequestUrl,
+        });
+      }),
+    );
+
+    h3.use(
+      `${P}/slack/oauth/install`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Sign in before connecting Slack." };
+        }
+        const org = await getOrgContext(event).catch(() => null);
+        try {
+          assertSlackInstallAccess({
+            email: session.email,
+            orgId: org?.orgId ?? session.orgId ?? null,
+            orgRole: org?.role ?? null,
+          });
+        } catch (err) {
+          setResponseStatus(event, 403);
+          return {
+            error: err instanceof Error ? err.message : "Slack access denied",
+          };
+        }
+        const clientId = await resolveSecret("SLACK_CLIENT_ID");
+        const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+        const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+        if (!clientId || !clientSecret || !signingSecret) {
+          setResponseStatus(event, 503);
+          return {
+            error:
+              "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+          };
+        }
+        const redirectUri = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/oauth/callback`,
+        );
+        if (!redirectUri) {
+          setResponseStatus(event, 400);
+          return { error: "Slack OAuth redirect URL is not allowed." };
+        }
+        const query = getQuery(event);
+        const state = encodeOAuthState({
+          redirectUri,
+          owner: session.email,
+          orgId: org?.orgId ?? session.orgId ?? undefined,
+          app: "agent-native:slack",
+          addAccount: true,
+          returnUrl:
+            typeof query.return === "string" ? query.return : "/messaging",
+        });
+        return sendRedirect(
+          event,
+          buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
+          302,
+        );
+      }),
+    );
+
+    h3.use(
+      `${P}/slack/oauth/callback`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const query = getQuery(event);
+        if (typeof query.error === "string") {
+          return oauthErrorPage("Slack authorization was canceled or denied.");
+        }
+        const fallbackRedirect = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/oauth/callback`,
+        );
+        if (!fallbackRedirect) {
+          return oauthErrorPage("Slack OAuth redirect URL is not allowed.");
+        }
+        const state = decodeOAuthState(
+          typeof query.state === "string" ? query.state : undefined,
+          fallbackRedirect,
+        );
+        const session = await getSession(event).catch(() => null);
+        const org = await getOrgContext(event).catch(() => null);
+        if (
+          state.app !== "agent-native:slack" ||
+          !session?.email ||
+          !state.owner ||
+          session.email.toLowerCase() !== state.owner.toLowerCase() ||
+          (state.orgId ?? null) !== (org?.orgId ?? session.orgId ?? null)
+        ) {
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
+        const code = typeof query.code === "string" ? query.code : null;
+        if (!code) return oauthErrorPage("Slack did not return an OAuth code.");
+        try {
+          const access = assertSlackInstallAccess({
+            email: session.email,
+            orgId: org?.orgId ?? session.orgId ?? null,
+            orgRole: org?.role ?? null,
+          });
+          const clientId = await resolveSecret("SLACK_CLIENT_ID");
+          const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+          if (!clientId || !clientSecret) {
+            return oauthErrorPage("Slack OAuth is not configured.");
+          }
+          return await runWithRequestContext(
+            {
+              userEmail: access.ownerEmail,
+              orgId: access.orgId ?? undefined,
+            },
+            async () => {
+              const oauth = await exchangeSlackOAuthCode({
+                code,
+                clientId,
+                clientSecret,
+                redirectUri: state.redirectUri,
+              });
+              const health = await testSlackAuth(oauth.access_token || "");
+              if (!health.ok) {
+                return oauthErrorPage(
+                  "Slack connected, but the bot token could not be verified. Please retry.",
+                );
+              }
+              if (
+                oauth.team?.id &&
+                health.teamId &&
+                oauth.team.id !== health.teamId
+              ) {
+                return oauthErrorPage(
+                  "Slack returned inconsistent workspace details. Please retry.",
+                );
+              }
+              const input = slackOAuthResponseToInstallation(oauth, access);
+              const installation = await upsertIntegrationInstallation({
+                ...input,
+                health: health.health,
+                healthCheckedAt: health.checkedAt,
+                lastHealthyAt: health.checkedAt,
+              });
+              await saveIntegrationConfig(
+                "slack",
+                { enabled: true, managedOAuth: true },
+                "default",
+                access.ownerEmail,
+              );
+              return oauthCallbackResponse(
+                event,
+                installation.teamName || installation.enterpriseName || "Slack",
+                {
+                  addAccount: true,
+                  appName: "Agent Native",
+                  returnUrl: state.returnUrl || "/messaging",
+                },
+              );
+            },
+          );
+        } catch (err) {
+          console.error("[slack] OAuth callback failed:", err);
+          return oauthErrorPage("Slack connection failed. Please try again.");
+        }
       }),
     );
 
@@ -1534,20 +2139,13 @@ export function createIntegrationsPlugin(
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
 
-          // Handle platform verification challenges (e.g. Slack url_verification)
-          // before checking enable state or parsing the message.
+          // Let the adapter cache the raw request and identify setup
+          // challenges, but never return a challenge response until the
+          // provider signature has been verified.
           const verification = await withCredentialContext(
             credentialContext,
             () => adapter.handleVerification(event),
           );
-          if (verification.handled) {
-            return verification.response ?? "ok";
-          }
-
-          if (!config?.configData?.enabled) {
-            setResponseStatus(event, 404);
-            return { error: `Integration ${platform} is not enabled` };
-          }
 
           // Verify the webhook signature BEFORE parsing. We pre-parse the
           // body here (so handleWebhook can skip its second readBody, which
@@ -1561,6 +2159,15 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 401);
             return { error: "Invalid webhook signature" };
           }
+          if (verification.handled) {
+            setResponseStatus(event, 200);
+            return verification.response ?? "ok";
+          }
+
+          if (!config?.configData?.enabled) {
+            setResponseStatus(event, 404);
+            return { error: `Integration ${platform} is not enabled` };
+          }
 
           const incoming = await withCredentialContext(credentialContext, () =>
             adapter.parseIncomingMessage(event),
@@ -1569,10 +2176,32 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 200);
             return "ok";
           }
-          let owner = `integration@${platform}`;
-          if (options?.resolveOwner) {
+          let executionContext: IntegrationExecutionContext = {
+            ownerEmail: `integration@${platform}`,
+            orgId: null as string | null,
+            principalType: "service" as const,
+          };
+          if (options?.resolveExecutionContext) {
             try {
-              owner = await options.resolveOwner(incoming);
+              executionContext = await withCredentialContext(
+                credentialContext,
+                () =>
+                  Promise.resolve(options.resolveExecutionContext!(incoming)),
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] resolveExecutionContext denied message:`,
+                err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          } else if (options?.resolveOwner) {
+            try {
+              executionContext.ownerEmail = await withCredentialContext(
+                credentialContext,
+                () => Promise.resolve(options.resolveOwner!(incoming)),
+              );
             } catch (err) {
               console.error(
                 `[integrations] resolveOwner failed, using default:`,
@@ -1580,21 +2209,23 @@ export function createIntegrationsPlugin(
               );
             }
           }
-          const resources = await loadResourcesForPrompt(
-            owner,
-            true,
-            options?.appId,
-          );
-          const systemPrompt = baseSystemPrompt + resources;
+          if (executionContext.scopeId) {
+            incoming.integrationScopeId = executionContext.scopeId;
+          }
           const result = await handleWebhook(event, {
             adapter,
-            systemPrompt,
+            // The processor reloads scoped resources immediately before the
+            // agent run. Avoid doing that work on the acknowledgement path,
+            // where providers such as Discord enforce a 3-second deadline.
+            systemPrompt: baseSystemPrompt,
             actions,
             model,
             apiKey: getApiKey(),
             engine: options?.engine,
             appId: options?.appId,
-            ownerEmail: owner,
+            ownerEmail: executionContext.ownerEmail,
+            orgId: executionContext.orgId,
+            principalType: executionContext.principalType,
             beforeProcess: options?.beforeProcess,
             incoming,
           });
@@ -1646,11 +2277,15 @@ export function createIntegrationsPlugin(
               toCredentialContext(ctx),
               () => resolveSecret("TELEGRAM_BOT_TOKEN"),
             );
-            if (!token) {
+            const webhookSecret = await withCredentialContext(
+              toCredentialContext(ctx),
+              () => resolveSecret("TELEGRAM_WEBHOOK_SECRET"),
+            );
+            if (!token || !webhookSecret) {
               setResponseStatus(event, 400);
               return {
                 error:
-                  "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+                  "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
               };
             }
             try {
@@ -1659,7 +2294,10 @@ export function createIntegrationsPlugin(
                 {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ url: webhookUrl }),
+                  body: JSON.stringify({
+                    url: webhookUrl,
+                    secret_token: webhookSecret,
+                  }),
                 },
               );
               const data = await res.json();
@@ -1702,7 +2340,7 @@ export function createIntegrationsPlugin(
           ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
           : undefined;
 
-        startGoogleDocsPoller({
+        void startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
           model: model ?? "",

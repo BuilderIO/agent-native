@@ -428,7 +428,11 @@ async function captureDashboardPng(
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  const message = err instanceof Error ? err.message : String(err);
+  return message.replace(
+    new RegExp(`(${EMBED_TOKEN_QUERY_PARAM}=)[^&\\s]+`, "g"),
+    "$1[REDACTED]",
+  );
 }
 
 async function captureDashboardPngWithFallback(

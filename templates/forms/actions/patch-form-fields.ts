@@ -19,6 +19,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { applyFieldOps } from "../server/lib/merge-fields.js";
 import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField } from "../shared/types.js";
+import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 const fieldOpSchema = z.union([
   z.object({
@@ -91,6 +92,9 @@ export default defineAction({
 
     // Validate the result before persisting.
     assertValidFields(nextFields);
+    if (existing.status === "published") {
+      assertPublishableForm(nextFields);
+    }
 
     const now = new Date().toISOString();
     await db

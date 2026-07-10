@@ -25,17 +25,13 @@ type NativeUploadFinished = {
 
 /**
  * Full-screen transparent feedback overlay. Rendered the moment the user
- * clicks Stop on the recording toolbar and kept visible until the browser
- * opens at `/r/:id`. This fills the gap between `hide_recording_chrome`
- * tearing down the toolbar + bubble and `openExternal` actually opening
- * the browser — a gap that can stretch for several seconds while
- * MediaRecorder flushes trailing chunks and the server finalize POST
- * completes.
+ * clicks Stop on the recording toolbar and kept visible while the desktop
+ * finishes its durable backup and first upload/finalize attempt. The browser
+ * can open `/r/:id` earlier so the page shows live progress.
  *
  * The window ignores cursor events on the Rust side, so the compact
  * bottom-left card does not block the user's screen while compression or
- * upload continues. The recorder.ts stop path invokes `hide_finalizing`
- * right after `openExternal` to close this window.
+ * upload runs.
  */
 export function Finalizing() {
   const [progress, setProgress] = useState<ProcessingProgress>({

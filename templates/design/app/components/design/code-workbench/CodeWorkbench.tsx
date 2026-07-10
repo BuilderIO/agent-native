@@ -49,6 +49,7 @@ import {
 export interface CodeWorkbenchLocalhostConnection {
   connectionId: string;
   label: string;
+  rootPath?: string;
 }
 
 export interface CodeWorkbenchActiveFile {

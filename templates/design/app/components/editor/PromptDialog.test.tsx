@@ -208,4 +208,72 @@ describe("PromptPopover skip affordance", () => {
     );
     expect(skipButton).toBeTruthy();
   });
+
+  it("fires once and closes once after an async skip succeeds", async () => {
+    let resolveSkip: (() => void) | undefined;
+    const onSkip = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSkip = resolve;
+        }),
+    );
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+
+    await act(async () => {
+      skipButton?.click();
+      skipButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSkip?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("stays open and allows retry when an async skip fails", async () => {
+    const onSkip = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("create failed"))
+      .mockResolvedValueOnce(undefined);
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const findSkipButton = () =>
+      Array.from(container!.querySelectorAll("button")).find(
+        (btn) => btn.textContent === "promptDialog.skipPrompt",
+      );
+
+    await act(async () => {
+      findSkipButton()?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(findSkipButton()?.disabled).toBe(false);
+    expect(
+      container!.querySelector('[data-testid="prompt-composer"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      findSkipButton()?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(2);
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });

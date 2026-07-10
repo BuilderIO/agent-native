@@ -3,6 +3,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
   root: {
@@ -45,6 +46,28 @@ const messages = {
     suggestionLandingPage: "為我的初創公司設計落地頁面",
     suggestionBrandMatch: "讓它匹配我們的品牌",
     suggestionMobile: "新增行動端版本",
+    figmaLink: {
+      frameDetected: "偵測到 Figma 畫框",
+      fileDetected: "偵測到 Figma 檔案",
+      connected: "已連線",
+      connectedLast4: "已連線 ••••{{last4}}",
+      checkingConnection: "正在檢查 Figma 連線…",
+      connectionCheckFailed: "無法檢查 Figma 連線",
+      connectFailed: "無法連線 Figma",
+      connectDescription:
+        "連線一次，即可透過聊天匯入、檢查或重用此 Figma 連結。",
+      tokenLabel: "Figma 存取權杖",
+      tokenPlaceholder: "貼上 Figma 存取權杖",
+      connecting: "正在連線…",
+      connect: "連線",
+      getToken: "取得權杖",
+      importFrame: "匯入畫框",
+      chooseFrame: "選擇畫框",
+      inspect: "檢查",
+      exportSvg: "匯出 SVG",
+      actionsPrefill: "檢閱後再傳送",
+      retry: "重試",
+    },
   },
   common: {
     genericError: "出了點問題",
@@ -339,11 +362,31 @@ const messages = {
         watch: "手錶",
         paper: "紙張",
         socialMedia: "社群媒體",
+        adUnit: "廣告單元",
       },
     },
   },
   designEditor: {
+    ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
+    autoLayoutSuggestion: {
+      menuLabel: "建議自動版面配置…",
+      title: "建議自動版面配置",
+      description: "檢視依子層實測幾何推斷的版面配置。套用前不會進行任何變更。",
+      preview: "自動版面配置預覽",
+      sizing: "尺寸調整",
+      fixed: "固定",
+      hug: "貼合",
+      cancel: "取消",
+      apply: "套用自動版面配置",
+      selectContainer: "請選取一個含有子層的容器以取得建議。",
+      stale: "容器已變更。請先預覽新的建議再套用。",
+      warnings: {
+        overlap: "部分子層重疊，因此無法安全套用此建議。",
+        irregular: "間距不規則；目前顯示中位數間距。",
+        transformed: "含變形的子層需要手動檢查後再轉換。",
+      },
+    },
     componentInstances: {
       selectLayer: "選取圖層",
       goToMain: "前往主要元件",
@@ -392,6 +435,23 @@ const messages = {
       desktop: "桌面",
       tablet: "平板",
       phone: "手機",
+      scope: {
+        label: "響應式編輯範圍",
+        cascadeSmaller: "此中斷點及更小尺寸",
+        only: "僅此中斷點",
+        firstEditGuidance:
+          "響應式編輯預設會影響此中斷點及更小尺寸。可在中斷點控制旁變更範圍。",
+      },
+    },
+    screenDeletion: {
+      titleOne: "刪除此畫面？",
+      titleMany: "刪除 {{count}} 個畫面？",
+      descriptionOne:
+        "將刪除「{{filename}}」及其所有響應式變體。編輯器保持開啟時可以復原。",
+      descriptionMany:
+        "將刪除這些畫面及其所有響應式變體。編輯器保持開啟時可以復原。",
+      cancel: "取消",
+      confirm: "刪除",
     },
     motion: {
       dockLabel: "動態面板",
@@ -480,6 +540,25 @@ const messages = {
     import: {
       title: "匯入",
       description: "將 Figma 剪貼簿 HTML 或獨立 HTML 帶入為 Design 螢幕。",
+      figmaUrlTitle: "Figma 畫框網址",
+      figmaUrlDescription: "從 Figma 連結匯入畫框或檔案。",
+      figmaUrlLabel: "Figma 畫框或檔案網址",
+      figmaUrlPlaceholder: "https://www.figma.com/design/…",
+      figmaConnectionChecking: "正在檢查 Figma 連線…",
+      figmaConnected: "Figma 已連線",
+      figmaConnectedWithSuffix: "Figma 已連線 · ••••{{suffix}}",
+      figmaTokenLabel: "Figma 存取權杖",
+      figmaTokenDocs: "取得權杖",
+      figmaTokenPlaceholder: "貼上您的 Figma 個人存取權杖",
+      figmaTokenDescription:
+        "安全儲存以供 Figma 匯入和代理聊天使用。權杖絕不會加入聊天。",
+      importFigmaUrl: "從 Figma 匯入",
+      saveKeyAndImport: "儲存金鑰並匯入",
+      figmaUrlSuccess: "已從 Figma 匯入。",
+      figmaImageFallbackWarning:
+        "圖像備援：{{count}}。外觀會保留，但這些圖層無法完整編輯。",
+      figmaApproximationWarning:
+        "近似圖層：{{count}}。HTML/CSS 無法精確呈現所有 Figma 屬性。",
       figmaPasteTitle: "從 Figma 貼上",
       figmaPasteDescription:
         "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
@@ -491,8 +570,10 @@ const messages = {
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "只匯出需要的畫框。含有許多嵌入圖片的大型檔案可能超過匯入限制。",
+        "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
       chooseFigFile: "選擇 .fig 檔案",
+      figUploadUploading: "上傳中 {{progress}}%",
+      figUploadProcessing: "轉換中…",
       htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -512,10 +593,15 @@ const messages = {
       uploadSuccess: "已匯入檔案",
       lastImport: "上次匯入",
       errors: {
+        figmaUrlRequired: "請貼上 Figma 畫框或檔案網址。",
+        invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案網址。",
+        figmaImportFailed: "無法從 Figma 匯入",
         notHtml: "請貼上或選擇有效的 HTML 以匯入。",
         importFailed: "匯入失敗",
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
+        invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
+        figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
       },
     },
     generationMayHaveStopped:
@@ -585,7 +671,9 @@ const messages = {
     downloadHtml: "下載 HTML",
     downloadPng: "下載 PNG",
     downloadSvg: "下載 SVG",
+    downloadFigmaSvg: "下載用於 Figma 的 SVG",
     downloadZip: "下載 ZIP",
+    downloadPdfAllScreens: "下載 PDF（所有畫面）",
     exportHtml: "匯出HTML",
     exportPdf: "匯出PDF",
     copyCodingHandoff: "複製編碼交接",
@@ -609,6 +697,8 @@ const messages = {
     addTweaks: "新增調整",
     addTweakControls: "新增調整控制項",
     closeTweaks: "關閉調整",
+    tweaksHelp:
+      "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
     noTweakControls: "還沒有調整控制項。",
     extensions: "擴充功能",
     addExtension: "擴充功能",
@@ -661,10 +751,17 @@ const messages = {
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
       applyWithAgent: "用 Design 代理套用",
+      verifying: "正在驗證來源與執行階段…",
+      retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
+      verifiedToast: "已驗證來源與執行階段結構",
+      conflictToast:
+        "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
+      sourceCheckFailedToast:
+        "無法驗證連接的來源檔案。預覽已保留，您可以重試或復原。",
       copiedToast: "樣式提示已複製",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
@@ -707,10 +804,12 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
       svgExportError: "無法匯出 SVG",
       figmaSvgCopied: "已複製為 Figma SVG",
+      figmaSvgDownloaded: "Figma SVG 已下載",
       figmaSvgUnsupported: "此瀏覽器無法將 SVG 圖像複製到剪貼簿",
       figmaSvgBlocked: "請允許存取剪貼簿以複製此 SVG",
       figmaSvgWriteError: "無法將 SVG 複製到剪貼簿",
@@ -783,11 +882,11 @@ const messages = {
   multiScreenCanvas: {
     duplicate: "複製",
     fork: "分支",
-    fullView: "完整檢視",
+    fullView: "互動",
     preview: "預覽",
-    openAndDuplicate: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-    openAndPreview: "選取 {{display}}。使用完整檢視進行聚焦捲動。",
-    doubleClickToEdit: "使用完整檢視進行聚焦捲動",
+    openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+    openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
+    doubleClickToEdit: "使用互動模式進行聚焦捲動",
     sources: {
       localhost: { label: "本機", title: "由本機開發伺服器渲染" },
       fusion: { label: "Fusion 遠端", title: "由 Fusion 渲染" },
@@ -932,6 +1031,8 @@ const messages = {
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
     openingDesign: "正在開啟設計...",
+    skipToEditor: "直接進入編輯器",
+    failedToCreateDesign: "無法建立設計",
     describeBuild: "描述您想要建置的內容...",
     selected: "已選取 {{count}}",
     clearVisibleSelection: "清晰可見的選取",
@@ -964,6 +1065,7 @@ const messages = {
     designPreview: "Design 預覽",
   },
   templatesPage: {
+    ...designTemplateFeatureOverrides["zh-TW"].templatesPage,
     title: "行銷範本",
     description:
       "用於發布、廣告、簡報、活動和 PDF 講義的尺寸可編輯的入門設計。",
@@ -1099,11 +1201,31 @@ const messages = {
     updateError: "無法更新設計系統",
     bulkDeleteError: "無法刪除選定的設計系統",
     selectedLabel: "已選取",
+    yoursTitle: "您的設計系統",
     newCardDescription: "建立您的品牌",
     defaultBadge: "預設",
     selectAria: "選取{{title}}",
     currentlyDefault: "目前預設",
     moreActionsAria: "{{title}} 的更多操作",
+    showcase: {
+      title: "可用於正式產品的起點",
+      description:
+        "使用成熟公共設計系統的來源連結快照。每個副本都包含真實權杖、字級、間距、形狀、狀態指引和署名。",
+      useTemplate: "使用此系統",
+      adding: "正在新增...",
+      openSource: "開啟 {{title}} 來源文件",
+      license: "來源授權：{{license}}",
+      addSuccess: "已新增設計系統",
+      addError: "無法新增設計系統",
+      descriptions: {
+        material3:
+          "Google 的基準淺色角色、Roboto 字級、4 dp 間距和 Material 形狀系統。",
+        carbon:
+          "IBM Carbon v11 White 主題、IBM Plex 排版、企業色彩角色和 2/4/8 間距。",
+        primer:
+          "GitHub Primer 淺色權杖、Mona Sans、緊湊的開發者工具密度和響應式間距。",
+      },
+    },
     actions: {
       done: "完畢",
       select: "選取",

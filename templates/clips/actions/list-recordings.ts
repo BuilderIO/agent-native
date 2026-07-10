@@ -9,6 +9,7 @@ import {
   inArray,
   isNull,
   isNotNull,
+  not,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -27,10 +28,10 @@ function escapeLike(s: string): string {
 
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/space/archive/trash/all), folder, space, tag, free-text, and sort.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. The shared view returns accessible recordings owned by someone else.",
   schema: z.object({
     view: z
-      .enum(["library", "space", "archive", "trash", "all"])
+      .enum(["library", "shared", "space", "archive", "trash", "all"])
       .default("library")
       .describe("Which list to show"),
     folderId: z
@@ -90,8 +91,23 @@ export default defineAction({
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));
       }
+    }
+
+    // Shared = recordings admitted by the normal sharing access filter but
+    // owned by someone else. This includes direct user/org grants and org-wide
+    // visibility, while public-only links remain excluded by accessFilter.
+    if (args.view === "shared") {
+      const email = getRequestUserEmail();
+      whereClauses.push(
+        email
+          ? not(ownerEmailMatches(schema.recordings.ownerEmail, email))
+          : sql`1 = 0`,
+      );
+    }
+
+    if (args.view === "library" || args.view === "shared") {
       // Meeting recordings are transcript-only (no playable media) and live on
-      // the /meetings surface, so keep them out of the Library list. The link
+      // the /meetings surface, so keep them out of clip library views. The link
       // is meetings.recordingId (no meetingId column on recordings), so exclude
       // any recording referenced by a meeting. The subquery filters out NULLs
       // so NOT IN doesn't collapse to an empty result under SQL NULL semantics.

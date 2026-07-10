@@ -43,6 +43,7 @@ function highlight(
 
 interface SearchBarProps {
   className?: string;
+  side?: "top" | "right" | "bottom" | "left";
 }
 
 function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
@@ -60,7 +61,7 @@ function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
   }
 }
 
-export function SearchBar({ className }: SearchBarProps) {
+export function SearchBar({ className, side = "right" }: SearchBarProps) {
   const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -154,9 +155,9 @@ export function SearchBar({ className }: SearchBarProps) {
 
         <PopoverContent
           align="start"
-          side="right"
+          side={side}
           sideOffset={8}
-          className="w-[420px] p-0 overflow-hidden"
+          className="w-[min(420px,calc(100vw-2rem))] p-0 overflow-hidden"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {isFetching && results.length === 0 && (

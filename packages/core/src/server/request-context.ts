@@ -164,6 +164,24 @@ export interface RequestContext {
     attempts?: number;
     incoming: import("../integrations/types.js").IncomingMessage;
     placeholderRef?: string;
+    installationId?: string;
+    scopeId?: string;
+    principalType?: "user" | "service";
+    lineage?: {
+      runId?: string;
+      parentTaskId?: string;
+      source?: {
+        kind: string;
+        platform?: string;
+        id: string;
+        url?: string;
+      };
+      network?: {
+        protocol: "a2a" | "mcp" | "provider-api";
+        id: string;
+        peer?: string;
+      };
+    };
   };
   /**
    * Mutable per-request agent-run state. Populated by the agent-chat plugin

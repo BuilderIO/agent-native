@@ -5,11 +5,14 @@ import {
   resourceGetByPath,
   resourceList,
   resourceDelete,
+  organizationIdFromResourceOwner,
+  sharedResourceOwner,
   SHARED_OWNER,
 } from "../resources/store.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getIntegrationRequestContext,
 } from "../server/request-context.js";
 import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
 import {
@@ -22,6 +25,10 @@ function getOwner(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
   return email;
+}
+
+function getSharedOwner(): string {
+  return sharedResourceOwner(getRequestOrgId());
 }
 
 /**
@@ -65,7 +72,8 @@ async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
 ): Promise<string | null> {
-  if (resourceOwner !== SHARED_OWNER) {
+  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
+  if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
     // Personal-scope job — owner is the request's user. resourceGetByPath is
     // already scoped to the caller, so we know meta.createdBy must match.
     return null;
@@ -76,7 +84,7 @@ async function authorizeJobMutation(
 
   // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
-    meta.orgId ?? getRequestOrgId() ?? undefined,
+    resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
   if (isAdmin) return null;
 
@@ -84,7 +92,7 @@ async function authorizeJobMutation(
 }
 
 async function runCreate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, scope, runAs } = args;
+  const { name, schedule, instructions, scope, runAs, model } = args;
 
   if (!name || !schedule || !instructions) {
     return JSON.stringify({
@@ -98,10 +106,13 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     });
   }
 
-  const owner = scope === "personal" ? getOwner() : SHARED_OWNER;
+  const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
   const next = nextOccurrence(schedule, now);
+  const integration = getIntegrationRequestContext();
+  const channelId = integration?.incoming.platformContext.channelId;
+  const threadRef = integration?.incoming.threadRef;
 
   const meta: JobFrontmatter = {
     schedule,
@@ -110,6 +121,20 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     orgId: getRequestOrgId() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
+    ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
+    ...(integration?.incoming.platform
+      ? { deliveryPlatform: integration.incoming.platform }
+      : {}),
+    ...(typeof channelId === "string"
+      ? { deliveryDestination: channelId }
+      : {}),
+    ...(typeof threadRef === "string" ? { deliveryThreadRef: threadRef } : {}),
+    ...(integration?.incoming.tenantId
+      ? { deliveryTenantId: integration.incoming.tenantId }
+      : {}),
+    ...(typeof model === "string" && model.trim()
+      ? { model: model.trim() }
+      : {}),
   };
 
   const content = buildJobContent(meta, instructions);
@@ -128,10 +153,11 @@ async function runCreate(args: Record<string, any>): Promise<string> {
 
 async function runList(args: Record<string, any>): Promise<string> {
   const owner = getOwner();
+  const sharedOwner = getSharedOwner();
   // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
-    resourceList(SHARED_OWNER, "jobs/"),
+    resourceList(sharedOwner, "jobs/"),
   ]);
   let resources = [...personal, ...shared];
   if (args.scope === "personal") resources = personal;
@@ -146,7 +172,7 @@ async function runList(args: Record<string, any>): Promise<string> {
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
-        scope: r.owner === SHARED_OWNER ? "shared" : "personal",
+        scope: r.owner === sharedOwner ? "shared" : "personal",
         schedule: meta.schedule,
         scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
         enabled: meta.enabled,
@@ -154,6 +180,10 @@ async function runList(args: Record<string, any>): Promise<string> {
         lastStatus: meta.lastStatus || null,
         lastError: meta.lastError || null,
         nextRun: meta.nextRun || null,
+        originScopeId: meta.originScopeId || null,
+        deliveryPlatform: meta.deliveryPlatform || null,
+        deliveryDestination: meta.deliveryDestination || null,
+        model: meta.model || null,
       };
     }),
   );
@@ -166,11 +196,11 @@ async function runList(args: Record<string, any>): Promise<string> {
 }
 
 async function runUpdate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, enabled, scope, runAs } = args;
+  const { name, schedule, instructions, enabled, scope, runAs, model } = args;
   const path = `jobs/${name}.md`;
 
   // Try to find the resource
-  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
   }
@@ -211,6 +241,7 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   if (runAs === "creator" || runAs === "shared") {
     meta.runAs = runAs;
   }
+  if (typeof model === "string" && model.trim()) meta.model = model.trim();
 
   const newBody = instructions || body;
   const content = buildJobContent(meta, newBody);
@@ -230,7 +261,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   const { name, scope } = args;
   const path = `jobs/${name}.md`;
 
-  let resource = await resourceGetByPath(SHARED_OWNER, path);
+  let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
   }
@@ -305,6 +336,11 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
               description:
                 "Who shared jobs execute as: creator or shared. Default: creator. Used with create and update.",
               enum: ["creator", "shared"],
+            },
+            model: {
+              type: "string",
+              description:
+                "Optional model id for this routine. The channel/app/engine default is used when omitted.",
             },
           },
           required: ["action"],

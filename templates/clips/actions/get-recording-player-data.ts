@@ -36,6 +36,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 
 function safeJsonObject(raw: string | null | undefined) {
   if (!raw) return {};
@@ -215,6 +216,7 @@ export default defineAction({
       transcript?.status === "ready" &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
@@ -283,12 +285,14 @@ export default defineAction({
       },
       transcript: transcript
         ? {
-            status: transcriptReadyButEmpty ? "failed" : transcript.status,
+            status: transcriptReadyButEmpty
+              ? "failed"
+              : transcriptPresentation.status,
             language: transcript.language,
             fullText: transcript.fullText,
             failureReason: transcriptReadyButEmpty
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
-              : transcript.failureReason,
+              : transcriptPresentation.failureReason,
             segments: transcriptSegments,
             cleanup: cleanupState
               ? {

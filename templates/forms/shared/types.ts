@@ -72,6 +72,11 @@ export interface FormSettings {
   successMessage?: string;
   redirectUrl?: string;
   showProgressBar?: boolean;
+  /**
+   * Strict response privacy mode. When enabled, submissions do not retain the
+   * request IP, submitter identity, chat/run ids, page URL, or client surface.
+   */
+  anonymous?: boolean;
   integrations?: FormIntegration[];
   /**
    * Origins permitted to POST submissions cross-origin (e.g. from embedded

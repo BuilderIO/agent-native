@@ -15,6 +15,7 @@ import {
   computeDistributedPositions,
   computeTidyPositions,
   inferAutoLayoutFromChildren,
+  mergeAuthoredAndLiveRect,
   type AlignableRect,
 } from "./design-editor/layout-operations";
 
@@ -179,10 +180,18 @@ describe("inferAutoLayoutFromChildren", () => {
     expect(result.padding).toBe(10);
   });
 
-  it("falls back to gap 10 / padding 0 with no children", () => {
+  it("matches Figma's vertical default with no children", () => {
     const container = { x: 0, y: 0, width: 100, height: 100 };
     const result = inferAutoLayoutFromChildren(container, []);
-    expect(result).toEqual({ direction: "row", gap: 10, padding: 0 });
+    expect(result).toEqual({ direction: "column", gap: 10, padding: 0 });
+  });
+
+  it("matches Figma's vertical default for one child regardless of aspect ratio", () => {
+    const container = { x: 0, y: 0, width: 300, height: 40 };
+    const result = inferAutoLayoutFromChildren(container, [
+      { id: "wide", x: 0, y: 0, width: 300, height: 40 },
+    ]);
+    expect(result).toEqual({ direction: "column", gap: 10, padding: 0 });
   });
 
   it("uses the median gap when inter-child gaps vary", () => {
@@ -196,5 +205,23 @@ describe("inferAutoLayoutFromChildren", () => {
     const result = inferAutoLayoutFromChildren(container, children);
     // gaps: [10, 20, 40] -> median 20
     expect(result.gap).toBe(20);
+  });
+});
+
+describe("mergeAuthoredAndLiveRect", () => {
+  it("keeps authored offsets while filling class/computed dimensions from live geometry", () => {
+    expect(
+      mergeAuthoredAndLiveRect({
+        id: "responsive-child",
+        authored: { x: 24, y: 12 },
+        live: { x: 20, y: 10, width: 160, height: 48 },
+      }),
+    ).toEqual({
+      id: "responsive-child",
+      x: 24,
+      y: 12,
+      width: 160,
+      height: 48,
+    });
   });
 });

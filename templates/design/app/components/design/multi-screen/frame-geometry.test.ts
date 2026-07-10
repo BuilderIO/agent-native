@@ -2,8 +2,109 @@ import { describe, expect, it } from "vitest";
 
 import {
   getCanonicalScreenStack,
+  getResponsiveInitialFrameGeometry,
+  getResponsiveScreenGroupSize,
   reorderCanonicalScreenStack,
+  resolveFrameGeometrySync,
 } from "./frame-geometry";
+
+describe("responsive overview group layout", () => {
+  const screens = Array.from({ length: 4 }, (_, index) => ({
+    id: `variation-${index + 1}`,
+    metadata: { width: 1280, height: 800 },
+    breakpointWidths: [390, 768, 1280],
+  }));
+
+  it("reserves the complete responsive row before placing the next variation", () => {
+    const first = getResponsiveInitialFrameGeometry(0, screens);
+    const second = getResponsiveInitialFrameGeometry(1, screens);
+    const firstGroup = getResponsiveScreenGroupSize(screens[0]!);
+    expect(second.x).toBeGreaterThanOrEqual(first.x + firstGroup.width + 56);
+  });
+
+  it("puts the next grid row below the tallest responsive group", () => {
+    const first = getResponsiveInitialFrameGeometry(0, screens);
+    const fourth = getResponsiveInitialFrameGeometry(3, screens);
+    const firstGroup = getResponsiveScreenGroupSize(screens[0]!);
+    expect(fourth.y).toBeGreaterThanOrEqual(
+      first.y + firstGroup.height + 28 + 56,
+    );
+  });
+
+  it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {
+    const legacy = {
+      "variation-1": { x: 0, y: 0, width: 320, height: 200 },
+      "variation-2": { x: 376, y: 0, width: 320, height: 200 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: screens.slice(0, 2),
+      currentGeometryById: legacy,
+      persistedGeometryById: legacy,
+    });
+    expect(result.shouldNotifyParent).toBe(true);
+    expect(result.next["variation-2"]!.x).toBeGreaterThan(376);
+
+    const custom = resolveFrameGeometrySync({
+      screens: screens.slice(0, 2),
+      currentGeometryById: {
+        ...legacy,
+        "variation-2": { ...legacy["variation-2"], x: 999 },
+      },
+      persistedGeometryById: {
+        ...legacy,
+        "variation-2": { ...legacy["variation-2"], x: 999 },
+      },
+    });
+    expect(custom.next["variation-2"]!.x).toBe(999);
+  });
+
+  it("reflows untouched generated variant sets using their authored frame widths", () => {
+    const generated = screens.slice(0, 3).map((screen) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: "set-1",
+    }));
+    const legacy = {
+      "variation-1": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-2": { x: 1376, y: 0, width: 1280, height: 900 },
+      "variation-3": { x: 2752, y: 0, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: generated,
+      currentGeometryById: legacy,
+      persistedGeometryById: legacy,
+    });
+    const firstGroup = getResponsiveScreenGroupSize(
+      generated[0]!,
+      legacy["variation-1"],
+    );
+    expect(result.next["variation-2"]!.x).toBeGreaterThanOrEqual(
+      firstGroup.width + 56,
+    );
+    expect(result.shouldNotifyParent).toBe(true);
+  });
+
+  it("does not reflow a generated variant set after a designer moves a frame", () => {
+    const generated = screens.slice(0, 2).map((screen) => ({
+      ...screen,
+      metadata: { width: 1280, height: 900 },
+      breakpointWidths: [390, 768],
+      layoutGroupId: "set-1",
+    }));
+    const custom = {
+      "variation-1": { x: 0, y: 0, width: 1280, height: 900 },
+      "variation-2": { x: 1800, y: 250, width: 1280, height: 900 },
+    };
+    const result = resolveFrameGeometrySync({
+      screens: generated,
+      currentGeometryById: custom,
+      persistedGeometryById: custom,
+    });
+    expect(result.next["variation-2"]).toEqual(custom["variation-2"]);
+    expect(result.shouldNotifyParent).toBe(false);
+  });
+});
 
 describe("canonical overview screen stack", () => {
   const screens = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];

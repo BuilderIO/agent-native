@@ -39,7 +39,7 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
   });
 
-  it("keeps the Full view button visible for hovered child content", () => {
+  it("keeps the Interact button visible for hovered child content", () => {
     expect(
       shouldShowFrameFullViewButton({
         emphasized: false,

@@ -4,6 +4,7 @@ import {
   clearState,
   duplicateStatePreviewRules,
   extractManagedInteractionStateCss,
+  extractManagedResponsiveInteractionStateCss,
   injectManagedInteractionStateCss,
   INTERACTION_STATES,
   isInteractionState,
@@ -12,10 +13,15 @@ import {
   listAllInteractionStateDeclarations,
   listInteractionStates,
   parseInteractionStatesCss,
+  parseResponsiveInteractionStatesCss,
+  readResolvedStateStyles,
   readStateStyles,
+  removeResponsiveStateProperty,
   removeStateProperty,
   serializeInteractionStatesModel,
   serializeInteractionStatesModelWithPreviews,
+  serializeResponsiveInteractionStatesModel,
+  upsertResponsiveStateStyles,
   upsertStateStyle,
   upsertStateStyles,
 } from "./interaction-states";
@@ -75,11 +81,13 @@ describe("isSafeInteractionStateCssProperty", () => {
     expect(isSafeInteractionStateCssProperty("color")).toBe(true);
     expect(isSafeInteractionStateCssProperty("background-color")).toBe(true);
     expect(isSafeInteractionStateCssProperty("-webkit-transform")).toBe(true);
+    expect(isSafeInteractionStateCssProperty("--button-accent")).toBe(true);
   });
 
   it("rejects invalid identifiers", () => {
     expect(isSafeInteractionStateCssProperty("color; }")).toBe(false);
     expect(isSafeInteractionStateCssProperty("123color")).toBe(false);
+    expect(isSafeInteractionStateCssProperty("--")).toBe(false);
     expect(isSafeInteractionStateCssProperty("")).toBe(false);
   });
 });
@@ -232,6 +240,24 @@ describe("parseInteractionStatesCss / serializeInteractionStatesModel", () => {
     );
     expect(roundTripped).toEqual(model);
   });
+
+  it("serializes state declarations as important so they override inline base styles", () => {
+    const css = serializeInteractionStatesModel({
+      btn_1: { hover: { color: "red", opacity: "0.8" } },
+    });
+    expect(css).toContain("color: red !important;");
+    expect(css).toContain("opacity: 0.8 !important;");
+  });
+
+  it("keeps important as a serialization detail when parsing hand-authored managed rules", () => {
+    const model = parseInteractionStatesCss(
+      '[data-agent-native-node-id="btn_1"]:hover { color: red !IMPORTANT; }',
+    );
+    expect(model).toEqual({ btn_1: { hover: { color: "red" } } });
+    expect(serializeInteractionStatesModel(model)).toContain(
+      "color: red !important;",
+    );
+  });
 });
 
 describe("duplicateStatePreviewRules", () => {
@@ -246,9 +272,13 @@ describe("duplicateStatePreviewRules", () => {
     );
     const css = extractManagedInteractionStateCss(withPreviews) ?? "";
     // Same declarations in both the real rule and the twin.
-    const realRuleMatch = /:hover\s*\{\s*color:\s*red;\s*\}/.exec(css);
+    const realRuleMatch = /:hover\s*\{\s*color:\s*red\s*!important;\s*\}/.exec(
+      css,
+    );
     const twinRuleMatch =
-      /\[data-an-state-preview="hover"\]\s*\{\s*color:\s*red;\s*\}/.exec(css);
+      /\[data-an-state-preview="hover"\]\s*\{\s*color:\s*red\s*!important;\s*\}/.exec(
+        css,
+      );
     expect(realRuleMatch).not.toBeNull();
     expect(twinRuleMatch).not.toBeNull();
   });
@@ -289,8 +319,96 @@ describe("serializeInteractionStatesModelWithPreviews", () => {
   it("combines real rules and preview twins in one pass", () => {
     const model = { btn_1: { hover: { color: "red" } } };
     const css = serializeInteractionStatesModelWithPreviews(model);
-    expect(css).toContain(":hover {\n  color: red;\n}");
+    expect(css).toContain(":hover {\n  color: red !important;\n}");
     expect(css).toContain('[data-an-state-preview="hover"]');
+  });
+});
+
+describe("responsive interaction states", () => {
+  it("persists pseudo and forced-preview rules inside a max-width scope", () => {
+    const html = upsertResponsiveStateStyles(BASE_HTML, "btn_1", "hover", 767, {
+      backgroundColor: "black",
+    });
+    const css = extractManagedResponsiveInteractionStateCss(html) ?? "";
+    expect(css).toContain("@media (max-width: 767px)");
+    expect(css).toContain(
+      '[data-agent-native-node-id="btn_1"][data-agent-native-node-id="btn_1"]:hover',
+    );
+    expect(css).toContain('[data-an-state-preview="hover"]');
+    expect(css).toContain("background-color: black !important;");
+    expect(extractManagedInteractionStateCss(html)).toBeNull();
+  });
+
+  it("serializes widest-first and resolves the narrowest matching state override last", () => {
+    let html = upsertStateStyle(BASE_HTML, "btn_1", "hover", "color", "blue");
+    html = upsertResponsiveStateStyles(html, "btn_1", "hover", 1023, {
+      color: "green",
+    });
+    html = upsertResponsiveStateStyles(html, "btn_1", "hover", 767, {
+      color: "red",
+    });
+    const css = extractManagedResponsiveInteractionStateCss(html) ?? "";
+    expect(css.indexOf("1023px")).toBeLessThan(css.indexOf("767px"));
+    expect(readResolvedStateStyles(html, "btn_1", "hover", 1200)).toEqual({
+      color: "blue",
+    });
+    expect(readResolvedStateStyles(html, "btn_1", "hover", 900)).toEqual({
+      color: "green",
+    });
+    expect(readResolvedStateStyles(html, "btn_1", "hover", 600)).toEqual({
+      color: "red",
+    });
+  });
+
+  it("keeps base and responsive state models independent across parse/serialize", () => {
+    const model = {
+      "1023": { btn_1: { focus: { outline: "2px solid blue" } } },
+      "767": { btn_1: { active: { transform: "scale(0.98)" } } },
+    } as const;
+    const css = serializeResponsiveInteractionStatesModel(model);
+    expect(parseResponsiveInteractionStatesCss(css)).toEqual(model);
+  });
+
+  it("lists a state that exists only at a responsive scope", () => {
+    const html = upsertResponsiveStateStyles(
+      BASE_HTML,
+      "btn_1",
+      "focus-visible",
+      767,
+      { outline: "2px solid blue" },
+    );
+    expect(listInteractionStates(html, "btn_1")).toEqual(["focus-visible"]);
+  });
+
+  it("removes one responsive property and prunes the managed block", () => {
+    let html = upsertResponsiveStateStyles(
+      BASE_HTML,
+      "btn_1",
+      "disabled",
+      767,
+      { opacity: "0.5" },
+    );
+    html = removeResponsiveStateProperty(
+      html,
+      "btn_1",
+      "disabled",
+      767,
+      "opacity",
+    );
+    expect(extractManagedResponsiveInteractionStateCss(html)).toBeNull();
+  });
+
+  it("rejects invalid responsive bounds and unsafe values", () => {
+    expect(() =>
+      upsertResponsiveStateStyles(BASE_HTML, "btn_1", "hover", 0, {
+        color: "red",
+      }),
+    ).toThrow(/breakpoint/);
+    expect(() =>
+      upsertResponsiveStateStyles(BASE_HTML, "btn_1", "hover", 767, {
+        color: "red; } body { color: black",
+      }),
+    ).toThrow(/not allowed/);
   });
 });
 
@@ -423,6 +541,19 @@ describe("upsertStateStyle / upsertStateStyles", () => {
   it("keeps the forced-preview twin in sync after an upsert", () => {
     const html = upsertStateStyle(BASE_HTML, "btn_1", "hover", "color", "red");
     expect(html).toContain('[data-an-state-preview="hover"]');
+  });
+
+  it("canonicalizes caller-supplied important without duplicating it", () => {
+    const html = upsertStateStyle(
+      BASE_HTML,
+      "btn_1",
+      "hover",
+      "color",
+      "red !important",
+    );
+    expect(readStateStyles(html, "btn_1", "hover")).toEqual({ color: "red" });
+    expect(html).toContain("color: red !important;");
+    expect(html).not.toContain("!important !important");
   });
 });
 

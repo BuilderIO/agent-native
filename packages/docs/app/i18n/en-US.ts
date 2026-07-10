@@ -19,6 +19,7 @@ const enUS = {
   },
   footer: {
     download: "Download",
+    brand: "Brand",
     privacy: "Privacy",
     terms: "Terms",
   },
@@ -1230,6 +1231,37 @@ const enUS = {
         appImage: "Download AppImage",
         deb: "Download .deb",
         note: "The archive works without FUSE. AppImage may require FUSE 2 on some distributions.",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "Brand assets",
+    title: "Agent-Native logos",
+    body: "Download official logos and marks for articles, presentations, and community projects. SVG files stay sharp at any size and support transparent backgrounds.",
+    horizontal: {
+      title: "Horizontal logo",
+      body: "The preferred lockup for article headers, websites, presentations, and other wide placements.",
+    },
+    symbol: {
+      title: "Symbol",
+      body: "Use the standalone mark for avatars, app icons, and compact placements.",
+    },
+    lightBackground: "For light backgrounds",
+    darkBackground: "For dark backgrounds",
+    downloadSvg: "Download SVG",
+    usage: {
+      title: "Using the brand",
+      clear: {
+        title: "Keep it clear",
+        body: "Preserve the logo's proportions and leave enough open space around it.",
+      },
+      contrast: {
+        title: "Choose for contrast",
+        body: "Use the dark artwork on light backgrounds and the light artwork on dark backgrounds.",
+      },
+      original: {
+        title: "Use the original artwork",
+        body: "Do not recolor, crop, rotate, stretch, or rearrange the logo or symbol.",
       },
     },
   },

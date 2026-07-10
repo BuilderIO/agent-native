@@ -1,3 +1,4 @@
+import { getIntegrationRequestContext } from "../server/request-context.js";
 /**
  * Audit capture entry point, called from the `defineAction` audit wrapper after
  * an action runs (success or error). Best-effort: any failure here is swallowed
@@ -112,6 +113,7 @@ export async function recordActionAudit(
     const recordInputs = input.config?.recordInputs !== false;
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
 
+    const hasExplicitTargetVisibility = target?.visibility !== undefined;
     const event: AuditEvent = {
       id: crypto.randomUUID(),
       createdAt: Date.now(),
@@ -133,6 +135,35 @@ export async function recordActionAudit(
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
     };
+    const lineage = getIntegrationRequestContext()?.lineage;
+    const integration = getIntegrationRequestContext();
+    if (integration) {
+      if (
+        ctx?.orgId &&
+        event.visibility === "private" &&
+        !hasExplicitTargetVisibility
+      ) {
+        event.visibility = "org";
+      }
+      event.runId = lineage?.runId ?? null;
+      event.taskId = integration.taskId;
+      event.parentTaskId = lineage?.parentTaskId ?? null;
+      event.sourceKind = lineage?.source?.kind ?? null;
+      event.sourcePlatform = lineage?.source?.platform ?? null;
+      event.sourceId = lineage?.source?.id ?? null;
+      event.sourceUrl = lineage?.source?.url ?? null;
+      event.networkProtocol = lineage?.network?.protocol ?? null;
+      event.networkId = lineage?.network?.id ?? null;
+      event.networkPeer = lineage?.network?.peer ?? null;
+      if (!event.networkProtocol && actionName === "provider-api-request") {
+        event.networkProtocol = "provider-api";
+        event.networkId = target?.id ?? "provider-api-request";
+      }
+      if (!event.networkProtocol && actionName === "call-agent") {
+        event.networkProtocol = "a2a";
+        event.networkId = target?.id ?? "call-agent";
+      }
+    }
     // org_id used for scoping defaults to the target's, else the actor's org.
     if (target?.orgId !== undefined) event.orgId = target.orgId;
 

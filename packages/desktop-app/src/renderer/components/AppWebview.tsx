@@ -220,6 +220,19 @@ function buildSoftOpenScript(path: string): string {
   return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
 
+function buildGuestLifecycleScript(
+  eventName: "agent-native:app-background" | "agent-native:app-foreground",
+): string {
+  const encodedEventName = JSON.stringify(eventName);
+  return `(() => {
+    const eventName = ${encodedEventName};
+    window.dispatchEvent(new Event(eventName));
+    for (const iframe of document.querySelectorAll("iframe")) {
+      iframe.contentWindow?.postMessage({ type: eventName }, "*");
+    }
+  })()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
@@ -243,12 +256,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const url = withUrlParams(
       withUrlPath(resolveUrl(app, appConfig), urlPath),
-      urlParams,
+      {
+        ...(appConfig?.mode === "dev" && appConfig.localPath
+          ? { _agentNativeDesktopCode: "1" }
+          : {}),
+        ...urlParams,
+      },
     );
     const isDevMode = appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
+    const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
 
     useEffect(() => {
@@ -304,6 +323,20 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       [app.placeholder, url],
     );
 
+    useEffect(() => {
+      const wasActive = prevIsActiveRef.current;
+      prevIsActiveRef.current = isActive;
+      if (wasActive === isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      const eventName = isActive
+        ? "agent-native:app-foreground"
+        : "agent-native:app-background";
+      void wv
+        .executeJavaScript(buildGuestLifecycleScript(eventName), false)
+        .catch(() => {});
+    }, [app.placeholder, isActive]);
+
     function reportActiveWebview() {
       if (!isActive || !window.electronAPI?.setActiveWebview) return;
       const wv = webviewRef.current;
@@ -319,6 +352,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       window.electronAPI.setActiveWebview({
         appId: app.id,
         webContentsId,
+        hostBounds: (() => {
+          const rect = wv.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return undefined;
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          };
+        })(),
       });
     }
 
@@ -540,6 +583,41 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       reportActiveWebview();
     }, [isActive, url]);
 
+    useEffect(() => {
+      if (!isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      let frame = 0;
+      const reportOnFrame = () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(reportActiveWebview);
+      };
+      const observer = new ResizeObserver(reportOnFrame);
+      observer.observe(wv);
+      window.addEventListener("resize", reportOnFrame);
+      window.visualViewport?.addEventListener("resize", reportOnFrame);
+      window.visualViewport?.addEventListener("scroll", reportOnFrame);
+      reportOnFrame();
+      return () => {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+        window.removeEventListener("resize", reportOnFrame);
+        window.visualViewport?.removeEventListener("resize", reportOnFrame);
+        window.visualViewport?.removeEventListener("scroll", reportOnFrame);
+        let webContentsId: number | undefined;
+        try {
+          webContentsId = wv.getWebContentsId();
+        } catch {
+          webContentsId = undefined;
+        }
+        window.electronAPI?.setActiveWebview?.({
+          appId: app.id,
+          webContentsId,
+          active: false,
+        });
+      };
+    }, [app.id, app.placeholder, isActive, url]);
+
     function handleRetry() {
       setError(false);
       setIsLoading(true);
@@ -610,7 +688,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
               if (
-                (app.id === "plan" || app.id === "content") &&
+                (app.id === "plan" ||
+                  app.id === "content" ||
+                  app.id === "design") &&
                 window.electronAPI?.webviewPreloadPath
               ) {
                 wv.setAttribute(

@@ -11,6 +11,16 @@ Si ha utilizado QuickBooks Online, habrá visto el modelo: QBO incluye un produc
 
 El marco importa: una extensión no es un entorno limitado genérico de "haz lo que quieras". Es una **miniaplicación que amplía una plantilla específica** (correo, análisis, calendario, clips, diseño) y utiliza el actions y los datos de esa plantilla. Una extensión de correo lee correos electrónicos. Una extensión de Analytics lee las métricas de un panel. Una extensión de Calendario actúa sobre el evento abierto. Se sienten parte del producto anfitrión porque _son_ parte del producto anfitrión.
 
+> **Las extensiones añaden interfaz; no reescriben la interfaz de la aplicación
+> anfitriona.** Una extensión se muestra en su propia página o dentro de una
+> [ranura](#slots) con nombre que expone la plantilla. No puede insertar
+> elementos en componentes nativos arbitrarios —por ejemplo, junto a cada
+> asistente en Calendario— a menos que la plantilla exponga una ranura allí.
+> Para una personalización más profunda, pide al agente que edite el código
+> fuente de la plantilla. La personalización completa del código es una
+> capacidad central de Agent Native; las extensiones son la capa rápida y sin
+> despliegues.
+
 Tres cosas hacen que las extensiones funcionen:
 
 - **Sin código, sin implementación.** El agente los escribe y están activos en segundos. Almacenado en la base de datos, no en el repositorio.

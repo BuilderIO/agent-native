@@ -61,7 +61,7 @@ function providerJson(envelope: unknown, label: string): unknown {
 
 export default defineAction({
   description:
-    "Summarize a Figma file's published styles (fill/text/effect/grid) by name, description, and node id. This is the file's Styles panel, NOT the Enterprise Variables API — full design-token extraction (including variables/collections) routes through index-design-system-with-builder or import-file --format fig. Requires the saved FIGMA_ACCESS_TOKEN secret.",
+    "Summarize a Figma file's published styles (fill/text/effect/grid) by name, description, and node id. This is the file's Styles panel, NOT the Enterprise Variables API — reusable design-system extraction routes through index-design-system-with-builder or the Design System Setup .fig upload. Requires the saved FIGMA_ACCESS_TOKEN secret.",
   schema: schemaInput,
   http: { method: "GET" },
   readOnly: true,
@@ -109,7 +109,7 @@ export default defineAction({
       byType,
       styles,
       guidance:
-        "These are the file's published FILL/TEXT/EFFECT/GRID styles (name, description, node id), not the Enterprise Variables API. For full design-system token extraction (variables, collections, modes) use index-design-system-with-builder or import-file --format fig instead of hand-mapping these style records.",
+        "These are the file's published FILL/TEXT/EFFECT/GRID styles (name, description, node id), not the Enterprise Variables API. For reusable design-system extraction use index-design-system-with-builder or the Design System Setup .fig upload instead of hand-mapping these style records.",
     };
   },
 });

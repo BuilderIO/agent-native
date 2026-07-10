@@ -17,6 +17,20 @@ describe("set-active-breakpoint schema", () => {
     ).toBe(true);
   });
 
+  it("accepts both explicit responsive edit scopes and defaults to the cascade", () => {
+    expect(
+      action.schema.parse({ designId: "design_1", breakpointId: "bp_1" })
+        .editScope,
+    ).toBe("cascade-smaller");
+    expect(
+      action.schema.safeParse({
+        designId: "design_1",
+        breakpointId: "bp_1",
+        editScope: "only",
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires both designId and breakpointId", () => {
     expect(action.schema.safeParse({ designId: "design_1" }).success).toBe(
       false,

@@ -1,11 +1,15 @@
 ---
 title: "المراسلة"
-description: "تحدث إلى وكيلك من Slack أو البريد الإلكتروني أو Telegram أو WhatsApp - نفس الوكيل، نفس الذاكرة، نفس الأدوات."
+description: "تحدث إلى وكيلك عبر Slack أو Microsoft Teams أو تفاعلات Discord أو البريد الإلكتروني أو Telegram أو WhatsApp."
 ---
 
 # المراسلة
 
-قم بتوصيل وكيلك بـ Slack أو البريد الإلكتروني أو Telegram أو WhatsApp حتى تتمكن من الدردشة معه من التطبيقات التي تستخدمها بالفعل. إنه نفس الوكيل - نفس الذاكرة، نفس الأدوات، نفس المواضيع - يمكن الوصول إليه من أماكن أكثر.
+قم بتوصيل وكيلك بـ Slack أو Microsoft Teams أو تفاعلات Discord أو البريد الإلكتروني أو Telegram أو WhatsApp. إنه الوكيل نفسه بنفس الذاكرة والأدوات وسجل المحادثات.
+
+> **نطاق الدعم بدقة:** يتحقق Teams من رموز JWT الرسمية لـ Bot Framework ويرد في المحادثة الأصلية. يدعم Discord أوامر الشرطة المائلة عبر تفاعلات HTTP الموقعة بـ Ed25519 مع إقرار مؤجل؛ ولا يستقبل رسائل الخادم العادية أو الرسائل المباشرة من دون تشغيل Gateway. يحتفظ Telegram بـ `message_thread_id` ويستخدم WhatsApp قيمة `wamid` الواردة للردود السياقية.
+>
+> يتطلب Teams القيم `MICROSOFT_TEAMS_APP_ID` و`MICROSOFT_TEAMS_APP_PASSWORD` و`MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. ويتطلب Discord القيم `DISCORD_APPLICATION_ID` و`DISCORD_PUBLIC_KEY`. كما يتطلب Telegram القيمة `TELEGRAM_WEBHOOK_SECRET` ويتطلب WhatsApp القيمة `WHATSAPP_APP_SECRET` بالإضافة إلى بيانات الاعتماد الحالية.
 
 > **هل تستخدم قالب الإرسال؟** تم إعداد كل هذا لك في **الإعدادات → المراسلة**. انقر لربط كل نظام أساسي — لن تحتاج إلى قراءة بقية هذه الصفحة إلا إذا كنت تقوم بتخصيص القالب الخاص بك أو إنشائه. راجع [Dispatch](/docs/dispatch) أو [Dispatch template reference](/docs/template-dispatch).
 
@@ -78,7 +82,6 @@ description: "تحدث إلى وكيلك من Slack أو البريد الإلك
    - `chat:write` — يتيح للوكيل إرسال الرسائل
    - `app_mentions:read` — يتيح للوكيل معرفة متى يتم ذكره @ (اختياري)
    - `im:history` — يتيح للوكيل قراءة الرسائل المباشرة المرسلة إليه
-   - `assistant:write` — اختياري؛ يتيح لـ Slack عرض حالة "يفكر..." الأصلية في سلاسل الرسائل المساعدة
    - `users:read.email` — اختياري؛ تساعد القوالب مثل البريد في التحقق من البريد الإلكتروني للمرسل Slack للحصول على هوية قائمة انتظار المسودة
 3. انقر فوق **التثبيت على مساحة العمل** أعلى تلك الصفحة. سوف يمنحك Slack **رمز Bot User OAuth** الذي يبدأ بـ `xoxb-`. انسخه.
 4. انتقل إلى **المعلومات الأساسية** في الشريط الجانبي وانسخ **سر التوقيع**.
@@ -123,11 +126,75 @@ https://your-clips.example.com/api/slack/unfurl
 
 ### نصائح
 
-- **إشارات القناة** — لا يستجيب الروبوت إلا في القنوات عندما تتم الإشارة إليها بال@، وذلك لتجنب الضوضاء.
-- **الرسائل المباشرة** — يتم التعامل مع كل رسالة مباشرة على أنها محادثة خاصة مع الوكيل.
-- **نفس الهوية، جميع القنوات** — إذا كان مستخدم Slack لديه نفس البريد الإلكتروني كمستخدم مسجل في تطبيقك، فسيعامله الوكيل على أنه نفس الشخص.
+- **إشارات القناة** — استخدم @mention لبدء العمل. تُقبل الردود بلا إشارة فقط ما دام العمل نشطًا في سلسلة الرسائل نفسها.
+- **الرسائل المباشرة** — الرسائل الخاصة المقبولة هي محادثات سرية، وتتطلب عضوًا موثّقًا في المؤسسة أو هوية Slack مرتبطة.
+- **الهوية** — يمكن للرسائل الخاصة ربط بريد Slack الموثق بالمستخدم نفسه في التطبيق؛ تستخدم القنوات المُدارة هوية الخدمة والسياسة الخاصة بها.
 - **قوائم الإنتاج المسموح بها** — قم بتعيين `SLACK_ALLOWED_TEAM_IDS`، وبالنسبة لتطبيقات Slack المشتركة، `SLACK_ALLOWED_API_APP_IDS` بحيث لا يمكن إعادة استخدام سر التوقيع الصالح بواسطة مساحة عمل غير متوقعة.
 - **نشر تطبيق Clips** — تستخدم مقاطع Agent-Native القابلة للتثبيت لـ Slack `SLACK_CLIENT_ID`، و`SLACK_CLIENT_SECRET`، و`SLACK_SIGNING_SECRET`، و`/api/slack/oauth/callback`. تحصل كل مساحة عمل Slack متصلة على رمز الروبوت المشفر الخاص بها في `app_secrets`؛ `SLACK_BOT_TOKEN` ما هو إلا نسخة احتياطية قديمة لمساحة عمل واحدة.
+
+### الإعداد المُدار عبر Add to Slack
+
+OAuth المُدار هو الإعداد الموصى به. من **الإعدادات → المراسلة**، اختر
+**Agent manifest** لتنزيل ملف `agent-native-slack-manifest.json` الخاص بمضيفك،
+ثم استورده من **App Manifest** في Slack. يفعّل الملف تجربة `agent_view` الحالية
+وعلامة تبويب **Messages** قابلة للكتابة للرسائل المباشرة. تحقّق من هذه النطاقات:
+
+لا يتضمن البيان أيقونة التطبيق. ضمن **Basic Information → Display Information**،
+ارفع أيقونة Agent Native كي تتطابق قائمة Agents مع هوية المنتج. يمكنك استخدام
+`icon-512.svg` العام للتطبيق كمصدر وتحويله إلى تنسيق رفع يدعمه Slack عند الحاجة.
+
+```text
+assistant:write
+app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+files:read
+   groups:history
+   groups:read
+   im:history
+im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+users:read
+users:read.email
+```
+
+اضبط OAuth Redirect URL على
+`https://your-app.example.com/_agent-native/integrations/slack/oauth/callback`،
+وEvent Subscriptions Request URL على
+`https://your-app.example.com/_agent-native/integrations/slack/webhook`،
+وInteractivity Request URL على
+`https://your-app.example.com/_agent-native/integrations/slack/interactions`.
+اشترك في `app_home_opened` و`app_context_changed` و`app_mention`
+و`message.channels` و`message.groups` و`message.im` و`message.mpim`.
+بعد إعداد `SLACK_CLIENT_ID` و`SLACK_CLIENT_SECRET`
+و`SLACK_SIGNING_SECRET`، افتح **الإعدادات → المراسلة** وانقر **Add to Slack**.
+يُخزّن كل تثبيت رمزًا مشفرًا منفصلًا، وتفصل مفاتيح المحادثة بين مساحة العمل
+والتطبيق والقناة وسلسلة الرسائل.
+
+أعد تثبيت تطبيق Slack بعد تغيير البيان أو النطاقات أو الأحداث أو Agent view أو
+علامة تبويب Messages. يستخدم `app_home_opened` لاكتشاف فتح الرسائل المباشرة،
+ويضيف `app_context_changed` سياق العرض الحالي، ويسلّم `message.im` الرسائل الخاصة.
+قد يخفي مسؤولو Slack الوكلاء المثبتين عن المؤسسة، كما يمكن لكل مستخدم إخفاؤهم من
+الشريط العلوي. إذا نجح التثبيت ولم يظهر الوكيل، فتحقق من عناصر التحكم هذه أو افتحه
+من **Tools → Apps**.
+
+لا تُقبل الرسائل الخاصة الشخصية في Slack إلا من عضو موثّق في مؤسسة Agent Native
+أو من هوية Slack مرتبطة مسبقًا بذلك العضو. أما سياسات وميزانيات هوية الخدمة الخاصة
+بالقناة فهي منفصلة.
+
+أثناء تشغيل مهمة في سلسلة رسائل، تواصل الردود غير المشار إليها المهمة نفسها؛
+ولا تبدأ محادثات القناة العامة مهمة. يحمّل الوكيل سياقًا محدودًا مع التفاعلات
+ومراجع الملفات فقط، ويعرض خطة وتقدمًا مباشرًا مع أزرار الإلغاء والموافقة/الرفض.
+الرسائل الخاصة تستخدم هوية المستخدم الشخصية، بينما تستخدم القنوات المُدارة هوية
+خدمة صريحة وسياسات للضيوف وSlack Connect والنموذج الافتراضي. ذاكرة القناة صريحة
+ومعزولة ولا تُحفظ تلقائيًا. تحتفظ الإجراءات الدورية التي تُنشأ من القناة بوجهة
+Slack، وتفرض ميزانيات يومية أو شهرية للمؤسسة أو الطالب أو القناة مع سجل تدقيق كامل.
+يتيح `assistant:write` أحداث سياق Agent View، بينما يتيح `chat:write` الردود
+وتحديثات الحالة المباشرة.
 
 ## إعداد تيليجرام {#telegram}
 
@@ -435,7 +502,9 @@ POST /_agent-native/integrations/telegram/setup
 | البريد الإلكتروني | `EMAIL_AGENT_ADDRESS`، بالإضافة إلى واحد من `RESEND_API_KEY` أو `SENDGRID_API_KEY` | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | واتساب            | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`       | —                                                     |
 
-جميع بيانات الاعتماد موجودة في env vars - وليس قاعدة البيانات أبدًا، ولا كود المصدر أبدًا. استخدم إعدادات الشريط الجانبي UI أو لوحة البيئة الخاصة بموفر الاستضافة.
+يتم حل بيانات اعتماد التكامل أولاً من الأسرار ذات النطاق لمالك التكامل (المستخدم ثم المؤسسة ثم مساحة العمل)؛ وتكون متغيرات بيئة النشر بديلاً للتثبيت المحلي أو أحادي المستأجر المقصود. تحفظ واجهة الإعداد أسراراً ذات نطاق؛ ولا تُعاد القيم أبداً إلى المتصفح أو تُخزَّن في كود المصدر.
+
+محولات وقت التشغيل المضمنة هي **Slack** و**Telegram** و**WhatsApp Cloud API** والبريد الإلكتروني عبر webhooks لموفر الخدمة (Resend أو SendGrid). لا يمكن توصيل Discord أو Microsoft Teams حتى يتم تنفيذ محول تم التحقق منه وتسجيله.
 
 ### الترابط والهوية {#threading-and-identity}
 
@@ -481,13 +550,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +576,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +607,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

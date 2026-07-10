@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { signInternalToken } from "./internal-token.js";
+import { MAX_PENDING_TASK_ATTEMPTS } from "./pending-tasks-store.js";
 
 /**
  * Retries stuck integration webhook tasks.
@@ -35,8 +36,6 @@ const PENDING_STUCK_AFTER_MS = 90_000;
 const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
 /** After this many attempts we give up and mark the task failed */
-const MAX_ATTEMPTS = 3;
-
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
 
 let retryInterval: ReturnType<typeof setInterval> | null = null;
@@ -109,25 +108,26 @@ export async function retryStuckPendingTasks(
     try {
       // Cap retries — mark failed and move on so the row stops bouncing
       // between pending and processing forever.
-      if (row.attempts >= MAX_ATTEMPTS) {
+      if (row.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
         await client.execute({
           sql: `
             UPDATE integration_pending_tasks
                SET status = 'failed',
                    updated_at = ?,
-                   error_message = COALESCE(error_message, ?)
+                   error_message = COALESCE(error_message, ?),
+                   payload = '{}'
              WHERE id = ?
                AND status = ?
           `,
           args: [
             Date.now(),
-            `Retry job: exceeded ${MAX_ATTEMPTS} attempts`,
+            `Retry job: exceeded ${MAX_PENDING_TASK_ATTEMPTS} attempts`,
             row.id,
             row.status,
           ],
         });
         console.warn(
-          `[integrations] Pending task ${row.id} exceeded ${MAX_ATTEMPTS} attempts — marking failed`,
+          `[integrations] Pending task ${row.id} exceeded ${MAX_PENDING_TASK_ATTEMPTS} attempts — marking failed`,
         );
         continue;
       }

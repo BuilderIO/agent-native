@@ -1,5 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getAppProductionUrl } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -11,6 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
+import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 const nanoid = customAlphabet(
   "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -34,7 +35,8 @@ function formDeepLink(formId: string): string {
 }
 
 export default defineAction({
-  description: "Create a new form.",
+  description:
+    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata. Published forms return a direct public response URL; drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
@@ -48,7 +50,9 @@ export default defineAction({
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
-      .describe("Form settings object (or JSON string of the same)"),
+      .describe(
+        "Form settings object (or JSON string). Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+      ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
       .enum(["draft", "published", "closed"])
@@ -96,12 +100,15 @@ export default defineAction({
     if (args.settings) {
       if (typeof args.settings === "string") {
         try {
-          settings = JSON.parse(args.settings);
+          settings = { ...defaultSettings, ...JSON.parse(args.settings) };
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
-        settings = args.settings as unknown as FormSettings;
+        settings = {
+          ...defaultSettings,
+          ...(args.settings as unknown as FormSettings),
+        };
       }
     }
     // Reject blocked integration URLs at save time. fireIntegrations also
@@ -112,6 +119,9 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
     const status = args.status || "draft";
+    if (status === "published") {
+      assertPublishableForm(fields);
+    }
     const description = args.description || null;
     const visibility = "private" as const;
 
@@ -136,6 +146,12 @@ export default defineAction({
     // (Neon and similar pooled-Postgres setups occasionally route the read
     // to a replica that hasn't replicated the write yet), which then throws
     // a 500 even though the form was created successfully.
+    const editorUrl = formDeepLink(id);
+    const publicUrl =
+      status === "published"
+        ? `${getAppProductionUrl()}/f/${encodeURIComponent(slug)}`
+        : undefined;
+
     return {
       id,
       title,
@@ -149,13 +165,34 @@ export default defineAction({
       responseCount: 0,
       createdAt: now,
       updatedAt: now,
+      editorUrl,
+      publicUrl,
     };
   },
   link: ({ result }) => {
-    const id = (result as { id?: string } | null)?.id;
+    const created = result as {
+      id?: string;
+      slug?: string;
+      status?: string;
+      settings?: FormSettings;
+      editorUrl?: string;
+      publicUrl?: string;
+    } | null;
+    const id = created?.id;
     if (!id) return null;
+    if (created?.status === "published" && created.slug) {
+      if (!created.publicUrl) return null;
+      return {
+        url: created.publicUrl,
+        label:
+          created.settings?.anonymous === true
+            ? "Open anonymous form"
+            : "Open public form",
+        view: "public-form",
+      };
+    }
     return {
-      url: formDeepLink(id),
+      url: created?.editorUrl ?? formDeepLink(id),
       label: "Open form in Forms",
       view: "form",
     };

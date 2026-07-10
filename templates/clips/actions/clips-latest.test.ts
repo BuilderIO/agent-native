@@ -15,6 +15,11 @@ describe("classifyClipsAsset", () => {
     expect(classifyClipsAsset("Clips_0.1.56_x64_en-US.msi")).toBe(
       "windows-msi",
     );
+    expect(classifyClipsAsset("Clips_0.1.56_amd64.AppImage")).toBe(
+      "linux-appimage",
+    );
+    expect(classifyClipsAsset("Clips_0.1.56_amd64.deb")).toBe("linux-deb");
+    expect(classifyClipsAsset("Clips-0.1.56-1.x86_64.rpm")).toBe("linux-rpm");
   });
 
   it("ignores updater bundles and signatures", () => {

@@ -27,6 +27,10 @@ let pendingUpdate: Update | null = null;
 const listeners = new Set<StatusListener>();
 let started = false;
 let checkInFlight: Promise<void> | null = null;
+let lastCheckStartedAt = 0;
+
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 function canRunUpdateChecks() {
   // Dev and local release builds are for testing the current checkout. Do not
@@ -40,8 +44,10 @@ function setStatus(next: UpdateStatus) {
 }
 
 async function runCheck() {
+  if (cachedStatus.state === "downloaded") return;
   if (checkInFlight) return checkInFlight;
 
+  lastCheckStartedAt = Date.now();
   checkInFlight = (async () => {
     try {
       setStatus({ state: "checking" });
@@ -90,14 +96,30 @@ async function runCheck() {
   return checkInFlight;
 }
 
+function maybeCheckForUpdate() {
+  if (!canRunUpdateChecks()) return;
+  if (cachedStatus.state === "downloaded") return;
+  if (
+    checkInFlight ||
+    Date.now() - lastCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  void runCheck();
+}
+
 function startUpdateLoop() {
   if (started) return;
   started = true;
   if (!canRunUpdateChecks()) return;
-  // Check 3s after launch (let the popover finish first paint), then every
-  // 4 hours. Matches the cadence used by the Electron app.
-  setTimeout(runCheck, 3000);
-  setInterval(runCheck, 4 * 60 * 60 * 1000);
+  // Check 3s after launch (let the popover finish first paint), hourly while
+  // Clips stays open, and when the user returns after at least 15 minutes.
+  setTimeout(() => void runCheck(), 3000);
+  setInterval(() => void runCheck(), UPDATE_CHECK_INTERVAL_MS);
+  window.addEventListener("focus", maybeCheckForUpdate);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") maybeCheckForUpdate();
+  });
 }
 
 export function useUpdateStatus(): UpdateStatus {

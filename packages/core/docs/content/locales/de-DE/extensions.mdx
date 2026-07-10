@@ -11,6 +11,16 @@ Wenn Sie QuickBooks Online verwendet haben, haben Sie das Modell gesehen: QBO li
 
 Der Rahmen ist wichtig: Eine Erweiterung ist keine generische Sandbox „Machen Sie, was Sie wollen“. Es handelt sich um eine **Mini-App, die eine bestimmte Vorlage** – Mail, Analytics, Kalender, Clips, Design – erweitert und die actions und Daten dieser Vorlage verwendet. Eine Mail-Erweiterung liest E-Mails. Eine Analytics-Erweiterung liest die Metriken eines Dashboards. Eine Kalendererweiterung wirkt auf das offene Ereignis. Sie fühlen sich als Teil des Host-Produkts, weil sie Teil des Host-Produkts sind.
 
+> **Erweiterungen ergänzen die Benutzeroberfläche; sie schreiben die
+> Host-Benutzeroberfläche nicht um.** Eine Erweiterung wird auf einer eigenen
+> Seite oder in einem benannten [Slot](#slots) dargestellt, den die Vorlage
+> bereitstellt. Sie kann keine Elemente in beliebige native Komponenten
+> einfügen – zum Beispiel neben jeden Teilnehmer im Kalender –, sofern dort
+> kein Slot vorhanden ist. Für tiefere Anpassungen bitten Sie den Agenten, den
+> Quellcode der Vorlage zu bearbeiten. Die vollständige Anpassbarkeit des Codes
+> ist eine Kernfunktion von Agent Native; Erweiterungen sind die schnelle Ebene
+> ohne Bereitstellung.
+
 Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 
 - **Kein Code, keine Bereitstellung.** Der Agent schreibt sie und sie sind in Sekundenschnelle live. Wird in der Datenbank gespeichert, nicht im Repo.

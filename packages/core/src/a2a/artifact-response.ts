@@ -49,6 +49,19 @@ interface CreatedImageArtifact {
   url?: string;
 }
 
+interface CreatedMonitorArtifact {
+  id: string;
+  name?: string;
+  url: string;
+}
+
+interface CreatedFormArtifact {
+  id: string;
+  title?: string;
+  url: string;
+  anonymous: boolean;
+}
+
 type ReferencedArtifactKind =
   | "deck"
   | "design"
@@ -181,6 +194,40 @@ function imageIdValue(parsed: Record<string, unknown>): string | undefined {
   );
 }
 
+function contentDatabaseSubmissionArtifact(
+  parsed: Record<string, unknown>,
+): CreatedDocumentArtifact | null {
+  const id = stringValue(parsed.createdDocumentId);
+  if (!id) return null;
+
+  const verification = asRecord(parsed.verification);
+  const candidates = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.createdDocumentUrl),
+    stringValue(verification?.url),
+    stringValue(verification?.urlPath),
+  ].filter((value): value is string => !!value);
+  const url = candidates.find((candidate) =>
+    artifactUrlReferencesId(candidate, "document", id),
+  );
+
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  const createdItem = items.map(asRecord).find((item) => {
+    const document = asRecord(item?.document);
+    return stringValue(document?.id) === id;
+  });
+  const createdDocument = asRecord(createdItem?.document);
+
+  return {
+    id,
+    title:
+      stringValue(parsed.createdDocumentTitle) ??
+      stringValue(createdDocument?.title),
+    url,
+  };
+}
+
 function addImageArtifact(
   images: Map<string, CreatedImageArtifact>,
   parsed: Record<string, unknown>,
@@ -241,6 +288,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   images: CreatedImageArtifact[];
   designShells: CreatedDesignShell[];
   generatedDesigns: GeneratedDesignArtifact[];
+  monitors: CreatedMonitorArtifact[];
+  forms: CreatedFormArtifact[];
 } {
   const documents = new Map<string, CreatedDocumentArtifact>();
   const decks = new Map<string, CreatedDeckArtifact>();
@@ -249,6 +298,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const images = new Map<string, CreatedImageArtifact>();
   const designShells = new Map<string, CreatedDesignShell>();
   const generatedDesigns = new Map<string, GeneratedDesignArtifact>();
+  const monitors = new Map<string, CreatedMonitorArtifact>();
+  const forms = new Map<string, CreatedFormArtifact>();
 
   for (const toolResult of results) {
     if (toolResult.tool === "call-agent") {
@@ -296,6 +347,43 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
+
+    if (toolResult.tool === "save-monitor") {
+      const id = stringValue(parsed.id);
+      const url = stringValue(parsed.monitorAppUrl);
+      if (id && url) {
+        monitors.set(id, {
+          id,
+          name: stringValue(parsed.name),
+          url,
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "create-form") {
+      const id = stringValue(parsed.id);
+      const url = stringValue(parsed.publicUrl);
+      if (id && url && stringValue(parsed.status) === "published") {
+        const settings = asRecord(parsed.settings);
+        forms.set(id, {
+          id,
+          title: stringValue(parsed.title),
+          url,
+          anonymous: settings?.anonymous === true,
+        });
+      }
+      continue;
+    }
+
+    if (
+      toolResult.tool === "submit-content-database-form" ||
+      toolResult.tool === "add-database-item"
+    ) {
+      const artifact = contentDatabaseSubmissionArtifact(parsed);
+      if (artifact) documents.set(artifact.id, artifact);
+      continue;
+    }
 
     if (
       toolResult.tool === "create-document" ||
@@ -484,6 +572,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     images: [...images.values()],
     designShells: [...designShells.values()],
     generatedDesigns: [...generatedDesigns.values()],
+    monitors: [...monitors.values()],
+    forms: [...forms.values()],
   };
 }
 
@@ -713,6 +803,17 @@ function formatDesignLine(
   return `- Design: ${artifactUrlFromResult({ url: design.url }, `/design/${design.id}`, baseUrl)} (ID: ${design.id}, ${fileLabel})`;
 }
 
+function formatMonitorLine(monitor: CreatedMonitorArtifact): string {
+  const label = monitor.name ? `Monitor "${monitor.name}"` : "Monitor";
+  return `- ${label}: ${monitor.url} (ID: ${monitor.id})`;
+}
+
+function formatFormLine(form: CreatedFormArtifact): string {
+  const kind = form.anonymous ? "Anonymous form" : "Public form";
+  const label = form.title ? `${kind} "${form.title}"` : kind;
+  return `- ${label}: ${form.url} (ID: ${form.id})`;
+}
+
 function formatIncompleteDesignMessage(shells: CreatedDesignShell[]): string {
   const ids = shells.map((shell) => shell.id).join(", ");
   const noun = shells.length === 1 ? "project shell" : "project shells";
@@ -885,6 +986,8 @@ export function appendA2AArtifactLinks(
     images,
     designShells,
     generatedDesigns,
+    monitors,
+    forms,
   } = collectArtifacts(toolResults);
   const generatedDesignIds = new Set(
     generatedDesigns.map((design) => design.id),
@@ -985,6 +1088,22 @@ export function appendA2AArtifactLinks(
       missingLines.push(formatDesignLine(design, baseUrl));
     }
   }
+  for (const monitor of monitors) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, monitor.url)
+    ) {
+      missingLines.push(formatMonitorLine(monitor));
+    }
+  }
+  for (const form of forms) {
+    if (
+      includeReferencedArtifacts ||
+      !responseAlreadyMentionsPath(text, form.url)
+    ) {
+      missingLines.push(formatFormLine(form));
+    }
+  }
 
   if (missingLines.length === 0) return text;
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
@@ -996,8 +1115,16 @@ export function buildA2ARecoverableArtifactMessage(
   options: A2AArtifactResponseOptions = {},
 ): string | null {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
-  const { documents, decks, dashboards, analyses, images, generatedDesigns } =
-    collectArtifacts(toolResults);
+  const {
+    documents,
+    decks,
+    dashboards,
+    analyses,
+    images,
+    generatedDesigns,
+    monitors,
+    forms,
+  } = collectArtifacts(toolResults);
   const lines = [
     ...documents.map((document) => formatDocumentLine(document, baseUrl)),
     ...decks.map((deck) => formatDeckLine(deck, baseUrl)),
@@ -1005,6 +1132,8 @@ export function buildA2ARecoverableArtifactMessage(
     ...analyses.map((analysis) => formatAnalysisLine(analysis, baseUrl)),
     ...images.map((image) => formatImageLine(image, baseUrl)),
     ...generatedDesigns.map((design) => formatDesignLine(design, baseUrl)),
+    ...monitors.map(formatMonitorLine),
+    ...forms.map(formatFormLine),
   ];
 
   if (lines.length === 0) return null;

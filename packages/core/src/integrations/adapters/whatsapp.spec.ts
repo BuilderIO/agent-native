@@ -74,16 +74,18 @@ afterEach(() => {
 
 describe("whatsappAdapter parseIncomingMessage", () => {
   it("normalizes a valid text message", async () => {
-    const msg = await whatsappAdapter().parseIncomingMessage(
+    const adapter = whatsappAdapter();
+    const msg = await adapter.parseIncomingMessage(
       eventWithRaw(JSON.stringify(textWebhook())),
     );
 
     expect(msg).toMatchObject({
       platform: "whatsapp",
-      externalThreadId: "15551234567",
+      externalThreadId: "phone:PNID:user:15551234567",
       text: "ship it",
       senderName: "Grace",
       senderId: "15551234567",
+      replyRef: "wamid.1",
       timestamp: 1700000000 * 1000,
     });
     expect(msg?.platformContext).toMatchObject({
@@ -93,6 +95,7 @@ describe("whatsappAdapter parseIncomingMessage", () => {
       from: "15551234567",
       timestamp: "1700000000",
     });
+    expect(adapter.getLegacyExternalThreadIds?.(msg!)).toEqual(["15551234567"]);
   });
 
   it("returns null for malformed JSON", async () => {
@@ -150,6 +153,38 @@ describe("whatsappAdapter parseIncomingMessage", () => {
       ),
     );
     expect(msg?.text).toBe("hi");
+  });
+});
+
+describe("whatsappAdapter getStatus", () => {
+  it("requires the app secret in addition to delivery credentials", async () => {
+    process.env.WHATSAPP_ACCESS_TOKEN = "example-access-token";
+    process.env.WHATSAPP_VERIFY_TOKEN = "example-verify-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "example-phone-id";
+
+    const status = await whatsappAdapter().getStatus();
+
+    expect(status.configured).toBe(false);
+    expect(status.details).toMatchObject({
+      hasAccessToken: true,
+      hasVerifyToken: true,
+      hasPhoneNumberId: true,
+      hasAppSecret: false,
+    });
+    expect(status.error).toContain("WHATSAPP_APP_SECRET");
+  });
+
+  it("reports configured when all four required secrets are present", async () => {
+    process.env.WHATSAPP_ACCESS_TOKEN = "example-access-token";
+    process.env.WHATSAPP_VERIFY_TOKEN = "example-verify-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "example-phone-id";
+    process.env.WHATSAPP_APP_SECRET = "example-app-secret";
+
+    const status = await whatsappAdapter().getStatus();
+
+    expect(status.configured).toBe(true);
+    expect(status.details).toMatchObject({ hasAppSecret: true });
+    expect(status.error).toBeUndefined();
   });
 });
 
@@ -382,7 +417,7 @@ describe("whatsappAdapter sendResponse", () => {
     );
 
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain("/v21.0/PNID/messages");
+    expect(calls[0].url).toContain("/v25.0/PNID/messages");
     expect((calls[0].headers as any).Authorization).toBe("Bearer tok");
     expect(calls[0].body).toMatchObject({
       messaging_product: "whatsapp",
@@ -391,6 +426,36 @@ describe("whatsappAdapter sendResponse", () => {
       type: "text",
       text: { body: "hello there" },
     });
+  });
+
+  it("quotes the inbound wamid for a contextual reply", async () => {
+    process.env.WHATSAPP_ACCESS_TOKEN = "example-access-token";
+    process.env.WHATSAPP_PHONE_NUMBER_ID = "PNID";
+    let body: any;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        body = JSON.parse(String(init?.body));
+        return Promise.resolve(
+          new Response(JSON.stringify({}), { status: 200 }),
+        );
+      }),
+    );
+
+    await whatsappAdapter().sendResponse(
+      { text: "contextual reply", platformContext: {} },
+      {
+        platform: "whatsapp",
+        externalThreadId: "phone:PNID:user:15551234567",
+        text: "question",
+        senderId: "15551234567",
+        replyRef: "wamid.example",
+        timestamp: 1,
+        platformContext: { phoneNumberId: "PNID" },
+      },
+    );
+
+    expect(body.context).toEqual({ message_id: "wamid.example" });
   });
 
   it("splits replies longer than the WhatsApp length limit", async () => {

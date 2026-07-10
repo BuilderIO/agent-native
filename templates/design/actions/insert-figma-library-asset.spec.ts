@@ -47,7 +47,7 @@ const mocks = vi.hoisted(() => {
 
   const updateChain = { set: vi.fn(), where: vi.fn() };
   updateChain.set.mockReturnValue(updateChain);
-  updateChain.where.mockResolvedValue(undefined);
+  updateChain.where.mockResolvedValue({ rowsAffected: 1 });
 
   const db = {
     select: vi.fn(() => fileSelectChain),
@@ -75,6 +75,7 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
+    isNull: vi.fn((value) => ({ isNull: value })),
   };
 });
 
@@ -87,6 +88,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -159,7 +161,7 @@ describe("insert-figma-library-asset", () => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
-    mocks.updateChain.where.mockResolvedValue(undefined);
+    mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
   });
 
   it("inserts a rendered Figma component with provenance data attributes", async () => {

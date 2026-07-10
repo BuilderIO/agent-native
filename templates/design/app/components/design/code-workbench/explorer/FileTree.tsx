@@ -48,6 +48,7 @@ interface PendingNewFile {
 interface FileTreeProps {
   providerKey: string;
   providerLabel: string;
+  providerTitle?: string;
   capabilities: WorkspaceCapabilities;
   nodes: TreeNode[];
   activeUri: string | null;
@@ -69,6 +70,7 @@ interface FileTreeProps {
 export function FileTree({
   providerKey,
   providerLabel,
+  providerTitle,
   capabilities,
   nodes,
   activeUri,
@@ -297,7 +299,9 @@ export function FileTree({
   return (
     <div className="flex flex-col">
       <div className="group/header flex h-[22px] shrink-0 items-center gap-1 px-2 pt-1 text-[11px] font-bold uppercase tracking-wide text-[var(--workbench-muted-fg)]">
-        <span className="min-w-0 flex-1 truncate">{providerLabel}</span>
+        <span className="min-w-0 flex-1 truncate" title={providerTitle}>
+          {providerLabel}
+        </span>
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover/header:opacity-100">
           {capabilities.create ? (
             <HeaderIconButton

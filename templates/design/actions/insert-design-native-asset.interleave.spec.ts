@@ -121,6 +121,10 @@ interface FileRow {
 
 const designFilesStore = vi.hoisted(() => ({
   rows: new Map<string, FileRow>(),
+  raceBeforeNextFileCas: null as {
+    content: string;
+    updatedAt: string;
+  } | null,
 }));
 
 const FILE_ID = "file_hero_1";
@@ -186,6 +190,13 @@ vi.mock("../server/db/index.js", () => {
       set: (values: Record<string, unknown>) => ({
         where: (predicate: Predicate) => {
           if (table === schema.designFiles) {
+            if (designFilesStore.raceBeforeNextFileCas) {
+              const winner = designFilesStore.raceBeforeNextFileCas;
+              designFilesStore.raceBeforeNextFileCas = null;
+              const row = designFilesStore.rows.get(FILE_ID);
+              if (row) Object.assign(row, winner);
+              return Promise.resolve({ rowsAffected: 0 });
+            }
             for (const row of designFilesStore.rows.values()) {
               if (matches(row, predicate)) Object.assign(row, values);
             }
@@ -200,7 +211,10 @@ vi.mock("../server/db/index.js", () => {
 
 import { hasCollabState, applyText } from "@agent-native/core/collab";
 
-import { readLiveSourceFile } from "../server/source-workspace.js";
+import {
+  readLiveSourceFile,
+  writeInlineSourceFile,
+} from "../server/source-workspace.js";
 import insertAsset from "./insert-asset.js";
 import insertDesignNativeAsset from "./insert-design-native-asset.js";
 
@@ -243,6 +257,7 @@ function assertWellFormed(content: string) {
 beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
+  designFilesStore.raceBeforeNextFileCas = null;
   seedFile(baseDoc());
 });
 
@@ -376,8 +391,6 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
     await applyText(FILE_ID, deletedContent, "content", "agent");
     expect(await hasCollabState(FILE_ID)).toBe(true);
 
-    const { writeInlineSourceFile } =
-      await import("../server/source-workspace.js");
     await expect(
       writeInlineSourceFile({
         designId: DESIGN_ID,
@@ -395,5 +408,32 @@ describe("insert-design-native-asset / insert-asset race safety (R64/R71)", () =
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).not.toContain("an-existing-hero");
     assertWellFormed(finalLive.content);
+  });
+
+  it("rejects a cross-instance SQL winner instead of overwriting it after the local collab mutation", async () => {
+    const initialFile = currentFileRef();
+    const initial = await readLiveSourceFile(initialFile);
+    const concurrentWinner = initial.content.replace(
+      "border-radius: 8px;",
+      "border-radius: 40px;",
+    );
+    designFilesStore.raceBeforeNextFileCas = {
+      content: concurrentWinner,
+      updatedAt: "2026-07-06T00:00:01.000Z",
+    };
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: initialFile,
+        content: initial.content.replace("Hello world", "Our stale edit"),
+        expectedVersionHash: initial.versionHash,
+      }),
+    ).rejects.toThrow(/changed while it was being saved/i);
+
+    expect(currentFileRef().content).toBe(concurrentWinner);
+    const finalLive = await readLiveSourceFile(currentFileRef());
+    expect(finalLive.content).toBe(concurrentWinner);
+    expect(finalLive.content).not.toContain("Our stale edit");
   });
 });

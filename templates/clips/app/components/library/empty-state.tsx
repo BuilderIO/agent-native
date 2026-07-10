@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 
 type EmptyKind =
   | "library"
+  | "shared"
   | "folder"
   | "space"
   | "archive"
@@ -21,6 +22,7 @@ type EmptyKind =
 
 const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
   library: IconVideo,
+  shared: IconUsersGroup,
   folder: IconFolder,
   space: IconUsersGroup,
   archive: IconArchive,

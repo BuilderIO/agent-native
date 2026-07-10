@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  flushFileContentSavesOnBackground,
   flushPendingFileContentSavesOnCleanup,
   shouldClearLatestUnloadSave,
   shouldSendKeepalive,
@@ -49,6 +50,53 @@ describe("flushPendingFileContentSavesOnCleanup", () => {
     expect(events).toEqual([
       "save:file-a",
       "save:file-b",
+      "clear:11",
+      "clear:22",
+    ]);
+  });
+});
+
+describe("flushFileContentSavesOnBackground", () => {
+  it("retries unacknowledged saves and prefers the newest debounced revision", () => {
+    const events: string[] = [];
+
+    flushFileContentSavesOnBackground(
+      {
+        "file-a": {
+          id: "file-a",
+          content: "newest",
+          syncCollab: true,
+          operationSource: "tab-a",
+          operationRevision: 2,
+        },
+      },
+      {
+        "file-a": {
+          id: "file-a",
+          content: "older",
+          syncCollab: true,
+          operationSource: "tab-a",
+          operationRevision: 1,
+        },
+        "file-b": {
+          id: "file-b",
+          content: "retry me",
+          syncCollab: false,
+          operationSource: "tab-a",
+          operationRevision: 3,
+        },
+      },
+      [11, 22],
+      (pending) =>
+        events.push(
+          `save:${pending.id}:${pending.operationRevision}:${pending.content}`,
+        ),
+      (timerId) => events.push(`clear:${timerId}`),
+    );
+
+    expect(events).toEqual([
+      "save:file-a:2:newest",
+      "save:file-b:3:retry me",
       "clear:11",
       "clear:22",
     ]);

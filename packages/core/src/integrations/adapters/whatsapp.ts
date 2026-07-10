@@ -12,6 +12,7 @@ import type {
 
 /** WhatsApp's max message length */
 const WHATSAPP_MAX_LENGTH = 4096;
+const WHATSAPP_GRAPH_API_VERSION = "v25.0";
 
 /**
  * One-shot warning flag — log once per process when accepting unverified
@@ -37,14 +38,20 @@ function shouldRefuseWhenSecretMissing(): boolean {
  * - WHATSAPP_ACCESS_TOKEN — Permanent access token from Meta
  * - WHATSAPP_VERIFY_TOKEN — Custom token for webhook verification
  * - WHATSAPP_PHONE_NUMBER_ID — Phone number ID from Meta dashboard
- *
- * Optional env vars:
  * - WHATSAPP_APP_SECRET — App secret for signature verification
  */
 export function whatsappAdapter(): PlatformAdapter {
   return {
     platform: "whatsapp",
     label: "WhatsApp",
+    capabilities: {
+      replyText: true,
+      proactiveMessages: false,
+      nativeThreads: false,
+      contextualReplies: true,
+      deferredWebhookResponse: false,
+      interactionOnly: false,
+    },
 
     getRequiredEnvKeys(): EnvKeyConfig[] {
       return [
@@ -72,9 +79,9 @@ export function whatsappAdapter(): PlatformAdapter {
         {
           key: "WHATSAPP_APP_SECRET",
           label: "WhatsApp App Secret",
-          required: false,
+          required: true,
           helpText:
-            "Optional. From Meta App Dashboard → Basic Settings → App Secret. Enables HMAC signature verification on inbound webhooks.",
+            "From Meta App Dashboard → Basic Settings → App Secret. Used for HMAC verification on every inbound webhook.",
         },
       ];
     },
@@ -202,15 +209,18 @@ export function whatsappAdapter(): PlatformAdapter {
 
       const contact = value.contacts?.[0];
       const from = message.from; // Phone number
+      const phoneNumberId = value.metadata?.phone_number_id;
+      if (!from || !phoneNumberId || !message.id) return null;
 
       return {
         platform: "whatsapp",
-        externalThreadId: from,
+        externalThreadId: `phone:${String(phoneNumberId)}:user:${String(from)}`,
         text,
         senderName: contact?.profile?.name,
         senderId: from,
+        replyRef: String(message.id),
         platformContext: {
-          phoneNumberId: value.metadata?.phone_number_id,
+          phoneNumberId,
           displayPhoneNumber: value.metadata?.display_phone_number,
           messageId: message.id,
           from,
@@ -218,6 +228,13 @@ export function whatsappAdapter(): PlatformAdapter {
         },
         timestamp: parseInt(message.timestamp, 10) * 1000,
       };
+    },
+
+    getLegacyExternalThreadIds(incoming: IncomingMessage): string[] {
+      const from = incoming.platformContext.from ?? incoming.senderId;
+      return typeof from === "string" || typeof from === "number"
+        ? [String(from)]
+        : [];
     },
 
     async sendResponse(
@@ -236,23 +253,27 @@ export function whatsappAdapter(): PlatformAdapter {
       const to = context.senderId;
       const chunks = splitMessage(message.text, WHATSAPP_MAX_LENGTH);
 
-      for (const chunk of chunks) {
+      for (const [index, chunk] of chunks.entries()) {
         try {
+          const body: Record<string, unknown> = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "text",
+            text: { body: chunk },
+          };
+          if (index === 0 && context.replyRef) {
+            body.context = { message_id: context.replyRef };
+          }
           const res = await fetch(
-            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+            `https://graph.facebook.com/${WHATSAPP_GRAPH_API_VERSION}/${phoneNumberId}/messages`,
             {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${accessToken}`,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({
-                messaging_product: "whatsapp",
-                recipient_type: "individual",
-                to,
-                type: "text",
-                text: { body: chunk },
-              }),
+              body: JSON.stringify(body),
             },
           );
           if (!res.ok) {
@@ -275,7 +296,9 @@ export function whatsappAdapter(): PlatformAdapter {
       const hasPhoneNumberId = !!(await resolveSecret(
         "WHATSAPP_PHONE_NUMBER_ID",
       ));
-      const configured = hasAccessToken && hasVerifyToken && hasPhoneNumberId;
+      const hasAppSecret = !!(await resolveSecret("WHATSAPP_APP_SECRET"));
+      const configured =
+        hasAccessToken && hasVerifyToken && hasPhoneNumberId && hasAppSecret;
 
       return {
         platform: "whatsapp",
@@ -286,9 +309,10 @@ export function whatsappAdapter(): PlatformAdapter {
           hasAccessToken,
           hasVerifyToken,
           hasPhoneNumberId,
+          hasAppSecret,
         },
         error: !configured
-          ? "Save WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, and WHATSAPP_PHONE_NUMBER_ID in settings"
+          ? "Save WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_APP_SECRET in settings"
           : undefined,
       };
     },

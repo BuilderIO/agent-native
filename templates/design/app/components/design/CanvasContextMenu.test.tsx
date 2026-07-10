@@ -169,6 +169,44 @@ describe("CanvasContextMenu Select layer", () => {
   });
 });
 
+describe("CanvasContextMenu auto-layout suggestion", () => {
+  it("progressively discloses the suggestion beside Add auto layout", async () => {
+    const onAddAutoLayout = vi.fn();
+    const onSuggestAutoLayout = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canAddAutoLayout: true,
+      canSuggestAutoLayout: true,
+      onAddAutoLayout,
+      onSuggestAutoLayout,
+    });
+    const add = view.findButton("Add auto layout");
+    const suggest = view.findButton("Suggest auto layout");
+    expect(add).toBeDefined();
+    expect(suggest).toBeDefined();
+    const buttons = Array.from(view.container.querySelectorAll("button"));
+    expect(buttons.indexOf(suggest!)).toBe(buttons.indexOf(add!) + 1);
+    await act(async () => suggest?.click());
+    expect(onSuggestAutoLayout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "suggest-auto-layout",
+        selectedCount: 1,
+      }),
+    );
+    await view.cleanup();
+  });
+
+  it("renders no suggestion command when the caller has no eligible container", async () => {
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canAddAutoLayout: true,
+      onAddAutoLayout: vi.fn(),
+    });
+    expect(view.findButton("Suggest auto layout")).toBeUndefined();
+    await view.cleanup();
+  });
+});
+
 describe("CanvasContextMenu instance cluster (Go to main / Swap / Detach)", () => {
   it("renders nothing for a non-instance selection (backward compatible default)", async () => {
     const view = await renderContextMenu({

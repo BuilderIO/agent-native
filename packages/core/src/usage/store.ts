@@ -197,6 +197,13 @@ export interface UsageRecord {
    * provider-reported dollar cost so two surfaces agree exactly.
    */
   costCentsX100?: number;
+  orgId?: string;
+  runId?: string;
+  threadId?: string;
+  taskId?: string;
+  integrationScopeId?: string;
+  sourcePlatform?: string;
+  sourceId?: string;
 }
 
 let _initPromise: Promise<void> | undefined;
@@ -218,6 +225,13 @@ async function ensureUsageTable(): Promise<void> {
           label TEXT NOT NULL DEFAULT 'chat',
           app TEXT NOT NULL DEFAULT '',
           ref_id TEXT NOT NULL DEFAULT '',
+          org_id TEXT,
+          run_id TEXT,
+          thread_id TEXT,
+          task_id TEXT,
+          integration_scope_id TEXT,
+          source_platform TEXT,
+          source_id TEXT,
           created_at ${intType()} NOT NULL
         )
       `;
@@ -229,6 +243,13 @@ async function ensureUsageTable(): Promise<void> {
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
         ["ref_id", `TEXT NOT NULL DEFAULT ''`],
+        ["org_id", "TEXT"],
+        ["run_id", "TEXT"],
+        ["thread_id", "TEXT"],
+        ["task_id", "TEXT"],
+        ["integration_scope_id", "TEXT"],
+        ["source_platform", "TEXT"],
+        ["source_id", "TEXT"],
       ];
 
       if (isPostgres()) {
@@ -358,6 +379,13 @@ export async function recordUsage(
     app,
     refId,
     costCentsX100,
+    orgId,
+    runId,
+    threadId,
+    taskId,
+    integrationScopeId,
+    sourcePlatform,
+    sourceId,
   } = record;
 
   // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
@@ -388,8 +416,8 @@ export async function recordUsage(
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, ref_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -402,6 +430,13 @@ export async function recordUsage(
       resolvedLabel,
       resolvedApp,
       resolvedRef,
+      orgId ?? null,
+      runId ?? null,
+      threadId ?? null,
+      taskId ?? null,
+      integrationScopeId ?? null,
+      sourcePlatform ?? null,
+      sourceId ?? null,
       Date.now(),
     ],
   });

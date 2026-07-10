@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "content",
   "displayName": "Content",
-  "description": "Edit docs, blogs, resources, and MDX content through the Content app, including repo-backed Local File Mode.",
+  "description": "Create and manage docs plus Notion-style databases, boards, structured intake forms, and request records through Content, including repo-backed Markdown/MDX.",
   "hosted": {
     "url": "https://content.agent-native.com",
     "mcpUrl": "https://content.agent-native.com/_agent-native/mcp"

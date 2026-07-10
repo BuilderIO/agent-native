@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractManagedInteractionStateCss,
+  readResolvedStateStyles,
   readStateStyles,
 } from "../../shared/interaction-states";
 import {
@@ -102,6 +103,26 @@ describe("applyInteractionStateStyleCommit (interaction-states phase 2)", () => 
     expect(readStateStyles(content, "btn_1", "hover")).toEqual({
       opacity: "0.8",
     });
+  });
+
+  it("keeps a narrow-breakpoint state commit scoped instead of leaking it into the base state", () => {
+    const content = applyInteractionStateStyleCommit(
+      BASE_HTML,
+      "btn_1",
+      "hover",
+      { opacity: "0.35" },
+      767,
+    );
+
+    expect(readStateStyles(content, "btn_1", "hover")).toEqual({});
+    expect(readResolvedStateStyles(content, "btn_1", "hover", 390)).toEqual({
+      opacity: "0.35",
+    });
+    expect(readResolvedStateStyles(content, "btn_1", "hover", 1280)).toEqual(
+      {},
+    );
+    expect(content).toContain("data-agent-native-state-breakpoints");
+    expect(content).toContain("@media (max-width: 767px)");
   });
 });
 

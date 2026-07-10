@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
+import { cssElementSize } from "./element-classification";
 import {
   authoredStyleValue,
+  elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./interaction-state-helpers";
 
@@ -100,5 +102,78 @@ describe("resolveInteractionStateValue", () => {
     // change what the base value was captured as.
     hoverOverride.color = "purple";
     expect(base.color).toBe("green");
+  });
+});
+
+describe("elementWithInteractionStateStyles", () => {
+  it("projects kebab-case state values into both authored and computed inspector reads", () => {
+    const base = makeElement({
+      computedStyles: { backgroundColor: "white", opacity: "1" },
+      inlineStyles: { backgroundColor: "white" },
+    });
+    const projected = elementWithInteractionStateStyles(base, {
+      "background-color": "black",
+      opacity: "0.7",
+    });
+
+    expect(authoredStyleValue(projected, "backgroundColor")).toBe("black");
+    expect(projected.computedStyles.backgroundColor).toBe("black");
+    expect(projected.inlineStyles?.opacity).toBe("0.7");
+  });
+
+  it("feeds representative geometry, fill, stroke, effect, and typography controls", () => {
+    const base = makeElement({
+      boundingRect: { x: 10, y: 20, width: 100, height: 40 },
+      computedStyles: {
+        width: "100px",
+        height: "40px",
+        left: "10px",
+        top: "20px",
+        backgroundColor: "white",
+        borderColor: "black",
+        boxShadow: "none",
+        fontSize: "14px",
+      },
+      inlineStyles: { left: "10px", top: "20px" },
+    });
+    const projected = elementWithInteractionStateStyles(base, {
+      width: "240px",
+      height: "64px",
+      left: "32px",
+      top: "48px",
+      "background-color": "red",
+      "border-color": "blue",
+      "box-shadow": "0 4px 8px rgb(0 0 0 / 0.2)",
+      "font-size": "18px",
+    });
+
+    expect(cssElementSize(projected, "horizontal")).toBe(240);
+    expect(cssElementSize(projected, "vertical")).toBe(64);
+    expect(authoredStyleValue(projected, "left")).toBe("32px");
+    expect(authoredStyleValue(projected, "top")).toBe("48px");
+    expect(projected.computedStyles.backgroundColor).toBe("red");
+    expect(projected.computedStyles.borderColor).toBe("blue");
+    expect(projected.computedStyles.boxShadow).toContain("0 4px 8px");
+    expect(projected.computedStyles.fontSize).toBe("18px");
+    // The runtime bounds remain the base element's real current geometry;
+    // geometry-backed controls prefer the projected CSS dimensions above.
+    expect(projected.boundingRect).toEqual(base.boundingRect);
+  });
+
+  it("falls back to untouched base values for properties without a state override", () => {
+    const base = makeElement({
+      computedStyles: { color: "blue", opacity: "1" },
+    });
+    const projected = elementWithInteractionStateStyles(base, {
+      opacity: "0.5",
+    });
+    expect(projected.computedStyles.color).toBe("blue");
+    expect(projected.computedStyles.opacity).toBe("0.5");
+  });
+
+  it("returns the original object for Default/no override state", () => {
+    const base = makeElement({ computedStyles: { color: "blue" } });
+    expect(elementWithInteractionStateStyles(base, undefined)).toBe(base);
+    expect(elementWithInteractionStateStyles(base, {})).toBe(base);
   });
 });

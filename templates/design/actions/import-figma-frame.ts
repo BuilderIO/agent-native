@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
@@ -7,7 +8,10 @@ import {
   resolveTargetNodeId,
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
-import { saveImportedDesignFiles } from "../server/lib/import-design-files.js";
+import {
+  resolveImportDesignId,
+  saveImportedDesignFiles,
+} from "../server/lib/import-design-files.js";
 import { parseFigmaFileKey, parseFigmaNodeId } from "../shared/figma-url.js";
 
 const schemaInput = z
@@ -49,7 +53,7 @@ const schemaInput = z
 
 export default defineAction({
   description:
-    "Import a Figma frame/component by URL or file key + node id, mapping it to pixel-accurate HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Unsupported node types (vector networks, boolean ops) render as exact PNG fallbacks instead of approximated shapes. Returns a fidelity report of which properties were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
+    "Import a Figma frame/component by URL or file key + node id, mapping supported structure to fidelity-aware HTML (position, auto-layout as flexbox, text, fills/gradients, strokes, corner radii, effects) and saving it as a new Design screen. Geometry and paint models HTML/CSS cannot represent faithfully (including masks, vector/boolean geometry, lines/arcs, advanced strokes/text, and transformed image crops) use rendered fallbacks instead of silently importing the wrong visual. Returns a fidelity report of which nodes were exact, approximated, or image-fallback. Requires the saved FIGMA_ACCESS_TOKEN secret.",
   schema: schemaInput,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
@@ -67,6 +71,13 @@ export default defineAction({
     const requestedNodeId =
       parseFigmaNodeId(args.nodeId) ?? parseFigmaNodeId(args.figmaUrl);
 
+    // Validate the target before any provider fetch, rendered-fallback
+    // download, or durable upload. saveImportedDesignFiles checks again at
+    // mutation time, but waiting until then leaves external work and orphaned
+    // assets behind when a caller names a design they cannot edit.
+    const designId = await resolveImportDesignId(args.designId);
+    await assertAccess("design", designId, "editor");
+
     const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
     const rootNode = await fetchFigmaNode(fileKey, nodeId);
 
@@ -79,7 +90,7 @@ export default defineAction({
     );
 
     const saved = await saveImportedDesignFiles({
-      designId: args.designId,
+      designId,
       sourceType: "figma-import",
       files,
     });
@@ -89,7 +100,7 @@ export default defineAction({
       figma: { fileKey, nodeId, nodeName: rootNode.name ?? null },
       fidelityReport: summarizeFidelity(fidelityEntries),
       guidance:
-        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (vector networks, boolean ops, unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side strokes, radial/angular/diamond gradients, blur radius scale).",
+        "Review fidelityReport.imageFallbacks for subtrees rendered as PNG (masks, vector/boolean geometry, lines/arcs, advanced strokes/text, transformed image crops, and unsupported node types) and fidelityReport.approximated for properties CSS cannot express exactly (rotation, per-side stroke alignment, radial/angular/diamond gradients, blur radius scale, and live component/variable/prototype semantics).",
     };
   },
 });

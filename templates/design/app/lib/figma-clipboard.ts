@@ -11,23 +11,31 @@
  * `extractFigmeta` tries both, defensively, and never throws — any malformed
  * input just means "not a decodable Figma paste".
  *
- * Important caveat carried through to the server: `figmeta` has no node ids
- * (only a `fileKey`), and `pasteID` is an ephemeral, server-side identifier
- * that isn't resolvable to a node through the public REST API. So a plain
- * clipboard paste can only ever get an exact node import on a best-effort,
- * heuristic match (see `server/lib/figma-clipboard-match.ts`) — a copied
- * frame LINK (which carries a real `node-id`) is the only guaranteed-exact
- * path (`import-figma-frame`).
+ * Current Figma web clipboard payloads also include `selectedNodeData`. Each
+ * comma-delimited entry starts with the selected REST node id, followed by
+ * Figma-private metadata (for example `40:45|4|0`). This field is not part of
+ * Figma's public API contract, so we parse it conservatively and keep the
+ * existing heuristic fallback for older clients or future format changes.
  */
 
 export interface FigmetaPayload {
   fileKey: string;
   pasteID?: number;
   dataType?: string;
+  environment?: string;
+  selectedNodeData?: string;
+  selectedNodeIds?: string[];
+  selectedNodeIdsTruncated?: boolean;
 }
 
+export const MAX_FIGMA_CLIPBOARD_NODE_IDS = 100;
 const FIGMETA_MARKER_RE = /\(figmeta\)([^(]*?)\(\/figmeta\)/i;
 const DATA_METADATA_ATTR_RE = /\bdata-metadata\s*=\s*(["'])([\s\S]*?)\1/i;
+const FIGMA_DATA_BUFFER_ELEMENT_RE =
+  /<([a-z][\w:-]*)\b[^>]*\bdata-buffer\s*=\s*(["'])[\s\S]*?\2[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const FIGMA_BUFFER_COMMENT_RE = /<!--\s*\(figma\)[\s\S]*?\(\/figma\)\s*-->/gi;
+const ESCAPED_FIGMA_BUFFER_COMMENT_RE =
+  /&lt;!--\s*\(figma\)[\s\S]*?\(\/figma\)\s*--&gt;/gi;
 
 function decodeBase64Json(raw: string): unknown {
   const trimmed = raw.trim();
@@ -53,7 +61,55 @@ function normalizeFigmetaPayload(value: FigmetaPayload): FigmetaPayload {
   const payload: FigmetaPayload = { fileKey: value.fileKey.trim() };
   if (typeof value.pasteID === "number") payload.pasteID = value.pasteID;
   if (typeof value.dataType === "string") payload.dataType = value.dataType;
+  if (typeof value.environment === "string") {
+    payload.environment = value.environment;
+  }
+  if (typeof value.selectedNodeData === "string") {
+    payload.selectedNodeData = value.selectedNodeData;
+    const { ids, truncated } = parseSelectedNodeIds(value.selectedNodeData);
+    if (ids.length > 0) payload.selectedNodeIds = ids;
+    if (truncated) payload.selectedNodeIdsTruncated = true;
+  }
   return payload;
+}
+
+function parseSelectedNodeIds(value: string): {
+  ids: string[];
+  truncated: boolean;
+} {
+  const allIds = Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((entry) => entry.split("|", 1)[0]?.trim() ?? "")
+        .filter((id) => /^\d+:\d+$/.test(id)),
+    ),
+  );
+  return {
+    ids: allIds.slice(0, MAX_FIGMA_CLIPBOARD_NODE_IDS),
+    truncated: allIds.length > MAX_FIGMA_CLIPBOARD_NODE_IDS,
+  };
+}
+
+/**
+ * Extract REST node ids from Figma's current `selectedNodeData` clipboard
+ * field. Unknown or malformed entries are ignored so a format change falls
+ * back to the existing matcher instead of breaking paste entirely.
+ */
+export function extractSelectedNodeIds(value: string): string[] {
+  return parseSelectedNodeIds(value).ids;
+}
+
+/**
+ * Exact node ids make Figma's private binary transfer payload unnecessary.
+ * Remove only that hidden buffer before the action call, retaining figmeta
+ * provenance and any browser-readable HTML for an honest fallback.
+ */
+export function stripFigmaBinaryClipboardBuffer(html: string): string {
+  return html
+    .replace(FIGMA_DATA_BUFFER_ELEMENT_RE, "")
+    .replace(FIGMA_BUFFER_COMMENT_RE, "")
+    .replace(ESCAPED_FIGMA_BUFFER_COMMENT_RE, "");
 }
 
 /**
@@ -114,6 +170,8 @@ export type FigmaPasteImportCall =
       action: "import-figma-clipboard";
       payload: {
         figmetaFileKey: string;
+        selectedNodeIds?: string[];
+        selectedNodeIdsTruncated?: boolean;
         clipboardHtml: string;
         originalName?: string;
       };
@@ -150,7 +208,15 @@ export function resolveFigmaPasteImportCall(
     action: "import-figma-clipboard",
     payload: {
       figmetaFileKey: figmeta!.fileKey,
-      clipboardHtml: content,
+      ...(figmeta!.selectedNodeIds
+        ? { selectedNodeIds: figmeta!.selectedNodeIds }
+        : {}),
+      ...(figmeta!.selectedNodeIdsTruncated
+        ? { selectedNodeIdsTruncated: true }
+        : {}),
+      clipboardHtml: figmeta!.selectedNodeIds?.length
+        ? stripFigmaBinaryClipboardBuffer(content)
+        : content,
       originalName,
     },
   };

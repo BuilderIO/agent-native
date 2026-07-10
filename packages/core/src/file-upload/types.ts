@@ -83,5 +83,7 @@ export interface FileUploadProvider {
       filename: string,
       options?: { stableUrl?: boolean; recordAsset?: boolean },
     ): Promise<string>;
+    /** Best-effort provider cleanup for a session the caller will not resume. */
+    abortSession?(session: ResumableUploadSession): Promise<void>;
   };
 }

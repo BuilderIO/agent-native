@@ -35,6 +35,8 @@ import type {
   StageBuilderSourceBulkUpdateRequest,
   StageBuilderSourceBulkUpdateResponse,
   StageBuilderRevisionRequest,
+  SubmitContentDatabaseFormRequest,
+  SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
   UpdateContentDatabaseViewRequest,
@@ -581,6 +583,26 @@ export function useAddDatabaseItem(documentId: string) {
       },
     },
   );
+}
+
+export function useSubmitContentDatabaseForm(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    SubmitContentDatabaseFormResponse,
+    SubmitContentDatabaseFormRequest
+  >("submit-content-database-form", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
 }
 
 export function useDuplicateDatabaseItem(documentId: string) {

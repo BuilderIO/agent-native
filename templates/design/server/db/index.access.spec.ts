@@ -15,6 +15,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("./schema.js", () => ({
   designs: { id: "designs.id" },
   designShares: { resourceId: "designShares.resourceId" },
+  designTemplates: { id: "designTemplates.id" },
+  designTemplateShares: {
+    resourceId: "designTemplateShares.resourceId",
+  },
   designSystems: { id: "designSystems.id" },
   designSystemShares: { resourceId: "designSystemShares.resourceId" },
 }));

@@ -305,6 +305,61 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
+    "strips flex-item-only styling (flex-grow/shrink/basis, align-self, order) when a flow child is dragged out to the freeform screen root",
+    { timeout: 30_000 },
+    async () => {
+      // Regression: prepareFlowMembersForAbsoluteDrop converted a flow child
+      // to position:absolute at the drag release point but left its
+      // flex-item-only inline styling (flex-grow/shrink/basis, align-self,
+      // order — meaningless outside a flex/grid parent) in place. Live DOM
+      // repro: drag a flex child carrying those properties onto the freeform
+      // screen root and confirm they're gone from the live element once it
+      // becomes absolute, while unrelated styling (background) survives.
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        .flow { position:absolute;top:50px;width:220px;height:180px;padding:12px;display:flex;flex-direction:column;gap:8px;box-sizing:border-box; }
+        #from { left:40px;background:#f4f4f5; }
+        #item { width:100px;height:44px; }
+      </style></head><body>
+        <div id="from" class="flow" data-agent-native-node-id="from"><div id="item" data-agent-native-node-id="item" style="background:#6366f1;flex-grow:2;flex-shrink:3;flex-basis:40px;align-self:center;order:1">Item</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await dragCenterTo(page, "#item", { x: 760, y: 560 });
+      const result = await page.locator("#item").evaluate((element) => {
+        const item = element as HTMLElement;
+        return {
+          parent: item.parentElement?.tagName,
+          position: getComputedStyle(item).position,
+          flex: item.style.flex,
+          flexGrow: item.style.flexGrow,
+          flexShrink: item.style.flexShrink,
+          flexBasis: item.style.flexBasis,
+          alignSelf: item.style.alignSelf,
+          order: item.style.order,
+          background: item.style.background,
+          cssText: item.style.cssText,
+        };
+      });
+      expect(result.parent).toBe("BODY");
+      expect(result.position).toBe("absolute");
+      expect(result.flex).toBe("");
+      expect(result.flexGrow).toBe("");
+      expect(result.flexShrink).toBe("");
+      expect(result.flexBasis).toBe("");
+      expect(result.alignSelf).toBe("");
+      expect(result.order).toBe("");
+      // Non-flex-item inline styling on the same element must survive the strip.
+      expect(result.background, result.cssText).toContain("rgb(99, 102, 241)");
+      await page.close();
+    },
+  );
+
+  it(
     "honors Control Ignore Auto Layout and Space retain-parent for absolute drags",
     { timeout: 30_000 },
     async () => {
@@ -393,6 +448,228 @@ describe("Chromium reparent matrix", () => {
             ).selector?.includes("space"),
         ),
       ).toBe(true);
+      await page.close();
+    },
+  );
+
+  it(
+    "inserts into the pointer's grid row instead of the same column in an earlier row",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #source { position:absolute;left:40px;top:430px;width:80px;height:44px;background:#6366f1; }
+        #grid { position:absolute;left:300px;top:80px;width:300px;height:220px;padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:72px;gap:12px;background:#eef2ff;box-sizing:border-box; }
+        .peer { min-width:0;background:#a5b4fc; }
+      </style></head><body>
+        <div id="source" data-agent-native-node-id="source">Source</div>
+        <div id="grid" data-agent-native-node-id="grid">
+          <div id="a" class="peer" data-agent-native-node-id="a">A</div>
+          <div id="b" class="peer" data-agent-native-node-id="b">B</div>
+          <div id="c" class="peer" data-agent-native-node-id="c">C</div>
+          <div id="d" class="peer" data-agent-native-node-id="d">D</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+
+      // Grid row 2, left-side padding immediately before C. An X-only nearest
+      // child resolver ties A and C and incorrectly chooses A from row 1.
+      await dragCenterTo(page, "#source", { x: 306, y: 185 });
+      const result = await page.locator("#grid").evaluate((grid) => ({
+        order: Array.from(grid.children).map((child) => child.id),
+        sourcePosition: getComputedStyle(document.querySelector("#source")!)
+          .position,
+      }));
+      expect(result.order).toEqual(["a", "b", "source", "c", "d"]);
+      expect(result.sourcePosition).not.toBe("absolute");
+      await page.close();
+    },
+  );
+
+  it(
+    "resolves before, between, and after sibling slots from real gap/padding pointer positions",
+    { timeout: 30_000 },
+    async () => {
+      const cases = [
+        { name: "before", x: 306, order: ["source", "a", "b"] },
+        { name: "between", x: 388, order: ["a", "source", "b"] },
+        { name: "after", x: 500, order: ["a", "b", "source"] },
+      ];
+      for (const testCase of cases) {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        await page.setContent(`<!doctype html><html><head><style>
+          html,body { margin:0;width:100%;height:100%; }
+          body { position:relative; }
+          #source { position:absolute;left:40px;top:430px;width:70px;height:50px;background:#6366f1; }
+          #row { position:absolute;left:300px;top:80px;width:300px;height:160px;padding:12px;display:flex;align-items:flex-start;gap:12px;background:#eef2ff;box-sizing:border-box; }
+          .peer { flex:0 0 70px;height:50px;background:#a5b4fc; }
+        </style></head><body>
+          <div id="source" data-agent-native-node-id="source">Source</div>
+          <div id="row" data-agent-native-node-id="row">
+            <div id="a" class="peer" data-agent-native-node-id="a">A</div>
+            <div id="b" class="peer" data-agent-native-node-id="b">B</div>
+          </div>
+        </body></html>`);
+        await installBridge(page);
+        await dragCenterTo(page, "#source", { x: testCase.x, y: 150 });
+        const order = await page
+          .locator("#row")
+          .evaluate((row) => Array.from(row.children).map((child) => child.id));
+        expect(order, testCase.name).toEqual(testCase.order);
+        await page.close();
+      }
+    },
+  );
+
+  it(
+    "Control-drag atomically toggles a flow child to Ignore auto layout and restores the exact flow snapshot",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #frame { position:absolute;left:120px;top:80px;width:520px;height:240px;padding:20px;display:flex;align-items:flex-start;gap:16px;background:#eef2ff;box-sizing:border-box; }
+        #item { flex:0 0 auto;width:100px;height:44px;background:#6366f1; }
+        #peer { flex:0 0 auto;width:100px;height:44px;background:#a5b4fc; }
+      </style></head><body>
+        <div id="frame" data-agent-native-node-id="frame">
+          <div id="item" data-agent-native-node-id="item">Item</div>
+          <div id="peer" data-agent-native-node-id="peer">Peer</div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+      const before = await page.locator("#item").evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          width: rect.width,
+          height: rect.height,
+          order: Array.from(element.parentElement!.children).map(
+            (child) => child.id,
+          ),
+        };
+      });
+
+      await dragCenterTo(page, "#item", { x: 540, y: 250 }, "Control");
+      const ignored = await page.locator("#item").evaluate((element) => {
+        const item = element as HTMLElement;
+        const rect = item.getBoundingClientRect();
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        const structures = messages.filter(
+          (message) => message.type === "visual-structure-change",
+        );
+        return {
+          parent: item.parentElement?.id,
+          position: getComputedStyle(item).position,
+          left: item.style.left,
+          top: item.style.top,
+          width: rect.width,
+          height: rect.height,
+          structures,
+        };
+      });
+      expect(ignored.parent).toBe("frame");
+      expect(ignored.position).toBe("absolute");
+      expect(ignored.left).toMatch(/px$/);
+      expect(ignored.top).toMatch(/px$/);
+      expect(ignored.width).toBeCloseTo(before.width, 5);
+      expect(ignored.height).toBeCloseTo(before.height, 5);
+      expect(ignored.structures).toHaveLength(1);
+      expect(ignored.structures[0]).toMatchObject({
+        sourceId: "item",
+        anchorSourceId: "frame",
+        placement: "inside",
+        dropMode: "absolute-container",
+      });
+
+      // A rejected host persistence round-trip uses the same pre-gesture
+      // snapshot kept for Cmd+Z history: parent/order and position styles must
+      // return atomically, never leaving a half-flow/half-absolute member.
+      await page.evaluate((requestId) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "visual-structure-ack",
+              requestId,
+              applied: false,
+            },
+          }),
+        );
+      }, ignored.structures[0]!.requestId);
+      await expect
+        .poll(() =>
+          page.locator("#item").evaluate((element) => {
+            const item = element as HTMLElement;
+            return {
+              parent: item.parentElement?.id,
+              position: getComputedStyle(item).position,
+              left: item.style.left,
+              top: item.style.top,
+              order: Array.from(item.parentElement!.children).map(
+                (child) => child.id,
+              ),
+            };
+          }),
+        )
+        .toEqual({
+          parent: "frame",
+          position: "static",
+          left: "",
+          top: "",
+          order: before.order,
+        });
+      await page.close();
+    },
+  );
+
+  it(
+    "keeps visual geometry continuous when nesting into a rotated and scaled freeform frame",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 1000, height: 760 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #source { position:absolute;left:40px;top:500px;width:80px;height:44px;background:#6366f1; }
+        #target { position:absolute;left:340px;top:100px;width:320px;height:240px;border:4px solid #818cf8;background:#eef2ff;transform-origin:0 0;transform:rotate(11deg) scale(1.12); }
+      </style></head><body>
+        <div id="source" data-agent-native-node-id="source">Source</div>
+        <div id="target" data-agent-native-node-id="target" data-an-primitive="frame"></div>
+      </body></html>`);
+      await installBridge(page);
+      const targetBox = await page.locator("#target").boundingBox();
+      expect(targetBox).not.toBeNull();
+      const beforeRelease = await dragCenterTo(page, "#source", {
+        x: targetBox!.x + targetBox!.width * 0.62,
+        y: targetBox!.y + targetBox!.height * 0.58,
+      });
+      const after = await page.locator("#source").evaluate((element) => {
+        const item = element as HTMLElement;
+        const rect = item.getBoundingClientRect();
+        return {
+          parent: item.parentElement?.id,
+          position: getComputedStyle(item).position,
+          left: rect.left,
+          top: rect.top,
+        };
+      });
+      expect(after.parent).toBe("target");
+      expect(after.position).toBe("absolute");
+      expect(after.left).toBeCloseTo(beforeRelease.left, 1);
+      expect(after.top).toBeCloseTo(beforeRelease.top, 1);
       await page.close();
     },
   );

@@ -11,6 +11,16 @@ Si vous avez utilisé QuickBooks en ligne, vous avez vu le modèle : QBO est li
 
 Le cadrage est important : une extension n'est pas un bac à sable générique "faites ce que vous voulez". Il s'agit d'une **mini-application qui étend un modèle spécifique** (Mail, Analytics, Calendrier, Clips, Conception) et utilise le actions et les données de ce modèle. Une extension Mail lit les e-mails. Une extension Analytics lit les métriques d'un tableau de bord. Une extension Calendrier agit sur l'événement ouvert. Ils ont l'impression de faire partie du produit hôte car ils _font_ partie du produit hôte.
 
+> **Les extensions ajoutent une interface ; elles ne réécrivent pas l'interface
+> de l'application hôte.** Une extension s'affiche sur sa propre page ou dans un
+> [emplacement](#slots) nommé exposé par le modèle. Elle ne peut pas injecter
+> d'éléments dans n'importe quel composant natif — par exemple à côté de chaque
+> participant dans Calendrier — sauf si le modèle expose un emplacement à cet
+> endroit. Pour une personnalisation plus poussée, demandez à l'agent de
+> modifier le code source du modèle. La personnalisation complète du code est
+> une capacité fondamentale d'Agent Native ; les extensions constituent la
+> couche rapide, sans déploiement.
+
 Trois éléments font que les extensions fonctionnent :
 
 - **Pas de code, pas de déploiement.** L'agent les écrit et ils sont opérationnels en quelques secondes. Stocké dans la base de données, pas dans le dépôt.

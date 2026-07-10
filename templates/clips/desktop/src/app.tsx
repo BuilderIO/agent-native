@@ -55,6 +55,7 @@ import {
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
 import {
+  DESKTOP_CAPTURE_PERMISSION_MESSAGE,
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
   MACOS_SCREEN_PERMISSION_MESSAGE,
@@ -1667,7 +1668,11 @@ export function App() {
           msg.includes("sandbox") ||
           err?.name === "NotAllowedError"
         ) {
-          setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setCameraError(
+            isMacPlatform()
+              ? MACOS_CAPTURE_PERMISSION_MESSAGE
+              : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
+          );
         } else if (isMediaConstraintFailure(err)) {
           // Even the default-camera retry inside getCameraStreamWithFallback
           // failed, so no camera is usable right now. Say that plainly
@@ -2237,7 +2242,9 @@ export function App() {
       setRecError(
         isUpdatePendingRestart()
           ? MACOS_UPDATE_RESTART_MESSAGE
-          : MACOS_CAPTURE_PERMISSION_MESSAGE,
+          : isMacPlatform()
+            ? MACOS_CAPTURE_PERMISSION_MESSAGE
+            : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
       );
       return;
     }
@@ -2354,10 +2361,11 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
-        // Detach the React Start/bubble gate immediately. Native stop already
-        // released the camera and cleared Rust `is_recording_active` mid-
-        // finalize; keeping `recorder` set through the whole upload made
-        // reopen show a blank preview and made Start a silent no-op.
+        // Detach the React Start/bubble gate immediately. The recorder keeps
+        // Rust `is_recording_active` and the finalizing overlay guarded until
+        // its durable backup/finalize boundary; keeping this React handle set
+        // through the whole upload made reopen show a blank preview and made
+        // Start a silent no-op.
         const handle = recorder;
         recordingStopFinalizingRef.current = true;
         bubbleStreamTransferredToRecorder.current = false;
@@ -2723,7 +2731,8 @@ export function App() {
         recError === MACOS_UPDATE_RESTART_MESSAGE ? (
           <UpdateRestartBanner message={recError} />
         ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
-          recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
+          recError === MACOS_SCREEN_PERMISSION_MESSAGE ||
+          recError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
@@ -2748,7 +2757,8 @@ export function App() {
         )
       ) : null}
       {cameraError && !recError ? (
-        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+        cameraError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="camera"
             message={cameraError}
@@ -2839,6 +2849,7 @@ function PermissionRecoveryBanner({
         ? "Camera setup blocked"
         : "Recording setup blocked";
   const uniquePanes = Array.from(new Set(panes));
+  const canOpenPrivacySettings = isMacPlatform() || isWindowsPlatform();
 
   return (
     <div className="error-banner permission-banner">
@@ -2846,16 +2857,18 @@ function PermissionRecoveryBanner({
         <div className="permission-title">{title}</div>
         <div>{message}</div>
       </div>
-      <div className="permission-actions" aria-label="Open privacy settings">
-        {uniquePanes.map((pane) => (
-          <button
-            type="button"
-            key={pane}
-            onClick={() => openPrivacySettings(pane)}
-          >
-            {permissionPaneLabel(pane)}
-          </button>
-        ))}
+      <div className="permission-actions" aria-label="Permission recovery">
+        {canOpenPrivacySettings
+          ? uniquePanes.map((pane) => (
+              <button
+                type="button"
+                key={pane}
+                onClick={() => openPrivacySettings(pane)}
+              >
+                {permissionPaneLabel(pane)}
+              </button>
+            ))
+          : null}
         <button type="button" className="permission-retry" onClick={onRetry}>
           Try again
         </button>
@@ -3718,7 +3731,7 @@ function formatStorageBytes(bytes: number): string {
 function desktopUpdateStatusText(status: UpdateStatus): string {
   switch (status.state) {
     case "idle":
-      return "Clips checks automatically after launch and every 4 hours.";
+      return "Clips checks automatically after launch, every hour, and when you return.";
     case "checking":
       return "Checking for updates...";
     case "not-available":

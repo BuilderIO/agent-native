@@ -51,6 +51,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -195,20 +196,9 @@ export function recordingMediaFetchTimeoutMs(
 
 // Bounded automatic retry for transient failures (ffmpeg timeout, transient
 // provider network/5xx errors) — NOT for permanent failures like "no audio
-// track" or a missing/rejected API key. Mirrors the fire-and-forget
-// background pattern already used for post-finalize transcription and
-// seekable remux in finalize-recording.ts, just with a delay before the
-// retry instead of running immediately.
-//
-// Serverless caveat: Clips deploys to Netlify Functions (NITRO_PRESET=netlify),
-// where a `setTimeout` scheduled after the handler returns can be frozen along
-// with the rest of the sandbox before it fires. This best-effort retry still
-// helps on any host that keeps the process warm (local/self-hosted, or a
-// Lambda instance reused for a later request), and it is never worse than
-// today's behavior — a clip that doesn't get an automatic retry just settles
-// into "failed", exactly as it does now, and stays retryable via
-// `request-transcript` (UI retry button or agent). Keeping the backoff short
-// maximizes the chance it fires before the sandbox freezes.
+// track" or a missing/rejected API key. Each retry is self-dispatched into a
+// fresh request so serverless runtimes cannot freeze a timer left behind by
+// the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
 
@@ -237,9 +227,7 @@ function isTransientTranscriptionError(err: unknown): boolean {
 
 /**
  * Schedule a bounded, backed-off automatic retry of `request-transcript` for
- * a transient failure. Fire-and-forget in the Nitro process — same mechanism
- * `finalize-recording.ts` uses to kick off transcription/remux passes in the
- * background, just delayed instead of immediate.
+ * a transient failure in a fresh server request.
  *
  * `nextRetryCount` must already be persisted to `recording_transcripts` by the
  * caller BEFORE this is invoked (not inside the timer) so the retry budget
@@ -262,20 +250,17 @@ function scheduleAutoTranscriptRetry({
     AUTO_TRANSCRIPT_RETRY_BACKOFF_MS[
       AUTO_TRANSCRIPT_RETRY_BACKOFF_MS.length - 1
     ];
-  setTimeout(() => {
-    void Promise.resolve(
-      requestTranscriptAction.run({
-        recordingId,
-        force: true,
-        retryAttempt: nextRetryCount,
-      }),
-    ).catch((err: unknown) => {
-      console.warn(
-        `[clips] auto-retry transcription failed for ${recordingId} (attempt ${nextRetryCount}):`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
-  }, backoffMs);
+  void dispatchPostFinalizeJob({
+    recordingId,
+    kind: "transcript",
+    delayMs: backoffMs,
+    retryAttempt: nextRetryCount,
+  }).catch((err: unknown) => {
+    console.warn(
+      `[clips] auto-retry transcription dispatch failed for ${recordingId} (attempt ${nextRetryCount}):`,
+      (err as Error)?.message ?? String(err),
+    );
+  });
 }
 
 function queueBrainExport(recordingId: string): void {

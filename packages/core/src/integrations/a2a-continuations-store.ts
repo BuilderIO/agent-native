@@ -461,9 +461,10 @@ export async function completeA2AContinuation(id: string): Promise<void> {
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, completed_at = ?
+          SET status = ?, updated_at = ?, completed_at = ?,
+              incoming_payload = ?, a2a_auth_token = NULL
           WHERE id = ? AND status IN ('processing', 'delivering', 'completed')`,
-    args: ["completed", now, now, id],
+    args: ["completed", now, now, "{}", id],
   });
 }
 
@@ -476,8 +477,9 @@ export async function failA2AContinuation(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?, updated_at = ?, error_message = ?,
+              incoming_payload = ?, a2a_auth_token = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), id],
+    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });
 }

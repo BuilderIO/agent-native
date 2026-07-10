@@ -183,6 +183,7 @@ describe("handleJsonRpc", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -690,6 +691,52 @@ describe("handleJsonRpc", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://app.test/docs/_agent-native/a2a/_process-task",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("routes opted-in async A2A tasks through the Netlify durable background worker", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("APP_BASE_PATH", "/docs");
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, durableBackgroundRuns: true },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.test/.netlify/functions/server-agent-background",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          taskId: result.result.id,
+          __agentNativeProcessor: "a2a",
+        }),
+      }),
     );
   });
 

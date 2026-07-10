@@ -191,6 +191,9 @@ const messages = {
       successMessage: "Erfolgsmeldung",
       defaultSuccessMessage: "Danke! Deine Antwort wurde gespeichert.",
       redirectUrl: "Weiterleitungs-URL (optional)",
+      anonymousResponses: "Anonyme Antworten",
+      anonymousResponsesDescription:
+        "IP-Adressen, Identität der antwortenden Person und Quellmetadaten nicht speichern.",
       saveSettings: "Einstellungen speichern",
     },
     integrations: {

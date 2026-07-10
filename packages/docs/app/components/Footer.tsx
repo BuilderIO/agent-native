@@ -21,6 +21,12 @@ export default function Footer() {
             {t("footer.download")}
           </Link>
           <Link
+            to={localizedPath("/brand")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.brand")}
+          </Link>
+          <Link
             to={localizedPath("/privacy")}
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >

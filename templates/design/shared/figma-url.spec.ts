@@ -42,6 +42,16 @@ describe("parseFigmaFileKey", () => {
 
   it("returns null for invalid input", () => {
     expect(parseFigmaFileKey("https://example.com/nope")).toBeNull();
+    expect(
+      parseFigmaFileKey(
+        "https://example.com/design/abcDEF12345/Not-Really-Figma",
+      ),
+    ).toBeNull();
+    expect(
+      parseFigmaFileKey(
+        "https://figma.com.evil.example/design/abcDEF12345/Lookalike",
+      ),
+    ).toBeNull();
     expect(parseFigmaFileKey("")).toBeNull();
     expect(parseFigmaFileKey(undefined)).toBeNull();
   });
@@ -103,6 +113,11 @@ describe("parseFigmaNodeId", () => {
       parseFigmaNodeId("https://www.figma.com/design/abcDEF12345/App"),
     ).toBeNull();
     expect(parseFigmaNodeId("")).toBeNull();
+    expect(
+      parseFigmaNodeId(
+        "https://example.com/design/abcDEF12345/App?node-id=12-34",
+      ),
+    ).toBeNull();
     expect(parseFigmaNodeId(undefined)).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
+  resolveDurableBackgroundDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 
@@ -379,6 +380,23 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );
+  });
+
+  it("uses a caller-provided fallback route outside Netlify", () => {
+    expect(
+      resolveDurableBackgroundDispatchPath(
+        "/api/_agent-native-background/example",
+      ),
+    ).toBe("/api/_agent-native-background/example");
+  });
+
+  it("routes generic durable work to the emitted Netlify function", () => {
+    process.env.NETLIFY = "true";
+    expect(
+      resolveDurableBackgroundDispatchPath(
+        "/api/_agent-native-background/example",
+      ),
+    ).toBe(AGENT_BACKGROUND_FUNCTION_URL_PATH);
   });
 
   it("returns the framework path under `netlify dev` (NETLIFY_LOCAL=true)", () => {

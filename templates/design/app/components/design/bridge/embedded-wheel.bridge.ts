@@ -11,6 +11,8 @@
  *   __EMBEDDED_WHEEL_FORWARDING_ENABLED__  — boolean literal "true"/"false"
  *   __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__ — boolean literal; true only
  *     when the editor-chrome bridge is absent (Interact mode)
+ *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
+ *     to freeze authored motion and block native link/form navigation
  *
  * Protocol (iframe → parent, only when enabled):
  *
@@ -35,10 +37,12 @@
  */
 declare var __EMBEDDED_WHEEL_FORWARDING_ENABLED__: boolean;
 declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
+declare var __EDITING_SAFETY_ENABLED__: boolean;
 
 (function () {
   var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
   var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
+  var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
   var leftButtonEnabled = false;
   var temporarySpacePanEnabled = false;
   var activePointerId: number | null = null;
@@ -53,6 +57,19 @@ declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
   var lastShiftKey = false;
   var lastAltKey = false;
 
+  if (editingSafetyEnabled) {
+    var freezeStyle = document.createElement("style");
+    freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
+    freezeStyle.textContent =
+      "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}" +
+      "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){" +
+      "animation:none!important;transition:none!important;scroll-behavior:auto!important}" +
+      "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before," +
+      "body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{" +
+      "animation:none!important;transition:none!important}";
+    (document.head || document.documentElement).appendChild(freezeStyle);
+  }
+
   function clamp(value: number, limit: number): number {
     var number = Number(value) || 0;
     if (number > limit) return limit;
@@ -64,6 +81,18 @@ declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
     e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  }
+
+  function stopEditingNavigation(e: Event): void {
+    if (!editingSafetyEnabled) return;
+    stopNativeInteraction(e);
+  }
+
+  function stopEditingLinkNavigation(e: MouseEvent): void {
+    if (!editingSafetyEnabled) return;
+    var target = e.target as Element | null;
+    if (!target || !target.closest) return;
+    if (target.closest("a[href], area[href]")) stopNativeInteraction(e);
   }
 
   function postToParent(message: Record<string, unknown>): void {
@@ -286,6 +315,13 @@ declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
     if (document.visibilityState === "hidden") cancelActivePan();
   }
 
+  var reloadReported = false;
+  function reportRuntimeReload(): void {
+    if (!editingSafetyEnabled || reloadReported) return;
+    reloadReported = true;
+    postToParent({ type: "agent-native:runtime-reloading" });
+  }
+
   var wheelTarget: EventTarget =
     document.documentElement || document.body || document;
   wheelTarget.addEventListener("wheel", onWheel as EventListener, {
@@ -297,11 +333,15 @@ declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
   document.addEventListener("pointerup", onPointerUp, true);
   document.addEventListener("pointercancel", onPointerCancel, true);
   document.addEventListener("click", suppressTrailingClick, true);
+  document.addEventListener("click", stopEditingLinkNavigation, true);
   document.addEventListener("auxclick", suppressTrailingClick, true);
+  document.addEventListener("submit", stopEditingNavigation, true);
   document.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("keyup", onKeyUp, true);
   window.addEventListener("message", onHostMessage);
   window.addEventListener("blur", onWindowBlur);
   document.addEventListener("visibilitychange", onWindowBlur);
+  window.addEventListener("beforeunload", reportRuntimeReload);
+  window.addEventListener("pagehide", reportRuntimeReload);
   window.addEventListener("pagehide", cancelActivePan);
 })();

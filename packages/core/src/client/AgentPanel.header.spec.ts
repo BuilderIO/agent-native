@@ -5,12 +5,21 @@ import { describe, expect, it } from "vitest";
 import {
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
+  resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelCliTabBar,
 } from "./AgentPanel.js";
+
+describe("resolveAgentPanelChatSurface", () => {
+  it("uses the desktop surface only for explicitly marked local app previews", () => {
+    expect(resolveAgentPanelChatSurface(undefined, true)).toBe("desktop");
+    expect(resolveAgentPanelChatSurface(undefined, false)).toBe("app");
+    expect(resolveAgentPanelChatSurface("dev-frame", true)).toBe("dev-frame");
+  });
+});
 
 function chatTab(
   id: string,

@@ -28,6 +28,13 @@ export interface RunStuckState {
   heartbeatSinceMs: number | null;
   /** How the run was dispatched/continued, e.g. foreground-self-chain or background-processing. */
   dispatchMode: string | null;
+  /**
+   * Server-authoritative: true when the run holds an open tool call or A2A
+   * `agent_call` delegation (`in_flight_since` marker set). Preferred over the
+   * client-side proxy for deciding whether Retry (which aborts the run) is
+   * safe to offer. Null when the server bundle predates this field.
+   */
+  hasInFlightWork: boolean | null;
 }
 
 export interface UseRunStuckDetectionOptions {
@@ -55,6 +62,13 @@ export interface UseRunStuckDetectionOptions {
    * from the same poll response that computes the elapsed time.
    */
   backgroundStuckThresholdMs?: number;
+  /**
+   * Threshold for a claimed durable background worker that is still sending
+   * fresh process heartbeats. These workers can legitimately spend up to the
+   * 12-minute tool/no-progress window on large Design, Plan, or Assets work.
+   * Default 13 minutes, matching the durable chunk handoff boundary.
+   */
+  liveBackgroundStuckThresholdMs?: number;
   /** Poll interval. Default 5_000ms. */
   pollIntervalMs?: number;
   /** API base path. Default `/_agent-native/agent-chat`. */
@@ -63,8 +77,10 @@ export interface UseRunStuckDetectionOptions {
 
 const DEFAULT_STUCK_THRESHOLD_MS = 90_000;
 export const DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS = 180_000;
+export const DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS = 13 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
+const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
 
 interface ActiveRunResponse {
   active: boolean;
@@ -75,6 +91,8 @@ interface ActiveRunResponse {
   dispatchMode?: string | null;
   /** Server clock at response time, used to compute elapsed server-relative. */
   serverNow?: number;
+  /** True when the run holds an open tool/A2A call (in_flight_since marker). */
+  hasInFlightWork?: boolean;
 }
 
 const EMPTY_STATE: RunStuckState = {
@@ -86,6 +104,7 @@ const EMPTY_STATE: RunStuckState = {
   heartbeatAt: null,
   heartbeatSinceMs: null,
   dispatchMode: null,
+  hasInFlightWork: null,
 };
 
 export function useRunStuckDetection({
@@ -93,6 +112,7 @@ export function useRunStuckDetection({
   enabled = true,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
   backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
+  liveBackgroundStuckThresholdMs = DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   apiUrl,
 }: UseRunStuckDetectionOptions): RunStuckState {
@@ -139,9 +159,22 @@ export function useRunStuckDetection({
           const serverContinued =
             dispatchMode === "foreground-self-chain" ||
             dispatchMode?.startsWith("background") === true;
-          const effectiveThresholdMs = serverContinued
-            ? backgroundStuckThresholdMs
-            : stuckThresholdMs;
+          // A claimed durable worker with a fresh heartbeat can legitimately
+          // be waiting on a bounded long-running tool/sub-agent call. Showing
+          // Retry at the generic 3-minute continuation threshold aborts healthy
+          // work and starts the same call again. Let the worker's own 12-minute
+          // watchdog act first; a dead/stale heartbeat still gets the earlier
+          // background fallback below.
+          const liveBackgroundWorker =
+            dispatchMode === "background-processing" &&
+            heartbeatSinceMs != null &&
+            heartbeatSinceMs >= 0 &&
+            heartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
+          const effectiveThresholdMs = liveBackgroundWorker
+            ? liveBackgroundStuckThresholdMs
+            : serverContinued
+              ? backgroundStuckThresholdMs
+              : stuckThresholdMs;
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
@@ -157,6 +190,10 @@ export function useRunStuckDetection({
             heartbeatAt,
             heartbeatSinceMs,
             dispatchMode,
+            hasInFlightWork:
+              typeof data.hasInFlightWork === "boolean"
+                ? data.hasInFlightWork
+                : null,
           });
           // Back off polling when nothing is in flight — there's no point
           // hammering the endpoint while the chat is idle. We still poll
@@ -187,6 +224,7 @@ export function useRunStuckDetection({
     enabled,
     stuckThresholdMs,
     backgroundStuckThresholdMs,
+    liveBackgroundStuckThresholdMs,
     pollIntervalMs,
     apiUrl,
   ]);

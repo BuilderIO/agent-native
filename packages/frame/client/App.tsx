@@ -24,6 +24,8 @@ import {
   Suspense,
 } from "react";
 
+import { installDesktopDesignPreviewRelay } from "./desktop-design-preview";
+
 // Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
   import("@agent-native/core/client").then((m) => ({
@@ -185,6 +187,11 @@ export function App() {
         "Add a new feature",
       ]
     : undefined;
+
+  useEffect(() => {
+    if (appId !== "design") return;
+    return installDesktopDesignPreviewRelay({ iframeRef, appUrl });
+  }, [appId, appUrl]);
 
   // (The `frame_active_app` cookie is set synchronously by getAppId() on
   // first render, before any child effect can fetch /_agent-native/**.)

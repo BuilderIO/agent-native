@@ -71,20 +71,22 @@ describe("Design editor route Fast Refresh boundary", () => {
       true,
       ts.ScriptKind.TSX,
     );
-    let dependencyNames: string[] | null = null;
+    const dependencyNamesByCallback = new Map<string, string[]>();
 
     const visit = (node: ts.Node) => {
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
-        node.name.text === "renderScreenContent" &&
         node.initializer &&
         ts.isCallExpression(node.initializer)
       ) {
         const dependencyArray = node.initializer.arguments[1];
         if (dependencyArray && ts.isArrayLiteralExpression(dependencyArray)) {
-          dependencyNames = dependencyArray.elements.map((element) =>
-            element.getText(sourceFile),
+          dependencyNamesByCallback.set(
+            node.name.text,
+            dependencyArray.elements.map((element) =>
+              element.getText(sourceFile),
+            ),
           );
         }
       }
@@ -92,8 +94,17 @@ describe("Design editor route Fast Refresh boundary", () => {
     };
     visit(sourceFile);
 
-    expect(dependencyNames).toEqual(
+    expect(dependencyNamesByCallback.get("renderScreenContent")).toEqual([
+      "renderEditableScreenContent",
+    ]);
+    expect(dependencyNamesByCallback.get("renderBreakpointContent")).toEqual([
+      "renderEditableScreenContent",
+    ]);
+    expect(
+      dependencyNamesByCallback.get("renderEditableScreenContent"),
+    ).toEqual(
       expect.arrayContaining([
+        "activeBreakpointWidthState",
         "motionDefaultEase",
         "motionDurationMs",
         "inScreenGradientEditTarget",

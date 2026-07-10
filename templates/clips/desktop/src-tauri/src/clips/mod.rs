@@ -498,8 +498,8 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Close the finalizing spinner overlay. Called from the recorder stop path
-/// right after `openExternal` opens the browser to the recording URL.
+/// Close the finalizing spinner overlay after the recorder's durable
+/// backup/upload boundary settles.
 #[tauri::command]
 pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {

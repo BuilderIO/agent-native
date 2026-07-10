@@ -214,6 +214,55 @@ const enUS = {
     onboardingDescription:
       "Dispatch owns shared provider accounts. Each app owns how it uses the account.",
   },
+  messaging: {
+    managed: {
+      connectionChecked: "Slack connection checked",
+      workspaceDisconnected: "Slack workspace disconnected",
+      actionFailed: "Slack action failed",
+      channelPolicyUpdated: "Channel policy updated",
+      policyUpdateFailed: "Could not update policy",
+      positiveMonthlyBudget: "Enter a positive monthly budget",
+      channelBudgetSaved: "Channel budget saved",
+      budgetSaveFailed: "Could not save budget",
+      title: "Managed Slack workspaces",
+      description:
+        "OAuth keeps each workspace token isolated and enables native thread context and live task progress.",
+      addToSlack: "Add to Slack",
+      agentManifest: "Agent manifest",
+      agentManifestDescription:
+        "The Agent manifest enables Slack's Agent view and direct messages.",
+      requiredCredentials:
+        "Save the required Slack app credentials below to enable Add to Slack.",
+      workspaceFallback: "Slack workspace",
+      scopesUpdated_one: "{{count}} scope · updated {{date}}",
+      scopesUpdated_other: "{{count}} scopes · updated {{date}}",
+      health: {
+        unknown: "Unknown",
+        healthy: "Healthy",
+        degraded: "Degraded",
+        revoked: "Revoked",
+      },
+      test: "Test",
+      disconnect: "Disconnect",
+      empty:
+        "No managed workspaces connected yet. Manual credentials remain available below for local and legacy setups.",
+      channelAccessTitle: "Channel access and budgets",
+      channelAccessDescription:
+        "Each channel runs as an isolated service identity. Guest, Slack Connect, and no-mention access stay off until an admin enables them here.",
+      isolatedIdentity: "{{trust}} · isolated service identity",
+      trust: {
+        trusted: "Trusted",
+        guest: "Guest",
+        external_shared: "Slack Connect",
+        unknown: "Unknown",
+      },
+      requireMention: "Require mention",
+      allowGuests: "Allow guests",
+      allowSlackConnect: "Allow Slack Connect",
+      monthlyBudgetUsd: "Monthly AI budget (USD)",
+      saveBudget: "Save budget",
+    },
+  },
   dispatch: {
     nav: {
       automations: "Automations",
@@ -246,7 +295,12 @@ const enUS = {
 
 type Messages = typeof enUS;
 type PartialMessages = {
-  [K in keyof Messages]?: Partial<Messages[K]> & Record<string, unknown>;
+  [K in keyof Messages]?: K extends "messaging"
+    ? {
+        managed?: Partial<Messages["messaging"]["managed"]> &
+          Record<string, unknown>;
+      } & Record<string, unknown>
+    : Partial<Messages[K]> & Record<string, unknown>;
 };
 
 function mergeMessages(overrides: PartialMessages): Messages {
@@ -272,6 +326,34 @@ function mergeMessages(overrides: PartialMessages): Messages {
       time: {
         ...enUS.integrations.time,
         ...overrides.integrations?.time,
+      },
+    },
+    messaging: {
+      ...enUS.messaging,
+      ...overrides.messaging,
+      managed: {
+        ...enUS.messaging.managed,
+        ...(
+          overrides.messaging as
+            | { managed?: Record<string, unknown> }
+            | undefined
+        )?.managed,
+        health: {
+          ...enUS.messaging.managed.health,
+          ...(
+            overrides.messaging as
+              | { managed?: { health?: Record<string, string> } }
+              | undefined
+          )?.managed?.health,
+        },
+        trust: {
+          ...enUS.messaging.managed.trust,
+          ...(
+            overrides.messaging as
+              | { managed?: { trust?: Record<string, string> } }
+              | undefined
+          )?.managed?.trust,
+        },
       },
     },
     dispatch: {
@@ -495,6 +577,54 @@ export const messagesByLocale = {
       onboardingTitle: "连接一次，授权给应用",
       onboardingDescription:
         "Dispatch 管理共享提供商账户。每个应用管理自己如何使用该账户。",
+    },
+
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 连接已检查",
+        workspaceDisconnected: "Slack 工作区已断开连接",
+        actionFailed: "Slack 操作失败",
+        channelPolicyUpdated: "频道策略已更新",
+        policyUpdateFailed: "无法更新策略",
+        positiveMonthlyBudget: "请输入大于零的每月预算",
+        channelBudgetSaved: "频道预算已保存",
+        budgetSaveFailed: "无法保存预算",
+        title: "托管的 Slack 工作区",
+        description:
+          "OAuth 会隔离每个工作区的令牌，并启用原生线程上下文和实时任务进度。",
+        addToSlack: "添加到 Slack",
+        agentManifest: "Agent 清单",
+        agentManifestDescription:
+          "Agent 清单会启用 Slack 的 Agent 视图和私信。",
+        requiredCredentials:
+          "请先在下方保存必需的 Slack 应用凭据，以启用添加到 Slack。",
+        workspaceFallback: "Slack 工作区",
+        scopesUpdated_other: "{{count}} 个范围 · 更新于 {{date}}",
+        health: {
+          unknown: "未知",
+          healthy: "正常",
+          degraded: "降级",
+          revoked: "已撤销",
+        },
+        test: "测试",
+        disconnect: "断开连接",
+        empty: "尚未连接托管工作区。下方仍提供手动凭据，供本地和旧版设置使用。",
+        channelAccessTitle: "频道访问和预算",
+        channelAccessDescription:
+          "每个频道都以隔离的服务身份运行。访客、Slack Connect 和无需提及的访问默认关闭，直到管理员在此启用。",
+        isolatedIdentity: "{{trust}} · 隔离的服务身份",
+        trust: {
+          trusted: "受信任",
+          guest: "访客",
+          external_shared: "外部共享 (Slack Connect)",
+          unknown: "未知",
+        },
+        requireMention: "需要提及",
+        allowGuests: "允许访客",
+        allowSlackConnect: "允许 Slack Connect",
+        monthlyBudgetUsd: "每月 AI 预算（美元）",
+        saveBudget: "保存预算",
+      },
     },
 
     dispatch: {
@@ -750,6 +880,57 @@ export const messagesByLocale = {
       onboardingTitle: "Conecta una vez, concede a apps",
       onboardingDescription:
         "Dispatch posee las cuentas compartidas de proveedores. Cada app posee cómo usa la cuenta.",
+    },
+
+    messaging: {
+      managed: {
+        connectionChecked: "Conexión de Slack comprobada",
+        workspaceDisconnected: "Espacio de trabajo de Slack desconectado",
+        actionFailed: "La acción de Slack falló",
+        channelPolicyUpdated: "Política del canal actualizada",
+        policyUpdateFailed: "No se pudo actualizar la política",
+        positiveMonthlyBudget: "Introduce un presupuesto mensual positivo",
+        channelBudgetSaved: "Presupuesto del canal guardado",
+        budgetSaveFailed: "No se pudo guardar el presupuesto",
+        title: "Espacios de trabajo de Slack gestionados",
+        description:
+          "OAuth mantiene aislado el token de cada espacio de trabajo y habilita el contexto nativo de hilos y el progreso de tareas en vivo.",
+        addToSlack: "Añadir a Slack",
+        agentManifest: "Manifiesto del agente",
+        agentManifestDescription:
+          "El manifiesto del agente habilita la vista de agente y los mensajes directos de Slack.",
+        requiredCredentials:
+          "Guarda abajo las credenciales obligatorias de la app de Slack para habilitar Añadir a Slack.",
+        workspaceFallback: "Espacio de trabajo de Slack",
+        scopesUpdated_one: "{{count}} ámbito · actualizado el {{date}}",
+        scopesUpdated_other: "{{count}} ámbitos · actualizados el {{date}}",
+        scopesUpdated_many: "{{count}} ámbitos · actualizados el {{date}}",
+        health: {
+          unknown: "Desconocido",
+          healthy: "Correcto",
+          degraded: "Degradado",
+          revoked: "Revocado",
+        },
+        test: "Probar",
+        disconnect: "Desconectar",
+        empty:
+          "Aún no hay espacios de trabajo gestionados conectados. Las credenciales manuales siguen disponibles abajo para configuraciones locales y antiguas.",
+        channelAccessTitle: "Acceso y presupuestos del canal",
+        channelAccessDescription:
+          "Cada canal se ejecuta con una identidad de servicio aislada. El acceso para invitados, Slack Connect y sin mención permanece desactivado hasta que un administrador lo habilite aquí.",
+        isolatedIdentity: "{{trust}} · identidad de servicio aislada",
+        trust: {
+          trusted: "De confianza",
+          guest: "Invitado",
+          external_shared: "Uso compartido externo (Slack Connect)",
+          unknown: "Desconocido",
+        },
+        requireMention: "Requerir mención",
+        allowGuests: "Permitir invitados",
+        allowSlackConnect: "Permitir Slack Connect",
+        monthlyBudgetUsd: "Presupuesto mensual de IA (USD)",
+        saveBudget: "Guardar presupuesto",
+      },
     },
 
     dispatch: {
@@ -1008,6 +1189,57 @@ export const messagesByLocale = {
         "Dispatch possède les comptes fournisseurs partagés. Chaque app possède la façon dont elle utilise le compte.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Connexion Slack vérifiée",
+        workspaceDisconnected: "Espace de travail Slack déconnecté",
+        actionFailed: "Échec de l’action Slack",
+        channelPolicyUpdated: "Politique du canal mise à jour",
+        policyUpdateFailed: "Impossible de mettre à jour la politique",
+        positiveMonthlyBudget: "Saisissez un budget mensuel positif",
+        channelBudgetSaved: "Budget du canal enregistré",
+        budgetSaveFailed: "Impossible d’enregistrer le budget",
+        title: "Espaces de travail Slack gérés",
+        description:
+          "OAuth isole le jeton de chaque espace de travail et active le contexte natif des fils ainsi que la progression des tâches en direct.",
+        addToSlack: "Ajouter à Slack",
+        agentManifest: "Manifeste de l’agent",
+        agentManifestDescription:
+          "Le manifeste de l’agent active la vue Agent et les messages directs de Slack.",
+        requiredCredentials:
+          "Enregistrez ci-dessous les identifiants requis de l’app Slack pour activer Ajouter à Slack.",
+        workspaceFallback: "Espace de travail Slack",
+        scopesUpdated_one: "{{count}} portée · mise à jour le {{date}}",
+        scopesUpdated_other: "{{count}} portées · mises à jour le {{date}}",
+        scopesUpdated_many: "{{count}} portées · mises à jour le {{date}}",
+        health: {
+          unknown: "Inconnu",
+          healthy: "Sain",
+          degraded: "Dégradé",
+          revoked: "Révoqué",
+        },
+        test: "Tester",
+        disconnect: "Déconnecter",
+        empty:
+          "Aucun espace de travail géré n’est encore connecté. Les identifiants manuels restent disponibles ci-dessous pour les configurations locales et anciennes.",
+        channelAccessTitle: "Accès au canal et budgets",
+        channelAccessDescription:
+          "Chaque canal s’exécute avec une identité de service isolée. L’accès des invités, de Slack Connect et sans mention reste désactivé jusqu’à ce qu’un administrateur l’active ici.",
+        isolatedIdentity: "{{trust}} · identité de service isolée",
+        trust: {
+          trusted: "Fiable",
+          guest: "Invité",
+          external_shared: "Partage externe (Slack Connect)",
+          unknown: "Inconnu",
+        },
+        requireMention: "Exiger une mention",
+        allowGuests: "Autoriser les invités",
+        allowSlackConnect: "Autoriser Slack Connect",
+        monthlyBudgetUsd: "Budget mensuel d’IA (USD)",
+        saveBudget: "Enregistrer le budget",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automatisations",
@@ -1254,6 +1486,56 @@ export const messagesByLocale = {
         "Dispatch besitzt gemeinsame Anbieter-Konten. Jede App besitzt, wie sie das Konto verwendet.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack-Verbindung geprüft",
+        workspaceDisconnected: "Slack-Workspace getrennt",
+        actionFailed: "Slack-Aktion fehlgeschlagen",
+        channelPolicyUpdated: "Kanalrichtlinie aktualisiert",
+        policyUpdateFailed: "Richtlinie konnte nicht aktualisiert werden",
+        positiveMonthlyBudget: "Gib ein positives Monatsbudget ein",
+        channelBudgetSaved: "Kanalbudget gespeichert",
+        budgetSaveFailed: "Budget konnte nicht gespeichert werden",
+        title: "Verwaltete Slack-Workspaces",
+        description:
+          "OAuth isoliert das Token jedes Workspace und aktiviert nativen Thread-Kontext sowie Live-Fortschritt für Aufgaben.",
+        addToSlack: "Zu Slack hinzufügen",
+        agentManifest: "Agent-Manifest",
+        agentManifestDescription:
+          "Das Agent-Manifest aktiviert die Agent-Ansicht und Direktnachrichten in Slack.",
+        requiredCredentials:
+          "Speichere unten die erforderlichen Slack-App-Anmeldedaten, um Zu Slack hinzufügen zu aktivieren.",
+        workspaceFallback: "Slack-Workspace",
+        scopesUpdated_one: "{{count}} Scope · aktualisiert am {{date}}",
+        scopesUpdated_other: "{{count}} Scopes · aktualisiert am {{date}}",
+        health: {
+          unknown: "Unbekannt",
+          healthy: "Fehlerfrei",
+          degraded: "Beeinträchtigt",
+          revoked: "Widerrufen",
+        },
+        test: "Testen",
+        disconnect: "Trennen",
+        empty:
+          "Noch keine verwalteten Workspaces verbunden. Manuelle Anmeldedaten bleiben unten für lokale und ältere Setups verfügbar.",
+        channelAccessTitle: "Kanalzugriff und Budgets",
+        channelAccessDescription:
+          "Jeder Kanal läuft mit einer isolierten Dienstidentität. Gast-, Slack-Connect- und Zugriff ohne Erwähnung bleiben deaktiviert, bis ein Admin sie hier aktiviert.",
+        isolatedIdentity: "{{trust}} · isolierte Dienstidentität",
+        trust: {
+          trusted: "Vertrauenswürdig",
+          guest: "Gast",
+          external_shared: "Extern geteilt (Slack Connect)",
+          unknown: "Unbekannt",
+        },
+        requireMention: "Erwähnung erforderlich",
+        allowGuests: "Gäste erlauben",
+        allowSlackConnect: "Slack Connect erlauben",
+        monthlyBudgetUsd: "Monatliches KI-Budget (USD)",
+        saveBudget: "Budget speichern",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automatisierungen",
@@ -1498,6 +1780,55 @@ export const messagesByLocale = {
         "Dispatch は共有プロバイダーアカウントを管理します。各アプリはそのアカウントの使い方を管理します。",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 接続を確認しました",
+        workspaceDisconnected: "Slack ワークスペースを切断しました",
+        actionFailed: "Slack の操作に失敗しました",
+        channelPolicyUpdated: "チャンネルポリシーを更新しました",
+        policyUpdateFailed: "ポリシーを更新できませんでした",
+        positiveMonthlyBudget: "正の月額予算を入力してください",
+        channelBudgetSaved: "チャンネル予算を保存しました",
+        budgetSaveFailed: "予算を保存できませんでした",
+        title: "管理対象の Slack ワークスペース",
+        description:
+          "OAuth はワークスペースごとにトークンを分離し、Slack ネイティブのスレッドコンテキストとリアルタイムのタスク進捗を有効にします。",
+        addToSlack: "Slack に追加",
+        agentManifest: "エージェントマニフェスト",
+        agentManifestDescription:
+          "エージェントマニフェストで Slack のエージェントビューとダイレクトメッセージを有効にします。",
+        requiredCredentials:
+          "下で必須の Slack アプリ認証情報を保存すると、Slack に追加を有効にできます。",
+        workspaceFallback: "Slack ワークスペース",
+        scopesUpdated_other: "{{count}} 件のスコープ · {{date}} 更新",
+        health: {
+          unknown: "不明",
+          healthy: "正常",
+          degraded: "機能低下",
+          revoked: "取り消し済み",
+        },
+        test: "テスト",
+        disconnect: "切断",
+        empty:
+          "管理対象のワークスペースはまだ接続されていません。ローカルおよび従来の設定用に、手動の認証情報を引き続き下で利用できます。",
+        channelAccessTitle: "チャンネルアクセスと予算",
+        channelAccessDescription:
+          "各チャンネルは分離されたサービス ID で実行されます。ゲスト、Slack Connect、メンションなしのアクセスは、管理者がここで有効にするまで無効です。",
+        isolatedIdentity: "{{trust}} · 分離されたサービス ID",
+        trust: {
+          trusted: "信頼済み",
+          guest: "ゲスト",
+          external_shared: "外部共有（Slack Connect）",
+          unknown: "不明",
+        },
+        requireMention: "メンションを必須にする",
+        allowGuests: "ゲストを許可",
+        allowSlackConnect: "Slack Connect を許可",
+        monthlyBudgetUsd: "月額 AI 予算（USD）",
+        saveBudget: "予算を保存",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "自動化",
@@ -1737,6 +2068,55 @@ export const messagesByLocale = {
       onboardingTitle: "한 번 연결하고 앱에 권한 부여",
       onboardingDescription:
         "Dispatch는 공유 공급자 계정을 소유합니다. 각 앱은 계정 사용 방식을 소유합니다.",
+    },
+
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 연결을 확인했습니다",
+        workspaceDisconnected: "Slack 워크스페이스 연결을 해제했습니다",
+        actionFailed: "Slack 작업에 실패했습니다",
+        channelPolicyUpdated: "채널 정책을 업데이트했습니다",
+        policyUpdateFailed: "정책을 업데이트할 수 없습니다",
+        positiveMonthlyBudget: "0보다 큰 월 예산을 입력하세요",
+        channelBudgetSaved: "채널 예산을 저장했습니다",
+        budgetSaveFailed: "예산을 저장할 수 없습니다",
+        title: "관리형 Slack 워크스페이스",
+        description:
+          "OAuth는 각 워크스페이스 토큰을 격리하고 Slack 기본 스레드 컨텍스트와 실시간 작업 진행 상황을 지원합니다.",
+        addToSlack: "Slack에 추가",
+        agentManifest: "에이전트 매니페스트",
+        agentManifestDescription:
+          "에이전트 매니페스트는 Slack의 에이전트 보기와 다이렉트 메시지를 활성화합니다.",
+        requiredCredentials:
+          "아래에서 필수 Slack 앱 자격 증명을 저장하면 Slack에 추가가 활성화됩니다.",
+        workspaceFallback: "Slack 워크스페이스",
+        scopesUpdated_other: "범위 {{count}}개 · {{date}} 업데이트",
+        health: {
+          unknown: "알 수 없음",
+          healthy: "정상",
+          degraded: "성능 저하",
+          revoked: "취소됨",
+        },
+        test: "테스트",
+        disconnect: "연결 해제",
+        empty:
+          "연결된 관리형 워크스페이스가 아직 없습니다. 로컬 및 레거시 설정에는 아래의 수동 자격 증명을 계속 사용할 수 있습니다.",
+        channelAccessTitle: "채널 액세스 및 예산",
+        channelAccessDescription:
+          "각 채널은 격리된 서비스 ID로 실행됩니다. 게스트, Slack Connect, 멘션 없는 액세스는 관리자가 여기에서 허용할 때까지 꺼져 있습니다.",
+        isolatedIdentity: "{{trust}} · 격리된 서비스 ID",
+        trust: {
+          trusted: "신뢰됨",
+          guest: "게스트",
+          external_shared: "외부 공유(Slack Connect)",
+          unknown: "알 수 없음",
+        },
+        requireMention: "멘션 필요",
+        allowGuests: "게스트 허용",
+        allowSlackConnect: "Slack Connect 허용",
+        monthlyBudgetUsd: "월 AI 예산(USD)",
+        saveBudget: "예산 저장",
+      },
     },
 
     dispatch: {
@@ -1990,6 +2370,57 @@ export const messagesByLocale = {
         "Dispatch possui as contas compartilhadas de provedores. Cada app possui como usa a conta.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Conexão do Slack verificada",
+        workspaceDisconnected: "Workspace do Slack desconectado",
+        actionFailed: "Falha na ação do Slack",
+        channelPolicyUpdated: "Política do canal atualizada",
+        policyUpdateFailed: "Não foi possível atualizar a política",
+        positiveMonthlyBudget: "Informe um orçamento mensal positivo",
+        channelBudgetSaved: "Orçamento do canal salvo",
+        budgetSaveFailed: "Não foi possível salvar o orçamento",
+        title: "Workspaces gerenciados do Slack",
+        description:
+          "O OAuth mantém o token de cada workspace isolado e habilita o contexto nativo de threads e o progresso de tarefas em tempo real.",
+        addToSlack: "Adicionar ao Slack",
+        agentManifest: "Manifesto do agente",
+        agentManifestDescription:
+          "O manifesto do agente habilita a visualização de agente e as mensagens diretas no Slack.",
+        requiredCredentials:
+          "Salve abaixo as credenciais obrigatórias do app Slack para habilitar Adicionar ao Slack.",
+        workspaceFallback: "Workspace do Slack",
+        scopesUpdated_one: "{{count}} escopo · atualizado em {{date}}",
+        scopesUpdated_other: "{{count}} escopos · atualizados em {{date}}",
+        scopesUpdated_many: "{{count}} escopos · atualizados em {{date}}",
+        health: {
+          unknown: "Desconhecido",
+          healthy: "Íntegro",
+          degraded: "Degradado",
+          revoked: "Revogado",
+        },
+        test: "Testar",
+        disconnect: "Desconectar",
+        empty:
+          "Ainda não há workspaces gerenciados conectados. As credenciais manuais continuam disponíveis abaixo para configurações locais e antigas.",
+        channelAccessTitle: "Acesso e orçamentos do canal",
+        channelAccessDescription:
+          "Cada canal é executado com uma identidade de serviço isolada. O acesso para convidados, Slack Connect e sem menção permanece desativado até que um administrador o habilite aqui.",
+        isolatedIdentity: "{{trust}} · identidade de serviço isolada",
+        trust: {
+          trusted: "Confiável",
+          guest: "Convidado",
+          external_shared: "Compartilhamento externo (Slack Connect)",
+          unknown: "Desconhecido",
+        },
+        requireMention: "Exigir menção",
+        allowGuests: "Permitir convidados",
+        allowSlackConnect: "Permitir Slack Connect",
+        monthlyBudgetUsd: "Orçamento mensal de IA (USD)",
+        saveBudget: "Salvar orçamento",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automações",
@@ -2223,6 +2654,56 @@ export const messagesByLocale = {
       onboardingTitle: "एक बार कनेक्ट करें, ऐप्स को दें",
       onboardingDescription:
         "Dispatch साझा प्रदाता खातों का स्वामी है। हर ऐप खाते का उपयोग कैसे करता है, यह वही संभालता है।",
+    },
+
+    messaging: {
+      managed: {
+        connectionChecked: "Slack कनेक्शन की जाँच पूरी हुई",
+        workspaceDisconnected: "Slack कार्यस्थान डिस्कनेक्ट किया गया",
+        actionFailed: "Slack कार्रवाई विफल हुई",
+        channelPolicyUpdated: "चैनल नीति अपडेट की गई",
+        policyUpdateFailed: "नीति अपडेट नहीं हो सकी",
+        positiveMonthlyBudget: "शून्य से अधिक मासिक बजट दर्ज करें",
+        channelBudgetSaved: "चैनल बजट सहेजा गया",
+        budgetSaveFailed: "बजट सहेजा नहीं जा सका",
+        title: "प्रबंधित Slack कार्यस्थान",
+        description:
+          "OAuth हर कार्यस्थान टोकन को अलग रखता है और मूल थ्रेड संदर्भ तथा लाइव कार्य प्रगति सक्षम करता है।",
+        addToSlack: "Slack में जोड़ें",
+        agentManifest: "एजेंट मैनिफ़ेस्ट",
+        agentManifestDescription:
+          "एजेंट मैनिफ़ेस्ट Slack का एजेंट व्यू और डायरेक्ट मैसेज सक्षम करता है।",
+        requiredCredentials:
+          "Slack में जोड़ें को सक्षम करने के लिए नीचे आवश्यक Slack ऐप क्रेडेंशियल सहेजें।",
+        workspaceFallback: "Slack कार्यस्थान",
+        scopesUpdated_one: "{{count}} स्कोप · {{date}} को अपडेट किया गया",
+        scopesUpdated_other: "{{count}} स्कोप · {{date}} को अपडेट किए गए",
+        health: {
+          unknown: "अज्ञात",
+          healthy: "स्वस्थ",
+          degraded: "कमज़ोर",
+          revoked: "रद्द",
+        },
+        test: "जाँचें",
+        disconnect: "डिस्कनेक्ट करें",
+        empty:
+          "अभी कोई प्रबंधित कार्यस्थान कनेक्ट नहीं है। स्थानीय और पुराने सेटअप के लिए मैन्युअल क्रेडेंशियल नीचे उपलब्ध हैं।",
+        channelAccessTitle: "चैनल एक्सेस और बजट",
+        channelAccessDescription:
+          "हर चैनल एक अलग सेवा पहचान के रूप में चलता है। अतिथि, Slack Connect और बिना उल्लेख का एक्सेस तब तक बंद रहता है जब तक कोई एडमिन उसे यहाँ सक्षम न करे।",
+        isolatedIdentity: "{{trust}} · अलग सेवा पहचान",
+        trust: {
+          trusted: "विश्वसनीय",
+          guest: "अतिथि",
+          external_shared: "बाहरी साझाकरण (Slack Connect)",
+          unknown: "अज्ञात",
+        },
+        requireMention: "उल्लेख आवश्यक",
+        allowGuests: "अतिथियों को अनुमति दें",
+        allowSlackConnect: "Slack Connect को अनुमति दें",
+        monthlyBudgetUsd: "मासिक AI बजट (USD)",
+        saveBudget: "बजट सहेजें",
+      },
     },
 
     dispatch: {
@@ -2492,6 +2973,60 @@ export const messagesByLocale = {
       onboardingTitle: "اربط مرة واحدة، وامنح للتطبيقات",
       onboardingDescription:
         "يمتلك Dispatch حسابات المزوّدين المشتركة. ويمتلك كل تطبيق طريقة استخدامه للحساب.",
+    },
+
+    messaging: {
+      managed: {
+        connectionChecked: "تم التحقق من اتصال Slack",
+        workspaceDisconnected: "تم قطع اتصال مساحة عمل Slack",
+        actionFailed: "فشل إجراء Slack",
+        channelPolicyUpdated: "تم تحديث سياسة القناة",
+        policyUpdateFailed: "تعذر تحديث السياسة",
+        positiveMonthlyBudget: "أدخل ميزانية شهرية موجبة",
+        channelBudgetSaved: "تم حفظ ميزانية القناة",
+        budgetSaveFailed: "تعذر حفظ الميزانية",
+        title: "مساحات عمل Slack المُدارة",
+        description:
+          "يعزل OAuth رمز كل مساحة عمل ويفعّل سياق سلاسل الرسائل الأصلي وتقدم المهام المباشر.",
+        addToSlack: "إضافة إلى Slack",
+        agentManifest: "بيان الوكيل",
+        agentManifestDescription:
+          "يُفعّل بيان الوكيل عرض الوكيل والرسائل المباشرة في Slack.",
+        requiredCredentials:
+          "احفظ بيانات اعتماد تطبيق Slack المطلوبة أدناه لتفعيل الإضافة إلى Slack.",
+        workspaceFallback: "مساحة عمل Slack",
+        scopesUpdated_zero: "{{count}} نطاق · تم التحديث في {{date}}",
+        scopesUpdated_one: "{{count}} نطاق · تم التحديث في {{date}}",
+        scopesUpdated_two: "{{count}} نطاقان · تم التحديث في {{date}}",
+        scopesUpdated_few: "{{count}} نطاقات · تم التحديث في {{date}}",
+        scopesUpdated_many: "{{count}} نطاقًا · تم التحديث في {{date}}",
+        scopesUpdated_other: "{{count}} نطاق · تم التحديث في {{date}}",
+        health: {
+          unknown: "غير معروف",
+          healthy: "سليم",
+          degraded: "متدهور",
+          revoked: "ملغى",
+        },
+        test: "اختبار",
+        disconnect: "قطع الاتصال",
+        empty:
+          "لا توجد مساحات عمل مُدارة متصلة بعد. تظل بيانات الاعتماد اليدوية متاحة أدناه للإعدادات المحلية والقديمة.",
+        channelAccessTitle: "الوصول إلى القناة والميزانيات",
+        channelAccessDescription:
+          "تعمل كل قناة بهوية خدمة معزولة. يظل وصول الضيوف وSlack Connect والوصول دون إشارة معطلاً حتى يفعّله مسؤول هنا.",
+        isolatedIdentity: "{{trust}} · هوية خدمة معزولة",
+        trust: {
+          trusted: "موثوق",
+          guest: "ضيف",
+          external_shared: "مشاركة خارجية (Slack Connect)",
+          unknown: "غير معروف",
+        },
+        requireMention: "طلب الإشارة",
+        allowGuests: "السماح للضيوف",
+        allowSlackConnect: "السماح بـ Slack Connect",
+        monthlyBudgetUsd: "ميزانية الذكاء الاصطناعي الشهرية (USD)",
+        saveBudget: "حفظ الميزانية",
+      },
     },
 
     dispatch: {

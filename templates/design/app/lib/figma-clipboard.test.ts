@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   decideFigmaPasteStrategy,
+  extractSelectedNodeIds,
   extractFigmeta,
+  MAX_FIGMA_CLIPBOARD_NODE_IDS,
   resolveFigmaPasteImportCall,
+  stripFigmaBinaryClipboardBuffer,
 } from "./figma-clipboard";
 
 function base64Json(value: unknown): string {
@@ -41,6 +44,46 @@ describe("extractFigmeta", () => {
       pasteID: 7,
       dataType: "scene",
     });
+  });
+
+  it("extracts exact single and multi-selection node ids from current Figma clipboard metadata", () => {
+    const html = `<span data-metadata="<!--(figmeta)${base64Json({
+      fileKey: "abcDEF12345",
+      pasteID: 7,
+      dataType: "scene",
+      environment: "www.figma.com",
+      selectedNodeData: "40:45|4|0,40:54|4|0",
+    })}(/figmeta)-->"></span>`;
+    expect(extractFigmeta(html)).toEqual({
+      fileKey: "abcDEF12345",
+      pasteID: 7,
+      dataType: "scene",
+      environment: "www.figma.com",
+      selectedNodeData: "40:45|4|0,40:54|4|0",
+      selectedNodeIds: ["40:45", "40:54"],
+    });
+  });
+
+  it("ignores malformed selectedNodeData entries and de-duplicates ids", () => {
+    expect(
+      extractSelectedNodeIds("40:45|4|0,garbage,40:45|8|0, 9:3 |4|0"),
+    ).toEqual(["40:45", "9:3"]);
+  });
+
+  it("caps exact selected node ids to the server's 100-id budget and marks truncation", () => {
+    const selectedNodeData = Array.from(
+      { length: MAX_FIGMA_CLIPBOARD_NODE_IDS + 2 },
+      (_, index) => `40:${index + 1}|4|0`,
+    ).join(",");
+    const html = `<span data-metadata="(figmeta)${base64Json({
+      fileKey: "abcDEF12345",
+      selectedNodeData,
+    })}(/figmeta)"></span>`;
+
+    const result = extractFigmeta(html)!;
+    expect(result.selectedNodeIds).toHaveLength(100);
+    expect(result.selectedNodeIds?.[99]).toBe("40:100");
+    expect(result.selectedNodeIdsTruncated).toBe(true);
   });
 
   it("returns null for corrupted base64 inside the marker", () => {
@@ -96,17 +139,52 @@ describe("decideFigmaPasteStrategy", () => {
 
 describe("resolveFigmaPasteImportCall", () => {
   it("routes a figmeta-bearing paste to import-figma-clipboard", () => {
-    const payload = { fileKey: "abcDEF12345", pasteID: 1 };
+    const payload = {
+      fileKey: "abcDEF12345",
+      pasteID: 1,
+      selectedNodeData: "40:45|4|0,40:54|4|0",
+    };
     const html = `<span data-metadata="(figmeta)${base64Json(payload)}(/figmeta)"></span><div>Hero</div>`;
     const call = resolveFigmaPasteImportCall(html);
     expect(call).toEqual({
       action: "import-figma-clipboard",
       payload: {
         figmetaFileKey: "abcDEF12345",
+        selectedNodeIds: ["40:45", "40:54"],
         clipboardHtml: html,
         originalName: "figma-paste.html",
       },
     });
+  });
+
+  it("strips Figma's large private binary buffer for exact-id imports while preserving figmeta and visible fallback HTML", () => {
+    const metadata = `(figmeta)${base64Json({
+      fileKey: "abcDEF12345",
+      selectedNodeData: "40:45|4|0",
+    })}(/figmeta)`;
+    const html = [
+      `<span data-metadata="${metadata}"></span>`,
+      `<span data-buffer="<!--(figma)${"a".repeat(100_000)}(/figma)-->"></span>`,
+      "<div>Visible frame fallback</div>",
+    ].join("");
+
+    const call = resolveFigmaPasteImportCall(html);
+    expect(call.action).toBe("import-figma-clipboard");
+    if (call.action !== "import-figma-clipboard") return;
+    expect(call.payload.clipboardHtml).toContain(metadata);
+    expect(call.payload.clipboardHtml).toContain("Visible frame fallback");
+    expect(call.payload.clipboardHtml).not.toContain("data-buffer");
+    expect(call.payload.clipboardHtml.length).toBeLessThan(1_000);
+  });
+
+  it("retains the original clipboard when exact ids are unavailable for legacy matching", () => {
+    const html = `<span data-metadata="(figmeta)${base64Json({
+      fileKey: "abcDEF12345",
+    })}(/figmeta)"></span><div>Legacy fallback</div>`;
+    const call = resolveFigmaPasteImportCall(html);
+    expect(call.action).toBe("import-figma-clipboard");
+    if (call.action !== "import-figma-clipboard") return;
+    expect(call.payload.clipboardHtml).toBe(html);
   });
 
   it("routes a paste with no figmeta to the legacy import-design-source action", () => {
@@ -120,5 +198,19 @@ describe("resolveFigmaPasteImportCall", () => {
         originalName: "custom-name.html",
       },
     });
+  });
+});
+
+describe("stripFigmaBinaryClipboardBuffer", () => {
+  it("removes raw and escaped private figma buffers without stripping figmeta", () => {
+    const html = [
+      "<!--(figmeta)metadata(/figmeta)-->",
+      "<!--(figma)private-one(/figma)-->",
+      "&lt;!--(figma)private-two(/figma)--&gt;",
+      "<div>Visible</div>",
+    ].join("");
+    expect(stripFigmaBinaryClipboardBuffer(html)).toBe(
+      "<!--(figmeta)metadata(/figmeta)--><div>Visible</div>",
+    );
   });
 });

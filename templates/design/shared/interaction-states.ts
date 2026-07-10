@@ -9,7 +9,7 @@
  * showing. Both features coexist: a screen state (e.g. "Empty") and an
  * element interaction state (e.g. "Hover" on a button) are independent axes.
  *
- * Overrides persist into a single managed
+ * Base overrides persist into a managed
  * `<style data-agent-native-states>` block as real, plain CSS pseudo-class
  * rules — readable and editable in the Code panel, and portable to any HTML
  * export with zero runtime dependency:
@@ -18,10 +18,16 @@
  *     background-color: #111827;
  *   }
  *
+ * State edits made in a narrower responsive frame persist separately in
+ * `<style data-agent-native-state-breakpoints>` as ordinary max-width media
+ * rules. That keeps (for example) mobile Hover independent from base Hover
+ * while remaining portable to generated HTML and Alpine.js with no runtime.
+ *
  * Follows the managed-block conventions of `breakpoint-media.ts` /
  * `motion-compiler.ts`:
  * - **Deterministic**: same model → byte-identical CSS. Node ids, states, and
- *   properties are sorted alphabetically; states within a node id follow the
+ *   properties are sorted alphabetically; responsive buckets run widest to
+ *   narrowest, and states within a node id follow the
  *   fixed `STATE_ORDER` (hover → focus → focus-visible → active → disabled)
  *   so cascade order is stable and predictable when two states could both
  *   apply (e.g. `:hover` and `:focus` at once).
@@ -102,6 +108,12 @@ export type InteractionStatesModel = Record<
   Partial<Record<InteractionState, Record<string, string>>>
 >;
 
+/** Responsive state overrides: max-width bound → regular state model. */
+export type ResponsiveInteractionStatesModel = Record<
+  string,
+  InteractionStatesModel
+>;
+
 /** One flattened managed rule, as returned by {@link listAllInteractionStateDeclarations}. */
 export interface InteractionStateDeclaration {
   nodeId: string;
@@ -133,12 +145,16 @@ export function isSafeInteractionStateCssValue(value: string): boolean {
 
 /** Valid (optionally vendor-prefixed) CSS property identifier. */
 export function isSafeInteractionStateCssProperty(property: string): boolean {
-  return /^-?[a-zA-Z][a-zA-Z0-9-]*$/.test(property);
+  return /^(?:--[a-zA-Z_][a-zA-Z0-9_-]*|-?[a-zA-Z][a-zA-Z0-9-]*)$/.test(
+    property,
+  );
 }
 
 // ─── HTML block extraction / injection ───────────────────────────────────────
 
 const OPEN_RE = /<style\b(?=[^>]*\bdata-agent-native-states\b)[^>]*>/i;
+const RESPONSIVE_OPEN_RE =
+  /<style\b(?=[^>]*\bdata-agent-native-state-breakpoints\b)[^>]*>/i;
 
 /**
  * Extract the CSS body of the managed `<style data-agent-native-states>`
@@ -196,6 +212,26 @@ export function injectManagedInteractionStateCss(
   return block + "\n" + html;
 }
 
+/** Extract the responsive interaction-state managed block. */
+export function extractManagedResponsiveInteractionStateCss(
+  html: string,
+): string | null {
+  return extractManagedStyleBody(html, RESPONSIVE_OPEN_RE);
+}
+
+/** Inject, replace, or remove the responsive interaction-state block. */
+export function injectManagedResponsiveInteractionStateCss(
+  html: string,
+  css: string,
+): string {
+  return injectManagedStyleBody(
+    html,
+    css,
+    RESPONSIVE_OPEN_RE,
+    "data-agent-native-state-breakpoints",
+  );
+}
+
 // ─── CSS body parse / serialize ──────────────────────────────────────────────
 
 /**
@@ -231,7 +267,12 @@ export function parseInteractionStatesCss(css: string): InteractionStatesModel {
       const colon = declaration.indexOf(":");
       if (colon <= 0) continue;
       const property = declaration.slice(0, colon).trim();
-      const value = declaration.slice(colon + 1).trim();
+      // Managed declarations are serialized with `!important` so they can
+      // override the inline base styles Design authors on canvas elements.
+      // Keep that cascade implementation detail out of the persisted model:
+      // inspector fields, diffs, and subsequent writes all operate on the
+      // authored value (`red`), never `red !important`.
+      const value = stripManagedImportant(declaration.slice(colon + 1));
       if (!isSafeInteractionStateCssProperty(property)) continue;
       if (!isSafeInteractionStateCssValue(value)) continue;
       model[nodeId] ??= {};
@@ -265,7 +306,8 @@ export function serializeInteractionStatesModel(
       );
       if (properties.length === 0) continue;
       const lines = properties.map(
-        (property) => `  ${property}: ${declarations[property]};`,
+        (property) =>
+          `  ${property}: ${stripManagedImportant(declarations[property])} !important;`,
       );
       rules.push(
         `[data-agent-native-node-id="${escAttr(nodeId)}"]:${state} {\n` +
@@ -300,7 +342,8 @@ function rebuildCssWithPreviews(model: InteractionStatesModel): string {
       );
       if (properties.length === 0) continue;
       const lines = properties.map(
-        (property) => `  ${property}: ${declarations[property]};`,
+        (property) =>
+          `  ${property}: ${stripManagedImportant(declarations[property])} !important;`,
       );
       previewRules.push(
         `[data-agent-native-node-id="${escAttr(nodeId)}"][data-an-state-preview="${state}"] {\n` +
@@ -323,6 +366,59 @@ export function serializeInteractionStatesModelWithPreviews(
   model: InteractionStatesModel,
 ): string {
   return rebuildCssWithPreviews(model);
+}
+
+/** Parse responsive `@media (max-width)` state rules from their own block. */
+export function parseResponsiveInteractionStatesCss(
+  css: string,
+): ResponsiveInteractionStatesModel {
+  const model: ResponsiveInteractionStatesModel = {};
+  const mediaRe = /@media\s*\(\s*max-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = mediaRe.exec(css)) !== null) {
+    const maxWidthPx = Math.round(Number.parseFloat(match[1]));
+    if (!Number.isFinite(maxWidthPx) || maxWidthPx <= 0) continue;
+    const bodyStart = match.index + match[0].length;
+    const body = extractCssBlock(css, bodyStart);
+    if (body === null) continue;
+    mediaRe.lastIndex = bodyStart + body.length + 1;
+    // Responsive rules deliberately double the node attribute selector so
+    // they beat a base state rule even if later editing moves/reinserts the
+    // base managed block after this block. Collapse that deterministic
+    // specificity boost before feeding the normal state parser.
+    const parsed = parseInteractionStatesCss(
+      body.replace(
+        /(\[data-agent-native-node-id="(?:\\.|[^"\\])*"\])\1/g,
+        "$1",
+      ),
+    );
+    if (Object.keys(parsed).length > 0) model[String(maxWidthPx)] = parsed;
+  }
+  return model;
+}
+
+/**
+ * Serialize responsive state rules widest-first so every narrower matching
+ * bucket appears later and wins, mirroring the normal breakpoint cascade.
+ */
+export function serializeResponsiveInteractionStatesModel(
+  model: ResponsiveInteractionStatesModel,
+): string {
+  return Object.keys(model)
+    .map((key) => Number.parseInt(key, 10))
+    .filter((bound) => Number.isFinite(bound) && bound > 0)
+    .sort((a, b) => b - a)
+    .flatMap((bound) => {
+      const body = serializeResponsiveStateBucket(model[String(bound)] ?? {});
+      if (!body) return [];
+      return [
+        `@media (max-width: ${bound}px) {\n${body
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n")}\n}`,
+      ];
+    })
+    .join("\n\n");
 }
 
 /**
@@ -365,6 +461,12 @@ function readModel(html: string): InteractionStatesModel {
   );
 }
 
+function readResponsiveModel(html: string): ResponsiveInteractionStatesModel {
+  return parseResponsiveInteractionStatesCss(
+    extractManagedResponsiveInteractionStateCss(html) ?? "",
+  );
+}
+
 /**
  * List every state that has at least one declaration for `nodeId`, in fixed
  * `INTERACTION_STATES` order. Empty array when the node has no overrides.
@@ -374,11 +476,14 @@ export function listInteractionStates(
   nodeId: string,
 ): InteractionState[] {
   const model = readModel(html);
-  const node = model[nodeId];
-  if (!node) return [];
+  const responsive = readResponsiveModel(html);
   return INTERACTION_STATES.filter((state) => {
-    const declarations = node[state];
-    return declarations && Object.keys(declarations).length > 0;
+    const declarations = model[nodeId]?.[state];
+    if (declarations && Object.keys(declarations).length > 0) return true;
+    return Object.values(responsive).some((bucket) => {
+      const scoped = bucket[nodeId]?.[state];
+      return scoped && Object.keys(scoped).length > 0;
+    });
   });
 }
 
@@ -393,6 +498,35 @@ export function readStateStyles(
 ): Record<string, string> {
   const model = readModel(html);
   return { ...(model[nodeId]?.[state] ?? {}) };
+}
+
+/**
+ * Resolve a state's inspector values at a concrete viewport: base state
+ * declarations first, then every matching responsive bucket widest→narrowest.
+ */
+export function readResolvedStateStyles(
+  html: string,
+  nodeId: string,
+  state: InteractionState,
+  viewportWidthPx?: number | null,
+): Record<string, string> {
+  const resolved = readStateStyles(html, nodeId, state);
+  if (
+    viewportWidthPx == null ||
+    !Number.isFinite(viewportWidthPx) ||
+    viewportWidthPx <= 0
+  ) {
+    return resolved;
+  }
+  const responsive = readResponsiveModel(html);
+  const matchingBounds = Object.keys(responsive)
+    .map((key) => Number.parseInt(key, 10))
+    .filter((bound) => bound >= viewportWidthPx)
+    .sort((a, b) => b - a);
+  for (const bound of matchingBounds) {
+    Object.assign(resolved, responsive[String(bound)]?.[nodeId]?.[state] ?? {});
+  }
+  return resolved;
 }
 
 /**
@@ -427,24 +561,72 @@ export function upsertStateStyles(
   if (!isInteractionState(state)) {
     throw new Error(`Invalid interaction state: "${state}".`);
   }
-  const normalized: Record<string, string> = {};
-  for (const [rawProperty, rawValue] of Object.entries(styles)) {
-    const property = normalizeCssPropertyName(rawProperty.trim());
-    if (!isSafeInteractionStateCssProperty(property)) {
-      throw new Error(`Invalid interaction-state property: "${rawProperty}".`);
-    }
-    if (!isSafeInteractionStateCssValue(rawValue)) {
-      throw new Error(
-        `Invalid interaction-state value for "${property}": semicolons, braces, comments, angle brackets, control characters, and url(...) are not allowed.`,
-      );
-    }
-    normalized[property] = rawValue.trim();
-  }
+  const normalized = normalizeStateStyles(styles);
   const model = readModel(html);
   model[nodeId] ??= {};
   const node = model[nodeId];
   node[state] = { ...(node[state] ?? {}), ...normalized };
   return writeModel(html, model);
+}
+
+/**
+ * Persist one state override at a responsive max-width bound. This is the
+ * state-aware counterpart of `setBreakpointMediaDeclaration`; callers must
+ * use it whenever both an interaction state and a non-base breakpoint are
+ * active so a narrow-frame edit never leaks globally.
+ */
+export function upsertResponsiveStateStyles(
+  html: string,
+  nodeId: string,
+  state: InteractionState,
+  maxWidthPx: number,
+  styles: Record<string, string>,
+): string {
+  if (!nodeId)
+    throw new Error("upsertResponsiveStateStyles requires a nodeId.");
+  if (!isInteractionState(state)) {
+    throw new Error(`Invalid interaction state: "${state}".`);
+  }
+  if (!Number.isFinite(maxWidthPx) || maxWidthPx <= 0) {
+    throw new Error(`Invalid interaction-state breakpoint: ${maxWidthPx}px.`);
+  }
+  const normalized = normalizeStateStyles(styles);
+  const model = readResponsiveModel(html);
+  const bucket = String(Math.round(maxWidthPx));
+  model[bucket] ??= {};
+  model[bucket][nodeId] ??= {};
+  const node = model[bucket][nodeId];
+  node[state] = { ...(node[state] ?? {}), ...normalized };
+  return injectManagedResponsiveInteractionStateCss(
+    html,
+    serializeResponsiveInteractionStatesModel(model),
+  );
+}
+
+/** Remove one property from one responsive state scope, pruning empties. */
+export function removeResponsiveStateProperty(
+  html: string,
+  nodeId: string,
+  state: InteractionState,
+  maxWidthPx: number,
+  property: string,
+): string {
+  const model = readResponsiveModel(html);
+  const bucket = String(Math.round(maxWidthPx));
+  const declarations = model[bucket]?.[nodeId]?.[state];
+  if (!declarations) return html;
+  const normalizedProperty = normalizeCssPropertyName(property.trim());
+  if (!(normalizedProperty in declarations)) return html;
+  delete declarations[normalizedProperty];
+  if (Object.keys(declarations).length === 0)
+    delete model[bucket][nodeId][state];
+  if (Object.keys(model[bucket][nodeId]).length === 0)
+    delete model[bucket][nodeId];
+  if (Object.keys(model[bucket]).length === 0) delete model[bucket];
+  return injectManagedResponsiveInteractionStateCss(
+    html,
+    serializeResponsiveInteractionStatesModel(model),
+  );
 }
 
 /**
@@ -534,6 +716,119 @@ function escAttr(value: string): string {
 
 function unescAttr(value: string): string {
   return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+/**
+ * `!important` is deliberately a serialization concern, not model data.
+ * Strip a caller/hand-authored suffix on read and write so repeated
+ * parse/serialize cycles stay canonical and never produce
+ * `!important !important`.
+ */
+function stripManagedImportant(value: string): string {
+  return value.replace(/\s*!important\s*$/i, "").trim();
+}
+
+function normalizeStateStyles(
+  styles: Record<string, string>,
+): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [rawProperty, rawValue] of Object.entries(styles)) {
+    const property = normalizeCssPropertyName(rawProperty.trim());
+    if (!isSafeInteractionStateCssProperty(property)) {
+      throw new Error(`Invalid interaction-state property: "${rawProperty}".`);
+    }
+    const value = stripManagedImportant(rawValue);
+    if (!isSafeInteractionStateCssValue(value)) {
+      throw new Error(
+        `Invalid interaction-state value for "${property}": semicolons, braces, comments, angle brackets, control characters, and url(...) are not allowed.`,
+      );
+    }
+    normalized[property] = value;
+  }
+  return normalized;
+}
+
+function serializeResponsiveStateBucket(model: InteractionStatesModel): string {
+  const realRules: string[] = [];
+  const previewRules: string[] = [];
+  for (const nodeId of Object.keys(model).sort((a, b) => a.localeCompare(b))) {
+    const escaped = escAttr(nodeId);
+    const target = `[data-agent-native-node-id="${escaped}"]`;
+    const doubledTarget = `${target}${target}`;
+    for (const state of INTERACTION_STATES) {
+      const declarations = model[nodeId][state];
+      if (!declarations) continue;
+      const properties = Object.keys(declarations).sort((a, b) =>
+        a.localeCompare(b),
+      );
+      if (properties.length === 0) continue;
+      const lines = properties.map(
+        (property) =>
+          `  ${property}: ${stripManagedImportant(declarations[property])} !important;`,
+      );
+      realRules.push(`${doubledTarget}:${state} {\n${lines.join("\n")}\n}`);
+      previewRules.push(
+        `${doubledTarget}[data-an-state-preview="${state}"] {\n${lines.join("\n")}\n}`,
+      );
+    }
+  }
+  return [...realRules, ...previewRules].join("\n\n");
+}
+
+function extractManagedStyleBody(html: string, openRe: RegExp): string | null {
+  const openMatch = openRe.exec(html);
+  if (!openMatch) return null;
+  const bodyStart = openMatch.index + openMatch[0].length;
+  const afterOpen = html.slice(bodyStart);
+  const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
+  if (!closeMatch) return null;
+  return afterOpen.slice(0, closeMatch.index).trim();
+}
+
+function injectManagedStyleBody(
+  html: string,
+  css: string,
+  openRe: RegExp,
+  attribute: string,
+): string {
+  const openMatch = openRe.exec(html);
+  const trimmed = css.trim();
+  const block = trimmed ? `<style ${attribute}>\n${trimmed}\n</style>` : "";
+  if (openMatch) {
+    const bodyStart = openMatch.index + openMatch[0].length;
+    const afterOpen = html.slice(bodyStart);
+    const closeMatch = /<\s*\/\s*style\b[^>]*>/i.exec(afterOpen);
+    if (closeMatch) {
+      const closeEnd = bodyStart + closeMatch.index + closeMatch[0].length;
+      if (!block) {
+        return (
+          html.slice(0, openMatch.index) +
+          html.slice(closeEnd).replace(/^\n/, "")
+        );
+      }
+      return html.slice(0, openMatch.index) + block + html.slice(closeEnd);
+    }
+  }
+  if (!block) return html;
+  const headClose = /<\/head\s*>/gi;
+  let close: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = headClose.exec(html)) !== null) close = match;
+  const index = close?.index ?? -1;
+  return index >= 0
+    ? html.slice(0, index) + block + "\n" + html.slice(index)
+    : block + "\n" + html;
+}
+
+function extractCssBlock(css: string, start: number): string | null {
+  let depth = 1;
+  let index = start;
+  while (index < css.length && depth > 0) {
+    if (css[index] === "{") depth++;
+    else if (css[index] === "}") depth--;
+    index++;
+  }
+  return depth === 0 ? css.slice(start, index - 1) : null;
 }
 
 /**

@@ -25,6 +25,11 @@
 const FIGMA_FILE_KEY_RE = /^[A-Za-z0-9_-]{8,}$/;
 const FILE_PATH_SEGMENTS = ["design", "file", "proto"] as const;
 
+function isFigmaHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  return normalized === "figma.com" || normalized.endsWith(".figma.com");
+}
+
 export interface ParsedFigmaUrl {
   /** Effective file key to use for REST API calls (branch key when present). */
   fileKey: string | null;
@@ -52,6 +57,7 @@ export function parseFigmaFileKey(input: string | undefined): string | null {
 
   try {
     const url = new URL(value);
+    if (!isFigmaHostname(url.hostname)) return null;
     const parts = url.pathname.split("/").filter(Boolean);
 
     const branchIndex = parts.indexOf("branch");
@@ -80,6 +86,7 @@ export function isFigmaBranchUrl(input: string | undefined): boolean {
   if (!value) return false;
   try {
     const url = new URL(value);
+    if (!isFigmaHostname(url.hostname)) return false;
     return url.pathname.split("/").filter(Boolean).includes("branch");
   } catch {
     return false;
@@ -132,6 +139,7 @@ export function parseFigmaNodeId(input: string | undefined): string | null {
 
   try {
     const url = new URL(value);
+    if (!isFigmaHostname(url.hostname)) return null;
     const nodeParam = url.searchParams.get("node-id");
     if (nodeParam) return normalizeNodeId(nodeParam);
   } catch {

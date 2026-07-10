@@ -87,7 +87,7 @@ const mocks = vi.hoisted(() => {
 
   const fileUpdateChain = { set: vi.fn(), where: vi.fn() };
   fileUpdateChain.set.mockReturnValue(fileUpdateChain);
-  fileUpdateChain.where.mockResolvedValue(undefined);
+  fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
 
   const designUpdateChain = { set: vi.fn(), where: vi.fn() };
   designUpdateChain.set.mockReturnValue(designUpdateChain);
@@ -148,7 +148,9 @@ const mocks = vi.hoisted(() => {
     getDesignData: () => designData,
     mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
+    and: vi.fn((...conditions) => ({ conditions })),
     eq: vi.fn((left, right) => ({ left, right })),
+    isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
   };
@@ -159,7 +161,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
   eq: mocks.eq,
+  isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -370,7 +374,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
     mocks.assertAccess.mockResolvedValue(undefined);
-    mocks.fileUpdateChain.where.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
@@ -490,7 +494,7 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
     mocks.assertAccess.mockResolvedValue(undefined);
-    mocks.fileUpdateChain.where.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
@@ -596,7 +600,7 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
     mocks.assertAccess.mockResolvedValue(undefined);
-    mocks.fileUpdateChain.where.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });

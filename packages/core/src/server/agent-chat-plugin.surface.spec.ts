@@ -208,6 +208,26 @@ describe("prompt content invariants", () => {
     );
   });
 
+  it("routes extension requests that need native placement to code customization", () => {
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "UI inside or beside a native component where no named slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "show local time beside every native Calendar attendee row",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      'do not end with "extensions cannot do that."',
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "needs placement where no slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "continue the code-change handoff",
+    );
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");

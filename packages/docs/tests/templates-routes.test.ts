@@ -225,6 +225,7 @@ describe("template routes", () => {
 
     expect(paths).toContain("/");
     expect(paths).toContain("/apps");
+    expect(paths).toContain("/brand");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
     expect(paths).toContain("/terms");

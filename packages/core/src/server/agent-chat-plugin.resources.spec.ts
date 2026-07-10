@@ -26,6 +26,12 @@ function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? decodeURIComponent(owner.slice("__organization__:".length))
+      : null,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
   ensurePersonalDefaults: (...args: any[]) =>
     mocks.ensurePersonalDefaults(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
@@ -271,6 +277,7 @@ describe("loadResourcesForPrompt", () => {
     expect(mocks.resourceListAccessible).toHaveBeenCalledWith(
       "user@example.test",
       "skills/",
+      { orgId: null },
     );
     expect(mocks.resourceList).toHaveBeenCalledWith("__workspace__");
 
@@ -366,6 +373,7 @@ describe("loadResourcesForPrompt", () => {
     const prompt = await loadResourcesForPrompt("user@example.test", true);
 
     expect(prompt).toContain("<skills-summary>");
+    expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
       'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to.',
     );

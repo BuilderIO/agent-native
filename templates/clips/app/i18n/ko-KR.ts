@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "클립",
     library: "라이브러리",
+    sharedWithMe: "나와 공유됨",
     spaces: "스페이스",
     meetings: "회의",
     dictate: "받아쓰기",
@@ -81,6 +82,10 @@ const messages = {
       title: "라이브러리가 비어 있습니다",
       body: "첫 화면 녹화를 만들면 공유할 준비가 된 상태로 여기에 표시됩니다.",
       cta: "첫 Clip 녹화하기",
+    },
+    shared: {
+      title: "아직 공유된 클립이 없습니다",
+      body: "팀원이 나와 공유한 클립이 여기에 표시됩니다.",
     },
     folder: {
       title: "이 폴더는 비어 있습니다",
@@ -296,6 +301,7 @@ const messages = {
     insights: "인사이트",
     downloadForMac: "Mac용 다운로드",
     downloadForWindows: "Windows용 다운로드",
+    downloadForLinux: "Linux용 다운로드",
     downloadDesktopApp: "데스크톱 앱 다운로드",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "는 무료",
@@ -546,7 +552,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Clips Desktop 다운로드",
     description:
-      "메뉴 표시줄에서 화면을 녹화하세요. macOS 및 Windows용 데스크톱 앱 자동 업데이트.",
+      "시스템 트레이에서 화면을 녹화하세요. macOS, Windows 및 Linux용 자동 업데이트 데스크톱 앱입니다.",
     macSublabel: "범용(Apple Silicon + Intel)",
     windowsSublabel: "64비트 MSI 설치 프로그램",
     downloadFor: "{{platform}}용 다운로드",

@@ -481,6 +481,34 @@ export const dataSources: DataSource[] = [
       },
     ],
   },
+  {
+    id: "clay",
+    name: "Clay",
+    description:
+      "GTM search, enrichment routines, and read-only table queries through Clay's Public API",
+    category: "crm",
+    icon: IconUserSearch,
+    envKeys: ["CLAY_PUBLIC_API_KEY"],
+    docsUrl: "https://developers.clay.com/",
+    walkthroughSteps: [
+      {
+        title: "Create a Clay Public API key",
+        description:
+          "In Clay, go to Settings > Account > API keys (beta) and create a key for the user and workspace this connection should access.",
+        url: "https://developers.clay.com/public-api/authentication",
+        linkText: "Clay API authentication",
+      },
+      {
+        title: "Enter your Public API key",
+        description:
+          "This hosted API credential is separate from the optional local clay CLI/MCP browser-login session.",
+        inputKey: "CLAY_PUBLIC_API_KEY",
+        inputLabel: "Public API key",
+        inputPlaceholder: "your-clay-public-api-key",
+        inputType: "password",
+      },
+    ],
+  },
 
   // --- Engineering ---
   {

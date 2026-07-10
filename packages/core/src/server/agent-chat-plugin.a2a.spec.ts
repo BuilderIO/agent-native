@@ -1,10 +1,78 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
+
+describe("delegated A2A final response guards", () => {
+  it("runs an Analytics-style real-data guard for delegated turns", async () => {
+    const analyticsGuard = vi.fn(
+      (context: { text: string; toolResults: unknown[] }) =>
+        context.toolResults.length === 0 && context.text.includes("42")
+          ? {
+              retryMessage: "Query a real analytics source before answering.",
+              fallbackMessage: "No grounded analytics result is available.",
+            }
+          : null,
+    );
+    const delegatedRunner = vi.fn(async (options: any) => {
+      const guardResult = await options.finalResponseGuard?.({
+        messages: options.messages,
+        assistantContent: [{ type: "text", text: "The answer is 42." }],
+        text: "The answer is 42.",
+        toolCalls: [],
+        toolResults: [],
+        retryCount: 0,
+        executionMode: "act",
+      });
+      expect(guardResult).toEqual({
+        retryMessage: "Query a real analytics source before answering.",
+        fallbackMessage: "No grounded analytics result is available.",
+      });
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "What were sales this week?" }],
+          },
+        ],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {
+        finalResponseGuard: analyticsGuard as any,
+        runSoftTimeoutMs: 12_345,
+      },
+      { backgroundFunction: true },
+      delegatedRunner as any,
+    );
+
+    expect(analyticsGuard).toHaveBeenCalledOnce();
+    expect(delegatedRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ finalResponseGuard: analyticsGuard }),
+      12_345,
+      { backgroundFunction: true },
+    );
+  });
+});
 
 describe("agent-chat A2A public skills", () => {
   it("advertises Brain retrieval actions from the static registry in dev mode", () => {

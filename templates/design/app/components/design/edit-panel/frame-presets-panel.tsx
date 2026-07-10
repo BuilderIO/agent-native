@@ -80,6 +80,7 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
   watch: "editPanel.framePresets.categories.watch",
   paper: "editPanel.framePresets.categories.paper",
   socialMedia: "editPanel.framePresets.categories.socialMedia",
+  adUnit: "editPanel.framePresets.categories.adUnit",
 };
 
 /**

@@ -29,7 +29,7 @@ jobs:
   build-tauri:
     strategy:
       fail-fast: false
-      # Serialize so the two jobs can't race to create the draft release at
+      # Serialize so platform jobs can't race to create the draft release at
       # the same time — when both call tauri-action concurrently, one job's
       # bundles + latest.json get orphaned (clips-v0.1.74 lost its macOS
       # assets this way, leaving the manifest Windows-only and breaking the
@@ -38,11 +38,14 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            target: universal-apple-darwin
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            args: "--target universal-apple-darwin"
           - os: windows-latest
-            target: ""
             rust-targets: ""
+            args: ""
+          - os: ubuntu-22.04
+            rust-targets: ""
+            args: "--bundles appimage,deb,rpm"
     runs-on: ${{ matrix.os }}
     outputs:
       app-version: ${{ steps.resolve-version.outputs.version }}
@@ -55,6 +58,22 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
+            gstreamer1.0-pipewire
 
       - name: Guard — refuse to release with placeholder updater pubkey
         shell: bash
@@ -156,7 +175,7 @@ jobs:
             signed bundles it downloads.
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+          args: ${{ matrix.args }}
 
       - name: Verify macOS permission metadata
         if: runner.os == 'macOS'

@@ -921,6 +921,28 @@ function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   };
 }
 
+function appGoogleOAuthEnv(app: TemplateApp): NodeJS.ProcessEnv {
+  const appEnvName = app.id.toUpperCase().replace(/-/g, "_");
+  const clientIdKey = `${appEnvName}_GOOGLE_CLIENT_ID`;
+  const clientSecretKey = `${appEnvName}_GOOGLE_CLIENT_SECRET`;
+  const clientId = process.env[clientIdKey];
+  const clientSecret = process.env[clientSecretKey];
+
+  if (!clientId && !clientSecret) return {};
+  if (!clientId || !clientSecret) {
+    const missingKey = clientId ? clientSecretKey : clientIdKey;
+    console.warn(
+      `[dev-lazy] ${app.id}: ignoring incomplete app-scoped Google OAuth credentials; ${missingKey} is missing.`,
+    );
+    return {};
+  }
+
+  return {
+    GOOGLE_CLIENT_ID: clientId,
+    GOOGLE_CLIENT_SECRET: clientSecret,
+  };
+}
+
 function startApp(app: TemplateApp): void {
   if (app.process && !app.process.killed) return;
   if (app.restartTimer) return;
@@ -951,6 +973,7 @@ function startApp(app: TemplateApp): void {
       env: devWatcherEnv({
         ...process.env,
         ...appDatabaseEnv(app),
+        ...appGoogleOAuthEnv(app),
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's
         // stdout is a TTY, so ANSI codes pass straight through to the user.

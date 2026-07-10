@@ -186,6 +186,9 @@ const messages = {
       successMessage: "성공 메시지",
       defaultSuccessMessage: "감사합니다! 응답이 기록되었습니다.",
       redirectUrl: "리디렉션 URL(선택 사항)",
+      anonymousResponses: "익명 응답",
+      anonymousResponsesDescription:
+        "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",
       saveSettings: "설정 저장",
     },
     integrations: {

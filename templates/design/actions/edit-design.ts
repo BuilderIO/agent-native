@@ -19,6 +19,7 @@ import {
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 
 const editBlocksSchema = z.preprocess(
   (v) => {
@@ -296,6 +297,8 @@ export default defineAction({
     const changed = nextContent !== base;
 
     if (changed) {
+      assertLockedLayersPreserved(base, nextContent);
+
       // Mark agent presence + selection so live viewers can see where the
       // agent is working before the update arrives via collab.
       //

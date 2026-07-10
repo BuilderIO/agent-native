@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
 
 function stringProp(value: unknown, key: string): string | undefined {
@@ -136,7 +137,7 @@ function resolveActiveCodeFile(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -161,6 +162,40 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (designSelection) screen.designSelection = designSelection;
+    const templateId = stringProp(navigation, "templateId");
+    if (templateId) {
+      const preset = getDesignTemplatePreset(templateId);
+      if (preset) {
+        screen.template = {
+          id: preset.id,
+          title: preset.title,
+          category: preset.category,
+          width: preset.width,
+          height: preset.height,
+          lockedLayerCount: 2,
+          source: "starter",
+        };
+      } else {
+        const templateAccess = await resolveAccess(
+          "design-template",
+          templateId,
+        ).catch(() => null);
+        if (templateAccess) {
+          const template = templateAccess.resource;
+          screen.template = {
+            id: templateId,
+            title: template.title ?? null,
+            description: template.description ?? null,
+            category: template.category ?? "other",
+            width: template.width ?? null,
+            height: template.height ?? null,
+            lockedLayerCount: template.lockedLayerCount ?? 0,
+            visibility: template.visibility ?? "private",
+            source: "saved",
+          };
+        }
+      }
+    }
     if (designId) {
       const access = await resolveAccess("design", designId).catch(() => null);
       if (access) {

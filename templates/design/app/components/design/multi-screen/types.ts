@@ -34,6 +34,8 @@ export interface ScreenFile {
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Stable persisted connection scope for URL-backed local/Fusion screens. */
+  connectionId?: string;
   /** Read-only localhost preview credential. Never a filesystem token. */
   previewToken?: string;
   /**
@@ -44,6 +46,9 @@ export interface ScreenFile {
   breakpointWidths?: number[];
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
+  /** Generated variation-set membership. Used only to preserve/reflow the
+   * action-authored lineup when responsive preview rows are introduced. */
+  layoutGroupId?: string;
 }
 
 export type ScreenSourceType = "localhost" | "fusion" | "inline";
@@ -180,6 +185,22 @@ export interface MultiScreenCanvasProps {
     metadata: ResolvedScreenMetadata,
     geometry: FrameGeometry,
   ) => ReactNode;
+  /**
+   * Renders the fully editable runtime for one responsive sub-frame. Keeping
+   * this separate from `renderScreenContent` prevents a breakpoint preview
+   * from falling back to the lightweight, pointer-inert thumbnail iframe.
+   */
+  renderBreakpointContent?: (
+    screen: ScreenFile,
+    metadata: ResolvedScreenMetadata,
+    frame: {
+      widthPx: number;
+      viewportHeight: number;
+      displayWidth: number;
+      displayHeight: number;
+      active: boolean;
+    },
+  ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
@@ -217,7 +238,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   /**
    * STEVE TEST BATCH 3 item 8b — "full view" entry for one breakpoint frame
-   * in overview (double-click or its own full-view button): enter
+   * in overview (double-click or its own Interact button): enter
    * single-screen mode for the owning screen with this breakpoint width as
    * the active edit/viewport scope. Falls back to plain `onEdit` when unset
    * so existing callers keep working unchanged.

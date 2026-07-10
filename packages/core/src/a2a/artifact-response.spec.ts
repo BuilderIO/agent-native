@@ -38,6 +38,120 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).not.toContain("Artifacts:");
   });
 
+  it("appends a verified Content row URL from a form submission", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdItemId: "item_123",
+            createdDocumentId: "request_123",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+  });
+
+  it("appends the focused Analytics URL returned by save-monitor", () => {
+    const text = appendA2AArtifactLinks(
+      "The uptime monitor was created.",
+      [
+        {
+          tool: "save-monitor",
+          result: JSON.stringify({
+            id: "monitor_123",
+            name: "clips.agent-native.com",
+            monitorAppUrl:
+              "https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Monitor "clips.agent-native.com": https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123 (ID: monitor_123)',
+    );
+  });
+
+  it("appends the direct public URL returned for an anonymous published form", () => {
+    const text = appendA2AArtifactLinks(
+      "The feedback form is live.",
+      [
+        {
+          tool: "create-form",
+          result: JSON.stringify({
+            id: "form_123",
+            title: "Product feedback",
+            status: "published",
+            settings: { anonymous: true },
+            publicUrl:
+              "https://forms.agent-native.com/f/product-feedback-a1b2c3",
+          }),
+        },
+      ],
+      { baseUrl: "https://forms.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Anonymous form "Product feedback": https://forms.agent-native.com/f/product-feedback-a1b2c3 (ID: form_123)',
+    );
+  });
+
+  it("recognizes add-database-item as a recoverable Content row artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "add-database-item",
+          result: JSON.stringify({
+            createdItemId: "item_456",
+            createdDocumentId: "request_456",
+            items: [
+              {
+                id: "item_456",
+                document: { id: "request_456", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Document "Homepage refresh": https://content.agent.test/page/request_456 (ID: request_456)',
+    );
+  });
+
+  it("ignores a mismatched Content submission URL and uses the canonical page route", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed it.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_real",
+            url: "https://content.agent.test/page/request_other",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent.test/page/request_real (ID: request_real)",
+    );
+    expect(text).not.toContain("request_other");
+  });
+
   it("appends a deck URL from a successful create-deck result", () => {
     const text = appendA2AArtifactLinks(
       "Created the deck.",

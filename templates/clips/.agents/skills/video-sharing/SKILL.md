@@ -77,6 +77,14 @@ import { ShareDialog } from "@agent-native/core/client";
 
 The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. Keep Clips' share-dialog wrapper minimal — any new generic sharing feature belongs in the framework component, not here.
 
+## Shared with me
+
+Use `list-recordings --view=shared` to list recordings the current user can
+access but does not own. The filter composes with `accessFilter`, so it includes
+direct user/org grants and organization-visible recordings while excluding
+public-link-only clips. The UI exposes the same collection at `/shared`; use
+`navigate --view=shared` to open it.
+
 ## Access resolution
 
 The player and `/api/video/:id` route check access in this exact order:

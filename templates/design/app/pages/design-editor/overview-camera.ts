@@ -286,6 +286,40 @@ export function shouldResetExplicitOverviewZoomOnBasisChange(args: {
 }
 
 /**
+ * Zoom-compounding fix: a persisted/URL/agent-command `zoom` for the overview
+ * view is always a DISPLAYED percentage, and restoring it requires converting
+ * back to the internal canvas zoom by dividing by `overviewZoomScale` (see
+ * `getOverviewCanvasZoom`). That scale is only meaningful once a real screen
+ * has loaded and can serve as the zoom basis — before then it sits on its
+ * double fallback (`OVERVIEW_FRAME_WIDTH` / 1280 = 0.25), which is very
+ * unlikely to match the real screen's frame/source width ratio.
+ *
+ * The one-shot "apply the initial command" mount effect used to commit the
+ * conversion immediately, against whatever scale happened to be live at that
+ * first tick (the fallback, since files/screens hadn't loaded yet). The
+ * resulting canvas zoom then got displayed through the REAL scale once it
+ * resolved, producing a plausible-but-wrong percentage that was re-persisted
+ * as the new "current" zoom — so the next load repeated the same
+ * wrong-fallback conversion against an already-inflated value, compounding
+ * every reload with zero user interaction.
+ *
+ * This defers applying a zoom-bearing overview command until real screens
+ * have loaded (`filesLoaded`) and a real scale is resolvable, matching the
+ * same "not yet applicable — retry once data loads" contract the target-file
+ * lookup above already uses. Single-screen zoom commands are unaffected:
+ * `screenZoom` is used directly with no scale conversion.
+ */
+export function shouldDeferOverviewZoomCommand(args: {
+  hasZoomCommand: boolean;
+  targetView: "single" | "overview" | undefined;
+  filesLoaded: boolean;
+}): boolean {
+  return (
+    args.hasZoomCommand && args.targetView === "overview" && !args.filesLoaded
+  );
+}
+
+/**
  * Final sanity clamp on the DISPLAYED overview zoom (the number the zoom
  * field shows and zoom-relative flows consume). Non-finite/non-positive
  * products (a corrupted basis flip) fall back to the default overview zoom;

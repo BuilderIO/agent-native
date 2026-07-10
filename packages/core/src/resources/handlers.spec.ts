@@ -19,6 +19,12 @@ const mockUploadFile = vi.fn();
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? decodeURIComponent(owner.slice("__organization__:".length))
+      : null,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
   canWriteLocalWorkspaceResourcePath: (...args: any[]) =>
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>
@@ -481,7 +487,7 @@ describe("resource handlers", () => {
       await handleCreateResource(event);
 
       expect(mockResourcePut).toHaveBeenCalledWith(
-        "__shared__",
+        "__organization__:org-1",
         "shared.md",
         "",
         undefined,

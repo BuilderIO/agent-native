@@ -64,7 +64,7 @@ describe("screen auto layout", () => {
     });
     expect(result.status).toBe("applied");
     expect(result.content).toContain("display: flex");
-    expect(result.content).toContain("flex-direction: row");
+    expect(result.content).toContain("flex-direction: column");
   });
 
   it("finds the shallowest sourced React roots below an unsourced mount node", () => {

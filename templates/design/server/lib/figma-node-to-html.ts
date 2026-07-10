@@ -44,8 +44,11 @@
  * | Vector networks / boolean ops / unsupported types | image fallback | never approximated structurally |
  *
  * ### Rotation caveat
- * The REST API's `rotation` field is in degrees (-180..180), and
- * `absoluteBoundingBox` is the *already-rotated* axis-aligned bounding box —
+ * The REST API docs describe `rotation` as being in degrees, but the field
+ * is empirically returned in RADIANS (verified against known authored
+ * rotations via the Plugin API); this mapper converts it to degrees before
+ * use. `absoluteBoundingBox` is the *already-rotated* axis-aligned bounding
+ * box —
  * Figma does not expose the pre-rotation box directly. We reconstruct the
  * unrotated box by treating the AABB's center as invariant under rotation
  * (true for a shape rotated about its own center) and rotate the CSS element
@@ -100,6 +103,7 @@ export interface FigmaPaint {
   scaleMode?: "FILL" | "FIT" | "TILE" | "STRETCH";
   imageTransform?: [[number, number, number], [number, number, number]];
   filters?: FigmaImageFilter;
+  blendMode?: string;
 }
 
 export interface FigmaEffect {
@@ -128,6 +132,13 @@ export interface FigmaTypeStyle {
   textAlignHorizontal?: "LEFT" | "RIGHT" | "CENTER" | "JUSTIFIED";
   textAlignVertical?: "TOP" | "CENTER" | "BOTTOM";
   textAutoResize?: "NONE" | "WIDTH_AND_HEIGHT" | "HEIGHT" | "TRUNCATE";
+  paragraphSpacing?: number;
+  paragraphIndent?: number;
+  listSpacing?: number;
+  hangingPunctuation?: boolean;
+  hangingList?: boolean;
+  opentypeFlags?: Record<string, number>;
+  hyperlink?: unknown;
   fills?: FigmaPaint[];
 }
 
@@ -154,19 +165,42 @@ export interface FigmaNode {
   blendMode?: string;
   rotation?: number;
   absoluteBoundingBox?: FigmaBoundingBox;
+  /**
+   * The node's actual visual extent, INCLUDING stroke/effect overflow --
+   * e.g. an OUTSIDE-aligned stroke or a drop shadow makes this larger than
+   * `absoluteBoundingBox` (the purely geometric fill bounds). Figma's own
+   * `/v1/images` renders for a node are cropped to this box, not to
+   * `absoluteBoundingBox` -- sizing an image-fallback `<img>` using the
+   * geometric box instead squishes/crops the rendered PNG to the wrong
+   * aspect ratio whenever a fallback node has stroke/effect overflow.
+   */
+  absoluteRenderBounds?: FigmaBoundingBox;
   size?: { x: number; y: number };
   clipsContent?: boolean;
+  isMask?: boolean;
+  maskType?: "ALPHA" | "VECTOR" | "LUMINANCE";
+  arcData?: {
+    startingAngle?: number;
+    endingAngle?: number;
+    innerRadius?: number;
+  };
   characters?: string;
   style?: FigmaTypeStyle;
+  characterStyleOverrides?: number[];
+  styleOverrideTable?: Record<string, FigmaTypeStyle>;
+  lineTypes?: string[];
+  lineIndentations?: number[];
   fills?: FigmaPaint[];
   strokes?: FigmaPaint[];
   strokeWeight?: number;
   strokeAlign?: "INSIDE" | "OUTSIDE" | "CENTER";
   individualStrokeWeights?: FigmaIndividualStrokeWeights;
+  strokeDashes?: number[];
   cornerRadius?: number;
   rectangleCornerRadii?: [number, number, number, number];
   effects?: FigmaEffect[];
   layoutMode?: "NONE" | "HORIZONTAL" | "VERTICAL" | "GRID";
+  layoutPositioning?: "AUTO" | "ABSOLUTE";
   primaryAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
   counterAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "BASELINE";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
@@ -178,6 +212,14 @@ export interface FigmaNode {
   paddingRight?: number;
   paddingTop?: number;
   paddingBottom?: number;
+  minWidth?: number | null;
+  maxWidth?: number | null;
+  minHeight?: number | null;
+  maxHeight?: number | null;
+  componentId?: string;
+  componentProperties?: Record<string, unknown>;
+  boundVariables?: Record<string, unknown>;
+  interactions?: unknown[];
   children?: FigmaNode[];
 }
 
@@ -236,6 +278,10 @@ const SUPPORTED_CONTAINER_TYPES = new Set([
   "SECTION",
 ]);
 
+const MAX_FIGMA_NODE_COUNT = 75_000;
+const MAX_FIGMA_NODE_DEPTH = 256;
+const MAX_METADATA_ATTRIBUTE_CHARS = 16_384;
+
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
@@ -272,6 +318,35 @@ function escapeHtml(value: string): string {
 
 function escapeAttr(value: string): string {
   return escapeHtml(value);
+}
+
+function metadataAttr(
+  name: string,
+  value: unknown,
+  node: FigmaNode,
+  tracker: FidelityTracker,
+): string {
+  if (value === undefined || value === null) return "";
+  let serialized: string;
+  try {
+    serialized = typeof value === "string" ? value : JSON.stringify(value);
+  } catch {
+    tracker.record(
+      node,
+      "approximated",
+      `${name} metadata could not be serialized and was omitted.`,
+    );
+    return "";
+  }
+  if (serialized.length > MAX_METADATA_ATTRIBUTE_CHARS) {
+    tracker.record(
+      node,
+      "approximated",
+      `${name} metadata exceeded ${MAX_METADATA_ATTRIBUTE_CHARS} characters and was omitted.`,
+    );
+    return "";
+  }
+  return ` ${name}="${escapeAttr(serialized)}"`;
 }
 
 /**
@@ -386,14 +461,65 @@ export function gradientAngleDegrees(
   return ((angleDeg % 360) + 360) % 360;
 }
 
-function gradientStopsCss(paint: FigmaPaint): string {
+function gradientStopsCss(
+  paint: FigmaPaint,
+  remapPosition?: (position: number) => number,
+): string {
   const stops = paint.gradientStops ?? [];
   return stops
     .map((stop) => {
       const color = colorToCss(stop.color, paint.opacity ?? 1) ?? "transparent";
-      return `${color} ${round(stop.position * 100, 2)}%`;
+      const position = remapPosition
+        ? remapPosition(stop.position)
+        : stop.position;
+      return `${color} ${round(position * 100, 2)}%`;
     })
     .join(", ");
+}
+
+/**
+ * CSS `linear-gradient(angle, ...)` always stretches its 0%/100% stops
+ * across the box's FULL diagonal extent at that angle (the CSS spec's
+ * "gradient line" always spans corner-to-corner) -- it has no way to say
+ * "start partway in, end partway in" the way Figma's actual gradient handles
+ * can (a designer can drag the start/end handles anywhere, including short
+ * of the shape's edges, or past them). Figma's own stop positions are
+ * fractions of the literal start-handle-to-end-handle distance, which only
+ * happens to coincide with the CSS full-box span when the handles are
+ * dragged exactly corner-to-corner -- a common case, but far from the only
+ * one, and the divergence gets worse the more the box's aspect ratio departs
+ * from square (rotated/skewed handles included, e.g. gradientTransform-authored
+ * paints). This projects each Figma stop's real pixel position onto the same
+ * angle CSS will use and re-expresses it as a percentage of the CSS line's
+ * length, so a partial/offset gradient renders at the same actual pixel
+ * positions Figma draws it at instead of silently stretching to fill the box.
+ */
+function remapLinearStopPosition(
+  geometry: GradientGeometry,
+  box: { width: number; height: number },
+  angleDeg: number,
+): (position: number) => number {
+  const angleRad = (angleDeg * Math.PI) / 180;
+  const ux = Math.sin(angleRad);
+  const uy = -Math.cos(angleRad);
+  const lineLength = box.width * Math.abs(ux) + box.height * Math.abs(uy);
+  if (lineLength < 1e-6) return (position) => position;
+  const startPx = {
+    x: geometry.start.x * box.width,
+    y: geometry.start.y * box.height,
+  };
+  const endPx = {
+    x: geometry.end.x * box.width,
+    y: geometry.end.y * box.height,
+  };
+  const centerX = box.width / 2;
+  const centerY = box.height / 2;
+  return (position: number) => {
+    const pointX = startPx.x + position * (endPx.x - startPx.x);
+    const pointY = startPx.y + position * (endPx.y - startPx.y);
+    const projected = (pointX - centerX) * ux + (pointY - centerY) * uy;
+    return (projected + lineLength / 2) / lineLength;
+  };
 }
 
 function vectorLength(
@@ -424,20 +550,40 @@ function paintToCssImage(
   switch (paint.type) {
     case "GRADIENT_LINEAR": {
       const angle = gradientAngleDegrees(paint, box);
+      const geometry = resolveGradientGeometry(paint);
+      // Re-express Figma's handle-relative stop positions as percentages of
+      // CSS's own full-box gradient line (see remapLinearStopPosition) so a
+      // gradient whose handles don't span exactly corner-to-corner still
+      // lands its color transitions at the same real pixel positions Figma
+      // draws them at, instead of being stretched to fill the whole box.
+      const linearStops =
+        angle !== null && geometry
+          ? gradientStopsCss(
+              paint,
+              remapLinearStopPosition(geometry, box, angle),
+            )
+          : stops;
       tracker.record(
         node,
         "exact",
-        "Linear gradient angle derived from gradientHandlePositions.",
+        "Linear gradient angle and stop offsets derived from gradientHandlePositions.",
       );
-      return `linear-gradient(${round(angle ?? 90, 2)}deg, ${stops})`;
+      return `linear-gradient(${round(angle ?? 90, 2)}deg, ${linearStops})`;
     }
     case "GRADIENT_RADIAL": {
       const geometry = resolveGradientGeometry(paint);
       if (!geometry) return `radial-gradient(${stops})`;
       const cx = round(geometry.start.x * 100, 2);
       const cy = round(geometry.start.y * 100, 2);
-      const radiusX = vectorLength(geometry.start, geometry.width, box);
-      const radiusY = vectorLength(geometry.start, geometry.end, box);
+      // Figma's handle[1] ("end") is the radius vector along the gradient's
+      // own primary axis; handle[2] ("width") is the perpendicular radius.
+      // For an axis-aligned box those map directly to the ellipse's
+      // horizontal/vertical radii -- swapping them (as a prior version of
+      // this code did) silently rotates the ellipse 90 degrees, which is
+      // invisible for a square box but produces a badly wrong bowtie-shaped
+      // gradient for any non-square rectangle (the common case).
+      const radiusX = vectorLength(geometry.start, geometry.end, box);
+      const radiusY = vectorLength(geometry.start, geometry.width, box);
       tracker.record(
         node,
         "approximated",
@@ -461,11 +607,14 @@ function paintToCssImage(
       const geometry = resolveGradientGeometry(paint);
       const cx = geometry ? round(geometry.start.x * 100, 2) : 50;
       const cy = geometry ? round(geometry.start.y * 100, 2) : 50;
+      // Same handle-to-axis mapping fix as GRADIENT_RADIAL above: handle[1]
+      // ("end") is the primary-axis radius, handle[2] ("width") the
+      // perpendicular one.
       const radiusX = geometry
-        ? vectorLength(geometry.start, geometry.width, box)
+        ? vectorLength(geometry.start, geometry.end, box)
         : box.width / 2;
       const radiusY = geometry
-        ? vectorLength(geometry.start, geometry.end, box)
+        ? vectorLength(geometry.start, geometry.width, box)
         : box.height / 2;
       tracker.record(
         node,
@@ -1061,16 +1210,134 @@ function needsImageFallback(
 ): boolean {
   if (options.forceImageFallbackNodeIds?.has(node.id)) return true;
   if (UNSUPPORTED_STRUCTURAL_TYPES.has(node.type)) return true;
+  // A Figma mask affects its following siblings, not just the mask node. CSS
+  // cannot reproduce that sibling-range operation on an arbitrary DOM tree,
+  // so render the smallest containing subtree rather than importing a visibly
+  // wrong unmasked composition. A mask imported as the root is also rendered.
+  if (node.isMask || node.children?.some((child) => child.isMask)) return true;
+  // A CSS div with an outline is not a Figma line. Partial/ring ellipses also
+  // need real path geometry, which this structural mapper intentionally does
+  // not request because geometry=paths makes ordinary REST payloads enormous.
+  if (node.type === "LINE") return true;
+  if (node.type === "ELLIPSE" && node.arcData) {
+    const start = node.arcData.startingAngle ?? 0;
+    const end = node.arcData.endingAngle ?? Math.PI * 2;
+    const span = Math.abs(end - start);
+    const isFullCircle =
+      Math.abs(span - Math.PI * 2) < 1e-4 &&
+      Math.abs(node.arcData.innerRadius ?? 0) < 1e-4;
+    if (!isFullCircle) return true;
+  }
+  const visibleStrokes = (node.strokes ?? []).filter(
+    (stroke) => stroke.visible !== false,
+  );
+  if (
+    visibleStrokes.length > 1 ||
+    visibleStrokes.some((stroke) => stroke.type !== "SOLID") ||
+    (node.strokeDashes?.length ?? 0) > 0
+  ) {
+    return true;
+  }
+  const visibleFills = (node.fills ?? []).filter(
+    (fill) => fill.visible !== false,
+  );
+  if (
+    visibleFills.some(
+      (fill) =>
+        fill.type === "VIDEO" ||
+        fill.type === "EMOJI" ||
+        (fill.blendMode &&
+          fill.blendMode !== "NORMAL" &&
+          fill.blendMode !== "PASS_THROUGH") ||
+        (fill.type === "IMAGE" &&
+          ((fill.imageTransform &&
+            (Math.abs(fill.imageTransform[0][1]) >= 1e-6 ||
+              Math.abs(fill.imageTransform[1][0]) >= 1e-6)) ||
+            Object.values(fill.filters ?? {}).some(
+              (value) => typeof value === "number" && Math.abs(value) > 1e-6,
+            ))),
+    ) ||
+    (node.type === "TEXT" && visibleFills.some((fill) => fill.type !== "SOLID"))
+  ) {
+    return true;
+  }
+  if (node.type === "TEXT") {
+    const styles = [
+      node.style,
+      ...Object.values(node.styleOverrideTable ?? {}),
+    ].filter((style): style is FigmaTypeStyle => Boolean(style));
+    const hasAdvancedTypography = styles.some(
+      (style) =>
+        Math.abs(style.paragraphSpacing ?? 0) > 1e-6 ||
+        Math.abs(style.paragraphIndent ?? 0) > 1e-6 ||
+        Math.abs(style.listSpacing ?? 0) > 1e-6 ||
+        style.hangingPunctuation === true ||
+        style.hangingList === true ||
+        style.hyperlink !== undefined ||
+        Object.values(style.opentypeFlags ?? {}).some((value) => value !== 0),
+    );
+    if (
+      hasAdvancedTypography ||
+      // Figma's REST API always returns one `lineTypes` entry per line —
+      // ordinary non-list text comes back as `["NONE", "NONE", ...]`, not an
+      // empty array. Checking `.length > 0` alone treats every multi-line
+      // text node in existence as an unsupported list and routes it to an
+      // image fallback; only a line whose type is actually "ORDERED" or
+      // "UNORDERED" means the text uses real list formatting.
+      (node.lineTypes?.some((type) => type !== "NONE") ?? false) ||
+      (node.lineIndentations?.some((value) => value !== 0) ?? false)
+    ) {
+      return true;
+    }
+  }
+  if (
+    (node.effects ?? []).some(
+      (effect) =>
+        effect.visible !== false &&
+        effect.blendMode &&
+        effect.blendMode !== "NORMAL" &&
+        effect.blendMode !== "PASS_THROUGH",
+    )
+  ) {
+    return true;
+  }
   if (
     !SUPPORTED_CONTAINER_TYPES.has(node.type) &&
     node.type !== "RECTANGLE" &&
     node.type !== "ELLIPSE" &&
-    node.type !== "LINE" &&
     node.type !== "TEXT"
   ) {
     return true;
   }
   return false;
+}
+
+/** Fail clearly before recursive rendering can overflow or lock the worker. */
+export function assertFigmaNodeTreeComplexity(node: FigmaNode): void {
+  const stack: Array<{ node: FigmaNode; depth: number }> = [{ node, depth: 1 }];
+  const ancestors = new WeakSet<object>();
+  let count = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    count += 1;
+    if (count > MAX_FIGMA_NODE_COUNT) {
+      throw new Error(
+        `Figma node tree is too large (max ${MAX_FIGMA_NODE_COUNT.toLocaleString("en-US")} nodes). Import a smaller frame or selection.`,
+      );
+    }
+    if (current.depth > MAX_FIGMA_NODE_DEPTH) {
+      throw new Error(
+        `Figma node tree is nested too deeply (max ${MAX_FIGMA_NODE_DEPTH} levels). Import a smaller frame or selection.`,
+      );
+    }
+    if (ancestors.has(current.node)) {
+      throw new Error("Figma node tree contains a cyclic child reference.");
+    }
+    ancestors.add(current.node);
+    for (const child of current.node.children ?? []) {
+      stack.push({ node: child, depth: current.depth + 1 });
+    }
+  }
 }
 
 /**
@@ -1084,9 +1351,10 @@ export function collectFallbackNodeIds(
   node: FigmaNode,
   options: MapFigmaNodeOptions = {},
 ): string[] {
+  assertFigmaNodeTreeComplexity(node);
   const ids: string[] = [];
   const visit = (current: FigmaNode) => {
-    if (current.visible === false) return;
+    if (current.visible === false || current.opacity === 0) return;
     if (needsImageFallback(current, options)) {
       ids.push(current.id);
       return; // Don't recurse into a subtree that's rendered as one image.
@@ -1102,7 +1370,11 @@ export function collectFallbackNodeIds(
  * (on fills or strokes) so the caller can resolve them to URLs via
  * `GET /v1/files/:fileKey/images` before mapping.
  */
-export function collectImageFillRefs(node: FigmaNode): string[] {
+export function collectImageFillRefs(
+  node: FigmaNode,
+  options: MapFigmaNodeOptions = {},
+): string[] {
+  assertFigmaNodeTreeComplexity(node);
   const refs = new Set<string>();
   const visitPaints = (paints: FigmaPaint[] | undefined) => {
     for (const paint of paints ?? []) {
@@ -1110,12 +1382,127 @@ export function collectImageFillRefs(node: FigmaNode): string[] {
     }
   };
   const visit = (current: FigmaNode) => {
+    if (current.visible === false || current.opacity === 0) return;
+    if (needsImageFallback(current, options)) return;
     visitPaints(current.fills);
     visitPaints(current.strokes);
     for (const child of current.children ?? []) visit(child);
   };
   visit(node);
   return [...refs];
+}
+
+export interface FigmaFontUsage {
+  family: string;
+  weight: number;
+  italic: boolean;
+}
+
+function recordFontUsage(
+  style: FigmaTypeStyle | undefined,
+  usage: Map<string, FigmaFontUsage>,
+): void {
+  if (!style?.fontFamily) return;
+  const weight = typeof style.fontWeight === "number" ? style.fontWeight : 400;
+  const italic = Boolean(style.italic);
+  const key = `${style.fontFamily}|${weight}|${italic ? 1 : 0}`;
+  if (!usage.has(key))
+    usage.set(key, { family: style.fontFamily, weight, italic });
+}
+
+/**
+ * Walk a node tree and return every distinct (font family, weight, italic)
+ * combination used by TEXT nodes -- including per-run character style
+ * overrides -- so the caller can request the actual web font (e.g. from
+ * Google Fonts) before the imported HTML is saved. Without this, an imported
+ * screen's CSS correctly names the intended font-family, but the browser has
+ * no way to load it and silently falls back to a generic sans-serif with
+ * different glyph advance widths -- individually invisible per character but
+ * compounding into a growing horizontal drift across any wrapped or
+ * multi-word line, worst on text-dense imports.
+ */
+export function collectFontUsage(node: FigmaNode): FigmaFontUsage[] {
+  assertFigmaNodeTreeComplexity(node);
+  const usage = new Map<string, FigmaFontUsage>();
+  const visit = (current: FigmaNode) => {
+    if (current.visible === false || current.opacity === 0) return;
+    if (current.type === "TEXT") {
+      recordFontUsage(current.style, usage);
+      for (const style of Object.values(current.styleOverrideTable ?? {})) {
+        recordFontUsage(style, usage);
+      }
+    }
+    for (const child of current.children ?? []) visit(child);
+  };
+  visit(node);
+  return [...usage.values()];
+}
+
+function textOverrideCss(
+  style: FigmaTypeStyle | undefined,
+): Record<string, string | undefined> {
+  const solidFill = [...(style?.fills ?? [])]
+    .reverse()
+    .find((fill) => fill.visible !== false && fill.type === "SOLID");
+  return {
+    "font-family": style?.fontFamily
+      ? `"${style.fontFamily.replace(/"/g, "")}", sans-serif`
+      : undefined,
+    "font-size": px(style?.fontSize),
+    "font-weight":
+      typeof style?.fontWeight === "number"
+        ? String(style.fontWeight)
+        : undefined,
+    "font-style": style?.italic ? "italic" : undefined,
+    "line-height": style ? resolveLineHeight(style) : undefined,
+    "letter-spacing":
+      typeof style?.letterSpacing === "number"
+        ? px(style.letterSpacing)
+        : undefined,
+    "text-transform": textTransformCss(style?.textCase),
+    "text-decoration": textDecorationCss(style?.textDecoration),
+    color: solidFill
+      ? (colorToCss(solidFill.color, solidFill.opacity ?? 1) ?? undefined)
+      : undefined,
+  };
+}
+
+/** Render contiguous Figma character-style override runs as inline spans. */
+function buildMixedTextHtml(
+  node: FigmaNode,
+  characters: string,
+  tracker: FidelityTracker,
+): string {
+  const overrideIds = node.characterStyleOverrides ?? [];
+  const table = node.styleOverrideTable ?? {};
+  if (
+    characters.length === 0 ||
+    !overrideIds.some((id) => id !== 0 && table[String(id)])
+  ) {
+    return escapeHtml(characters);
+  }
+
+  const runs: Array<{ id: number; text: string }> = [];
+  for (let index = 0; index < characters.length; index += 1) {
+    const id = overrideIds[index] ?? 0;
+    const previous = runs[runs.length - 1];
+    if (previous?.id === id) previous.text += characters[index] ?? "";
+    else runs.push({ id, text: characters[index] ?? "" });
+  }
+
+  tracker.record(
+    node,
+    "exact",
+    "Mixed character style overrides were preserved as inline text runs.",
+  );
+  return runs
+    .map((run) => {
+      if (run.id === 0) return escapeHtml(run.text);
+      const style = table[String(run.id)];
+      if (!style) return escapeHtml(run.text);
+      return `<span style="${styleAttr(textOverrideCss(style))}">${escapeHtml(run.text)}</span>`;
+    })
+    .join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,6 +1523,72 @@ function frameRelativeBox(
   };
 }
 
+/**
+ * Figma's `absoluteBoundingBox` for a rotated node is the axis-aligned
+ * bounding box of the ALREADY-ROTATED shape, not the shape's own (pre-
+ * rotation) width/height -- e.g. a 120x80 rectangle rotated 15 degrees comes
+ * back with an ~136.6x108.3 bounding box. Applying a CSS `rotate()` on TOP
+ * of a div already sized to that expanded AABB rotates an oversized box,
+ * producing a visibly wrong (too-large, wrong-aspect-ratio) rotated shape.
+ * This inverts the AABB formula (`W' = W*|cos| + H*|sin|`,
+ * `H' = W*|sin| + H*|cos|`) to recover the true pre-rotation width/height,
+ * then re-centers the (smaller) box at the same center point the AABB had --
+ * matching this module's existing "rotate about the AABB center" pivot
+ * assumption, so the CSS `rotate()` reproduces the original box exactly.
+ */
+function unrotateBox(
+  box: { left: number; top: number; width: number; height: number },
+  rotationDeg: number,
+): { left: number; top: number; width: number; height: number } {
+  const theta = (rotationDeg * Math.PI) / 180;
+  const c = Math.abs(Math.cos(theta));
+  const s = Math.abs(Math.sin(theta));
+  const det = c * c - s * s;
+  // Near +-45/+-135 degrees the AABB<->true-size system is near-singular
+  // (many different true sizes produce almost the same AABB); fall back to
+  // the AABB dimensions rather than dividing by ~zero and producing a huge
+  // or negative "true" size.
+  if (Math.abs(det) < 0.05) return box;
+  const trueWidth = (c * box.width - s * box.height) / det;
+  const trueHeight = (c * box.height - s * box.width) / det;
+  if (
+    !Number.isFinite(trueWidth) ||
+    !Number.isFinite(trueHeight) ||
+    trueWidth <= 0 ||
+    trueHeight <= 0
+  ) {
+    return box;
+  }
+  const centerX = box.left + box.width / 2;
+  const centerY = box.top + box.height / 2;
+  return {
+    left: centerX - trueWidth / 2,
+    top: centerY - trueHeight / 2,
+    width: trueWidth,
+    height: trueHeight,
+  };
+}
+
+/**
+ * Same as `frameRelativeBox` but sized/positioned from `absoluteRenderBounds`
+ * (falling back to `absoluteBoundingBox` when Figma didn't return render
+ * bounds). Used only for image-fallback `<img>` geometry -- see the
+ * `absoluteRenderBounds` field doc for why the geometric box is wrong there.
+ */
+function frameRelativeRenderBox(
+  node: FigmaNode,
+  parentBox: FigmaBoundingBox | null,
+): { left: number; top: number; width: number; height: number } {
+  const box = node.absoluteRenderBounds ?? node.absoluteBoundingBox;
+  if (!box) return { left: 0, top: 0, width: 0, height: 0 };
+  return {
+    left: box.x - (parentBox?.x ?? box.x),
+    top: box.y - (parentBox?.y ?? box.y),
+    width: box.width,
+    height: box.height,
+  };
+}
+
 function buildNode(
   node: FigmaNode,
   parentBox: FigmaBoundingBox | null,
@@ -1145,14 +1598,72 @@ function buildNode(
   isRoot: boolean,
 ): string {
   const parentHasAutoLayout = parentLayoutMode !== "NONE";
-  if (node.visible === false) return "";
+  if (node.visible === false || node.opacity === 0) return "";
 
-  const box = frameRelativeBox(node, parentBox);
+  let box = frameRelativeBox(node, parentBox);
+  // The Figma REST API's file-node-types docs describe `rotation` as
+  // "in degrees", but empirically (verified against known authored values
+  // via the Plugin API -- e.g. an authored 15deg/20deg rotation comes back
+  // as 0.2617993.../0.3490658... here) the REST API actually returns
+  // RADIANS. Treating that value as degrees silently shrinks every rotation
+  // by a factor of ~57 (pi/180), rendering rotated content as visually
+  // unrotated. Convert to degrees before using it anywhere below.
+  const rotationDeg =
+    typeof node.rotation === "number"
+      ? (node.rotation * 180) / Math.PI
+      : undefined;
+  const rotation =
+    rotationDeg !== undefined && Math.abs(rotationDeg) > 0.001
+      ? rotationDeg
+      : undefined;
+  if (rotation !== undefined) {
+    // `box` (from absoluteBoundingBox) is the rotated shape's AABB; recover
+    // the true pre-rotation width/height/position so fills/effects/strokes
+    // below -- and the CSS `rotate()` applied later -- operate on the
+    // correct box instead of an oversized one. See `unrotateBox`.
+    box = unrotateBox(box, rotation);
+  }
   const nameAttr = node.name
     ? ` data-agent-native-layer-name="${escapeAttr(node.name)}"`
     : "";
   const idAttr = ` data-figma-node-id="${escapeAttr(node.id)}"`;
   const typeAttr = ` data-figma-node-type="${escapeAttr(node.type)}"`;
+  const semanticAttrs =
+    metadataAttr("data-figma-component-id", node.componentId, node, tracker) +
+    metadataAttr(
+      "data-figma-component-properties",
+      node.componentProperties,
+      node,
+      tracker,
+    ) +
+    metadataAttr(
+      "data-figma-bound-variables",
+      node.boundVariables,
+      node,
+      tracker,
+    ) +
+    metadataAttr("data-figma-interactions", node.interactions, node, tracker);
+  if (node.componentId || node.componentProperties) {
+    tracker.record(
+      node,
+      "approximated",
+      "Figma component/instance provenance was preserved as metadata, but the imported HTML is not linked to the original Figma component master.",
+    );
+  }
+  if (node.boundVariables && Object.keys(node.boundVariables).length > 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Figma variable bindings were preserved as metadata; resolved visual values are imported, but bindings are not live Design tokens.",
+    );
+  }
+  if (node.interactions && node.interactions.length > 0) {
+    tracker.record(
+      node,
+      "approximated",
+      "Prototype interactions were preserved as inert metadata and do not execute or navigate inside the editor preview.",
+    );
+  }
 
   if (needsImageFallback(node, options)) {
     const imageUrl = options.fallbackImageUrls?.[node.id];
@@ -1169,18 +1680,25 @@ function buildNode(
       "image-fallback",
       `Node type "${node.type}" cannot be reproduced structurally (vector network / boolean op / unsupported type); rendered as an exact PNG (scale=2) instead of an approximated structural guess.`,
     );
+    const isFlowChild =
+      !isRoot && parentHasAutoLayout && node.layoutPositioning !== "ABSOLUTE";
+    // Use render bounds (not the geometric box) so a fallback PNG whose
+    // stroke/effects overflow the node's own bounding box (e.g. an
+    // OUTSIDE-aligned stroke) is placed at its natural size instead of being
+    // squished/cropped into the smaller geometric box.
+    const renderBox = frameRelativeRenderBox(node, parentBox);
     const styles: Record<string, string | undefined> = {
-      position: isRoot ? "relative" : "absolute",
-      left: isRoot ? undefined : px(box.left),
-      top: isRoot ? undefined : px(box.top),
-      width: px(box.width),
-      height: px(box.height),
+      position: isRoot || isFlowChild ? "relative" : "absolute",
+      left: isRoot || isFlowChild ? undefined : px(renderBox.left),
+      top: isRoot || isFlowChild ? undefined : px(renderBox.top),
+      width: px(renderBox.width),
+      height: px(renderBox.height),
       opacity:
         typeof node.opacity === "number" && node.opacity !== 1
           ? String(round(node.opacity, 4))
           : undefined,
     };
-    return `<img${idAttr}${typeAttr}${nameAttr} src="${escapeAttr(imageUrl)}" alt="${escapeAttr(node.name ?? "")}" style="${styleAttr(styles)}" />`;
+    return `<img${idAttr}${typeAttr}${nameAttr}${semanticAttrs} src="${escapeAttr(imageUrl)}" alt="${escapeAttr(node.name ?? "")}" style="${styleAttr(styles)}" />`;
   }
 
   const isTextNode = node.type === "TEXT";
@@ -1203,10 +1721,6 @@ function buildNode(
   const boxShadowParts = [...effects.boxShadowLayers];
   if (strokeResult.insetShadow) boxShadowParts.push(strokeResult.insetShadow);
 
-  const rotation =
-    typeof node.rotation === "number" && Math.abs(node.rotation) > 0.001
-      ? node.rotation
-      : undefined;
   if (rotation !== undefined) {
     tracker.record(
       node,
@@ -1223,7 +1737,8 @@ function buildNode(
   // container, in which case it's a normal flex item (relative, no left/top)
   // -- this mirrors Figma's own rule that auto-layout children give up
   // manual x/y in favor of flex flow.
-  const isFlexChild = !isRoot && parentHasAutoLayout;
+  const isFlexChild =
+    !isRoot && parentHasAutoLayout && node.layoutPositioning !== "ABSOLUTE";
 
   const baseStyles: Record<string, string | undefined> = {
     position: isRoot ? "relative" : isFlexChild ? "relative" : "absolute",
@@ -1252,6 +1767,10 @@ function buildNode(
     transform:
       rotation !== undefined ? `rotate(${round(-rotation, 3)}deg)` : undefined,
     "transform-origin": rotation !== undefined ? "center" : undefined,
+    "min-width": px(node.minWidth ?? undefined),
+    "max-width": px(node.maxWidth ?? undefined),
+    "min-height": px(node.minHeight ?? undefined),
+    "max-height": px(node.maxHeight ?? undefined),
     ...autoLayoutStyles,
     ...strokeResult.styles,
     ...childSizingStyles,
@@ -1280,6 +1799,10 @@ function buildNode(
       baseStyles["white-space"] = "nowrap";
       baseStyles.overflow = "hidden";
       baseStyles["text-overflow"] = "ellipsis";
+    } else {
+      // Figma preserves explicit newlines and repeated spaces. Normal HTML
+      // whitespace collapsing changes both wrapping and measured geometry.
+      baseStyles["white-space"] = "pre-wrap";
     }
     baseStyles.display = "flex";
     baseStyles["flex-direction"] = "column";
@@ -1289,7 +1812,8 @@ function buildNode(
     tracker.record(node, "exact", "Text styling mapped from TypeStyle fields.");
 
     const characters = node.characters ?? "";
-    return `<div${idAttr}${typeAttr}${nameAttr} style="${styleAttr(baseStyles)}">${escapeHtml(characters)}</div>`;
+    const textHtml = buildMixedTextHtml(node, characters, tracker);
+    return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}"><span>${textHtml}</span></div>`;
   }
 
   tracker.record(
@@ -1316,7 +1840,7 @@ function buildNode(
     .filter(Boolean)
     .join("\n");
 
-  return `<div${idAttr}${typeAttr}${nameAttr} style="${styleAttr(baseStyles)}">\n${childrenHtml}\n</div>`;
+  return `<div${idAttr}${typeAttr}${nameAttr}${semanticAttrs} style="${styleAttr(baseStyles)}">\n${childrenHtml}\n</div>`;
 }
 
 /**
@@ -1328,6 +1852,7 @@ export function mapFigmaNodeToHtml(
   node: FigmaNode,
   options: MapFigmaNodeOptions = {},
 ): MapFigmaNodeResult {
+  assertFigmaNodeTreeComplexity(node);
   const tracker = new FidelityTracker();
   const html = buildNode(node, null, "NONE", options, tracker, true);
   return { html, fidelity: tracker.build() };

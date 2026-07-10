@@ -188,6 +188,9 @@ const messages = {
       successMessage: "सफलता संदेश",
       defaultSuccessMessage: "धन्यवाद! आपकी प्रतिक्रिया रिकॉर्ड हो गई है।",
       redirectUrl: "रीडायरेक्ट URL (वैकल्पिक)",
+      anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
+      anonymousResponsesDescription:
+        "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",
       saveSettings: "सेटिंग्स सहेजें",
     },
     integrations: {

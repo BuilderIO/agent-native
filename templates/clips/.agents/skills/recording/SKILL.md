@@ -32,7 +32,11 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 5. **Upload each chunk.** `ondataavailable` POSTs the chunk bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`. Don't retry inline — buffer failed chunks in `IndexedDB` and let a background worker re-send.
 6. **Live transcription.** Alongside the MediaRecorder, `useLiveTranscription` runs the Web Speech API to accumulate transcript text in real time. On stop, the client calls `save-browser-transcript` to persist the result immediately — no API key needed. Desktop recordings use local Whisper/macOS speech first when available, and fall back to Web Speech in the webview on non-mac before relying on upload transcription.
 7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, makes the media seekable (see below), uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
-8. **Navigate.** Once the row is `ready` the UI navigates to `/r/:id`.
+8. **Navigate immediately.** Desktop recorders open `/r/:id` as soon as Stop
+   starts finalization. The recording row already exists, so the page can show
+   the title, share link, and upload progress while it polls from `uploading` or
+   `processing` to `ready`. Do not wait for the upload/finalize response before
+   opening the page.
 
 ## Seekable playback (don't ship raw MediaRecorder output)
 
@@ -62,6 +66,18 @@ re-fetches provider media, rewrites it, re-uploads, and repoints the row. It's
 idempotent (already-seekable clips are skipped unless `--force`) and only touches
 provider-hosted clips owned by the caller. This is the right tool when a user
 reports a specific slow/buffering clip.
+
+Seekability remuxing cannot repair a recording whose audio continues while the
+video track has a large timestamp gap (common when a mobile browser suspends the
+camera after the user switches apps). For a clip that freezes or appears to stop
+before its declared duration, call `reprocess-recording` with
+`--normalizeTimeline=true`. That explicit mode uses the same owner-scoped fetch
+and upload flow but fully transcodes to a constant-30-fps faststart MP4 (H.264 +
+AAC). It preserves audio and duplicates the last decoded video frame through
+missing-frame gaps. The action uploads to a new media object and atomically
+repoints the row only after verified output is stored; any transcode, audio
+verification, upload, or concurrent-update failure leaves the original URL and
+format untouched.
 
 ## Loom import
 

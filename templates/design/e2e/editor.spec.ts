@@ -139,7 +139,7 @@ test("screen overview adds and targets frames from the unified breakpoint contro
   await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
 });
 
-test("screen overview keeps the name readable when frame header space is tight", async ({
+test("screen overview keeps compact frame actions contained when header space is tight", async ({
   page,
 }) => {
   const screenShell = page
@@ -175,8 +175,15 @@ test("screen overview keeps the name readable when frame header space is tight",
   }
 
   expect(titleBox.width).toBeGreaterThan(0);
-  expect(titleBox.x).toBeLessThan(cardBox.x + cardBox.width);
-  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1);
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(fullViewBox.x + 1);
+  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x);
+  expect(fullViewBox.x + fullViewBox.width).toBeLessThanOrEqual(
+    cardBox.x + cardBox.width + 1,
+  );
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveAttribute(
+    "data-compact",
+    "true",
+  );
 });
 
 test("screen overview lets users select elements inside the active screen", async ({

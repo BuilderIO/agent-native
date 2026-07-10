@@ -280,7 +280,10 @@ async function localPlanBridgePayloadToBundle(
   }
 
   const rawContent = await parsePlanMdxFolder(payload.mdx, {
-    salvageInvalidBlocks: payload.kind === "recap",
+    // The bridge is a read-only preview surface. Keep valid blocks visible when
+    // locally authored MDX contains a malformed block; verify/import remain
+    // strict and still reject the same source.
+    salvageInvalidBlocks: true,
   });
   const content = inlineLocalPlanAssets(rawContent, payload.mdx["assets/"]);
   const now = payload.updatedAt || new Date().toISOString();

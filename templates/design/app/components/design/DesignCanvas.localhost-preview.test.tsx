@@ -47,6 +47,92 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("mounts source verification in a separate hidden runtime without replacing the editable iframe", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (!url.endsWith("/live-edit-bridge")) {
+        return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const render = async (requestId: number | null) => {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/account"
+            contentKey="screen-account"
+            screenId="screen-account"
+            sourceType="localhost"
+            bridgeUrl={bridgeUrl}
+            previewToken="verification-preview-token"
+            runtimeVerificationRequest={
+              requestId === null ? null : { requestId }
+            }
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+    };
+
+    await render(null);
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const editableIframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+
+    await render(1);
+    const firstVerification = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-runtime-verification-iframe]",
+    );
+    expect(firstVerification).not.toBeNull();
+    expect(firstVerification).not.toBe(editableIframe);
+    expect(firstVerification?.src).toBe(editableIframe?.src);
+    expect(firstVerification?.getAttribute("data-screen-iframe-id")).toBeNull();
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      editableIframe,
+    );
+
+    await render(2);
+    const secondVerification = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-runtime-verification-iframe]",
+    );
+    expect(secondVerification).not.toBe(firstVerification);
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      editableIframe,
+    );
+  });
+
   it("hands a successful overview registration to Full view without a placeholder reload or URL-only frame", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -159,6 +245,42 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(container.querySelector("[data-design-preview-iframe]")).toBe(
       focusedIframe,
     );
+
+    // A source write that forces a Vite full reload must put the authenticated
+    // snapshot back over the SAME iframe until its replacement bridge is
+    // ready. This covers the unavoidable HMR navigation without a white flash.
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: bridgeUrl,
+          source: focusedIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>(
+          "[data-live-edit-transition-fallback]",
+        )
+        ?.getAttribute("srcdoc"),
+    ).toContain("Chat preview");
+    expect(container.querySelector("[data-design-preview-iframe]")).toBe(
+      focusedIframe,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready" },
+          origin: bridgeUrl,
+          source: focusedIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
 
     resolveSecondRegistration(
       new Response(

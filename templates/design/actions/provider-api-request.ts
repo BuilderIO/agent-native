@@ -13,6 +13,15 @@ import {
 const ProviderSchema = z.enum(DESIGN_PROVIDER_API_IDS);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
+export function requiresProviderApiApproval(args: {
+  provider: string;
+  method: string;
+}): boolean {
+  return (
+    args.provider === "figma" && args.method !== "GET" && args.method !== "HEAD"
+  );
+}
+
 const PaginationSchema = z
   .object({
     nextCursorPath: z
@@ -75,7 +84,7 @@ export default defineAction({
     "The request is constrained to the provider host, uses saved scoped credentials such as GITHUB_TOKEN or FIGMA_ACCESS_TOKEN automatically, blocks private/internal URLs, and redacts secrets from responses. " +
     "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write response items into a scratch dataset instead of returning the raw body. " +
     "Returns { dataset, rowCount, columns, sampleRows } so only a compact summary enters context. Use query-staged-dataset to aggregate, filter, and project the data without re-fetching. " +
-    "\n\nPAGINATION: When stageAs is set, pass pagination config to fetch all pages server-side into the same dataset. For GitHub page pagination, use pageParam='page', pageSize from per_page, and itemsPath when the response object contains an items array.",
+    "\n\nPAGINATION: When stageAs is set, pass pagination config to fetch all pages server-side into the same dataset. For GitHub page pagination, use pageParam='page', pageSize from per_page, and itemsPath when the response object contains an items array. Figma REST can read files/nodes/styles/components and perform a few scoped writes such as comments or Enterprise variables, but it cannot create arbitrary canvas layers; use the official Figma MCP when connected or the Figma SVG export workflow for canvas handoff.",
   schema: z.object({
     provider: ProviderSchema.describe("Configured provider API to call."),
     method: MethodSchema.default("GET").describe("HTTP method to use."),
@@ -195,6 +204,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  needsApproval: requiresProviderApiApproval,
   run: async (args) => {
     if (args.stageAs) {
       const ctx = getCredentialContext();

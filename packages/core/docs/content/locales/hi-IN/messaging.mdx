@@ -1,11 +1,15 @@
 ---
 title: "मैसेजिंग"
-description: "Slack, ईमेल, टेलीग्राम, या व्हाट्सएप से अपने एजेंट से बात करें - वही एजेंट, वही मेमोरी, वही टूल।"
+description: "Slack, Microsoft Teams, Discord इंटरैक्शन, ईमेल, Telegram या WhatsApp से अपने एजेंट से बात करें।"
 ---
 
 # मैसेजिंग
 
-अपने एजेंट को Slack, ईमेल, टेलीग्राम, या व्हाट्सएप से कनेक्ट करें ताकि आप पहले से उपयोग किए गए ऐप्स से उसके साथ चैट कर सकें। यह वही एजेंट है - वही मेमोरी, वही टूल, वही थ्रेड - बस अधिक स्थानों से पहुंच योग्य है।
+अपने एजेंट को Slack, Microsoft Teams, Discord इंटरैक्शन, ईमेल, Telegram या WhatsApp से कनेक्ट करें। यह वही एजेंट है, जिसकी मेमोरी, टूल और बातचीत का इतिहास समान रहता है।
+
+> **सटीक समर्थन सीमा:** Teams आधिकारिक Bot Framework JWT की पुष्टि करता है और मूल बातचीत में उत्तर देता है। Discord, Ed25519-साइन किए गए HTTP इंटरैक्शन के जरिए slash commands और deferred acknowledgement का समर्थन करता है; सामान्य server messages और DMs के लिए Gateway runtime चाहिए। Telegram `message_thread_id` बनाए रखता है और WhatsApp contextual replies के लिए आने वाला `wamid` उपयोग करता है।
+>
+> Teams के लिए `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD` और `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS` आवश्यक हैं। Discord के लिए `DISCORD_APPLICATION_ID` और `DISCORD_PUBLIC_KEY` आवश्यक हैं। Telegram को `TELEGRAM_WEBHOOK_SECRET` और WhatsApp को `WHATSAPP_APP_SECRET` भी चाहिए।
 
 > **डिस्पैच टेम्पलेट का उपयोग कर रहे हैं?** यह सब आपके लिए **सेटिंग्स → मैसेजिंग** में रखा गया है। प्रत्येक प्लेटफ़ॉर्म को कनेक्ट करने के लिए क्लिक करें - जब तक आप अपना स्वयं का टेम्पलेट कस्टमाइज़ या निर्मित नहीं कर रहे हों, तब तक आपको इस पृष्ठ के शेष भाग को पढ़ने की आवश्यकता नहीं है। [Dispatch](/docs/dispatch) या [Dispatch template reference](/docs/template-dispatch) देखें।
 
@@ -78,7 +82,6 @@ description: "Slack, ईमेल, टेलीग्राम, या व्ह
     - `chat:write` - एजेंट को संदेश भेजने देता है
     - `app_mentions:read` - एजेंट को यह देखने देता है कि यह कब @-उल्लेखित है (वैकल्पिक)
     - `im:history` - एजेंट को भेजे गए डीएम को पढ़ने देता है
-    - `assistant:write` - वैकल्पिक; Slack को सहायक थ्रेड में मूल "सोच रहा है..." स्थिति दिखाने देता है
     - `users:read.email` - वैकल्पिक; ड्राफ्ट-क्यू पहचान के लिए Slack प्रेषक ईमेल को सत्यापित करने वाले मेल जैसे टेम्प्लेट की मदद करता है
 3.  उस पेज के शीर्ष पर **वर्कस्पेस पर इंस्टॉल करें** पर क्लिक करें। Slack आपको एक **बॉट उपयोगकर्ता OAuth टोकन** देगा जो `xoxb-` से शुरू होता है। इसे कॉपी करें.
 4.  साइडबार में **बुनियादी जानकारी** पर जाएं और **हस्ताक्षर करने का रहस्य** कॉपी करें।
@@ -123,11 +126,72 @@ https://your-clips.example.com/api/slack/unfurl
 
 ### टिप्स
 
-- **चैनल उल्लेख** - शोर से बचने के लिए, बॉट केवल तभी प्रतिक्रिया देता है जब @-उल्लेख किया जाता है।
-- **डीएम** - प्रत्येक डीएम को एजेंट के साथ एक निजी बातचीत के रूप में माना जाता है।
-- **समान पहचान, सभी चैनल** - यदि किसी Slack उपयोगकर्ता का ईमेल आपके ऐप में पंजीकृत उपयोगकर्ता के समान है, तो एजेंट उनके साथ एक ही व्यक्ति के रूप में व्यवहार करता है।
+- **चैनल उल्लेख** - काम शुरू करने के लिए @mention करें। बिना उल्लेख वाले उत्तर केवल उसी समय चलते हैं जब उसी थ्रेड में सक्रिय काम हो।
+- **DM** — स्वीकार किए गए व्यक्तिगत DM निजी बातचीत हैं और उनके लिए सत्यापित संगठन सदस्य या लिंक की गई Slack पहचान आवश्यक है।
+- **पहचान** - DM सत्यापित Slack ईमेल को उसी ऐप उपयोगकर्ता से जोड़ सकते हैं; प्रबंधित चैनल अपनी सेवा पहचान और नीति उपयोग करते हैं।
 - **उत्पादन अनुमति सूचियाँ** - `SLACK_ALLOWED_TEAM_IDS` सेट करें और, साझा Slack ऐप्स के लिए, `SLACK_ALLOWED_API_APP_IDS` ताकि एक वैध हस्ताक्षर रहस्य का अप्रत्याशित कार्यक्षेत्र द्वारा पुन: उपयोग न किया जा सके।
 - **क्लिप्स ऐप खुलता है** - Slack के लिए इंस्टॉल करने योग्य Agent-Native क्लिप्स `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` और `/api/slack/oauth/callback` का उपयोग करता है। प्रत्येक कनेक्टेड Slack कार्यक्षेत्र को `app_secrets` में अपना स्वयं का एन्क्रिप्टेड बॉट टोकन मिलता है; `SLACK_BOT_TOKEN` केवल एक लीगेसी सिंगल-वर्कस्पेस फ़ॉलबैक है।
+
+### प्रबंधित Add to Slack
+
+प्रबंधित OAuth अनुशंसित सेटअप है। **सेटिंग्स → मैसेजिंग** में **Agent manifest**
+चुनकर होस्ट-विशिष्ट `agent-native-slack-manifest.json` डाउनलोड करें और उसे Slack के
+**App Manifest** में आयात करें। यह मैनिफ़ेस्ट वर्तमान `agent_view` अनुभव और DM के लिए
+लिखने योग्य **Messages** टैब सक्षम करता है। इन Bot Token Scopes की पुष्टि करें:
+
+ऐप आइकन मैनिफ़ेस्ट में शामिल नहीं होता। **Basic Information → Display Information**
+में Agent Native आइकन अपलोड करें, ताकि Agents चयनकर्ता उत्पाद की ब्रांडिंग से मेल खाए।
+ऐप के सार्वजनिक `icon-512.svg` को स्रोत बनाकर आवश्यकता होने पर उसे Slack-समर्थित अपलोड
+फ़ॉर्मेट में बदलें।
+
+```text
+assistant:write
+app_mentions:read
+   channels:history
+   channels:read
+   chat:write
+files:read
+   groups:history
+   groups:read
+   im:history
+im:read
+   mpim:history
+   mpim:read
+   pins:read
+   reactions:read
+users:read
+users:read.email
+```
+
+OAuth Redirect URL को
+`https://your-app.example.com/_agent-native/integrations/slack/oauth/callback`,
+Event Subscriptions Request URL को
+`https://your-app.example.com/_agent-native/integrations/slack/webhook`, और
+Interactivity Request URL को
+`https://your-app.example.com/_agent-native/integrations/slack/interactions` पर सेट करें।
+`app_home_opened`, `app_context_changed`, `app_mention`, `message.channels`,
+`message.groups`, `message.im` और `message.mpim` की सदस्यता लें।
+`SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` और `SLACK_SIGNING_SECRET`
+सेट करने के बाद **सेटिंग्स → मैसेजिंग** में **Add to Slack** चुनें। हर इंस्टॉल का
+टोकन एन्क्रिप्टेड रहता है और बातचीत की कुंजी कार्यक्षेत्र, ऐप, चैनल और थ्रेड से अलग होती है।
+
+मैनिफ़ेस्ट, स्कोप, इवेंट, Agent view या Messages टैब बदलने के बाद Slack ऐप को फिर से
+इंस्टॉल करें। `app_home_opened` DM खुलने का पता लगाता है, `app_context_changed` वर्तमान
+Slack संदर्भ देता है और `message.im` सीधे संदेश पहुँचाता है। Slack व्यवस्थापक इंस्टॉल किए
+गए एजेंटों को पूरे संगठन के लिए छिपा सकते हैं, और सदस्य उन्हें अपनी शीर्ष पट्टी से छिपा सकते हैं।
+इंस्टॉल सफल होने पर भी एजेंट न दिखे तो इन नियंत्रणों की जाँच करें या **Tools → Apps** से खोलें।
+
+व्यक्तिगत Slack DM केवल सत्यापित Agent Native संगठन सदस्य या पहले से लिंक की गई Slack
+पहचान से स्वीकार किया जाता है। चैनल सेवा-प्रिंसिपल की नीतियाँ और बजट इससे अलग रहते हैं।
+
+बिना उल्लेख का उत्तर केवल सक्रिय थ्रेड को आगे बढ़ाता है; सामान्य चैनल बातचीत एजेंट को
+नहीं बुलाती। सीमित संदर्भ में प्रतिक्रियाएँ और फ़ाइल संदर्भ आते हैं, और नेटिव कार्ड योजना,
+प्रगति, रद्द करें तथा स्वीकृत/अस्वीकृत नियंत्रण दिखाता है। DM व्यक्तिगत पहचान का उपयोग
+करते हैं; प्रबंधित चैनल स्पष्ट सेवा पहचान और अतिथि, Slack Connect तथा मॉडल नीतियाँ उपयोग
+करते हैं। चैनल मेमोरी स्पष्ट अनुरोध पर ही सहेजी या हटाई जाती है और अलग रहती है। चैनल में
+बनी रूटीन उसी Slack गंतव्य पर लौटती हैं। संगठन, अनुरोधकर्ता और चैनल के दैनिक या मासिक
+बजट पूरे ऑडिट वंश के साथ लागू होते हैं। `assistant:write` Agent View संदर्भ इवेंट
+सक्षम करता है; `chat:write` उत्तर और लाइव स्थिति अपडेट चलाता है।
 
 ## टेलीग्राम सेट करें {#telegram}
 
@@ -435,7 +499,9 @@ POST /_agent-native/integrations/telegram/setup
 | ईमेल        | `EMAIL_AGENT_ADDRESS`, प्लस `RESEND_API_KEY` या `SENDGRID_API_KEY` में से एक | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
 | व्हाट्सएप   | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
 
-सभी क्रेडेंशियल env vars में रहते हैं - कभी डेटाबेस नहीं, कभी स्रोत कोड नहीं। साइडबार सेटिंग्स UI या अपने होस्टिंग प्रदाता के env पैनल का उपयोग करें।
+इंटीग्रेशन क्रेडेंशियल पहले इंटीग्रेशन मालिक के scoped secrets (उपयोगकर्ता, संगठन, फिर workspace) से resolve होते हैं; deployment env vars स्थानीय या जानबूझकर single-tenant सेटअप के लिए fallback हैं। सेटअप UI scoped secrets सहेजती है; मान कभी ब्राउज़र को वापस नहीं भेजे जाते और न ही source code में रखे जाते हैं।
+
+बिल्ट-इन runtime adapters **Slack**, **Telegram**, **WhatsApp Cloud API**, और provider-webhook email (Resend या SendGrid) हैं। Discord और Microsoft Teams तब तक connectable नहीं हैं जब तक कोई verified adapter लागू और पंजीकृत न हो।
 
 ### थ्रेडिंग और पहचान {#threading-and-identity}
 
@@ -481,13 +547,13 @@ import type {
 import type { EnvKeyConfig } from "@agent-native/core/server";
 
 const myAdapter: PlatformAdapter = {
-  platform: "discord",
-  label: "Discord",
+  platform: "my-chat",
+  label: "My Chat",
 
   // Env keys this adapter needs (rendered in the settings UI)
   getRequiredEnvKeys(): EnvKeyConfig[] {
     return [
-      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
     ];
   },
 
@@ -507,10 +573,10 @@ const myAdapter: PlatformAdapter = {
   // Return null to silently ignore the event (bot messages, edits, etc.).
   async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
     return {
-      platform: "discord",
+      platform: "my-chat",
       externalThreadId: "channel-or-thread-id",
       text: "the user's message",
-      senderId: "discord-user-id",
+      senderId: "my-chat-user-id",
       platformContext: { channelId: "channel-id" },
       timestamp: Date.now(),
     };
@@ -538,10 +604,10 @@ const myAdapter: PlatformAdapter = {
   // baseUrl is the app's public URL, used for status checks that need it.
   async getStatus(baseUrl?: string) {
     return {
-      platform: "discord",
-      label: "Discord",
+      platform: "my-chat",
+      label: "My Chat",
       enabled: true,
-      configured: !!process.env.DISCORD_BOT_TOKEN,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
     };
   },
 };

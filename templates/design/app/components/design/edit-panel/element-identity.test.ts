@@ -5,6 +5,7 @@ import {
   deriveLockedAspectSize,
   elementIdentityKey,
   elementStableKey,
+  interactionStateSelectionKey,
 } from "./element-identity";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -101,5 +102,36 @@ describe("deriveLockedAspectSize", () => {
 
   it("rounds to one decimal place", () => {
     expect(deriveLockedAspectSize("width", 100, 3)).toBe(33.3);
+  });
+});
+
+describe("interactionStateSelectionKey", () => {
+  it("stays stable when geometry changes on the same selected element", () => {
+    const before = element({
+      sourceId: "button_1",
+      boundingRect: { x: 10, y: 20, width: 100, height: 40 },
+    });
+    const after = element({
+      sourceId: "button_1",
+      boundingRect: { x: 80, y: 90, width: 240, height: 64 },
+    });
+
+    expect(interactionStateSelectionKey(before, "screen-a", 1)).toBe(
+      interactionStateSelectionKey(after, "screen-a", 1),
+    );
+  });
+
+  it("changes across screens even when document-local node ids match", () => {
+    const selected = element({ sourceId: "button_1" });
+    expect(interactionStateSelectionKey(selected, "screen-a", 1)).not.toBe(
+      interactionStateSelectionKey(selected, "screen-b", 1),
+    );
+  });
+
+  it("changes when the selection cardinality changes", () => {
+    const selected = element({ sourceId: "button_1" });
+    expect(interactionStateSelectionKey(selected, "screen-a", 1)).not.toBe(
+      interactionStateSelectionKey(selected, "screen-a", 2),
+    );
   });
 });

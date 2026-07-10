@@ -9,7 +9,12 @@
  * their first workspace app first.
  */
 
+import { listIntegrationInstallations } from "@agent-native/core/integrations";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 
 import { listWorkspaceApps } from "./app-creation-store.js";
 
@@ -45,6 +50,33 @@ export function registerDispatchOnboardingSteps(): void {
       } catch {
         return false;
       }
+    },
+  });
+
+  registerOnboardingStep({
+    id: "dispatch:connect-slack-workspace",
+    title: "Connect a Slack workspace",
+    description:
+      "Install Agent Native with OAuth, then configure channel identities and access policies.",
+    order: 60,
+    required: false,
+    methods: [
+      {
+        id: "open-messaging",
+        kind: "link",
+        primary: true,
+        label: "Open Messaging",
+        payload: { url: "/messaging", external: false },
+      },
+    ],
+    isComplete: async () => {
+      const userEmail = getRequestUserEmail();
+      if (!userEmail) return false;
+      const rows = await listIntegrationInstallations(
+        { userEmail, orgId: getRequestOrgId() ?? null },
+        "slack",
+      ).catch(() => []);
+      return rows.some((row) => row.status === "connected");
     },
   });
 }

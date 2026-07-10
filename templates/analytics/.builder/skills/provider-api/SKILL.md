@@ -17,6 +17,21 @@ body, pagination mode, or API version needed, use:
 - `provider-api-request` to make the exact HTTP call. Credentials are injected
   server-side, private/internal URLs are blocked, and secrets are redacted.
 
+## Clay
+
+Clay is a credentialed GTM provider capability, not a messaging channel. Use
+provider `clay`; the server injects `CLAY_PUBLIC_API_KEY` with the official
+`clay-api-key` header and restricts requests to the exact
+`https://api.clay.com` origin, with `/public/v0` as the default base path. Use
+`provider-api-docs` for the registered official docs and OpenAPI spec on
+`developers.clay.com`.
+
+Clay searches are stateful company/people iterators, routines are asynchronous,
+and table queries are read-only, Enterprise-only, and require a known table id.
+The optional local Clay CLI/MCP browser login is separate from hosted Agent
+Native credentials. Do not install or vendor that plugin by default; its public
+repository currently declares no license.
+
 Examples:
 
 ```bash

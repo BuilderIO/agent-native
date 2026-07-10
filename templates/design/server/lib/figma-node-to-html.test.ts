@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertFigmaNodeTreeComplexity,
   collectFallbackNodeIds,
   collectImageFillRefs,
   gradientAngleDegrees,
@@ -259,6 +260,43 @@ describe("mapFigmaNodeToHtml - text", () => {
     const { html } = mapFigmaNodeToHtml(root);
     expect(html).toContain("line-height: 24px");
   });
+
+  it("preserves explicit newlines, repeated spaces, and mixed character style runs", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 240, 100),
+      children: [
+        {
+          id: "3:3",
+          type: "TEXT",
+          absoluteBoundingBox: box(0, 0, 240, 60),
+          characters: "A  B\nC",
+          style: { fontFamily: "Inter", fontSize: 16, fontWeight: 400 },
+          characterStyleOverrides: [1, 1, 0, 0, 2, 2],
+          styleOverrideTable: {
+            "1": { fontWeight: 700 },
+            "2": {
+              italic: true,
+              fills: [
+                {
+                  type: "SOLID",
+                  color: { r: 1, g: 0, b: 0, a: 1 },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toContain("white-space: pre-wrap");
+    expect(html).toContain('style="font-weight: 700">A ');
+    expect(html).toContain("font-style: italic");
+    expect(html).toContain("color: rgba(255, 0, 0, 1)");
+    expect(html).toContain(">\nC</span>");
+  });
 });
 
 describe("mapFigmaNodeToHtml - auto layout", () => {
@@ -303,6 +341,30 @@ describe("mapFigmaNodeToHtml - auto layout", () => {
     expect(html).not.toMatch(/data-figma-node-id="4:1"[^>]*left:/);
     // FILL sizing child grows along the main axis.
     expect(html).toContain("flex-grow: 1");
+  });
+
+  it("keeps layoutPositioning ABSOLUTE children out of auto-layout flow", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      absoluteBoundingBox: box(100, 100, 400, 200),
+      layoutMode: "HORIZONTAL",
+      children: [
+        {
+          id: "4:absolute",
+          type: "RECTANGLE",
+          layoutPositioning: "ABSOLUTE",
+          absoluteBoundingBox: box(420, 120, 40, 40),
+        },
+      ],
+    };
+
+    const { html } = mapFigmaNodeToHtml(root);
+    expect(html).toMatch(
+      /data-figma-node-id="4:absolute"[^>]*position: absolute/,
+    );
+    expect(html).toMatch(/data-figma-node-id="4:absolute"[^>]*left: 320px/);
+    expect(html).toMatch(/data-figma-node-id="4:absolute"[^>]*top: 20px/);
   });
 
   it("maps horizontal FILL sizing to align-self: stretch (not flex-grow) under a VERTICAL (column) parent", () => {
@@ -567,6 +629,183 @@ describe("mapFigmaNodeToHtml - image fallback", () => {
       "image-fallback",
     );
   });
+
+  it.each([
+    {
+      label: "line geometry",
+      node: { id: "line", type: "LINE" },
+    },
+    {
+      label: "partial ellipse geometry",
+      node: {
+        id: "arc",
+        type: "ELLIPSE",
+        arcData: { startingAngle: 0, endingAngle: Math.PI, innerRadius: 0.4 },
+      },
+    },
+    {
+      label: "dashed stroke",
+      node: {
+        id: "dashes",
+        type: "RECTANGLE",
+        strokes: [{ type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 } }],
+        strokeDashes: [4, 2],
+      },
+    },
+    {
+      label: "transformed image crop",
+      node: {
+        id: "crop",
+        type: "RECTANGLE",
+        fills: [
+          {
+            type: "IMAGE",
+            imageRef: "image",
+            imageTransform: [
+              [1, 0.2, 0],
+              [0, 1, 0],
+            ],
+          },
+        ],
+      },
+    },
+    {
+      label: "advanced list typography",
+      node: {
+        id: "rich-text",
+        type: "TEXT",
+        characters: "One\nTwo",
+        style: { fontFamily: "Inter", fontSize: 16, paragraphSpacing: 8 },
+        lineTypes: ["ORDERED", "ORDERED"],
+        lineIndentations: [0, 1],
+      },
+    },
+  ])(
+    "renders $label as a visual fallback instead of incorrect HTML",
+    ({ node }) => {
+      const typedNode = {
+        ...node,
+        absoluteBoundingBox: box(10, 10, 40, 20),
+      } as FigmaNode;
+      const root: FigmaNode = {
+        id: "root",
+        type: "FRAME",
+        absoluteBoundingBox: box(0, 0, 100, 100),
+        children: [typedNode],
+      };
+      expect(collectFallbackNodeIds(root)).toEqual([typedNode.id]);
+      const { html, fidelity } = mapFigmaNodeToHtml(root, {
+        fallbackImageUrls: {
+          [typedNode.id]: `https://assets.example.test/${typedNode.id}.png`,
+        },
+      });
+      expect(html).toContain(`<img data-figma-node-id="${typedNode.id}"`);
+      expect(
+        fidelity.entries.find((entry) => entry.nodeId === typedNode.id)?.level,
+      ).toBe("image-fallback");
+    },
+  );
+
+  it("renders the smallest containing mask subtree as one fallback", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      children: [
+        {
+          id: "masked-group",
+          type: "GROUP",
+          children: [
+            { id: "mask", type: "ELLIPSE", isMask: true },
+            { id: "masked-photo", type: "RECTANGLE" },
+          ],
+        },
+        { id: "editable-sibling", type: "RECTANGLE" },
+      ],
+    };
+    expect(collectFallbackNodeIds(root)).toEqual(["masked-group"]);
+  });
+
+  it("does not fetch fallbacks or image fills for fully transparent subtrees", () => {
+    const root: FigmaNode = {
+      id: "root",
+      type: "FRAME",
+      children: [
+        {
+          id: "transparent-vector",
+          type: "VECTOR",
+          opacity: 0,
+          fills: [{ type: "IMAGE", imageRef: "unused" }],
+        },
+      ],
+    };
+    expect(collectFallbackNodeIds(root)).toEqual([]);
+    expect(collectImageFillRefs(root)).toEqual([]);
+  });
+});
+
+describe("mapFigmaNodeToHtml - preserved Figma semantics", () => {
+  it("keeps bounded component, variable, and interaction metadata inert", () => {
+    const root: FigmaNode = {
+      id: "instance",
+      type: "INSTANCE",
+      absoluteBoundingBox: box(0, 0, 320, 80),
+      componentId: "12:34",
+      componentProperties: { "State#1:0": { type: "VARIANT", value: "Hover" } },
+      boundVariables: {
+        fills: [{ type: "VARIABLE_ALIAS", id: "VariableID:1:2" }],
+      },
+      interactions: [
+        {
+          trigger: { type: "ON_CLICK" },
+          actions: [{ type: "URL", url: "https://example.test" }],
+        },
+      ],
+      minWidth: 240,
+      maxWidth: 640,
+      minHeight: 44,
+      maxHeight: 120,
+    };
+
+    const { html, fidelity } = mapFigmaNodeToHtml(root);
+    expect(html).toContain('data-figma-component-id="12:34"');
+    expect(html).toContain("data-figma-component-properties=");
+    expect(html).toContain("data-figma-bound-variables=");
+    expect(html).toContain("data-figma-interactions=");
+    expect(html).not.toContain('href="https://example.test"');
+    expect(html).toContain("min-width: 240px");
+    expect(html).toContain("max-width: 640px");
+    expect(html).toContain("min-height: 44px");
+    expect(html).toContain("max-height: 120px");
+    expect(
+      fidelity.entries.find((entry) => entry.nodeId === "instance")?.level,
+    ).toBe("approximated");
+  });
+});
+
+describe("assertFigmaNodeTreeComplexity", () => {
+  it("fails clearly before recursive rendering overflows on adversarial depth", () => {
+    const root: FigmaNode = { id: "0", type: "FRAME", children: [] };
+    let cursor = root;
+    for (let depth = 1; depth <= 257; depth += 1) {
+      const child: FigmaNode = {
+        id: String(depth),
+        type: "FRAME",
+        children: [],
+      };
+      cursor.children = [child];
+      cursor = child;
+    }
+    expect(() => assertFigmaNodeTreeComplexity(root)).toThrow(
+      /nested too deeply/i,
+    );
+    expect(() => mapFigmaNodeToHtml(root)).toThrow(/nested too deeply/i);
+  });
+
+  it("rejects cyclic child references", () => {
+    const root: FigmaNode = { id: "root", type: "FRAME", children: [] };
+    root.children = [root];
+    expect(() => assertFigmaNodeTreeComplexity(root)).toThrow(/cyclic/i);
+  });
 });
 
 describe("collectFallbackNodeIds", () => {
@@ -602,7 +841,7 @@ describe("collectFallbackNodeIds", () => {
 });
 
 describe("collectImageFillRefs", () => {
-  it("collects distinct imageRefs from fills and strokes across the tree", () => {
+  it("collects distinct structural image fills but skips subtrees rendered as fallbacks", () => {
     const root: FigmaNode = {
       id: "root",
       type: "FRAME",
@@ -620,6 +859,7 @@ describe("collectImageFillRefs", () => {
         },
       ],
     };
-    expect(collectImageFillRefs(root).sort()).toEqual(["hash-a", "hash-b"]);
+    expect(collectFallbackNodeIds(root)).toEqual(["n2"]);
+    expect(collectImageFillRefs(root)).toEqual(["hash-a"]);
   });
 });

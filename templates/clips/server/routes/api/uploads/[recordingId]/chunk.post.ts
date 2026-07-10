@@ -17,7 +17,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -51,6 +50,7 @@ import {
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   allowsSqlRecordingChunkScratch,
@@ -696,7 +696,9 @@ async function handleResumableChunk(
   query: Record<string, unknown>,
   ownerEmail: string,
 ) {
-  const uploadProvider = getActiveFileUploadProvider();
+  const uploadProvider = await resolveResumableUploadProvider(
+    session.providerId,
+  );
   if (!uploadProvider?.resumable) {
     setResponseStatus(event, 502);
     return { ok: false, error: "Upload storage is not configured" };
@@ -737,6 +739,12 @@ async function handleResumableChunk(
         ok: false,
         error: `Resumable session close failed (${closeRes.status})`,
       };
+    }
+    if (closeRes.updatedMeta) {
+      await setResumableSession(recordingId, {
+        ...session,
+        meta: { ...session.meta, ...closeRes.updatedMeta },
+      });
     }
   } else {
     // Idempotent replay guard: a client retry (after a lost response) can

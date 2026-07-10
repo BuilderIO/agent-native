@@ -21,6 +21,7 @@ const deDE = {
   },
   footer: {
     download: "Herunterladen",
+    brand: "Marke",
     privacy: "Datenschutz",
     terms: "Bedingungen",
   },
@@ -1237,6 +1238,37 @@ const deDE = {
         appImage: "AppImage herunterladen",
         deb: ".deb herunterladen",
         note: "Das Archiv funktioniert ohne FUSE. AppImage benötigt auf einigen Distributionen eventuell FUSE 2.",
+      },
+    },
+  },
+  brandPage: {
+    eyebrow: "Markenmaterial",
+    title: "Agent-Native-Logos",
+    body: "Lade die offiziellen Logos und Bildmarken für Artikel, Präsentationen und Community-Projekte herunter. SVG-Dateien bleiben in jeder Größe scharf und unterstützen transparente Hintergründe.",
+    horizontal: {
+      title: "Horizontales Logo",
+      body: "Die bevorzugte Variante für Artikel-Header, Websites, Präsentationen und andere breite Formate.",
+    },
+    symbol: {
+      title: "Bildmarke",
+      body: "Verwende die eigenständige Bildmarke für Avatare, App-Symbole und kompakte Platzierungen.",
+    },
+    lightBackground: "Für helle Hintergründe",
+    darkBackground: "Für dunkle Hintergründe",
+    downloadSvg: "SVG herunterladen",
+    usage: {
+      title: "Verwendung der Marke",
+      clear: {
+        title: "Ausreichend Freiraum",
+        body: "Bewahre die Proportionen des Logos und lasse rundherum genügend freien Raum.",
+      },
+      contrast: {
+        title: "Auf Kontrast achten",
+        body: "Nutze die dunkle Variante auf hellen und die helle Variante auf dunklen Hintergründen.",
+      },
+      original: {
+        title: "Originaldateien verwenden",
+        body: "Logo und Bildmarke dürfen nicht umgefärbt, beschnitten, gedreht, gestreckt oder neu angeordnet werden.",
       },
     },
   },

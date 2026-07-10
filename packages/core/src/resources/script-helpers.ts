@@ -6,10 +6,14 @@
  * require a real identity; there is no dev-mode fallback.
  */
 
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  sharedResourceOwner,
   resourceGetByPath,
   resourcePut,
   resourceDeleteByPath,
@@ -26,7 +30,7 @@ import {
 type ResourceHelperScope = "personal" | "shared" | "workspace";
 
 function getOwnerForScope(scope?: ResourceHelperScope): string {
-  if (scope === "shared") return SHARED_OWNER;
+  if (scope === "shared") return sharedResourceOwner(getRequestOrgId());
   if (scope === "workspace") return WORKSPACE_OWNER;
   const userEmail = getRequestUserEmail();
   if (userEmail) return userEmail;
@@ -50,7 +54,11 @@ export async function readResource(
 ): Promise<string | null> {
   const owner = getOwnerForScope(resolveScope(options));
   const resource = await resourceGetByPath(owner, path);
-  return resource ? resource.content : null;
+  if (resource) return resource.content;
+  if (resolveScope(options) === "shared" && owner !== SHARED_OWNER) {
+    return (await resourceGetByPath(SHARED_OWNER, path))?.content ?? null;
+  }
+  return null;
 }
 
 export async function writeResource(
@@ -107,9 +115,21 @@ export async function listResources(
   },
 ): Promise<ResourceMeta[]> {
   const owner = getOwnerForScope(resolveScope(options));
-  return options?.includeAgentScratch
+  const resources = options?.includeAgentScratch
     ? resourceList(owner, prefix, { includeAgentScratch: true })
     : resourceList(owner, prefix);
+  const primary = await resources;
+  if (resolveScope(options) !== "shared" || owner === SHARED_OWNER) {
+    return primary;
+  }
+  const inherited = options?.includeAgentScratch
+    ? await resourceList(SHARED_OWNER, prefix, { includeAgentScratch: true })
+    : await resourceList(SHARED_OWNER, prefix);
+  const seen = new Set(primary.map((resource) => resource.path));
+  return [
+    ...primary,
+    ...inherited.filter((resource) => !seen.has(resource.path)),
+  ];
 }
 
 export async function listAllResources(
@@ -117,9 +137,15 @@ export async function listAllResources(
   options?: { includeAgentScratch?: boolean },
 ): Promise<ResourceMeta[]> {
   const userEmail = getOwnerForScope("personal");
+  const orgId = getRequestOrgId();
   return options?.includeAgentScratch
-    ? resourceListAccessible(userEmail, prefix, { includeAgentScratch: true })
-    : resourceListAccessible(userEmail, prefix);
+    ? resourceListAccessible(userEmail, prefix, {
+        includeAgentScratch: true,
+        ...(orgId ? { orgId } : {}),
+      })
+    : orgId
+      ? resourceListAccessible(userEmail, prefix, { orgId })
+      : resourceListAccessible(userEmail, prefix);
 }
 
 export async function getEffectiveResourceContext(
@@ -127,5 +153,8 @@ export async function getEffectiveResourceContext(
 ): Promise<EffectiveResourceContext> {
   const userEmail = getOwnerForScope("personal");
   await ensurePersonalDefaults(userEmail);
-  return resourceEffectiveContext(userEmail, path);
+  const orgId = getRequestOrgId();
+  return orgId
+    ? resourceEffectiveContext(userEmail, path, { userEmail, orgId })
+    : resourceEffectiveContext(userEmail, path);
 }

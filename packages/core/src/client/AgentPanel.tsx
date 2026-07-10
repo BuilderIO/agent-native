@@ -81,6 +81,7 @@ const MultiTabAssistantChatLazy = lazy(() =>
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
 
+import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
   dispatchAgentSidebarStateChange,
@@ -602,6 +603,36 @@ function useClientOnly() {
   return mounted;
 }
 
+const DESKTOP_CODE_SURFACE_QUERY_PARAM = "_agentNativeDesktopCode";
+const DESKTOP_CODE_SURFACE_SESSION_KEY = "agent-native:desktop-code-surface";
+
+function isDesktopCodeSurfaceRequested(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const requested =
+      new URLSearchParams(window.location.search).get(
+        DESKTOP_CODE_SURFACE_QUERY_PARAM,
+      ) === "1";
+    if (requested) {
+      window.sessionStorage.setItem(DESKTOP_CODE_SURFACE_SESSION_KEY, "1");
+      return true;
+    }
+    return (
+      window.sessionStorage.getItem(DESKTOP_CODE_SURFACE_SESSION_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function resolveAgentPanelChatSurface(
+  explicitSurface: AgentChatSurfaceKind | undefined,
+  desktopCodeSurfaceRequested: boolean,
+): AgentChatSurfaceKind {
+  if (explicitSurface) return explicitSurface;
+  return desktopCodeSurfaceRequested ? "desktop" : "app";
+}
+
 function CodeAccessUnavailablePanel({
   title,
   description,
@@ -947,9 +978,14 @@ function AgentPanelInner({
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
   const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
-  const isDevFrameChatSurface =
-    assistantChatProps.agentChatSurface === "dev-frame";
-  const inferredCodeAccessEnabled = !isDevMode || isDevFrameChatSurface;
+  const effectiveAgentChatSurface = resolveAgentPanelChatSurface(
+    assistantChatProps.agentChatSurface,
+    isDesktopCodeSurfaceRequested(),
+  );
+  const isDevFrameChatSurface = effectiveAgentChatSurface === "dev-frame";
+  const isCodeEditingChatSurface =
+    isDevFrameChatSurface || effectiveAgentChatSurface === "desktop";
+  const inferredCodeAccessEnabled = !isDevMode || isCodeEditingChatSurface;
   const codeAccessEnabled = codeAccess?.enabled ?? inferredCodeAccessEnabled;
   const codeUnavailableTitle =
     codeAccess?.unavailableTitle ?? t("agentPanel.openDesktopToEditCode");
@@ -965,12 +1001,12 @@ function AgentPanelInner({
   const codeUnavailableSecondaryCtaHref =
     codeAccess?.unavailableSecondaryCtaHref;
   const canUseCodeTools =
-    isDevMode && codeAccessEnabled && isDevFrameChatSurface;
+    isDevMode && codeAccessEnabled && isCodeEditingChatSurface;
   // Hide the CLI tab when embedded in the Builder.io frame — code editing
   // there happens via Builder, and the CLI panel only offers a Download
   // Desktop CTA, which adds clutter without value.
   const showCliMode =
-    (isDevMode || !codeAccessEnabled) && isDevFrameChatSurface;
+    (isDevMode || !codeAccessEnabled) && isCodeEditingChatSurface;
   useEffect(() => {
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
@@ -1003,7 +1039,7 @@ function AgentPanelInner({
     (window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1" ||
       window.location.hostname === "::1");
-  const showDevToggle = canToggle && isLocalhost && isDevFrameChatSurface;
+  const showDevToggle = canToggle && isLocalhost && isCodeEditingChatSurface;
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
@@ -1807,6 +1843,7 @@ function AgentPanelInner({
           >
             <MultiTabAssistantChatLazy
               {...assistantChatProps}
+              agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}
               showHeader={false}
               renderHeader={showHeader ? renderChatHeader : undefined}
@@ -2500,6 +2537,10 @@ export interface AgentSidebarProps {
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
   /** Optional controls rendered in the chat composer toolbar. */
   composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
+  /** Optional contextual content rendered just above the chat composer. */
+  composerSlot?: AssistantChatProps["composerSlot"];
+  /** Observe the active chat composer's current plain text. */
+  onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
   /** Optional content rendered at the bottom of the chat thread. */
@@ -2553,6 +2594,8 @@ export function AgentSidebar({
   suggestions,
   dynamicSuggestions,
   composerToolbarSlot,
+  composerSlot,
+  onComposerTextChange,
   imageModelMenu,
   threadFooterSlot,
   defaultSidebarWidth,
@@ -3090,6 +3133,8 @@ export function AgentSidebar({
             suggestions={suggestions}
             dynamicSuggestions={dynamicSuggestions}
             composerToolbarSlot={composerToolbarSlot}
+            composerSlot={composerSlot}
+            onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
             threadFooterSlot={threadFooterSlot}
             missingApiKeySetupLayout="sidebar"

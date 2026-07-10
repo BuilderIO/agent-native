@@ -13,7 +13,10 @@ import {
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Toaster, toast } from "sonner";
 
-import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
+import AppSettings, {
+  AddAppDialog,
+  AppEditForm,
+} from "./components/AppSettings.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import Sidebar from "./components/Sidebar.js";
@@ -128,6 +131,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
+  const [editingSidebarAppId, setEditingSidebarAppId] = useState<string | null>(
+    null,
+  );
   const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
@@ -274,6 +280,55 @@ export default function App() {
     },
     [activateApp],
   );
+
+  const handlePromptAppCreated = useCallback(
+    (result: DesktopCreateAppResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      activateApp(result.app.id);
+      setShowAddApp(false);
+      toast(`Building ${result.app.name}`, {
+        description:
+          "The app is already in your sidebar. Desktop will open it as soon as the coding agent and dev server are ready.",
+        duration: 5000,
+      });
+    },
+    [activateApp],
+  );
+
+  const handleSidebarAppContextMenu = useCallback(
+    async (appId: string) => {
+      const api = window.electronAPI?.appConfig;
+      if (!api?.showContextMenu) return;
+      const action = await api.showContextMenu(appId);
+      if (!action) return;
+      if (action === "edit") {
+        setEditingSidebarAppId(appId);
+        return;
+      }
+      if (action === "move-up" || action === "move-down") {
+        const updated = await api.reorder(
+          appId,
+          action === "move-up" ? "up" : "down",
+        );
+        setApps(updated);
+        return;
+      }
+      const app = apps.find((candidate) => candidate.id === appId);
+      if (!app) return;
+      const updated = app.isBuiltIn
+        ? await api.update(appId, { enabled: false })
+        : await api.remove(appId);
+      setApps(updated);
+    },
+    [apps],
+  );
+
+  const handleSidebarAppSave = useCallback(async (app: AppConfig) => {
+    const updated = await window.electronAPI?.appConfig?.update(app.id, app);
+    if (updated) setApps(updated);
+    setEditingSidebarAppId(null);
+  }, []);
 
   const handleSidebarTabChange = useCallback(
     (appId: string) => {
@@ -734,6 +789,16 @@ export default function App() {
     });
   }, [handleTabClose]);
 
+  useEffect(() => {
+    const appConfigApi = window.electronAPI?.appConfig;
+    if (!appConfigApi?.onRuntimeStatus) return;
+    return appConfigApi.onRuntimeStatus((status) => {
+      if (status.appId === activeSidebarAppId && status.state === "running") {
+        setRefreshKey((key) => key + 1);
+      }
+    });
+  }, [activeSidebarAppId]);
+
   const runFind = useCallback(
     (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
       const ref = webviewRefs.current.get(activeTabId);
@@ -881,6 +946,7 @@ export default function App() {
           apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
+          onAppContextMenu={(appId) => void handleSidebarAppContextMenu(appId)}
           onAddAppClick={() => setShowAddApp(true)}
           isCodeAgentsActive={isCodeAgentsActive}
           onCodeAgentsClick={
@@ -942,7 +1008,16 @@ export default function App() {
       {showAddApp && (
         <AddAppDialog
           onSave={handleAddApp}
+          onCreated={handlePromptAppCreated}
           onCancel={() => setShowAddApp(false)}
+        />
+      )}
+
+      {editingSidebarAppId && (
+        <AppEditForm
+          app={apps.find((candidate) => candidate.id === editingSidebarAppId)}
+          onSave={(app) => void handleSidebarAppSave(app)}
+          onCancel={() => setEditingSidebarAppId(null)}
         />
       )}
 

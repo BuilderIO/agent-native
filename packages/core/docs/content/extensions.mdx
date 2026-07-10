@@ -17,6 +17,14 @@ If you've used QuickBooks Online, you've seen the model: QBO ships a core accoun
 
 The framing matters: an extension isn't a generic "do whatever you want" sandbox. It's a **mini-app that extends a specific template** — Mail, Analytics, Calendar, Clips, Design — and uses that template's actions and data. A Mail extension reads emails. An Analytics extension reads a dashboard's metrics. A Calendar extension acts on the open event. They feel like part of the host product because they _are_ part of the host product.
 
+> **Extensions add UI; they do not rewrite the host UI.** An extension renders on
+> its own page or inside a named [slot](#slots) exposed by the template. It
+> cannot inject elements into arbitrary native components — for example, beside
+> every attendee in Calendar — unless the template exposes a slot there. For
+> deeper customization, ask the agent to edit the template's source code. Full
+> code customization is a core Agent Native capability; extensions are the
+> fast, no-deploy layer.
+
 Three things make extensions work:
 
 - **No code, no deploy.** The agent writes them and they're live in seconds. Stored in the database, not the repo.

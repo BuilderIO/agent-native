@@ -125,6 +125,7 @@ import {
   getActiveRunForThreadAsync,
   getRun,
   abortRun,
+  abortRunDurably,
   tryClaimRunSlot,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -5481,9 +5482,19 @@ export async function chainServerDrivenContinuation(opts: {
         // successor is within `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
         // (via `shouldRedispatchUnclaimedBackgroundRun`). Without that guard a
         // connected client would reap this row at the 25s grace, before the
-        // ~2-min sweep, defeating the deferral. The sweep in agent-chat-plugin
-        // is the recovery actor; run-manager is the guard; this is the
-        // producer.
+        // sweep(s) get a chance, defeating the deferral. That same client
+        // poll also surfaces `awaitingRedispatch: true` on `/runs/active`
+        // for exactly this state so the client's background follow loop
+        // (`agent-chat-adapter.ts`) does not count the quiet gap against its
+        // own `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` and report a fatal error
+        // for a turn the server is silently recovering. agent-chat-plugin.ts
+        // runs the actual recovery actors: a FAST redispatch-only sweep
+        // (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, ~20s ticks) that puts the
+        // first redispatch attempt well inside the client's idle timeout, and
+        // the original SLOW sweep (2 min) that also falls back to the loud
+        // reap once `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` is
+        // exceeded. run-manager.ts is the guard + wire-signal source; this is
+        // the producer.
         await d
           .recordRunDiagnostic(
             nextRunId,
@@ -7495,5 +7506,6 @@ export {
   getActiveRunForThreadAsync,
   getRun,
   abortRun,
+  abortRunDurably,
   subscribeToRun,
 };
