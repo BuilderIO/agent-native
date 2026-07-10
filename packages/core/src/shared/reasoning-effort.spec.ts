@@ -75,12 +75,12 @@ describe("normalizeReasoningEffortForModel", () => {
   });
 
   it("normalizes legacy auto and missing effort to medium", () => {
-    expect(
-      normalizeReasoningEffortForModel("claude-opus-4-8", "auto"),
-    ).toBe("medium");
-    expect(
-      normalizeReasoningEffortForModel("claude-opus-4-8", undefined),
-    ).toBe("medium");
+    expect(normalizeReasoningEffortForModel("claude-opus-4-8", "auto")).toBe(
+      "medium",
+    );
+    expect(normalizeReasoningEffortForModel("claude-opus-4-8", undefined)).toBe(
+      "medium",
+    );
   });
 
   it("returns undefined for models that do not support reasoning", () => {

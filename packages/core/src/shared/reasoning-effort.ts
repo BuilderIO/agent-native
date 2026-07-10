@@ -29,11 +29,7 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   max: "Max",
 };
 
-const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = [
-  "low",
-  "medium",
-  "high",
-];
+const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
 
 const VISIBLE_GPT_EFFORTS: ReasoningEffort[] = [
   ...VISIBLE_STANDARD_EFFORTS,

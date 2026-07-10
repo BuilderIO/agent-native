@@ -906,13 +906,7 @@ function ModelSelector({
   );
   const effortOptions =
     model === "auto"
-      ? ([
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max",
-        ] satisfies ReasoningEffort[])
+      ? (["low", "medium", "high", "xhigh", "max"] satisfies ReasoningEffort[])
       : getReasoningEffortOptionsForModel(model);
 
   // Collapse non-selected families by default. The family containing the
