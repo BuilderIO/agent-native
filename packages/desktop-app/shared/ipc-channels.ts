@@ -766,6 +766,7 @@ export interface CodeAgentHostMetadata {
     browser: {
       nativeHostInstalled: boolean;
       extensionBundled: boolean;
+      connected: boolean;
     };
   };
   capabilities: {

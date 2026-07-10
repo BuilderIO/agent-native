@@ -219,6 +219,7 @@ let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
+let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -3240,6 +3241,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
   });
   const browserBridge = new BrowserControlLoopbackBridge();
   const browserHost = await browserBridge.start();
+  desktopBrowserControlBridge = browserBridge;
   const hostEntryPath = app.isPackaged
     ? path.join(
         process.resourcesPath,
@@ -3259,6 +3261,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     }).manifestPath;
   } catch (error) {
     await browserBridge.close();
+    desktopBrowserControlBridge = null;
     broker.close();
     console.warn(
       "[browser-control] Chrome native host installation failed:",
@@ -3283,6 +3286,8 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     await bridge.start();
     desktopComputerMcpBridge = bridge;
   } catch (error) {
+    await browserBridge.close();
+    desktopBrowserControlBridge = null;
     broker.close();
     console.warn(
       "[computer-control] authenticated loopback bridge could not start:",
@@ -7499,6 +7504,8 @@ function getDesktopComputerControlMetadata(): NonNullable<
         fs.existsSync(browserNativeHostManifestPath),
       ),
       extensionBundled: fs.existsSync(extensionPath),
+      connected:
+        desktopBrowserControlBridge?.status().nativeHostConnected ?? false,
     },
   };
 }
@@ -9803,6 +9810,7 @@ app.on("before-quit", () => {
   remoteConnectorProcess = null;
   void desktopComputerMcpBridge?.close();
   desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
 });
 
 app.on("will-quit", () => {

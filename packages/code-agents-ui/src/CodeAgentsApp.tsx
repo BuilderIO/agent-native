@@ -209,7 +209,11 @@ interface CodeAgentHostMetadata {
   computerControl?: {
     available: boolean;
     desktop: { accessibility: boolean; screenRecording: string };
-    browser: { nativeHostInstalled: boolean; extensionBundled: boolean };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
   };
   error?: string;
 }
@@ -544,21 +548,25 @@ export default function CodeAgentsApp({
   useEffect(() => {
     if (!host.getHostMetadata) return;
     let cancelled = false;
-    void host
-      .getHostMetadata()
-      .then((result) => {
-        if (!cancelled) setHostMetadata(result);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setHostMetadata({
-            status: "unavailable",
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      });
+    const refresh = () => {
+      void host.getHostMetadata!()
+        .then((result) => {
+          if (!cancelled) setHostMetadata(result);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setHostMetadata({
+              status: "unavailable",
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 5_000);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [host, refreshKey]);
 
@@ -1672,10 +1680,15 @@ function AgentCapabilitySummary({
   const chromeReady = Boolean(
     control?.available &&
     control.browser.nativeHostInstalled &&
-    control.browser.extensionBundled,
+    control.browser.extensionBundled &&
+    control.browser.connected,
   );
   return (
-    <div className="code-agents-capabilities" aria-label="Agent capabilities">
+    <div
+      className="code-agents-capabilities"
+      aria-label="Agent capabilities"
+      title="Auto can operate connected apps. Stop immediately releases task control."
+    >
       <span className="code-agents-capability code-agents-capability--ready">
         <IconCode size={13} strokeWidth={1.8} />
         Code ready
@@ -1684,7 +1697,7 @@ function AgentCapabilitySummary({
         className={`code-agents-capability${chromeReady ? " code-agents-capability--ready" : ""}`}
         title={
           chromeReady
-            ? "Chrome control is packaged and its native host is installed."
+            ? "The Chrome extension is connected and ready for this task."
             : "Load the bundled Chrome extension to enable browser control."
         }
       >

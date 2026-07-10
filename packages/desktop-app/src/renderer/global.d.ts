@@ -474,6 +474,7 @@ type CodeAgentHostMetadata = {
     browser: {
       nativeHostInstalled: boolean;
       extensionBundled: boolean;
+      connected: boolean;
     };
   };
   capabilities: {
