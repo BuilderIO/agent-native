@@ -479,22 +479,30 @@ pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     let x = (mx + margin - gutter as i32).max(mx);
     let y = (my + mh as i32 - h as i32 - margin).max(my);
     dlog!("[clips-tray] finalizing target size {}x{} physical", w, h);
-    let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
-        .title("Finalizing")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .visible(false)
-        // Don't steal focus — same rationale as the countdown overlay.
-        .focused(false)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] finalizing build failed: {}", e);
-            e.to_string()
-        })?;
+    #[allow(unused_mut)]
+    let mut builder =
+        WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
+            .title("Finalizing")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .visible(false)
+            // Don't steal focus — same rationale as the countdown overlay.
+            .focused(false);
+    // This window deliberately stays non-activating, but its Open and Dismiss
+    // controls must receive the activating click on macOS instead of requiring
+    // a second click after the window becomes key.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
+        eprintln!("[clips-tray] finalizing build failed: {}", e);
+        e.to_string()
+    })?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_ignore_cursor_events(false);
