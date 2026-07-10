@@ -2046,6 +2046,20 @@ export function createIntegrationsPlugin(
         if (parts[0] === "process-task") return;
         // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
+        // These are framework-owned control-plane routes, not integration
+        // platforms. The dedicated handlers above normally return a response
+        // before this catch-all runs, but keeping them reserved here prevents
+        // an unexpected mount fall-through from turning a valid control-plane
+        // request into a misleading "Unknown platform" response.
+        if (
+          parts[0] === "installations" ||
+          parts[0] === "scopes" ||
+          parts[0] === "budgets" ||
+          parts[0] === "memory"
+        ) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup

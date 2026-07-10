@@ -943,6 +943,26 @@ async function processIncomingMessage(
                 placeholderRef: opts.placeholderRef,
               });
             }
+          } else if (progress) {
+            // The downstream agent owns the eventual reply, but this parent
+            // integration run owns the native progress stream it opened. End
+            // that stream now so Slack does not leave an eternal task card;
+            // the continuation processor will post the final result into the
+            // same thread when the downstream task completes.
+            const deferred = adapter.formatAgentResponse(
+              "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+            );
+            try {
+              await progress.complete(deferred);
+            } catch {
+              // A failed complete must still terminate a provider-native
+              // stream when the adapter offers a failure lifecycle. Do not
+              // duplicate the deferred text as a regular reply: a later
+              // continuation delivery is authoritative.
+              await progress.fail?.(
+                "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+              );
+            }
           }
 
           // Persist thread data

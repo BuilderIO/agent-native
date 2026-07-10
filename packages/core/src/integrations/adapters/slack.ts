@@ -1295,6 +1295,7 @@ async function startSlackRunProgress(
   if (typeof streamTs !== "string") return null;
   const tasks = new Map<string, { title: string; status: string }>();
   const toolTaskIds = new Map<string, string>();
+  const agentTaskIds = new Map<string, string>();
   tasks.set("agent-native:context", {
     title: "Understand the request",
     status: "in_progress",
@@ -1443,7 +1444,9 @@ async function startSlackRunProgress(
           status: event.isError ? "error" : "complete",
         });
       } else if (event.type === "agent_call") {
-        const id = taskId("agent", event.agent);
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
         const status =
           event.status === "start"
             ? "in_progress"
@@ -1453,6 +1456,25 @@ async function startSlackRunProgress(
         const title = `Ask ${shortTaskTitle(event.agent)}`;
         tasks.set(id, { title, status });
         await append({ type: "task_update", id, title, status });
+      } else if (event.type === "agent_call_progress") {
+        // A2A calls can stay healthy for minutes. Keep the same native Slack
+        // task card alive with each real downstream poll rather than creating
+        // a new card per tick or leaving the user with a stale spinner.
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
+        const title = `Ask ${shortTaskTitle(event.agent)}`;
+        const details = event.detail
+          ? shortTaskTitle(event.detail)
+          : `Still ${event.state} after ${event.elapsedSeconds}s`;
+        tasks.set(id, { title, status: "in_progress" });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status: "in_progress",
+          details,
+        });
       } else if (event.type === "activity") {
         await append({
           type: "task_update",
