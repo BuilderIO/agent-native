@@ -43,6 +43,8 @@ export interface WorkspaceProvider {
   kind: WorkspaceRootKind;
   /** Explorer section label, e.g. "Design files" or the local app name. */
   label: string;
+  /** Absolute connected folder path, shown only as local workspace context. */
+  rootPath?: string;
   capabilities: WorkspaceCapabilities;
   listFiles(): Promise<WorkspaceFileEntry[]>;
   readFile(path: string): Promise<WorkspaceReadResult>;

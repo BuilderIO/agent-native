@@ -14,8 +14,10 @@ import {
   type IntegrationIconKey,
 } from "@agent-native/core/integrations";
 import {
+  IconBrandDiscord,
   IconBrandSlack,
   IconBrandTelegram,
+  IconBrandTeams,
   IconBrandWhatsapp,
   IconCheck,
   IconChevronRight,
@@ -24,6 +26,7 @@ import {
   IconInfoCircle,
   IconLoader2,
   IconMail,
+  IconPlug,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -39,8 +42,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const CHANNELS = listBuiltInChannelIntegrations();
 
-const PLATFORM_ICONS: Record<IntegrationIconKey, typeof IconBrandSlack> = {
+const PLATFORM_ICONS: Partial<
+  Record<IntegrationIconKey, typeof IconBrandSlack>
+> = {
   slack: IconBrandSlack,
+  "microsoft-teams": IconBrandTeams,
+  discord: IconBrandDiscord,
   telegram: IconBrandTelegram,
   whatsapp: IconBrandWhatsapp,
   email: IconMail,
@@ -312,7 +319,7 @@ export function MessagingSetupPanel() {
             envKeys,
             envStatusByKey,
           );
-          const Icon = PLATFORM_ICONS[platform.iconKey];
+          const Icon = PLATFORM_ICONS[platform.iconKey] ?? IconPlug;
 
           return (
             <section

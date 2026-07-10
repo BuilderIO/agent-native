@@ -1362,8 +1362,13 @@ async function atomicWriteBridgeFile(args: {
   }
 }
 
-/** Allowed file extensions for write/apply-edit operations. */
-const ALLOWED_WRITE_EXTENSIONS = new Set([
+/**
+ * Extensions that are safe for creating a brand-new text/code file through
+ * the bridge. Existing files are classified by their bytes instead, so the
+ * Code workbench can edit languages and extensionless config files without a
+ * permanently incomplete allowlist.
+ */
+const ALLOWED_NEW_TEXT_FILE_EXTENSIONS = new Set([
   ".html",
   ".htm",
   ".css",
@@ -1385,13 +1390,101 @@ const ALLOWED_WRITE_EXTENSIONS = new Set([
   ".yml",
   ".yaml",
   ".svg",
+  ".py",
+  ".rb",
+  ".php",
+  ".java",
+  ".kt",
+  ".kts",
+  ".go",
+  ".rs",
+  ".c",
+  ".h",
+  ".cc",
+  ".cpp",
+  ".hpp",
+  ".cs",
+  ".swift",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".sql",
+  ".toml",
+  ".xml",
+  ".graphql",
+  ".gql",
+  ".prisma",
+  ".properties",
+  ".ini",
+  ".conf",
+  ".env.example",
 ]);
 
-function assertAllowedExtension(relPath: string): void {
+const ALLOWED_NEW_EXTENSIONLESS_TEXT_FILES = new Set([
+  "dockerfile",
+  "makefile",
+  "procfile",
+  "gemfile",
+  "rakefile",
+  "license",
+  "readme",
+]);
+
+const BLOCKED_BINARY_WRITE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".zip",
+  ".gz",
+  ".tar",
+  ".pdf",
+  ".wasm",
+  ".fig",
+  ".sketch",
+  ".exe",
+  ".dll",
+  ".dylib",
+  ".so",
+  ".class",
+  ".jar",
+]);
+
+function assertEditableTextFile(
+  relPath: string,
+  existing: BridgeFileSnapshot | null,
+): void {
   const ext = path.extname(relPath).toLowerCase();
-  if (!ALLOWED_WRITE_EXTENSIONS.has(ext)) {
+  if (BLOCKED_BINARY_WRITE_EXTENSIONS.has(ext)) {
     throw new Error(
-      `Write rejected: extension "${ext || "(no extension)"}" is not in the allowed text-file list for bridge writes.`,
+      `Write rejected: extension "${ext}" is a binary file type.`,
+    );
+  }
+  if (existing) {
+    if (existing.content.includes("\0")) {
+      throw new Error("Write rejected: the existing file contains binary data.");
+    }
+    return;
+  }
+  const basename = path.basename(relPath).toLowerCase();
+  if (
+    !ALLOWED_NEW_TEXT_FILE_EXTENSIONS.has(ext) &&
+    !ALLOWED_NEW_EXTENSIONLESS_TEXT_FILES.has(basename)
+  ) {
+    throw new Error(
+      `Write rejected: extension "${ext || "(no extension)"}" is not recognized for a new text/code file.`,
     );
   }
 }
@@ -2088,9 +2181,6 @@ export async function startDesignConnectBridge(
               return;
             }
 
-            // write-file and apply-edit only allow known text/code extensions.
-            assertAllowedExtension(relPath);
-
             const expectedVersionHash =
               typeof body["expectedVersionHash"] === "string"
                 ? body["expectedVersionHash"]
@@ -2110,6 +2200,7 @@ export async function startDesignConnectBridge(
               const existing = await readBridgeFileSnapshot(
                 lockedTarget.absolutePath,
               );
+              assertEditableTextFile(relPath, existing);
               assertExpectedBridgeVersion(
                 expectedVersionHash,
                 existing?.versionHash,

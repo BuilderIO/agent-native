@@ -24415,7 +24415,10 @@ ${serializedHtml}
   // Localhost workspace roots for the code workbench: one per distinct
   // connection referenced by this design's localhost-backed screens.
   const workbenchLocalhostConnections = useMemo(() => {
-    const seen = new Map<string, { connectionId: string; label: string }>();
+    const seen = new Map<
+      string,
+      { connectionId: string; label: string; rootPath?: string }
+    >();
     for (const screen of overviewScreens) {
       if (screen.sourceType !== "localhost" || !screen.connectionId) continue;
       if (seen.has(screen.connectionId)) continue;
@@ -24428,13 +24431,21 @@ ${serializedHtml}
           // Keep the fallback label for malformed screen URLs.
         }
       }
+      const rootPath = activeLocalhostConnectionResult?.connections?.find(
+        (connection) => connection.id === screen.connectionId,
+      )?.rootPath;
+      const rootName = rootPath
+        ?.replace(/[\\/]+$/, "")
+        .split(/[\\/]+/)
+        .pop();
       seen.set(screen.connectionId, {
         connectionId: screen.connectionId,
-        label,
+        label: rootName || label,
+        rootPath: rootPath ?? undefined,
       });
     }
     return [...seen.values()];
-  }, [overviewScreens]);
+  }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
   // Consent round trip for code-workbench saves to local files: opens the
   // shared write-consent dialog and retries the save once granted.
@@ -24446,7 +24457,11 @@ ${serializedHtml}
         rootPath:
           workbenchLocalhostConnections.find(
             (connection) => connection.connectionId === connectionId,
-          )?.label ?? connectionId,
+          )?.rootPath ??
+          workbenchLocalhostConnections.find(
+            (connection) => connection.connectionId === connectionId,
+          )?.label ??
+          connectionId,
         files: filePath ? [filePath] : [],
         onGranted: () => retry(),
         onCancel: () => {},
@@ -27754,7 +27769,7 @@ ${serializedHtml}
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id && activeLeftPanel === "code" ? (
+                {id && (activeLeftPanel === "code" || activeCodeFile) ? (
                   <Suspense
                     fallback={
                       <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--design-editor-panel-bg)] text-muted-foreground">
