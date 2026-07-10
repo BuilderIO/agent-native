@@ -2202,6 +2202,175 @@ export function actionsToEngineTools(
   return tools;
 }
 
+export type AgentToolCallExecutionResult =
+  | {
+      status: "completed";
+      output: string;
+      completedSideEffect?: boolean;
+    }
+  | {
+      status: "approval_required";
+      output: string;
+      approvalKey: string;
+    }
+  | {
+      status: "failed";
+      output: string;
+    };
+
+export interface ExecuteAgentToolCallOptions {
+  actions: Record<string, ActionEntry>;
+  name: string;
+  input?: unknown;
+  callId: string;
+  signal?: AbortSignal;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+  threadId?: string;
+  turnId?: string;
+  approvedToolCalls?: string[];
+  send?: (event: AgentChatEvent) => void;
+}
+
+/**
+ * Execute one externally-selected tool through the exact same guarded runtime
+ * as a normal model-selected tool call. Realtime voice and other duplex
+ * transports use this instead of calling `ActionEntry.run` directly, which
+ * would bypass approvals, schema validation, timeouts, the tool journal,
+ * result redaction, mutation ordering, and refresh notifications.
+ */
+export async function executeAgentToolCall(
+  options: ExecuteAgentToolCallOptions,
+): Promise<AgentToolCallExecutionResult> {
+  const entry = options.actions[options.name];
+  if (!entry || entry.agentTool === false) {
+    return {
+      status: "failed",
+      output: `Unknown or unavailable tool: ${options.name}`,
+    };
+  }
+
+  let streamCalls = 0;
+  const engine: AgentEngine = {
+    name: "agent-native:single-tool",
+    label: "Agent Native tool runtime",
+    defaultModel: "agent-native:single-tool",
+    supportedModels: ["agent-native:single-tool"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(): AsyncIterable<EngineEvent> {
+      streamCalls += 1;
+      if (streamCalls === 1) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: options.callId,
+              name: options.name,
+              input: options.input ?? {},
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text", text: "Tool execution complete." }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+
+  const events: AgentChatEvent[] = [];
+  const send = (event: AgentChatEvent) => {
+    events.push(event);
+    options.send?.(event);
+  };
+  const controller = options.signal ? null : new AbortController();
+  const signal = options.signal ?? controller!.signal;
+  const tools = actionsToEngineTools(options.actions);
+
+  try {
+    await runAgentLoop({
+      engine,
+      model: engine.defaultModel,
+      systemPrompt: "Execute the selected Agent Native tool call.",
+      tools,
+      availableTools: tools,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Execute the ${options.name} tool call.`,
+            },
+          ],
+        },
+      ],
+      actions: options.actions,
+      send,
+      signal,
+      ownerEmail: options.ownerEmail,
+      orgId: options.orgId,
+      executionMode: "act",
+      maxIterations: 2,
+      threadId: options.threadId,
+      turnId: options.turnId,
+      approvedToolCalls: options.approvedToolCalls,
+    });
+  } catch (error) {
+    return {
+      status: "failed",
+      output: sanitizeToolErrorValue(error),
+    };
+  }
+
+  const approval = events.find(
+    (event): event is Extract<AgentChatEvent, { type: "approval_required" }> =>
+      event.type === "approval_required" && event.tool === options.name,
+  );
+  const completed = [...events]
+    .reverse()
+    .find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done" && event.tool === options.name,
+    );
+
+  if (approval) {
+    return {
+      status: "approval_required",
+      approvalKey: approval.approvalKey,
+      output:
+        completed?.result ??
+        `Awaiting human approval to run ${options.name}.`,
+    };
+  }
+  if (!completed) {
+    return {
+      status: "failed",
+      output: `The ${options.name} tool did not return a result.`,
+    };
+  }
+  if (completed.isError) {
+    return { status: "failed", output: completed.result };
+  }
+  return {
+    status: "completed",
+    output: completed.result,
+    ...(typeof completed.completedSideEffect === "boolean"
+      ? { completedSideEffect: completed.completedSideEffect }
+      : {}),
+  };
+}
+
 export function filterInitialEngineTools(
   tools: EngineTool[],
   initialToolNames?: string[],
