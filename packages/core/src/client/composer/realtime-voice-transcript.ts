@@ -72,7 +72,10 @@ export function appendRealtimeVoiceTranscriptToRepository(
 }
 
 export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscriptRegistry {
-  const sinks = new Map<symbol, RealtimeVoiceTranscriptSink & { order: number }>();
+  const sinks = new Map<
+    symbol,
+    RealtimeVoiceTranscriptSink & { order: number }
+  >();
   const pending = new Map<string, RealtimeVoiceTranscriptMessage>();
   const delivered = new Set<string>();
   let order = 0;

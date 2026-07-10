@@ -46,7 +46,8 @@ export function createRealtimeVoiceAudioLevelStore(): RealtimeVoiceAudioLevelSto
       input: clampLevel(levels.input),
       output: clampLevel(levels.output),
     };
-    if (next.input === snapshot.input && next.output === snapshot.output) return;
+    if (next.input === snapshot.input && next.output === snapshot.output)
+      return;
     snapshot = next;
     for (const listener of listeners) listener();
   };

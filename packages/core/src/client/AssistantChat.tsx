@@ -2264,7 +2264,9 @@ const AssistantChatInner = forwardRef<
   );
 
   const appendRealtimeVoiceTranscript = useCallback(
-    (transcript: Parameters<typeof realtimeVoiceTranscriptRegistry.publish>[0]) => {
+    (
+      transcript: Parameters<typeof realtimeVoiceTranscriptRegistry.publish>[0],
+    ) => {
       if (isRestoring || isRunning) return false;
       const result = appendRealtimeVoiceTranscriptToRepository(
         exportCleanThreadRepo(),
@@ -2285,12 +2287,7 @@ const AssistantChatInner = forwardRef<
       active: isActiveComposer,
       append: appendRealtimeVoiceTranscript,
     });
-  }, [
-    appendRealtimeVoiceTranscript,
-    isActiveComposer,
-    tabId,
-    threadId,
-  ]);
+  }, [appendRealtimeVoiceTranscript, isActiveComposer, tabId, threadId]);
 
   const appendThreadMessage = useCallback(
     (message: Parameters<typeof threadRuntime.append>[0]) => {

@@ -147,6 +147,33 @@ impl NativeUploadMode {
             Self::Streaming => "streaming",
         }
     }
+
+    fn from_reset_response(body: &str) -> Self {
+        let value = serde_json::from_str::<serde_json::Value>(body).ok();
+        let upload_mode = value
+            .as_ref()
+            .and_then(|value| value.get("uploadMode"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        Self::from_option(upload_mode)
+    }
+}
+
+#[cfg(test)]
+mod native_upload_mode_tests {
+    use super::NativeUploadMode;
+
+    #[test]
+    fn uses_streaming_mode_when_retry_session_was_recreated() {
+        assert_eq!(
+            NativeUploadMode::from_reset_response(r#"{"uploadMode":"streaming"}"#),
+            NativeUploadMode::Streaming,
+        );
+        assert_eq!(
+            NativeUploadMode::from_reset_response(r#"{"ok":true}"#),
+            NativeUploadMode::Buffered,
+        );
+    }
 }
 
 #[derive(Default)]
@@ -2061,9 +2088,10 @@ pub async fn native_fullscreen_recording_retry_upload(
     saved.last_error = None;
     write_saved_recording_metadata(&app, &saved)?;
 
-    reset_upload_chunks(
+    let upload_mode = reset_upload_chunks(
         &saved.server_url,
         &saved.recording_id,
+        &saved.mime_type,
         auth_token.as_deref().unwrap_or(""),
         cookie.as_deref().unwrap_or(""),
     )
@@ -2079,6 +2107,7 @@ pub async fn native_fullscreen_recording_retry_upload(
         saved.server_url.clone(),
         auth_token.unwrap_or_default(),
         cookie.unwrap_or_default(),
+        upload_mode,
     )
     .await;
 
@@ -3242,6 +3271,7 @@ async fn upload_saved_recording_file(
     server_url: String,
     auth_token: String,
     cookie: String,
+    upload_mode: NativeUploadMode,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let (prepared, retry_combined_path) = prepare_saved_recording_file(app, saved)?;
     let upload_result = upload_prepared_recording_file(
@@ -3251,7 +3281,7 @@ async fn upload_saved_recording_file(
         saved.recording_id.clone(),
         auth_token,
         cookie,
-        NativeUploadMode::Buffered,
+        upload_mode,
         saved.duration_ms,
         saved.width,
         saved.height,
@@ -3509,9 +3539,10 @@ async fn upload_prepared_recording_file(
 async fn reset_upload_chunks(
     server_url: &str,
     recording_id: &str,
+    mime_type: &str,
     auth_token: &str,
     cookie: &str,
-) -> Result<(), String> {
+) -> Result<NativeUploadMode, String> {
     let base = server_url.trim_end_matches('/');
     let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
         .map_err(|e| format!("invalid reset URL: {e}"))?;
@@ -3523,7 +3554,10 @@ async fn reset_upload_chunks(
         .post(url)
         .header("Content-Type", "application/json")
         .header("X-Request-Source", "clips-desktop")
-        .body("{}");
+        .json(&serde_json::json!({
+            "requestStreaming": true,
+            "mimeType": mime_type,
+        }));
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
         request = request.bearer_auth(trimmed_token);
@@ -3545,7 +3579,7 @@ async fn reset_upload_chunks(
             body.chars().take(400).collect::<String>()
         ));
     }
-    Ok(())
+    Ok(NativeUploadMode::from_reset_response(&body))
 }
 
 async fn upload_thumbnail_bytes(
