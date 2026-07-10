@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -24,6 +27,13 @@ vi.mock("./run-store.js", () => ({
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
   reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
+  // Faithful copy of the real pure predicate (5-min redispatch bound) so the
+  // run-manager client-poll guard can be exercised without the real DB module.
+  UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS: 5 * 60_000,
+  shouldRedispatchUnclaimedBackgroundRun: (
+    row: { startedAt: number },
+    now: number = Date.now(),
+  ) => now - row.startedAt < 5 * 60_000,
   reconcileTerminalRunFromEvents: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   getLastTerminalRunEvent: vi.fn(() => Promise.resolve(null)),
@@ -623,6 +633,90 @@ describe("run manager soft timeout", () => {
         "boom",
       );
     });
+  });
+
+  it("persists missing credential terminal events as errored runs", async () => {
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async () => {});
+    const run = startRun(
+      "run-missing-credential-terminal",
+      "thread-missing-credential-terminal",
+      async (send) => {
+        send({ type: "missing_api_key" });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-missing-credential-terminal",
+        "errored",
+      ),
+    );
+
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      "completed",
+    );
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      0,
+      JSON.stringify({ type: "missing_api_key" }),
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      "missing_api_key",
+    );
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-missing-credential-terminal",
+      LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      LLM_MISSING_CREDENTIALS_MESSAGE,
+    );
+    expect(events).toContainEqual({ type: "missing_api_key" });
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({ event: { type: "missing_api_key" } }),
+        ],
+      }),
+    );
+  });
+
+  it("passes an emitted terminal error to completion callbacks as errored", async () => {
+    const onComplete = vi.fn(async () => {});
+
+    startRun(
+      "run-error-terminal-callback",
+      "thread-error-terminal-callback",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Provider failed",
+          errorCode: "provider_failed",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "errored",
+        events: [
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "provider_failed",
+            }),
+          }),
+        ],
+      }),
+    );
   });
 
   it("maps exhausted provider 429s to a terminal rate-limit error code", async () => {
@@ -1831,14 +1925,16 @@ describe("run manager soft timeout", () => {
   });
 
   // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
-  it("recovers an unclaimed-stale background run (202 acked, worker never started)", async () => {
+  it("reaps an unclaimed-stale background run PAST the redispatch bound (202 acked, worker never started, no recovery left)", async () => {
     // dispatch_mode still 'background' (never flipped to 'background-processing')
-    // means the bg-fn worker silently died. The read path must recover it.
+    // means the bg-fn worker silently died. Once the successor is OLDER than the
+    // redispatch bound the sweep has had its chances, so the client poll reaps it
+    // loudly — this is the moved-later loud failure.
     vi.mocked(getRunByThread).mockResolvedValue({
       id: "run-unclaimed",
       threadId: "thread-unclaimed",
       status: "running",
-      startedAt: Date.now() - 30_000,
+      startedAt: Date.now() - (5 * 60_000 + 30_000), // past the 5-min bound
       heartbeatAt: Date.now() - 30_000,
       completedAt: null,
       lastProgressAt: null,
@@ -1855,6 +1951,42 @@ describe("run manager soft timeout", () => {
     expect(result).toBeNull();
     expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
     expect(reapIfStale).not.toHaveBeenCalled();
+  });
+
+  it("does NOT reap a deferred background successor while still WITHIN the redispatch bound — leaves it for the sweep", async () => {
+    // A successor that chainServerDrivenContinuation deferred (dispatch failed,
+    // row left running+background for the sweep to redispatch). At 30s it is well
+    // inside the 5-min redispatch bound, so the ~1s client poll must NOT reap it
+    // at the 25s unclaimed grace — that would convert the silent server-side
+    // recovery into a user-visible background_worker_never_started manual-retry
+    // error. reapIfStale (90s → stale_run auto-continue) stays the outer backstop.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-deferred",
+      threadId: "thread-deferred",
+      status: "running",
+      startedAt: Date.now() - 30_000, // within the 5-min bound
+      heartbeatAt: Date.now() - 30_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      diagStage: null,
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockClear();
+    // reapIfStale not yet eligible (background 90s window) → returns false, so the
+    // still-running successor is surfaced as active while it awaits the sweep.
+    vi.mocked(reapIfStale).mockResolvedValueOnce(false);
+
+    const result = await getActiveRunForThreadAsync("thread-deferred");
+
+    // The unclaimed reap was skipped — the sweep owns recovery inside the bound.
+    expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
+    // The run is still surfaced as an active background run (client keeps
+    // following; no premature manual-retry error).
+    expect(result).toMatchObject({
+      runId: "run-deferred",
+      status: "running",
+      dispatchMode: "background",
+    });
   });
 
   it("does NOT attempt unclaimed recovery for a claimed (background-processing) run", async () => {

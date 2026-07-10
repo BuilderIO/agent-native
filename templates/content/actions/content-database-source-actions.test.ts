@@ -11,8 +11,11 @@ import addSourceFieldProperty, {
 import attachSource, {
   builderCmsAttachReadMetadata,
   readInitialBuilderCmsAttachEntries,
+  readInitialBuilderCmsAttachSource,
 } from "./attach-content-database-source";
-import changeSourceRole from "./change-content-database-source-role";
+import changeSourceRole, {
+  readBuilderCmsEntriesForRoleChange,
+} from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
 import executeBatch from "./execute-builder-source-batch";
 import executeExecution from "./execute-builder-source-execution";
@@ -133,11 +136,19 @@ describe("content database source actions", () => {
   });
 
   it("bounds initial Builder source attachment to a single continuation page", async () => {
-    const calls: Array<{ model: string; maxPages?: number }> = [];
+    const calls: Array<{
+      model: string;
+      maxPages?: number;
+      fieldPaths?: readonly string[];
+    }> = [];
     const result = await readInitialBuilderCmsAttachEntries(
       "blog-article",
       async (args) => {
-        calls.push({ model: args.model, maxPages: args.maxPages });
+        calls.push({
+          model: args.model,
+          maxPages: args.maxPages,
+          fieldPaths: args.fieldPaths,
+        });
         return {
           state: "live",
           entries: [],
@@ -155,10 +166,91 @@ describe("content database source actions", () => {
           },
         };
       },
+      ["topics", "tags"],
     );
 
     expect(result.state).toBe("live");
-    expect(calls).toEqual([{ model: "blog-article", maxPages: 1 }]);
+    expect(calls).toEqual([
+      {
+        model: "blog-article",
+        maxPages: 1,
+        fieldPaths: ["topics", "tags"],
+      },
+    ]);
+  });
+
+  it("fails Builder attachment preparation before durable source mutation when model discovery fails", async () => {
+    const calls: string[] = [];
+    await expect(
+      readInitialBuilderCmsAttachSource("blog-article", {
+        readModelFields: async () => {
+          calls.push("model-fields");
+          throw new Error("model discovery unavailable");
+        },
+        readEntries: async () => {
+          calls.push("entries");
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 0,
+              fetchedEntryCount: 0,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        },
+      }),
+    ).rejects.toThrow("model discovery unavailable");
+    expect(calls).toEqual(["model-fields", "entries"]);
+  });
+
+  it("fails role-change preparation before mappings can be rewritten when model discovery fails", async () => {
+    const calls: string[] = [];
+    const existingMappings = ["data.topics", "data.tags"];
+
+    await expect(
+      readBuilderCmsEntriesForRoleChange(
+        {
+          model: "blog-article",
+          existingFieldPaths: existingMappings,
+        },
+        {
+          readModelFields: async () => {
+            calls.push("model-fields");
+            throw new Error("model discovery unavailable");
+          },
+          readEntries: async (args) => {
+            calls.push("entries");
+            expect(args.fieldPaths).toEqual(existingMappings);
+            return {
+              state: "live",
+              entries: [],
+              fetchedAt: "2026-01-01T00:00:00.000Z",
+              message: null,
+              progress: {
+                requestedLimit: 500,
+                pageSize: 100,
+                startOffset: 0,
+                nextOffset: 0,
+                fetchedEntryCount: 0,
+                hasMore: false,
+                partial: false,
+                readMode: "builder-api",
+              },
+            };
+          },
+        },
+      ),
+    ).rejects.toThrow("model discovery unavailable");
+    expect(calls).toEqual(["model-fields", "entries"]);
+    expect(existingMappings).toEqual(["data.topics", "data.tags"]);
   });
 
   it("marks partial Builder source attachment reads as continuing work", () => {

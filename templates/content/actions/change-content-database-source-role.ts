@@ -187,6 +187,37 @@ async function removeRowsOwnedOnlyBySource(args: {
     );
 }
 
+export async function readBuilderCmsEntriesForRoleChange(
+  args: {
+    model: string;
+    existingFieldPaths?: readonly string[];
+  },
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  let modelFields: BuilderCmsModelFieldSummary[] = [];
+  let modelFieldsError: unknown = null;
+  try {
+    modelFields = await readModelFields({ model: args.model });
+  } catch (error) {
+    modelFieldsError = error;
+  }
+  const read = await readEntries({
+    model: args.model,
+    fieldPaths: [
+      ...(args.existingFieldPaths ?? []),
+      ...modelFields.map((field) => `data.${field.name}`),
+    ],
+  });
+  if (modelFieldsError) throw modelFieldsError;
+  return { read, modelFields };
+}
+
 async function readSourceEntries(args: {
   sourceType: ContentDatabaseSourceType;
   sourceTable: string;
@@ -200,12 +231,12 @@ async function readSourceEntries(args: {
   message: string | null;
 }> {
   if (args.sourceType === "builder-cms") {
-    const read = await readBuilderCmsContentEntries({
+    const { read, modelFields } = await readBuilderCmsEntriesForRoleChange({
       model: args.sourceTable,
     });
     return {
       entries: read.state === "live" ? read.entries : [],
-      modelFields: await readBuilderCmsModelFields({ model: args.sourceTable }),
+      modelFields,
       readState: read.state,
       fetchedAt: read.fetchedAt,
       message: read.message,
@@ -328,13 +359,20 @@ export default defineAction({
         throw new Error("Only Builder sources can add more items right now.");
       }
 
-      const read = await readBuilderCmsContentEntries({
-        model: source.sourceTable,
-      });
+      const existingSourceFields = await db
+        .select({
+          sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+      const { read, modelFields: builderModelFields } =
+        await readBuilderCmsEntriesForRoleChange({
+          model: source.sourceTable,
+          existingFieldPaths: existingSourceFields.map(
+            (field) => field.sourceFieldKey,
+          ),
+        });
       const entries = read.state === "live" ? read.entries : [];
-      const builderModelFields = await readBuilderCmsModelFields({
-        model: source.sourceTable,
-      });
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));

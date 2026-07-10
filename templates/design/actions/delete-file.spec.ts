@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
 
   const db = {
     select: vi.fn(() => fileSelectChain),
+    delete: vi.fn(() => txDeleteChain),
     transaction: vi.fn(async (callback) => callback(tx)),
   };
 
@@ -45,6 +46,8 @@ const mocks = vi.hoisted(() => {
     assertAccess: vi.fn(),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
+    designData: {} as Record<string, unknown>,
+    mutateDesignData: vi.fn(),
   };
 });
 
@@ -75,6 +78,10 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import action from "./delete-file.js";
 
 describe("delete-file", () => {
@@ -83,41 +90,51 @@ describe("delete-file", () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       { id: "file-b", designId: "design_123" },
     ]);
-    mocks.txSelectChain.limit.mockResolvedValue([
-      {
-        data: JSON.stringify({
-          canvasFrames: {
-            "file-a": { x: 0 },
-            "file-b": { x: 500 },
-          },
-          screenMetadata: {
-            "file-a": { title: "Keep" },
-            "file-b": { title: "Delete" },
-          },
-          localhostScreens: {
-            "file-b": { sourceType: "localhost" },
-          },
-          designVariantSets: {
-            variants: {
-              id: "variants",
-              screens: [
-                { id: "file-a", label: "Keep" },
-                { id: "file-b", label: "Delete" },
-                { id: "file-c", label: "Other" },
-              ],
-            },
-            settled: {
-              id: "settled",
-              screens: [
-                { id: "file-a", label: "Keep" },
-                { id: "file-b", label: "Delete" },
-              ],
-            },
-          },
-          keepMe: true,
-        }),
+    mocks.designData = {
+      canvasFrames: {
+        "file-a": { x: 0 },
+        "file-b": { x: 500 },
       },
-    ]);
+      screenMetadata: {
+        "file-a": { title: "Keep" },
+        "file-b": { title: "Delete" },
+      },
+      localhostScreens: {
+        "file-b": { sourceType: "localhost" },
+      },
+      designVariantSets: {
+        variants: {
+          id: "variants",
+          screens: [
+            { id: "file-a", label: "Keep" },
+            { id: "file-b", label: "Delete" },
+            { id: "file-c", label: "Other" },
+          ],
+        },
+        settled: {
+          id: "settled",
+          screens: [
+            { id: "file-a", label: "Keep" },
+            { id: "file-b", label: "Delete" },
+          ],
+        },
+      },
+      keepMe: true,
+    };
+    mocks.mutateDesignData.mockImplementation(
+      async (options: {
+        mutate: (
+          current: Record<string, unknown>,
+          context: { updatedAt: string },
+        ) => Record<string, unknown>;
+        isApplied: (current: Record<string, unknown>) => boolean;
+      }) => {
+        const updatedAt = "2026-07-09T00:00:00.000Z";
+        mocks.designData = options.mutate(mocks.designData, { updatedAt });
+        expect(options.isApplied(mocks.designData)).toBe(true);
+        return { data: mocks.designData, updatedAt };
+      },
+    );
   });
 
   it("returns a non-error result when the file is already missing", async () => {
@@ -141,14 +158,10 @@ describe("delete-file", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.tx.delete).toHaveBeenCalled();
-    expect(mocks.tx.update).toHaveBeenCalled();
+    expect(mocks.db.delete).toHaveBeenCalled();
+    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
 
-    const updatePayload = mocks.txUpdateChain.set.mock.calls[0]?.[0] as {
-      data: string;
-      updatedAt: string;
-    };
-    const data = JSON.parse(updatePayload.data);
+    const data = mocks.designData;
     expect(data.keepMe).toBe(true);
     expect(data.canvasFrames).toEqual({ "file-a": { x: 0 } });
     expect(data.screenMetadata).toEqual({ "file-a": { title: "Keep" } });
@@ -162,6 +175,6 @@ describe("delete-file", () => {
         ],
       },
     });
-    expect(data.updatedAt).toBe(updatePayload.updatedAt);
+    expect(data.updatedAt).toBe("2026-07-09T00:00:00.000Z");
   });
 });

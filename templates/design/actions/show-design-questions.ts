@@ -87,6 +87,16 @@ export default defineAction({
       .describe(
         "1-8 focused design-intake questions. Prefer 4-6 concise questions " +
           "with useful choices, Other enabled, and Decide for me where appropriate.",
+      )
+      .refine(
+        (questions) =>
+          new Set(questions.map((question) => question.id)).size ===
+          questions.length,
+        {
+          message:
+            "Question ids must be unique — duplicate ids share one answer " +
+            "slot in the form, silently discarding one question's answer.",
+        },
       ),
   }),
   mcpApp: {

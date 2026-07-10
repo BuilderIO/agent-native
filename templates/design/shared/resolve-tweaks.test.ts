@@ -6,6 +6,7 @@ import {
   isSafeCssVarName,
   resolveTweaksToCssVars,
   renderResolvedRootBlock,
+  tweakSelectionsHash,
 } from "./resolve-tweaks";
 
 const tweaks: TweakDefinition[] = [
@@ -45,6 +46,15 @@ const tweaks: TweakDefinition[] = [
 ];
 
 describe("resolveTweaksToCssVars", () => {
+  it("hashes persisted selections independently of object insertion order", () => {
+    expect(tweakSelectionsHash({ density: "compact", radius: 12 })).toBe(
+      tweakSelectionsHash({ radius: 12, density: "compact" }),
+    );
+    expect(tweakSelectionsHash({ density: "compact" })).not.toBe(
+      tweakSelectionsHash({ density: "comfortable" }),
+    );
+  });
+
   it("falls back to defaultValue and applies type rules", () => {
     expect(resolveTweaksToCssVars(tweaks, {})).toEqual({
       "--color-accent": "#0EA5E9",

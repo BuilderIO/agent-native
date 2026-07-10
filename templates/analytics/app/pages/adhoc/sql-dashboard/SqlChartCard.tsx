@@ -10,6 +10,7 @@ import {
   IconTrash,
   IconCode,
   IconDownload,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -46,6 +47,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
+import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
@@ -62,6 +65,8 @@ interface SqlChartCardProps {
   editable?: boolean;
   eagerLoad?: boolean;
   isDragSource?: boolean;
+  selectedForChat?: boolean;
+  onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -115,6 +120,8 @@ export function SqlChartCard({
   editable = true,
   eagerLoad = false,
   isDragSource = false,
+  selectedForChat = false,
+  onSelectForChat,
 }: SqlChartCardProps) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -144,6 +151,12 @@ export function SqlChartCard({
   const chartHasCachedData =
     queryClient.getQueryData(chartQueryKey) !== undefined;
   const isChartRefreshing = chartHasCachedData && chartFetchCount > 0;
+  const extensionId =
+    panel.chartType === "extension"
+      ? ((panel.config as Record<string, unknown> | undefined)?.extensionId as
+          | string
+          | undefined)
+      : undefined;
 
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -159,6 +172,22 @@ export function SqlChartCard({
       queryKey: chartQueryKey,
     });
   }, [chartQueryKey, queryClient]);
+
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+        )
+      ) {
+        return;
+      }
+      onSelectForChat?.({ focus: false });
+    },
+    [onSelectForChat],
+  );
 
   useEffect(() => {
     if (eagerLoad) {
@@ -299,14 +328,17 @@ export function SqlChartCard({
   // actions (full screen, refresh, open embedded extension); editable
   // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
-    const extensionId = (panel.config as Record<string, unknown> | undefined)
-      ?.extensionId as string | undefined;
     return (
       <div
         ref={setCardNodeRef}
+        onClick={handleCardClick}
         style={isDragSource ? { zIndex: 50 } : undefined}
         data-dragging={isDragSource ? "true" : undefined}
-        className="dashboard-extension-card group relative h-full"
+        data-chat-selected={selectedForChat ? "true" : undefined}
+        className={cn(
+          "dashboard-extension-card group relative h-full rounded-lg border border-transparent transition-colors",
+          selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+        )}
       >
         {!expanded && (
           <SqlChart
@@ -332,6 +364,15 @@ export function SqlChartCard({
               <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onSelect={() =>
+                  onSelectForChat?.({ openSidebar: true, focus: true })
+                }
+              >
+                <IconMessageCircle className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.chatWithPanel")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExpanded(true)}>
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
@@ -437,11 +478,18 @@ export function SqlChartCard({
   return (
     <div
       ref={setCardNodeRef}
+      onClick={handleCardClick}
       style={isDragSource ? { zIndex: 50 } : undefined}
       data-dragging={isDragSource ? "true" : undefined}
+      data-chat-selected={selectedForChat ? "true" : undefined}
       className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
-      <Card className="flex h-full flex-col overflow-visible">
+      <Card
+        className={cn(
+          "flex h-full flex-col overflow-visible transition-colors",
+          selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+        )}
+      >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
@@ -499,6 +547,15 @@ export function SqlChartCard({
                   </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onSelectForChat?.({ openSidebar: true, focus: true })
+                    }
+                  >
+                    <IconMessageCircle className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.chatWithPanel")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => setExpanded(true)}>
                     <IconMaximize className="h-4 w-4 mr-2" />
                     {t("sqlDashboard.fullScreen")}

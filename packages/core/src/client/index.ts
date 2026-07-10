@@ -19,6 +19,9 @@ export {
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
+  reportAgentChatSubmitResult,
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   parseSubmitChatMessage,
   setAgentChatContextItem,
   setContextToAgentChat,
@@ -33,6 +36,8 @@ export {
   type AgentChatContextSetOptions,
   type AgentChatContextState,
   type AgentChatMessage,
+  type AgentChatSubmitResult,
+  type SendToAgentChatAndConfirmResult,
   type AgentComposerReference,
   type AgentComposerReferenceInsertOptions,
   type AgentComposerReferenceInsertPayload,
@@ -920,12 +925,16 @@ export {
   type DevOptionValue,
 } from "./dev-overlay/index.js";
 export {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
+  tryCallActionKeepalive,
   useActionQuery,
   useActionMutation,
   type ActionRegistry,
   type ClientActionCallOptions,
   type ClientActionMethod,
+  type KeepaliveActionCallRejectionReason,
+  type KeepaliveActionCallResult,
 } from "./use-action.js";
 export { createAgentNativeQueryClient } from "./create-query-client.js";
 export { AppProviders, type AppProvidersProps } from "./app-providers.js";

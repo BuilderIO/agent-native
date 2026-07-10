@@ -256,6 +256,7 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.result).toContain(
       "Recovered from prior interrupted chunk",
     );
+    expect(toolDone?.completedSideEffect).toBe(true);
   });
 
   it("waits briefly for a late zombie ledger result before re-executing", async () => {

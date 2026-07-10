@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
   let designRows: Array<Record<string, unknown>> = [
     { id: "design-1", data: null },
   ];
+  let designData: Record<string, unknown> = {};
 
   const fileSelectChain = { from: vi.fn(), where: vi.fn() };
   fileSelectChain.from.mockReturnValue(fileSelectChain);
@@ -141,6 +142,11 @@ const mocks = vi.hoisted(() => {
     setDesignRows: (next: Array<Record<string, unknown>>) => {
       designRows = next;
     },
+    setDesignData: (next: Record<string, unknown>) => {
+      designData = next;
+    },
+    getDesignData: () => designData,
+    mutateDesignData: vi.fn(),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     eq: vi.fn((left, right) => ({ left, right })),
     readAppState: vi.fn().mockResolvedValue(null),
@@ -202,7 +208,30 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+vi.mock("../server/lib/design-data-mutation.js", () => ({
+  mutateDesignData: mocks.mutateDesignData,
+}));
+
 import action from "./generate-design.js";
+
+function resetDesignDataMutation() {
+  mocks.setDesignData({ concurrentSibling: { keep: true } });
+  mocks.mutateDesignData.mockImplementation(
+    async (options: {
+      mutate: (
+        current: Record<string, unknown>,
+        context: { updatedAt: string },
+      ) => Record<string, unknown>;
+      isApplied: (current: Record<string, unknown>) => boolean;
+    }) => {
+      const updatedAt = "2026-07-09T12:00:00.000Z";
+      const next = options.mutate(mocks.getDesignData(), { updatedAt });
+      mocks.setDesignData(next);
+      expect(options.isApplied(next)).toBe(true);
+      return { data: next, updatedAt };
+    },
+  );
+}
 
 function setExistingFile(
   content: string,
@@ -274,6 +303,66 @@ describe("generate-design action tool schema", () => {
   });
 });
 
+describe("generate-design: canvasFrames duplicate-target rejection", () => {
+  // mergeCanvasFramePlacements folds two placements for the same target into
+  // one canvasFrames[fileId] value (last one wins), but the mutateDesignData
+  // isApplied check verifies EVERY placedFrames entry against that single
+  // folded value, so the earlier (now-overwritten) entry always mismatches.
+  // Since the mutate callback is deterministic, every retry recomputes the
+  // same mismatch, so the action would always fail with a "concurrent write
+  // conflicts" error after burning through every retry. Reject the malformed
+  // input up front instead.
+  it("rejects two canvasFrames entries targeting the same fileId", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { fileId: "file-1", x: 0, y: 0, width: 100, height: 100 },
+        { fileId: "file-1", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects two canvasFrames entries targeting the same filename", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "index.html", x: 50, y: 50, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("still accepts distinct canvasFrames targets", () => {
+    const parsed = (action as any).schema.safeParse({
+      designId: "design-1",
+      prompt: "Add screens",
+      files: [
+        { filename: "index.html", fileType: "html", content: "<html></html>" },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html></html>",
+        },
+      ],
+      canvasFrames: JSON.stringify([
+        { filename: "index.html", x: 0, y: 0, width: 100, height: 100 },
+        { filename: "details.html", x: 200, y: 0, width: 100, height: 100 },
+      ]),
+    });
+    expect(parsed.success).toBe(true);
+  });
+});
+
 describe("generate-design: existing-file update path (hash-guarded write)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -283,6 +372,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue(undefined);
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
   });
 
   it("updates an existing file's content via the hash-guarded write path", async () => {
@@ -393,6 +483,112 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
   });
 });
 
+describe("generate-design: generation-session lock guards concurrent fan-out", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue(undefined);
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  // generate-screens' own tool description recommends fanning out parallel
+  // generate-design calls per returned frame. Both calls read-modify-write
+  // the same design-generation-session:<designId> application-state key with
+  // no CAS/versioning primitive available, so without in-process
+  // serialization, whichever write lands second silently discards the first
+  // call's frame-done update (classic lost-update race). Artificial delays on
+  // the mocked readAppState/writeAppState make the race deterministic: without
+  // the lock, both reads land on the same pre-update session before either
+  // write commits.
+  it("marks both fanned-out frames done instead of losing one to a last-write-wins race", async () => {
+    const sessionStore = new Map<string, Record<string, unknown>>();
+    const key = "design-generation-session:design-1";
+    sessionStore.set(key, {
+      designId: "design-1",
+      status: "generating",
+      prompt: "Build two screens",
+      contextRefs: [],
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+        {
+          frameId: "frame-2",
+          filename: "details.html",
+          agentId: "agent-2",
+          agentName: "Nova",
+          agentColor: "blue",
+          region: { x: 0, y: 0, width: 100, height: 100 },
+          role: "screen",
+          status: "queued",
+          progress: 0,
+        },
+      ],
+      startedAt: "2026-07-09T00:00:00.000Z",
+    });
+
+    mocks.readAppState.mockImplementation(async (k: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return sessionStore.get(k) ?? null;
+    });
+    mocks.writeAppState.mockImplementation(
+      async (k: string, value: Record<string, unknown>) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        sessionStore.set(k, value);
+      },
+    );
+
+    await Promise.all([
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>index</body></html>",
+          },
+        ],
+      }),
+      action.run({
+        designId: "design-1",
+        prompt: "Build two screens",
+        files: [
+          {
+            filename: "details.html",
+            fileType: "html",
+            content: "<html><body>details</body></html>",
+          },
+        ],
+      }),
+    ]);
+
+    const finalSession = sessionStore.get(key) as {
+      status: string;
+      frames: Array<{ filename?: string; status: string }>;
+    };
+    expect(
+      finalSession.frames.find((f) => f.filename === "index.html")?.status,
+    ).toBe("done");
+    expect(
+      finalSession.frames.find((f) => f.filename === "details.html")?.status,
+    ).toBe("done");
+    expect(finalSession.status).toBe("done");
+  });
+});
+
 describe("generate-design: new-file creation path (unchanged)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -402,6 +598,7 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.fileUpdateChain.where.mockResolvedValue(undefined);
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
   });
 
   it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {
@@ -431,5 +628,10 @@ describe("generate-design: new-file creation path (unchanged)", () => {
     expect(seededValues[0]).toContain("<body");
     expect(seededValues[0]).toContain("Hello</body></html>");
     expect(seededValues[0]).toContain("data-agent-native-node-id");
+    expect(mocks.getDesignData()).toMatchObject({
+      concurrentSibling: { keep: true },
+      lastPrompt: "New landing page",
+      fileCount: 1,
+    });
   });
 });

@@ -5,6 +5,7 @@ import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   isLocalSqliteUrl,
@@ -444,7 +445,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
     // D1 only if dialect detected it (DATABASE_URL takes priority)
     if (dialect === "d1") {
-      const d1 = globalThis.__cf_env?.DB;
+      const d1 = getCloudflareD1Binding() as
+        | Parameters<typeof drizzleD1>[0]
+        | undefined;
       if (d1) {
         _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
         _dbReady = Promise.resolve(_db);

@@ -54,13 +54,24 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     (message: string, context?: string) => {
+      // Always request `newTab` (mirroring useAgentGenerating.submit's
+      // default). Without it, when there is no continuationTabId yet the
+      // message goes to whatever tab is currently active, but the id we
+      // return here would still be a freshly generated one that was never
+      // actually used — trackAgentGeneration/onContinue would then watch a
+      // tabId that never matches real chatRunning events, so the design
+      // "generating" UI silently desyncs (false "stopped, please retry"
+      // toasts, completion never detected). Passing tabId only when we have
+      // a continuationTabId still reuses that existing thread (addOptimistic
+      // thread is idempotent for known ids); omitting it lets a fresh id be
+      // generated and actually created, so the returned tabId is always the
+      // real destination thread.
       const tabId = sendToDesignAgentChat({
         message,
         context,
         submit: true,
-        ...(continuationTabId
-          ? { tabId: continuationTabId, newTab: true }
-          : {}),
+        newTab: true,
+        ...(continuationTabId ? { tabId: continuationTabId } : {}),
       });
       onContinue?.(tabId);
       flow.clear();

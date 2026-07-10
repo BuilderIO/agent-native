@@ -1,10 +1,8 @@
 import { applyVisualEdit } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
-import {
-  applyScopedVisualStyleEdit,
-  getFreshScreenContent,
-} from "./DesignEditor";
+import { getFreshScreenContent } from "./design-editor/editor-state";
+import { applyScopedVisualStyleEdit } from "./design-editor/pending-edits";
 
 /**
  * Nest-into-plain-rect auto-layout conversion regression (host-side drop of

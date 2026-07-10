@@ -29,6 +29,7 @@ function recording(overrides: Record<string, unknown> = {}) {
     id: "rec-1",
     title: "Launch walkthrough",
     description: "A product walkthrough",
+    durationMs: 222_000,
     thumbnailUrl: "/api/media/thumb",
     animatedThumbnailUrl: null,
     visibility: "public",
@@ -114,9 +115,27 @@ describe("Clips Slack unfurls", () => {
     ).toMatchObject({
       type: "video",
       title_url: "https://clips.example.com/share/rec-1",
+      description: {
+        type: "plain_text",
+        text: "3:42 · A product walkthrough",
+        emoji: true,
+      },
       video_url: "https://clips.example.com/embed/rec-1?autoplay=1",
       thumbnail_url: "https://clips.example.com/api/media/thumb",
       provider_name: "Clips",
+    });
+  });
+
+  it("omits unknown durations from Slack video descriptions", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({ durationMs: 0 }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
+      description: {
+        text: "A product walkthrough",
+      },
     });
   });
 

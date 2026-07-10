@@ -37,7 +37,7 @@ import {
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
-import { elementIdentityKey } from "./element-identity";
+import { elementStableKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
 import { splitCssLayers } from "./fill-gradient-helpers";
 import {
@@ -50,8 +50,10 @@ import {
   colorHasVisibleAlpha,
   compactCssValue,
   cssColorOrFallback,
+  roundToOneDecimal,
   swatchStyle,
 } from "./position-helpers";
+import { isMixedValue } from "./selection-helpers";
 import type {
   MotionKeyframeFieldContext,
   StyleChangeHandler,
@@ -59,7 +61,7 @@ import type {
   StylesChangeHandler,
 } from "./style-change-types";
 
-interface ShadowLayer {
+export interface ShadowLayer {
   id: string;
   x: number;
   y: number;
@@ -81,7 +83,7 @@ function defaultDropShadowLayer(index: number): ShadowLayer {
   };
 }
 
-function parseShadowLayers(value: string | undefined): ShadowLayer[] {
+export function parseShadowLayers(value: string | undefined): ShadowLayer[] {
   return splitCssLayers(value || "")
     .filter((layer) => layer && layer !== "none")
     .map((layer, index) => parseShadowLayer(layer, index));
@@ -133,18 +135,18 @@ function splitCssTokens(value: string): string[] {
   return tokens;
 }
 
-function serializeShadowLayers(layers: ShadowLayer[]) {
+export function serializeShadowLayers(layers: ShadowLayer[]) {
   if (!layers.length) return "none";
   return layers
     .map((layer) =>
       [
         layer.inset ? "inset" : "",
-        `${Math.round(layer.x)}px`,
-        `${Math.round(layer.y)}px`,
-        `${Math.max(0, Math.round(layer.blur))}px`,
+        `${roundToOneDecimal(layer.x)}px`,
+        `${roundToOneDecimal(layer.y)}px`,
+        `${Math.max(0, roundToOneDecimal(layer.blur))}px`,
         // Spread radius may legitimately be negative for either inset or
         // drop shadows — only blur-radius is clamped to >= 0 in CSS.
-        `${Math.round(layer.spread)}px`,
+        `${roundToOneDecimal(layer.spread)}px`,
         layer.color,
       ]
         .filter(Boolean)
@@ -153,8 +155,8 @@ function serializeShadowLayers(layers: ShadowLayer[]) {
     .join(", ");
 }
 
-function readBlurFilter(value: string | undefined): number {
-  const match = value?.match(/blur\((-?\d+(?:\.\d+)?)px\)/);
+export function readBlurFilter(value: string | undefined): number {
+  const match = value?.match(/blur\((-?(?:\d+(?:\.\d+)?|\.\d+))px\)/);
   return match ? Math.max(0, Number(match[1])) : 0;
 }
 
@@ -162,12 +164,62 @@ function hasBlurFilter(value: string | undefined): boolean {
   return /blur\(/.test(value || "");
 }
 
-function setBlurFilterValue(value: string | undefined, blur: number): string {
-  const blurFn = `blur(${Math.max(0, Math.round(blur))}px)`;
+export function setBlurFilterValue(
+  value: string | undefined,
+  blur: number,
+): string {
+  const blurFn = `blur(${Math.max(0, roundToOneDecimal(blur))}px)`;
   const existing = compactCssValue(value, "");
   return existing.includes("blur(")
     ? existing.replace(/blur\([^)]*\)/, blurFn)
-    : blurFn;
+    : existing && existing !== "none"
+      ? `${existing} ${blurFn}`
+      : blurFn;
+}
+
+/** Remove only the layer/background blur function, preserving every sibling
+ * CSS filter (brightness, contrast, drop-shadow, etc.). Figma models layer
+ * blur as one effect row; deleting that row must not delete the other effects
+ * that happen to share CSS's `filter`/`backdrop-filter` declaration. */
+export function removeBlurFilterValue(value: string | undefined): string {
+  const existing = compactCssValue(value, "");
+  if (!existing || existing === "none") return "none";
+  const remaining = existing
+    .replace(/blur\([^)]*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return remaining || "none";
+}
+
+/** Keep the transient original-opacity stash attached to the same shadow when
+ * positional CSS layers are reordered or removed. Parsed shadow ids are
+ * necessarily index-based (`shadow-0`, `shadow-1`, …); after a reorder the
+ * next computed-style read regenerates those ids in the new order. Without
+ * remapping, a hidden shadow's saved alpha stays at its old index and the eye
+ * button restores the wrong layer (or falls back to 25%). */
+export function remapIndexedShadowStash(
+  stash: Record<string, string>,
+  elementKey: string,
+  nextLayers: readonly Pick<ShadowLayer, "id">[],
+): Record<string, string> {
+  const prefix = `${elementKey}:shadow:`;
+  const moved = nextLayers.flatMap((layer, index) => {
+    const value = stash[`${prefix}${layer.id}`];
+    return value === undefined ? [] : [[`${prefix}shadow-${index}`, value]];
+  });
+  if (!Object.keys(stash).some((key) => key.startsWith(prefix))) return stash;
+  const next = Object.fromEntries(
+    Object.entries(stash).filter(([key]) => !key.startsWith(prefix)),
+  );
+  for (const [key, value] of moved) next[key] = value;
+  const stashEntries = Object.entries(stash);
+  if (
+    stashEntries.length === Object.keys(next).length &&
+    stashEntries.every(([key, value]) => next[key] === value)
+  ) {
+    return stash;
+  }
+  return next;
 }
 
 function shadowColorWithOpacity(color: string, opacity: number): string {
@@ -177,6 +229,33 @@ function shadowColorWithOpacity(color: string, opacity: number): string {
     : opacity <= 0
       ? "rgba(0, 0, 0, 0)"
       : color;
+}
+
+/**
+ * True when the current multi-selection has differing box-shadow, filter,
+ * or backdrop-filter values (the synthetic mixed-selection ElementInfo
+ * reports the `MIXED_VALUE`/"Mixed" sentinel for any style property that
+ * disagrees across the selection — see selection-helpers.ts). Effects had no
+ * mixed-selection handling at all: `parseShadowLayers("Mixed")` would parse
+ * the literal sentinel string as a bogus single shadow layer (color:
+ * "Mixed", the rest defaulted), and editing any of its fields would commit
+ * an invalid `box-shadow: ... Mixed` to every selected element. Fill and
+ * Stroke both already gate their sections on an equivalent mixed check and
+ * show a "Click + to replace" hint instead of rendering broken per-field
+ * controls; Effects needs the same gate.
+ */
+export function effectsSelectionIsMixed(styles: {
+  boxShadow?: string;
+  filter?: string;
+  backdropFilter?: string;
+  webkitBackdropFilter?: string;
+}): boolean {
+  return [
+    styles.boxShadow,
+    styles.filter,
+    styles.backdropFilter,
+    styles.webkitBackdropFilter,
+  ].some(isMixedValue);
 }
 
 function ShadowEffectRow({
@@ -376,22 +455,37 @@ export function EffectsProperties({
   const t = useT();
   const [shaderPickerOpen, setShaderPickerOpen] = useState(false);
   const styles = element.computedStyles;
-  const blurValue = readBlurFilter(styles.filter);
-  const filterHasBlur = hasBlurFilter(styles.filter);
   // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
   const backdropFilterValue =
     styles.backdropFilter || styles.webkitBackdropFilter;
-  const backdropFilterHasBlur = hasBlurFilter(backdropFilterValue);
+  // Differing box-shadow/filter/backdrop-filter across a multi-selection —
+  // gates the whole section to a "Click + to replace" hint below, same as
+  // Fill/Stroke, instead of parsing the "Mixed" sentinel as real CSS.
+  const effectsAreMixed = effectsSelectionIsMixed({
+    boxShadow: styles.boxShadow,
+    filter: styles.filter,
+    backdropFilter: styles.backdropFilter,
+    webkitBackdropFilter: styles.webkitBackdropFilter,
+  });
+  const blurValue = readBlurFilter(styles.filter);
+  const filterHasBlur = !effectsAreMixed && hasBlurFilter(styles.filter);
+  const backdropFilterHasBlur =
+    !effectsAreMixed && hasBlurFilter(backdropFilterValue);
   const backdropBlurValue = readBlurFilter(backdropFilterValue);
   const [hiddenEffectStash, setHiddenEffectStash] = useState<
     Record<string, string>
   >({});
-  const effectStashKey = elementIdentityKey(element);
+  const effectStashKey = elementStableKey(element);
   const layerBlurStashKey = `${effectStashKey}:filter:blur`;
   const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
-  const shadowLayers = parseShadowLayers(styles.boxShadow);
+  const shadowLayers = effectsAreMixed
+    ? []
+    : parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
+    setHiddenEffectStash((stash) =>
+      remapIndexedShadowStash(stash, effectStashKey, layers),
+    );
     const boxShadow = serializeShadowLayers(layers);
     if (onStylesChange) onStylesChange({ boxShadow }, meta);
     else onStyleChange("boxShadow", boxShadow, meta);
@@ -401,8 +495,10 @@ export function EffectsProperties({
       ...shadowLayers,
       defaultDropShadowLayer(shadowLayers.length),
     ]);
-  const addLayerBlur = () => onStyleChange("filter", "blur(4px)");
-  const addBackgroundBlur = () => onStyleChange("backdropFilter", "blur(8px)");
+  const addLayerBlur = () =>
+    onStyleChange("filter", setBlurFilterValue(styles.filter, 4));
+  const addBackgroundBlur = () =>
+    onStyleChange("backdropFilter", setBlurFilterValue(backdropFilterValue, 8));
   const reorderShadowLayers = (from: number, to: number) => {
     const next = [...shadowLayers];
     const [moved] = next.splice(from, 1);
@@ -443,6 +539,7 @@ export function EffectsProperties({
   // `!effectMount && !pickerOpen` early-return so opening the picker doesn't
   // get swallowed by this outer gate before it can render itself.
   const hasEffectsContent =
+    effectsAreMixed ||
     shadowLayers.length > 0 ||
     filterHasBlur ||
     backdropFilterHasBlur ||
@@ -506,262 +603,291 @@ export function EffectsProperties({
     >
       {hasEffectsContent ? (
         <>
-          {shadowLayers.length ? (
-            <div className="space-y-1.5">
-              {shadowLayers.map((layer, index) => (
-                <ShadowEffectRow
-                  key={layer.id}
-                  layer={layer}
-                  index={index}
-                  dragHandleLabel={t("editPanel.labels.reorderLayer")}
-                  dropIndicator={
-                    shadowDrag.dragIndex != null &&
-                    shadowDrag.overIndex === index
-                      ? shadowDrag.overIndex > shadowDrag.dragIndex
-                        ? "after"
-                        : "before"
-                      : null
-                  }
-                  rowProps={shadowDrag.getRowProps(index)}
-                  handleProps={shadowDrag.getHandleProps(index)}
-                  onChange={(patch, meta) => {
-                    const next = shadowLayers.map((candidate) =>
-                      candidate.id === layer.id
-                        ? { ...candidate, ...patch }
-                        : candidate,
-                    );
-                    setShadowLayers(next, meta);
-                  }}
-                  onToggleVisibility={() => {
-                    const visible = colorHasVisibleAlpha(layer.color);
-                    const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
-                    if (visible) {
-                      setHiddenEffectStash((prev) => ({
-                        ...prev,
-                        [shadowStashKey]: layer.color,
-                      }));
-                      const next = shadowLayers.map((candidate) =>
-                        candidate.id === layer.id
-                          ? {
-                              ...candidate,
-                              color: shadowColorWithOpacity(candidate.color, 0),
-                            }
-                          : candidate,
-                      );
-                      setShadowLayers(next);
-                      return;
-                    }
+          {effectsAreMixed ? (
+            <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
+              {
+                "Click + to replace mixed content" /* i18n-ignore figma mixed effects hint */
+              }
+            </p>
+          ) : (
+            <>
+              {shadowLayers.length ? (
+                <div className="space-y-1.5">
+                  {shadowLayers.map((layer, index) => (
+                    <ShadowEffectRow
+                      key={layer.id}
+                      layer={layer}
+                      index={index}
+                      dragHandleLabel={t("editPanel.labels.reorderLayer")}
+                      dropIndicator={
+                        shadowDrag.dragIndex != null &&
+                        shadowDrag.overIndex === index
+                          ? shadowDrag.overIndex > shadowDrag.dragIndex
+                            ? "after"
+                            : "before"
+                          : null
+                      }
+                      rowProps={shadowDrag.getRowProps(index)}
+                      handleProps={shadowDrag.getHandleProps(index)}
+                      onChange={(patch, meta) => {
+                        const next = shadowLayers.map((candidate) =>
+                          candidate.id === layer.id
+                            ? { ...candidate, ...patch }
+                            : candidate,
+                        );
+                        setShadowLayers(next, meta);
+                      }}
+                      onToggleVisibility={() => {
+                        const visible = colorHasVisibleAlpha(layer.color);
+                        const shadowStashKey = `${effectStashKey}:shadow:${layer.id}`;
+                        if (visible) {
+                          setHiddenEffectStash((prev) => ({
+                            ...prev,
+                            [shadowStashKey]: layer.color,
+                          }));
+                          const next = shadowLayers.map((candidate) =>
+                            candidate.id === layer.id
+                              ? {
+                                  ...candidate,
+                                  color: shadowColorWithOpacity(
+                                    candidate.color,
+                                    0,
+                                  ),
+                                }
+                              : candidate,
+                          );
+                          setShadowLayers(next);
+                          return;
+                        }
 
-                    const restored =
-                      hiddenEffectStash[shadowStashKey] ??
-                      shadowColorWithOpacity(layer.color, 25);
-                    setHiddenEffectStash((prev) => {
-                      const next = { ...prev };
-                      delete next[shadowStashKey];
-                      return next;
-                    });
-                    const next = shadowLayers.map((candidate) =>
-                      candidate.id === layer.id
-                        ? { ...candidate, color: restored }
-                        : candidate,
-                    );
-                    setShadowLayers(next);
-                  }}
-                  onRemove={() =>
-                    setShadowLayers(
-                      shadowLayers.filter(
-                        (candidate) => candidate.id !== layer.id,
-                      ),
-                    )
-                  }
-                  element={element}
-                  motionKeyframeContext={motionKeyframeContext}
-                />
-              ))}
-            </div>
-          ) : null}
-          {filterHasBlur ? (
-            /* design effect row for layer blur: flat row matching shadow rows */
-            <Popover>
-              <div className="group flex items-center gap-1.5">
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                        const restored =
+                          hiddenEffectStash[shadowStashKey] ??
+                          shadowColorWithOpacity(layer.color, 25);
+                        setHiddenEffectStash((prev) => {
+                          const next = { ...prev };
+                          delete next[shadowStashKey];
+                          return next;
+                        });
+                        const next = shadowLayers.map((candidate) =>
+                          candidate.id === layer.id
+                            ? { ...candidate, color: restored }
+                            : candidate,
+                        );
+                        setShadowLayers(next);
+                      }}
+                      onRemove={() =>
+                        setShadowLayers(
+                          shadowLayers.filter(
+                            (candidate) => candidate.id !== layer.id,
+                          ),
+                        )
+                      }
+                      element={element}
+                      motionKeyframeContext={motionKeyframeContext}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {filterHasBlur ? (
+                /* design effect row for layer blur: flat row matching shadow rows */
+                <Popover>
+                  <div className="group flex items-center gap-1.5">
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {t("editPanel.labels.layerBlur")}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {roundToOneDecimal(blurValue)}px
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <SectionIconButton
+                      label={
+                        blurValue > 0
+                          ? t("editPanel.labels.hideLayer")
+                          : t("editPanel.labels.showLayer")
+                      }
+                      onClick={() => {
+                        if (blurValue > 0) {
+                          setHiddenEffectStash((prev) => ({
+                            ...prev,
+                            [layerBlurStashKey]: String(blurValue),
+                          }));
+                          onStyleChange(
+                            "filter",
+                            setBlurFilterValue(styles.filter, 0),
+                          );
+                          return;
+                        }
+
+                        const restored = Number(
+                          hiddenEffectStash[layerBlurStashKey],
+                        );
+                        const nextBlur =
+                          Number.isFinite(restored) && restored > 0
+                            ? restored
+                            : 4;
+                        setHiddenEffectStash((prev) => {
+                          const next = { ...prev };
+                          delete next[layerBlurStashKey];
+                          return next;
+                        });
+                        onStyleChange(
+                          "filter",
+                          setBlurFilterValue(styles.filter, nextBlur),
+                        );
+                      }}
+                    >
+                      {blurValue > 0 ? (
+                        <IconEye className="size-3.5" />
+                      ) : (
+                        <IconEyeOff className="size-3.5" />
+                      )}
+                    </SectionIconButton>
+                    <SectionIconButton
+                      label={t("editPanel.labels.removeLayer")}
+                      onClick={() =>
+                        onStyleChange(
+                          "filter",
+                          removeBlurFilterValue(styles.filter),
+                        )
+                      }
+                      disabled={!filterHasBlur}
+                    >
+                      <IconMinus className="size-3.5" />
+                    </SectionIconButton>
+                  </div>
+                  <PopoverContent
+                    side="left"
+                    align="start"
+                    sideOffset={8}
+                    className="w-56 p-3"
                   >
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                      {t("editPanel.labels.layerBlur")}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {Math.round(blurValue)}px
-                    </span>
-                  </button>
-                </PopoverTrigger>
-                <SectionIconButton
-                  label={
-                    blurValue > 0
-                      ? t("editPanel.labels.hideLayer")
-                      : t("editPanel.labels.showLayer")
-                  }
-                  onClick={() => {
-                    if (blurValue > 0) {
-                      setHiddenEffectStash((prev) => ({
-                        ...prev,
-                        [layerBlurStashKey]: String(blurValue),
-                      }));
-                      onStyleChange(
-                        "filter",
-                        setBlurFilterValue(styles.filter, 0),
-                      );
-                      return;
-                    }
+                    <ScrubInput
+                      label={t("editPanel.labels.blur")}
+                      value={blurValue}
+                      onChange={(value, meta) =>
+                        onStyleChange(
+                          "filter",
+                          setBlurFilterValue(styles.filter, value),
+                          meta,
+                        )
+                      }
+                      unit="px"
+                      min={0}
+                      precision={1}
+                      labelClassName="w-16"
+                      inputClassName="h-6"
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+              {backdropFilterHasBlur ? (
+                /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
+                <Popover>
+                  <div className="group flex items-center gap-1.5">
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {
+                            "Background blur" /* i18n-ignore design effect type */
+                          }
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {roundToOneDecimal(backdropBlurValue)}px
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <SectionIconButton
+                      label={
+                        backdropBlurValue > 0
+                          ? t("editPanel.labels.hideLayer")
+                          : t("editPanel.labels.showLayer")
+                      }
+                      onClick={() => {
+                        if (backdropBlurValue > 0) {
+                          setHiddenEffectStash((prev) => ({
+                            ...prev,
+                            [backdropBlurStashKey]: String(backdropBlurValue),
+                          }));
+                          onStyleChange(
+                            "backdropFilter",
+                            setBlurFilterValue(backdropFilterValue, 0),
+                          );
+                          return;
+                        }
 
-                    const restored = Number(
-                      hiddenEffectStash[layerBlurStashKey],
-                    );
-                    const nextBlur =
-                      Number.isFinite(restored) && restored > 0 ? restored : 4;
-                    setHiddenEffectStash((prev) => {
-                      const next = { ...prev };
-                      delete next[layerBlurStashKey];
-                      return next;
-                    });
-                    onStyleChange(
-                      "filter",
-                      setBlurFilterValue(styles.filter, nextBlur),
-                    );
-                  }}
-                >
-                  {blurValue > 0 ? (
-                    <IconEye className="size-3.5" />
-                  ) : (
-                    <IconEyeOff className="size-3.5" />
-                  )}
-                </SectionIconButton>
-                <SectionIconButton
-                  label={t("editPanel.labels.removeLayer")}
-                  onClick={() => onStyleChange("filter", "none")}
-                  disabled={!filterHasBlur}
-                >
-                  <IconMinus className="size-3.5" />
-                </SectionIconButton>
-              </div>
-              <PopoverContent
-                side="left"
-                align="start"
-                sideOffset={8}
-                className="w-56 p-3"
-              >
-                <ScrubInput
-                  label={t("editPanel.labels.blur")}
-                  value={blurValue}
-                  onChange={(value, meta) =>
-                    onStyleChange(
-                      "filter",
-                      setBlurFilterValue(styles.filter, value),
-                      meta,
-                    )
-                  }
-                  unit="px"
-                  min={0}
-                  precision={1}
-                  labelClassName="w-16"
-                  inputClassName="h-6"
-                />
-              </PopoverContent>
-            </Popover>
-          ) : null}
-          {backdropFilterHasBlur ? (
-            /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
-            <Popover>
-              <div className="group flex items-center gap-1.5">
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                        const restored = Number(
+                          hiddenEffectStash[backdropBlurStashKey],
+                        );
+                        const nextBlur =
+                          Number.isFinite(restored) && restored > 0
+                            ? restored
+                            : 8;
+                        setHiddenEffectStash((prev) => {
+                          const next = { ...prev };
+                          delete next[backdropBlurStashKey];
+                          return next;
+                        });
+                        onStyleChange(
+                          "backdropFilter",
+                          setBlurFilterValue(backdropFilterValue, nextBlur),
+                        );
+                      }}
+                    >
+                      {backdropBlurValue > 0 ? (
+                        <IconEye className="size-3.5" />
+                      ) : (
+                        <IconEyeOff className="size-3.5" />
+                      )}
+                    </SectionIconButton>
+                    <SectionIconButton
+                      label={t("editPanel.labels.removeLayer")}
+                      onClick={() =>
+                        onStyleChange(
+                          "backdropFilter",
+                          removeBlurFilterValue(backdropFilterValue),
+                        )
+                      }
+                      disabled={!backdropFilterHasBlur}
+                    >
+                      <IconMinus className="size-3.5" />
+                    </SectionIconButton>
+                  </div>
+                  <PopoverContent
+                    side="left"
+                    align="start"
+                    sideOffset={8}
+                    className="w-56 p-3"
                   >
-                    <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                      {"Background blur" /* i18n-ignore design effect type */}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {Math.round(backdropBlurValue)}px
-                    </span>
-                  </button>
-                </PopoverTrigger>
-                <SectionIconButton
-                  label={
-                    backdropBlurValue > 0
-                      ? t("editPanel.labels.hideLayer")
-                      : t("editPanel.labels.showLayer")
-                  }
-                  onClick={() => {
-                    if (backdropBlurValue > 0) {
-                      setHiddenEffectStash((prev) => ({
-                        ...prev,
-                        [backdropBlurStashKey]: String(backdropBlurValue),
-                      }));
-                      onStyleChange(
-                        "backdropFilter",
-                        setBlurFilterValue(backdropFilterValue, 0),
-                      );
-                      return;
-                    }
-
-                    const restored = Number(
-                      hiddenEffectStash[backdropBlurStashKey],
-                    );
-                    const nextBlur =
-                      Number.isFinite(restored) && restored > 0 ? restored : 8;
-                    setHiddenEffectStash((prev) => {
-                      const next = { ...prev };
-                      delete next[backdropBlurStashKey];
-                      return next;
-                    });
-                    onStyleChange(
-                      "backdropFilter",
-                      setBlurFilterValue(backdropFilterValue, nextBlur),
-                    );
-                  }}
-                >
-                  {backdropBlurValue > 0 ? (
-                    <IconEye className="size-3.5" />
-                  ) : (
-                    <IconEyeOff className="size-3.5" />
-                  )}
-                </SectionIconButton>
-                <SectionIconButton
-                  label={t("editPanel.labels.removeLayer")}
-                  onClick={() => onStyleChange("backdropFilter", "none")}
-                  disabled={!backdropFilterHasBlur}
-                >
-                  <IconMinus className="size-3.5" />
-                </SectionIconButton>
-              </div>
-              <PopoverContent
-                side="left"
-                align="start"
-                sideOffset={8}
-                className="w-56 p-3"
-              >
-                <ScrubInput
-                  label={t("editPanel.labels.blur")}
-                  value={backdropBlurValue}
-                  onChange={(value, meta) =>
-                    onStyleChange(
-                      "backdropFilter",
-                      setBlurFilterValue(backdropFilterValue, value),
-                      meta,
-                    )
-                  }
-                  unit="px"
-                  min={0}
-                  precision={1}
-                  labelClassName="w-16"
-                  inputClassName="h-6"
-                />
-              </PopoverContent>
-            </Popover>
-          ) : null}
+                    <ScrubInput
+                      label={t("editPanel.labels.blur")}
+                      value={backdropBlurValue}
+                      onChange={(value, meta) =>
+                        onStyleChange(
+                          "backdropFilter",
+                          setBlurFilterValue(backdropFilterValue, value),
+                          meta,
+                        )
+                      }
+                      unit="px"
+                      min={0}
+                      precision={1}
+                      labelClassName="w-16"
+                      inputClassName="h-6"
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+            </>
+          )}
           {glslShaderContext?.nodeId ? (
             /* Code-backed GLSL shader effect — overlay canvas above the
            element's content, persisted as editable GLSL in the screen HTML

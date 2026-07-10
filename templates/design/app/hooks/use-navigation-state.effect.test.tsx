@@ -50,7 +50,6 @@ describe("useNavigationState selection cleanup", () => {
 
     expect(coreClientMocks.setClientAppState.mock.calls).toEqual([
       ["design-selection:tab-123", null],
-      ["design-selection", null],
     ]);
   });
 

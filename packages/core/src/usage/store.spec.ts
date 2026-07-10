@@ -389,7 +389,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 100,
       outputTokens: 10,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-1",
     });
@@ -397,7 +397,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 200,
       outputTokens: 20,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-1",
     });
@@ -415,7 +415,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 1_000_000,
       outputTokens: 0,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-2",
       costCentsX100: 4242,

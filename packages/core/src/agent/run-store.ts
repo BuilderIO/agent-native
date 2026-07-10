@@ -7,6 +7,10 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import type { AgentChatEvent } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -98,6 +102,21 @@ export const CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT = {
  * Netlify Lambda cold start while still failing fast on a silent worker death.
  */
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
+
+/**
+ * Backstop ceiling — measured from the row's ORIGINAL `started_at`, which never
+ * changes — after which the unclaimed-background-run sweep stops attempting to
+ * redispatch a lost handoff and instead reaps it via `reapUnclaimedBackgroundRun`
+ * (loud, attributable `errored`). This is what keeps redispatch recoverable
+ * WITHOUT becoming a silent hang: a handoff that cannot be delivered within this
+ * window (a genuinely dead platform, not a transient blip) still fails loudly,
+ * it just gets a few sweep-cycle chances first. 5 minutes comfortably allows
+ * multiple 2-minute sweep ticks (see `agent-chat-plugin.ts`'s
+ * "Unclaimed background-run sweep") while staying well inside both the 40s
+ * foreground chunk clamp and the ~13min background soft-timeout ceiling that
+ * bound how long a real user turn is worth waiting on before failing loud.
+ */
+export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
 
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
@@ -648,6 +667,71 @@ export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
   return ids;
 }
 
+/** A row returned by `listUnclaimedBackgroundRunRows`. */
+export interface UnclaimedBackgroundRunRow {
+  id: string;
+  /** The row's ORIGINAL `started_at` (never bumped by heartbeats), so a
+   *  caller can measure total elapsed time since the handoff was first
+   *  pre-inserted — independent of any liveness bump a redispatch attempt
+   *  makes along the way. */
+  startedAt: number;
+}
+
+/**
+ * Same eligibility as `listUnclaimedBackgroundRunIds`, but also returns each
+ * row's original `started_at` so a caller can bound total redispatch time
+ * (see `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`) independent of the
+ * liveness bumps a redispatch attempt makes along the way. Used by the
+ * unclaimed-background-run sweep's redispatch pass; `listUnclaimedBackgroundRunIds`
+ * is kept as the simpler, pre-existing surface for callers that only need ids.
+ */
+export async function listUnclaimedBackgroundRunRows(): Promise<
+  UnclaimedBackgroundRunRow[]
+> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    // CAST keeps the ms-epoch param 64-bit on Postgres (see
+    // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
+    sql: `SELECT id, started_at FROM agent_runs
+          WHERE status = 'running'
+            AND dispatch_mode = 'background'
+            AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
+    args: [Date.now()],
+  });
+  const result: UnclaimedBackgroundRunRow[] = [];
+  for (const row of rows ?? []) {
+    const id = (row as { id?: unknown }).id;
+    const startedAt = (row as { started_at?: unknown }).started_at;
+    if (typeof id === "string" && id) {
+      result.push({
+        id,
+        startedAt:
+          typeof startedAt === "number" ? startedAt : Number(startedAt) || 0,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Pure decision for the unclaimed-background-run sweep: should THIS row get
+ * another redispatch attempt, or has it exceeded
+ * `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` and must fall back to the
+ * loud reap (`reapUnclaimedBackgroundRun`)? Measured from the row's ORIGINAL
+ * `started_at` (never bumped by a redispatch's heartbeat write), so this is
+ * the total-elapsed-time backstop that keeps recovery bounded — a handoff
+ * that cannot be delivered within the window is not spinning forever, it
+ * fails loud. Exported as a pure function (no DB access) so the bound is unit
+ * -testable independent of the sweep's setInterval wiring.
+ */
+export function shouldRedispatchUnclaimedBackgroundRun(
+  row: { startedAt: number },
+  now: number = Date.now(),
+): boolean {
+  return now - row.startedAt < UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS;
+}
+
 /**
  * Count how many runs (chunks) a logical turn has consumed so far. This is the
  * durable per-turn recovery ledger: unlike the in-marker `continuationCount`
@@ -797,9 +881,9 @@ function terminalStatusForEvent(
   event: AgentChatEvent,
 ): "completed" | "errored" | null {
   if (event.type === "error") return "errored";
+  if (event.type === "missing_api_key") return "errored";
   if (
     event.type === "done" ||
-    event.type === "missing_api_key" ||
     event.type === "loop_limit" ||
     event.type === "auto_continue"
   ) {
@@ -817,32 +901,78 @@ function terminalReasonForEvent(event: AgentChatEvent): string | null {
   return null;
 }
 
-async function getLatestRunEvent(runId: string): Promise<{
+function isRealFailureTerminalEvent(event: AgentChatEvent): boolean {
+  if (event.type === "missing_api_key") return true;
+  if (event.type !== "error") return false;
+  return event.errorCode !== STALE_RUN_ERROR_EVENT.errorCode;
+}
+
+const RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT = 100;
+
+async function getRunEventForReconciliation(runId: string): Promise<{
   event: AgentChatEvent;
   eventAt: number | null;
 } | null> {
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data, event_at FROM agent_run_events WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
-    args: [runId],
+    sql: `SELECT seq, event_data, event_at
+          FROM agent_run_events
+          WHERE run_id = ?
+            AND (
+              event_data LIKE '{"type":"done"%'
+              OR event_data LIKE '{"type":"error"%'
+              OR event_data LIKE '{"type":"missing_api_key"%'
+              OR event_data LIKE '{"type":"loop_limit"%'
+              OR event_data LIKE '{"type":"auto_continue"%'
+            )
+          ORDER BY seq DESC
+          LIMIT ?`,
+    args: [runId, RUN_RECONCILIATION_TERMINAL_EVENT_LIMIT],
   });
-  const row = rows[0] as
-    | {
-        event_at?: number | string | null;
-        event_data?: string;
+  let latestTerminal: {
+    event: AgentChatEvent;
+    eventAt: number | null;
+  } | null = null;
+  for (const row of rows as Array<{
+    event_at?: number | string | null;
+    event_data?: string;
+  }>) {
+    const raw = row.event_data;
+    if (!raw) continue;
+    try {
+      const event = JSON.parse(raw) as AgentChatEvent;
+      if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
+        continue;
       }
-    | undefined;
-  const raw = row?.event_data;
-  if (!raw) return null;
-  try {
-    const eventAt = row.event_at == null ? NaN : Number(row.event_at);
-    return {
-      event: JSON.parse(raw) as AgentChatEvent,
-      eventAt: Number.isFinite(eventAt) && eventAt > 0 ? eventAt : null,
-    };
-  } catch {
-    return null;
+      const rawEventAt = row.event_at == null ? NaN : Number(row.event_at);
+      const parsed = {
+        event,
+        eventAt:
+          Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+      };
+      if (!latestTerminal) latestTerminal = parsed;
+      // A real stream failure must not be laundered into success by a later
+      // done/continuation boundary. Keep the synthetic stale-run error special:
+      // that repair marker may be superseded by a later durable done event.
+      if (isRealFailureTerminalEvent(event)) return parsed;
+    } catch {
+      continue;
+    }
   }
+  return latestTerminal;
+}
+
+function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {
+  if (event.type === "missing_api_key")
+    return LLM_MISSING_CREDENTIALS_ERROR_CODE;
+  if (event.type === "error") return event.errorCode ?? null;
+  return null;
+}
+
+function errorDetailForTerminalEvent(event: AgentChatEvent): string | null {
+  if (event.type === "missing_api_key") return LLM_MISSING_CREDENTIALS_MESSAGE;
+  if (event.type !== "error") return null;
+  return (event.details || event.error || "").slice(0, 2000) || null;
 }
 
 /**
@@ -858,20 +988,15 @@ export async function reconcileTerminalRunFromEvents(
   runId: string,
 ): Promise<boolean> {
   await ensureRunTables();
-  const latest = await getLatestRunEvent(runId);
+  const latest = await getRunEventForReconciliation(runId);
   if (!latest) return false;
   const status = terminalStatusForEvent(latest.event);
   const terminalReason = terminalReasonForEvent(latest.event);
   if (!status || !terminalReason) return false;
 
   const client = getDbExec();
-  const errorCode =
-    latest.event.type === "error" ? (latest.event.errorCode ?? null) : null;
-  const errorDetail =
-    latest.event.type === "error"
-      ? (latest.event.details || latest.event.error || "").slice(0, 2000) ||
-        null
-      : null;
+  const errorCode = errorCodeForTerminalEvent(latest.event);
+  const errorDetail = errorDetailForTerminalEvent(latest.event);
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,

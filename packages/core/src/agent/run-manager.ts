@@ -1,5 +1,9 @@
 import { captureError } from "../server/capture-error.js";
-import { isLlmCredentialError } from "./engine/credential-errors.js";
+import {
+  isLlmCredentialError,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import {
   insertRun,
@@ -16,6 +20,7 @@ import {
   bumpRunProgress,
   reapIfStale,
   reapUnclaimedBackgroundRun,
+  shouldRedispatchUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   ensureTerminalRunEvent,
   getLastTerminalRunEvent,
@@ -374,6 +379,10 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
     event.type === "loop_limit" ||
     event.type === "auto_continue"
   );
+}
+
+function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
+  return event?.type === "error" || event?.type === "missing_api_key";
 }
 
 function terminalReasonForRun(
@@ -898,14 +907,27 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
+      const terminalEvent = pendingTerminalEvent?.event ?? null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
       ) {
         try {
-          const completionRun: ActiveRun = pendingTerminalEvent
-            ? { ...run, events: [...run.events, pendingTerminalEvent] }
-            : run;
+          const completionStatus =
+            run.status !== "aborted" &&
+            terminalEventForcesErroredStatus(terminalEvent)
+              ? "errored"
+              : run.status;
+          const completionRun: ActiveRun =
+            pendingTerminalEvent || completionStatus !== run.status
+              ? {
+                  ...run,
+                  status: completionStatus,
+                  events: pendingTerminalEvent
+                    ? [...run.events, pendingTerminalEvent]
+                    : run.events,
+                }
+              : run;
           await onComplete(completionRun);
         } catch (err) {
           completionError = err;
@@ -923,12 +945,14 @@ export function startRun(
       const finalStatus =
         run.status === "aborted"
           ? "aborted"
-          : run.status === "errored" || completionError
+          : run.status === "errored" ||
+              completionError ||
+              terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
       const terminalReason = terminalReasonForRun(
         finalStatus,
-        pendingTerminalEvent?.event ?? null,
+        terminalEvent,
         run.abortReason,
         completionError,
       );
@@ -952,7 +976,8 @@ export function startRun(
         const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
             ? (pendingTerminalEvent?.event ?? { type: "done" })
-            : pendingTerminalEvent?.event.type === "error"
+            : pendingTerminalEvent?.event.type === "error" ||
+                pendingTerminalEvent?.event.type === "missing_api_key"
               ? pendingTerminalEvent.event
               : pendingTerminalEvent?.event.type === "auto_continue"
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
@@ -1029,14 +1054,21 @@ export function startRun(
       if (finalStatus === "errored") {
         let errorCode: string | undefined;
         let errorDetail: string | undefined;
-        for (let i = run.events.length - 1; i >= 0; i--) {
-          const ev = run.events[i].event as {
+        const diagnosticEvents = pendingTerminalEvent
+          ? [...run.events, pendingTerminalEvent]
+          : run.events;
+        for (let i = diagnosticEvents.length - 1; i >= 0; i--) {
+          const ev = diagnosticEvents[i].event as {
             type: string;
             error?: string;
             errorCode?: string;
             details?: string;
           };
-          if (ev.type === "error") {
+          if (ev.type === "missing_api_key") {
+            errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
+            errorDetail = LLM_MISSING_CREDENTIALS_MESSAGE;
+            break;
+          } else if (ev.type === "error") {
             errorCode = ev.errorCode;
             errorDetail = ev.error ?? ev.details;
             break;
@@ -1469,10 +1501,36 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       // past the tight grace means the bg-fn worker never started — a silent
       // async-worker death that the 202-ack inline fallback can't catch. Reap it
       // early and recoverably (background_worker_never_started) so the run no
-      // longer hangs for the full 90s window and the client's recoverable-error
-      // path can re-drive the turn. Only fires when there is provably no live
-      // worker; a claimed/heartbeating run is left alone by the conditional SQL.
-      if (sqlRun.dispatchMode === "background") {
+      // longer hangs for the full 90s window. Only fires when there is provably
+      // no live worker; a claimed/heartbeating run is left alone by the
+      // conditional SQL.
+      //
+      // REDISPATCH-BOUND GUARD (must be kept in lockstep with the "Unclaimed
+      // background-run sweep" in agent-chat-plugin.ts and with
+      // chainServerDrivenContinuation's deferral in production-agent.ts — do NOT
+      // remove this guard without reading those two sites):
+      // `chainServerDrivenContinuation` now DEFERS a dispatch-failed successor
+      // instead of erroring it — it leaves the row status='running',
+      // dispatch_mode='background' with its dispatch_payload intact so the sweep
+      // can silently redispatch it. This client poll runs every ~1s while a
+      // client is connected, so without this guard it would reap that deferred
+      // successor at the 25s unclaimed grace — long before the ~2-min sweep —
+      // converting the intended SILENT server-side recovery into a user-visible
+      // `background_worker_never_started` manual-retry error (that terminal
+      // reason does NOT auto-continue in the client follow loop; only `stale_run`
+      // does). While the successor is still inside its redispatch bound we skip
+      // this reap and leave it for the sweep. The outer backstops still bound it:
+      // `reapIfStale` below reaps a heartbeat-stale background row at 90s
+      // (BACKGROUND_RUN_STALE_MS) to the recoverable `stale_run` — which the
+      // follow loop AUTO-continues — and once the redispatch bound is exceeded
+      // this reap fires loudly as before. So recovery stays automatic in the
+      // common case and loud failure is only moved later, never removed.
+      if (
+        sqlRun.dispatchMode === "background" &&
+        !shouldRedispatchUnclaimedBackgroundRun({
+          startedAt: sqlRun.startedAt,
+        })
+      ) {
         const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
           () => false,
         );

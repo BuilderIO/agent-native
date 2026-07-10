@@ -16,6 +16,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -23,6 +24,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
+  parseCanvasFrameGeometryById,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import {
@@ -51,23 +53,63 @@ function isRenderableDesignFile(file: {
   );
 }
 
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+// Same-process mutex guarding the generation-session read-modify-write below.
+// generate-screens' own tool description explicitly recommends fanning out
+// parallel generate-design calls per returned frame ("fan out calls to
+// generate-design for each returned frame"). Without this lock, two
+// concurrent calls for the same designId both read the same pre-update
+// session, each only marks its own frame done, and whichever writeAppState
+// lands second silently discards the first call's frame-done update —
+// application state has no CAS/versioning primitive (unlike designs.data's
+// mutateDesignData), so a plain read-then-write here is a classic lost-update
+// race. This mirrors the same-process serialization
+// server/lib/design-data-mutation.ts uses (withDesignDataLock) for the
+// designs.data column. Cross-process races remain (no CAS primitive exists
+// for application state), but same-process fan-out from one agent turn is
+// the realistic, explicitly-encouraged case this closes.
+const generationSessionLocks = new Map<string, Promise<unknown>>();
+
+function withGenerationSessionLock<T>(
+  designId: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const previous = generationSessionLocks.get(designId) ?? Promise.resolve();
+  const next = previous.then(callback, callback);
+  generationSessionLocks.set(designId, next);
+  const cleanup = () => {
+    if (generationSessionLocks.get(designId) === next) {
+      generationSessionLocks.delete(designId);
+    }
+  };
+  next.then(cleanup, cleanup);
+  return next;
+}
+
 async function updateGenerationSessionForSavedFiles(
   designId: string,
   savedFilenames: string[],
 ) {
-  const key = designGenerationSessionKey(designId);
-  const rawSession = await readAppState(key).catch(() => null);
-  if (!rawSession || typeof rawSession !== "object") return;
-  const session = rawSession as unknown as DesignGenerationSession;
-  if (session.designId !== designId || !Array.isArray(session.frames)) return;
+  await withGenerationSessionLock(designId, async () => {
+    const key = designGenerationSessionKey(designId);
+    const rawSession = await readAppState(key).catch(() => null);
+    if (!rawSession || typeof rawSession !== "object") return;
+    const session = rawSession as unknown as DesignGenerationSession;
+    if (session.designId !== designId || !Array.isArray(session.frames)) {
+      return;
+    }
 
-  const nextSession = updateGenerationSessionWithSavedFiles(
-    session,
-    savedFilenames,
-  );
-  if (nextSession === session) return;
+    const nextSession = updateGenerationSessionWithSavedFiles(
+      session,
+      savedFilenames,
+    );
+    if (nextSession === session) return;
 
-  await writeAppState(key, nextSession as unknown as Record<string, unknown>);
+    await writeAppState(key, nextSession as unknown as Record<string, unknown>);
+  });
 }
 
 const generateDesignAgentParameters = {
@@ -222,6 +264,37 @@ const generateDesignAction = defineAction({
                 message: "canvasFrames entries require fileId or filename",
               }),
           )
+          // Reject two placements for the same target in one call. Without
+          // this, mergeCanvasFramePlacements folds both entries into a single
+          // canvasFrames[fileId] value (last one wins), but the mutateDesignData
+          // isApplied check below verifies EVERY placedFrames entry against
+          // that single folded value — so the earlier, now-overwritten entry
+          // always fails the equality check. Since the mutate callback is
+          // deterministic, every retry recomputes the identical mismatch, so
+          // the whole action always fails with a "concurrent write conflicts"
+          // error after burning through all retries, even though nothing else
+          // was actually writing to the design.
+          .superRefine((frames, ctx) => {
+            const seen = new Map<string, number>();
+            frames.forEach((frame, index) => {
+              const key = frame.fileId
+                ? `id:${frame.fileId}`
+                : `name:${frame.filename}`;
+              const firstIndex = seen.get(key);
+              if (firstIndex !== undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index],
+                  message:
+                    `canvasFrames entry ${index} duplicates the target already placed ` +
+                    `at index ${firstIndex} (${frame.fileId ? `fileId ${frame.fileId}` : `filename ${frame.filename}`}). ` +
+                    "Pass exactly one placement per screen.",
+                });
+                return;
+              }
+              seen.set(key, index);
+            });
+          })
           .optional(),
       )
       .optional()
@@ -291,6 +364,15 @@ const generateDesignAction = defineAction({
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
       );
     }
+
+    // Validate row existence and designs.data before writing files. The final
+    // mutation still re-reads the latest revision after file work; this
+    // preflight prevents malformed JSON from orphaning new files.
+    await mutateDesignData({
+      designId,
+      mutate: (current) => current,
+      isApplied: () => true,
+    });
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
@@ -371,6 +453,9 @@ const generateDesignAction = defineAction({
           filename: file.filename,
           fileType: file.fileType ?? "html",
           content: file.content,
+          contentOperationSource: null,
+          contentOperationRevision: null,
+          contentOperationResultHash: null,
           createdAt: now,
           updatedAt: now,
         });
@@ -396,6 +481,9 @@ const generateDesignAction = defineAction({
           filename: file.filename,
           fileType: file.fileType ?? "html",
           content: file.content,
+          contentOperationSource: null,
+          contentOperationRevision: null,
+          contentOperationResultHash: null,
           createdAt: now,
           updatedAt: now,
         });
@@ -408,24 +496,9 @@ const generateDesignAction = defineAction({
       }
     }
 
-    // Update design metadata
-    const designUpdates: Record<string, unknown> = { updatedAt: now };
-    if (designSystemId !== undefined) {
-      designUpdates.designSystemId = designSystemId;
-    }
-    if (projectType !== undefined) {
-      designUpdates.projectType = projectType;
-    }
-
     // Merge with existing data so tweak definitions survive content updates.
     // The data column is a free-form JSON blob; we own these keys here and
     // leave anything else intact.
-    //
-    // Wrapped in a transaction so that concurrent generate-design calls for the
-    // same design (e.g. the parallel fan-out from generate-screens) each read
-    // the latest canvasFrames and merge their own placement on top, rather than
-    // all reading the same stale snapshot and the last writer silently
-    // discarding the others' frame coordinates.
     let placedFrames:
       | Array<{
           fileId: string;
@@ -433,68 +506,99 @@ const generateDesignAction = defineAction({
           frame: CanvasFramePlacement;
         }>
       | undefined;
-    await db.transaction(async (tx) => {
-      const [existingDesign] = await tx
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, designId));
-      let prevData: Record<string, unknown> = {};
-      if (existingDesign?.data) {
-        try {
-          const parsed = JSON.parse(existingDesign.data);
-          if (parsed && typeof parsed === "object") prevData = parsed;
-        } catch {
-          // Stale or invalid JSON — start fresh.
+    const normalizedTweaks = tweaks?.map((tweak) => ({
+      ...tweak,
+      type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
+    }));
+    await mutateDesignData({
+      designId,
+      mutate: (prevData) => {
+        const mergedData: Record<string, unknown> = {
+          ...prevData,
+          lastPrompt: prompt,
+          generatedAt: now,
+          fileCount: files.length,
+        };
+        if (normalizedTweaks !== undefined) {
+          mergedData.tweaks = normalizedTweaks;
         }
-      }
-      const mergedData: Record<string, unknown> = {
-        ...prevData,
-        lastPrompt: prompt,
-        generatedAt: now,
-        fileCount: files.length,
-      };
-      if (tweaks !== undefined) {
-        mergedData.tweaks = tweaks.map((tweak) => ({
-          ...tweak,
-          type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
-        }));
-      }
-      if (canvasFrames !== undefined) {
-        const savedByFileId = new Map(
-          savedFiles.map((file) => [file.id, file]),
-        );
-        const savedByFilename = new Map(
-          savedFiles.map((file) => [file.filename, file]),
-        );
-        const existingByFileId = new Map(
-          existingFiles.map((file) => [file.id, file]),
-        );
-        const merged = mergeCanvasFramePlacements({
-          existing: prevData.canvasFrames,
-          placements: canvasFrames,
-          resolveFileId: (placement) => {
-            if (placement.fileId) {
-              return savedByFileId.has(placement.fileId) ||
-                existingByFileId.has(placement.fileId)
-                ? placement.fileId
+        if (canvasFrames !== undefined) {
+          const savedByFileId = new Map(
+            savedFiles.map((file) => [file.id, file]),
+          );
+          const savedByFilename = new Map(
+            savedFiles.map((file) => [file.filename, file]),
+          );
+          const existingByFileId = new Map(
+            existingFiles.map((file) => [file.id, file]),
+          );
+          const merged = mergeCanvasFramePlacements({
+            existing: prevData.canvasFrames,
+            placements: canvasFrames,
+            resolveFileId: (placement) => {
+              if (placement.fileId) {
+                return savedByFileId.has(placement.fileId) ||
+                  existingByFileId.has(placement.fileId)
+                  ? placement.fileId
+                  : undefined;
+              }
+              return placement.filename
+                ? (savedByFilename.get(placement.filename)?.id ??
+                    existingByName.get(placement.filename)?.id)
                 : undefined;
-            }
-            return placement.filename
-              ? (savedByFilename.get(placement.filename)?.id ??
-                  existingByName.get(placement.filename)?.id)
-              : undefined;
-          },
-        });
-        mergedData.canvasFrames = merged.canvasFrames;
-        placedFrames = merged.placedFrames;
-      }
-      designUpdates.data = JSON.stringify(mergedData);
+            },
+          });
+          mergedData.canvasFrames = merged.canvasFrames;
+          placedFrames = merged.placedFrames;
+        }
+        return mergedData;
+      },
+      isApplied: (current) => {
+        if (
+          current.lastPrompt !== prompt ||
+          current.generatedAt !== now ||
+          current.fileCount !== files.length ||
+          (normalizedTweaks !== undefined &&
+            !jsonValuesEqual(current.tweaks, normalizedTweaks))
+        ) {
+          return false;
+        }
+        if (canvasFrames === undefined) return true;
 
-      await tx
+        const currentFrames = parseCanvasFrameGeometryById(
+          current.canvasFrames,
+        );
+        return Boolean(
+          placedFrames?.every(({ fileId, frame }) => {
+            const currentFrame = currentFrames[fileId];
+            return (
+              currentFrame !== undefined &&
+              Object.entries(frame).every(
+                ([key, value]) =>
+                  currentFrame[key as keyof typeof currentFrame] === value,
+              )
+            );
+          }),
+        );
+      },
+    });
+
+    // designs.data/updatedAt are helper-owned. Keep the optional static column
+    // behavior without writing another whole data snapshot or regressing the
+    // helper's monotonic updatedAt revision.
+    const designUpdates: Record<string, unknown> = {};
+    if (designSystemId !== undefined) {
+      designUpdates.designSystemId = designSystemId;
+    }
+    if (projectType !== undefined) {
+      designUpdates.projectType = projectType;
+    }
+    if (Object.keys(designUpdates).length > 0) {
+      await db
         .update(schema.designs)
         .set(designUpdates)
         .where(eq(schema.designs.id, designId));
-    });
+    }
 
     await updateGenerationSessionForSavedFiles(
       designId,

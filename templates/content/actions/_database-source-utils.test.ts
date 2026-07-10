@@ -26,6 +26,7 @@ import {
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
   serializeSourceMetadataRecord,
+  sourceSnapshotValuesJsonProjectionSql,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -127,6 +128,24 @@ describe("database source helpers", () => {
     ).toBe(values);
   });
 
+  it("strips heavy Builder bodies in the database snapshot projection", () => {
+    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
+    const postgresProjection =
+      sourceSnapshotValuesJsonProjectionSql("postgres");
+
+    expect(sqliteProjection).toContain("json_remove");
+    expect(postgresProjection).toContain("::jsonb");
+    for (const key of [
+      BUILDER_CMS_BODY_CONTENT_KEY,
+      BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+      BUILDER_CMS_BODY_READABLE_MAP_KEY,
+      BUILDER_CMS_BODY_SIDECARS_KEY,
+    ]) {
+      expect(sqliteProjection).toContain(key);
+      expect(postgresProjection).toContain(key);
+    }
+  });
+
   it("drops stored federation metadata with unsafe regex formulas", () => {
     expect(
       normalizeSourceFederation({
@@ -176,6 +195,27 @@ describe("database source helpers", () => {
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+    });
+  });
+
+  it("records suspicious empty Builder reads without calling them healthy", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 0,
+          matchedRowCount: 0,
+          suspiciousEmpty: true,
+          sourceFetchState: "error",
+        }),
+      ),
+    ).toMatchObject({
+      liveReadConfigured: true,
+      lastReadEntryCount: 0,
+      lastReadSuspiciousEmpty: true,
+      sourceFetchState: "error",
+      activeReadSourceRowIds: [],
     });
   });
 

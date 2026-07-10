@@ -5,60 +5,63 @@ import {
   buildCodeLayerTree,
 } from "../../shared/code-layer";
 import {
-  buildActiveFileNodeIdSet,
-  computeExportCropBox,
-  EDITOR_CHROME_OVERLAY_SELECTOR,
   findMovedCodeLayerNodeInProjection,
-  getAvailableContentHistoryChanges,
+  parseInlineStyleAttribute,
+  refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
+  renameFilenamePreservingExtension,
+  replaceDataScreenReferences,
+  collectCodeLayerSubtreeDataNodeIds,
+  resolveCodeLayerNodeFromElementInfo,
+  sortCodeLayerIdsByTreeOrder,
+} from "./design-editor/code-layer-state";
+import {
   getFreshActiveFileContent,
   getFreshScreenContent,
   getUndoRedoPriorityOrder,
-  getContentHistoryChanges,
-  getDefaultOverviewCanvasZoom,
   getDesignEditorShareUrl,
   getDesignEditorStateUrlSearch,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
-  getOverviewCanvasZoom,
-  getOverviewDisplayZoom,
-  getOverviewEnterTarget,
-  getOverviewScreenIdsFromLayerSelection,
-  getOverviewScreenRuntimeReplacementKey,
-  getOverviewZoomScale,
-  getPendingVisualStylePropertyCount,
-  parseInlineStyleAttribute,
-  refreshElementInfoFromContent,
-  refreshSelectedLayerIdsFromContent,
   removeUndoRedoOrderKind,
-  renameFilenamePreservingExtension,
-  replaceDataScreenReferences,
-  getSidebarCodeLayerSelectionState,
-  applyGeometryHistoryDiff,
   applyRelativeDeltaToStyleValue,
-  collectCodeLayerSubtreeDataNodeIds,
-  findScreenFrameAtCanvasPoint,
-  geometryHistoryEntryTouchesFrameIds,
-  geometrySnapshotsEqual,
-  hydrateMotionDockTracks,
-  isScreenRootElementInfo,
-  mergeLocalContentHistoryFallback,
-  pruneGeometryHistoryEntryForDeletedFiles,
-  resolveCodeLayerNodeFromElementInfo,
-  getSelectedScreenIdsForEditorState,
-  getSelectedScreenGeometryForInspector,
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldSkipVisualStyleCommitForPreview,
-  shouldLimitEditorChromeUntilContentReady,
-  shouldClearBridgeSelectionOnEmptyMarquee,
-  shouldEscapeToOverview,
-  shouldIgnoreOverviewLayerCreationEcho,
+} from "./design-editor/editor-state";
+import {
+  computeExportCropBox,
+  EDITOR_CHROME_OVERLAY_SELECTOR,
+  getExportCompositeBounds,
+  unionExportCropRects,
+} from "./design-editor/export-capture";
+import { geometrySnapshotsEqual } from "./design-editor/geometry-persistence";
+import {
+  applyGeometryHistoryDiff,
+  getAvailableContentHistoryChanges,
+  getContentHistoryChanges,
+  geometryHistoryEntryTouchesFrameIds,
+  mergeLocalContentHistoryFallback,
+  pruneGeometryHistoryEntryForDeletedFiles,
+} from "./design-editor/history";
+import {
+  hydrateMotionDockTracks,
+  upsertMotionStyleKeyframes,
+} from "./design-editor/motion-state";
+import {
+  getDefaultOverviewCanvasZoom,
+  getOverviewCanvasZoom,
+  getOverviewDisplayZoom,
+  getOverviewZoomScale,
+  findScreenFrameAtCanvasPoint,
+} from "./design-editor/overview-camera";
+import {
+  getPendingVisualStylePropertyCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
+  shouldPreferRuntimeLayerProjection,
+  shouldUseRuntimeLayerProjection,
   shouldShowPendingVisualStyleApply,
-  shouldUseOverviewRuntimeReplacement,
-  shouldMirrorSelectedElementToAgentChat,
-  sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
   buildPendingVisualStyleRevertPatches,
   mergePendingLiveNonStyleEdits,
@@ -67,8 +70,30 @@ import {
   originalStylesForPendingVisualEdit,
   pendingLiveTextUndoRevertValue,
   pendingVisualStyleUndoRevertStyles,
-  upsertMotionStyleKeyframes,
-} from "./DesignEditor";
+} from "./design-editor/pending-edits";
+import {
+  buildActiveFileNodeIdSet,
+  getOverviewEnterTarget,
+  getOverviewScreenIdsFromLayerSelection,
+  getOverviewScreenRuntimeReplacementKey,
+  getSidebarCodeLayerSelectionState,
+  isScreenRootElementInfo,
+  resolveAvailableActiveFileId,
+  getSelectedScreenIdsForEditorState,
+  getSelectedScreenGeometryForInspector,
+  shouldLimitEditorChromeUntilContentReady,
+  shouldClearBridgeSelectionOnEmptyMarquee,
+  shouldEscapeToOverview,
+  shouldIgnoreOverviewLayerCreationEcho,
+  shouldUseOverviewRuntimeReplacement,
+  shouldIncludeScreenRenameContentOverride,
+  shouldMirrorSelectedElementToAgentChat,
+  computeOverviewScreenPickSelectionIds,
+} from "./design-editor/selection-state";
+import {
+  getDesignToolActivationState,
+  getMoveGroupToolPresentation,
+} from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
   it("uses the explicit overview screen selection while in overview", () => {
@@ -89,6 +114,78 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+
+  it("replaces a deleted active file id with an available default", () => {
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-deleted",
+        availableFileIds: ["screen-a", "screen-b"],
+        defaultFileId: "screen-a",
+      }),
+    ).toBe("screen-a");
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-b",
+        availableFileIds: ["screen-a", "screen-b"],
+        defaultFileId: "screen-a",
+      }),
+    ).toBe("screen-b");
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-deleted",
+        availableFileIds: [],
+        defaultFileId: undefined,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("DesignEditor command tool activation", () => {
+  it("keeps draw and comment annotation modes mutually exclusive", () => {
+    expect(getDesignToolActivationState("draw")).toEqual({
+      mode: "annotate",
+      drawMode: true,
+      pinMode: false,
+    });
+    expect(getDesignToolActivationState("comment")).toEqual({
+      mode: "annotate",
+      drawMode: false,
+      pinMode: true,
+    });
+    expect(getDesignToolActivationState("pen")).toEqual({
+      mode: "edit",
+      drawMode: false,
+      pinMode: false,
+    });
+  });
+});
+
+describe("DesignEditor move-group toolbar presentation", () => {
+  it("projects Hand and Scale with their Figma shortcut labels", () => {
+    expect(getMoveGroupToolPresentation("hand")).toEqual({
+      tool: "hand",
+      labelKey: "designEditor.tools.hand",
+      shortcut: "H",
+    });
+    expect(getMoveGroupToolPresentation("scale")).toEqual({
+      tool: "scale",
+      labelKey: "designEditor.tools.scale",
+      shortcut: "K",
+    });
+  });
+
+  it("projects other tools through the default Move group presentation", () => {
+    expect(getMoveGroupToolPresentation("move")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
+    });
+    expect(getMoveGroupToolPresentation("pen")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
+    });
   });
 });
 
@@ -571,6 +668,53 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(true);
   });
 
+  it("uses runtime layers only for URL-backed localhost screens", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost", bridgeUrl: "http://127.0.0.1:7336" },
+        content: "http://127.0.0.1:9210/",
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "inline" },
+        content:
+          '<div x-data="{}"><template x-for="item in items"></template></div>',
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost" },
+        content:
+          '<div x-data="{}">Inline Alpine remains source projected</div>',
+      }),
+    ).toBe(false);
+  });
+
+  it("prefers a valid live runtime tree even when its node count is equal or smaller", () => {
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 3,
+        sourceNodeCount: 3,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 2,
+        sourceNodeCount: 5,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: false,
+        runtimeNodeCount: 8,
+        sourceNodeCount: 2,
+      }),
+    ).toBe(false);
+  });
+
   it("hides the apply styles affordance for non-localhost visual edits", () => {
     const edits = [
       {
@@ -633,6 +777,46 @@ describe("DesignEditor overview layer selection", () => {
         event: "select",
       }),
     ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "selected-beta",
+        },
+        event: "select",
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "real-canvas-click",
+        },
+        event: "select",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "projected-beta-id",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "authored-beta-id",
+        },
+        resolvedLayerId: "projected-beta-id",
+        event: "select",
+      }),
+    ).toBe(true);
   });
 
   it("allows normal element selection after the creation echo has cleared", () => {
@@ -823,6 +1007,17 @@ describe("computeExportCropBox (selected-frame image export)", () => {
     ).toEqual({ sx: 400, sy: 400, sw: 100, sh: 100 });
   });
 
+  it("clips a selection that starts above or left of the document", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: -20, y: -10, width: 70, height: 50 },
+        2,
+      ),
+    ).toEqual({ sx: 0, sy: 0, sw: 100, sh: 80 });
+  });
+
   it("returns null when the rect starts past the canvas edge", () => {
     expect(
       computeExportCropBox(
@@ -838,6 +1033,49 @@ describe("computeExportCropBox (selected-frame image export)", () => {
     expect(
       computeExportCropBox(500, 500, { x: 10, y: 10, width: 0, height: 50 }, 1),
     ).toBeNull();
+  });
+});
+
+describe("unionExportCropRects (multi-selection image export)", () => {
+  it("returns the visual bounds spanning every selected layer", () => {
+    expect(
+      unionExportCropRects([
+        { x: 40, y: 20, width: 80, height: 50 },
+        { x: 10, y: 90, width: 30, height: 20 },
+        { x: 100, y: 60, width: 70, height: 80 },
+      ]),
+    ).toEqual({ x: 10, y: 20, width: 160, height: 120 });
+  });
+
+  it("ignores empty or non-finite stale measurements", () => {
+    expect(
+      unionExportCropRects([
+        { x: 0, y: 0, width: 0, height: 40 },
+        { x: Number.NaN, y: 0, width: 30, height: 40 },
+        { x: 12, y: 14, width: 30, height: 40 },
+      ]),
+    ).toEqual({ x: 12, y: 14, width: 30, height: 40 });
+  });
+});
+
+describe("getExportCompositeBounds (multi-screen image export)", () => {
+  it("preserves the canvas gap between unrotated selected frames", () => {
+    expect(
+      getExportCompositeBounds([
+        { x: 20, y: 10, width: 100, height: 80 },
+        { x: 170, y: 40, width: 60, height: 100 },
+      ]),
+    ).toEqual({ x: 20, y: 10, width: 210, height: 130 });
+  });
+
+  it("includes the visual footprint of a rotated frame", () => {
+    const bounds = getExportCompositeBounds([
+      { x: 10, y: 20, width: 100, height: 40, rotation: 90 },
+    ]);
+    expect(bounds?.x).toBeCloseTo(40);
+    expect(bounds?.y).toBeCloseTo(-10);
+    expect(bounds?.width).toBeCloseTo(40);
+    expect(bounds?.height).toBeCloseTo(100);
   });
 });
 
@@ -1055,6 +1293,26 @@ describe("DesignEditor URL state", () => {
         codeFilename: "app/routes/home.tsx",
       }),
     ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
+  });
+
+  it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&tool=comment",
+        viewMode: "single",
+        screenId: "screen-123",
+        tool: "pen",
+      }),
+    ).toBe("?view=single&screen=screen-123&tool=pen");
+
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&tool=pen",
+        viewMode: "single",
+        screenId: "screen-123",
+        tool: "move",
+      }),
+    ).toBe("?view=single&screen=screen-123");
   });
 });
 
@@ -1282,6 +1540,33 @@ describe("DesignEditor layer move source snapshots", () => {
         externalSnapshotHtml: "<html>snapshot</html>",
       }),
     ).toBe(false);
+  });
+
+  it("never sends localhost or fusion preview HTML as a screen-rename content override", () => {
+    const shared = {
+      fileType: "html",
+      persistedContent: "http://127.0.0.1:4173/settings",
+      freshContent: "<html><body>Rendered local app</body></html>",
+    };
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        sourceType: "localhost",
+      }),
+    ).toBe(false);
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        sourceType: "fusion",
+      }),
+    ).toBe(false);
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        persistedContent: "<html><body>Saved</body></html>",
+        sourceType: "inline",
+      }),
+    ).toBe(true);
   });
 
   it("does not use a stale active snapshot for a different active file", () => {
@@ -2252,5 +2537,54 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
         additive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("computeOverviewScreenPickSelectionIds", () => {
+  // PICK-RACE: MultiScreenCanvas's onPick prop is `(id: string) => void` —
+  // no modifier info — even though a shift-click there already toggled a
+  // full multi-id array internally before calling onPick with just the
+  // resulting primary id. handleOverviewScreenPick used to always clobber
+  // selectedLayerIdsState down to [pickedId], which is wrong for both
+  // shift-click cases below; the fix defers entirely to the
+  // onScreenSelectionChange-reported overviewSelectedScreenIds while shift
+  // is held instead of guessing a (necessarily wrong) merged array.
+  it("replaces the selection with the singleton pick when shift is not held", () => {
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: false,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-b"]);
+  });
+
+  it("does not clobber a multi-screen selection on a shift-click ADD", () => {
+    // handleFrameClick already added "screen-b" to ITS OWN selectedIds and
+    // reported "screen-b" as the new primary via onPick; DesignEditor's
+    // selectedLayerIdsState still shows only ["screen-a"] until the
+    // onScreenSelectionChange effect lands ["screen-a", "screen-b"] a render
+    // later. The fix must not overwrite it with a wrong singleton meanwhile.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-a"]);
+  });
+
+  it("does not clobber the remaining selection on a shift-click REMOVE", () => {
+    // Selection was [A, B, C]; shift-clicking B toggles it off, and
+    // handleFrameClick reports the new primary (the last remaining id, "C")
+    // through onPick — NOT the full remaining array. A naive
+    // [pickedId] === ["C"] clobber would incorrectly drop "A" too.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-c",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a", "screen-b", "screen-c"],
+      }),
+    ).toEqual(["screen-a", "screen-b", "screen-c"]);
   });
 });

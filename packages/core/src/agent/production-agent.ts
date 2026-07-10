@@ -136,6 +136,7 @@ import {
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
+  setRunError,
   setRunTerminalReason,
   claimBackgroundRun,
   readBackgroundRunClaim,
@@ -2840,6 +2841,25 @@ export async function runAgentLoop(opts: {
     try {
       const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
       if (priorEvents.length > 0) {
+        // A logical turn can span multiple background continuation runs. Final
+        // response guards must see successful reads from earlier chunks, not
+        // only tools executed after the latest handoff. Otherwise a guard can
+        // reject a grounded answer (or a successfully-created artifact) after
+        // the evidence-producing query completed in a predecessor run.
+        for (const event of priorEvents) {
+          if (event.type === "tool_start") {
+            toolCallHistory.push({
+              name: event.tool,
+              input: event.input,
+            });
+          } else if (event.type === "tool_done") {
+            toolResultHistory.push({
+              name: event.tool,
+              content: event.result,
+              isError: event.isError === true,
+            });
+          }
+        }
         toolCallJournal = classifyToolCallJournal(priorEvents);
       }
     } catch {
@@ -3790,7 +3810,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, unknown>,
             result,
-            completedSideEffect: false,
+            completedSideEffect: true,
           });
           recordToolResult(result, false);
           return {
@@ -3844,6 +3864,7 @@ export async function runAgentLoop(opts: {
               tool: toolCall.name,
               input: toolCall.input as Record<string, unknown>,
               result,
+              completedSideEffect: true,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
             recordToolResult(result, false);
@@ -4861,18 +4882,47 @@ export function shouldChainBackgroundContinuation(opts: {
 export async function markBackgroundContinuationChunkTerminal(opts: {
   runId: string;
   continuationReason: AgentLoopContinuationReason;
+  terminalEvent?: AgentChatEvent;
   deps?: {
     updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+    setRunError?: typeof setRunError;
     setRunTerminalReason?: typeof setRunTerminalReason;
   };
 }): Promise<boolean> {
   const updateStatus =
     opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
+  const persistError = opts.deps?.setRunError ?? setRunError;
   const setTerminalReason =
     opts.deps?.setRunTerminalReason ?? setRunTerminalReason;
-  const updated = await updateStatus(opts.runId, "completed");
+  const terminalEvent = opts.terminalEvent;
+  const isTerminalFailure =
+    terminalEvent?.type === "error" ||
+    terminalEvent?.type === "missing_api_key";
+  const terminalReason =
+    terminalEvent?.type === "error"
+      ? `error:${terminalEvent.errorCode || "unknown"}`
+      : terminalEvent?.type === "missing_api_key"
+        ? "missing_api_key"
+        : opts.continuationReason;
+  const updated = await updateStatus(
+    opts.runId,
+    isTerminalFailure ? "errored" : "completed",
+  );
   if (updated) {
-    await setTerminalReason(opts.runId, opts.continuationReason);
+    await setTerminalReason(opts.runId, terminalReason);
+    if (terminalEvent?.type === "error") {
+      await persistError(
+        opts.runId,
+        terminalEvent.errorCode,
+        terminalEvent.details || terminalEvent.error,
+      );
+    } else if (terminalEvent?.type === "missing_api_key") {
+      await persistError(
+        opts.runId,
+        LLM_MISSING_CREDENTIALS_ERROR_CODE,
+        LLM_MISSING_CREDENTIALS_MESSAGE,
+      );
+    }
   }
   return updated;
 }
@@ -4951,6 +5001,137 @@ export interface ChainServerDrivenContinuationDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** Retry-budget sizing for one `chainServerDrivenContinuation` dispatch. */
+export interface ContinuationDispatchBudget {
+  maxDispatchAttempts: number;
+  dispatchResponseTimeoutMs: number;
+  /** Cap (ms) on the per-gap exponential backoff. `Infinity` preserves the
+   *  original uncapped `500 * 2 ** attempt` schedule for the two budgets
+   *  that predate this cap (their attempt counts are low enough it never
+   *  mattered); only the larger proven-in-background-function budget uses a
+   *  real cap so its extra attempts don't add unbounded backoff. */
+  backoffCapMs: number;
+}
+
+/**
+ * Sizes the dispatch retry budget by *remaining wall-clock capacity*, not by
+ * dispatch TARGET — the two are independent concerns. `chainViaDurableBackground`
+ * only picks where the dispatch goes (see `continuationDispatchPath` above);
+ * this picks how hard to retry getting it there.
+ *
+ * Three cases:
+ *   - `chainViaDurableBackground === true`: the durable worker chain dispatching
+ *     to the Netlify background function url. Unchanged: 3 attempts / 15s.
+ *   - `chainViaDurableBackground === false` and
+ *     `workerProvenInBackgroundFunction === true`: a worker PROVEN (by runtime
+ *     function name, see `shouldUseBackgroundFunctionTimeoutForWorker`) to
+ *     already be executing inside a real `-background` function — it was
+ *     forced onto the regular-function dispatch target only because a
+ *     background function cannot invoke its own URL from within a live
+ *     invocation (see the caller's `&& !runsInBackgroundFunction` comment),
+ *     NOT because it lacks time or a connected-client fallback. This worker
+ *     has up to `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` (13min) of soft-timeout
+ *     budget behind it and up to Netlify's ~15min hard function limit ahead —
+ *     roughly 2 minutes of remaining wall clock — and, being a background
+ *     worker, NO connected client to fall back on if the handoff is dropped.
+ *     Demoting it to the foreground's 2-attempt/10s budget is exactly the bug
+ *     this type documents: 5 attempts / 15s response timeout, with backoff
+ *     capped at 4s/gap (500ms, 1s, 2s, 4s across the 4 gaps ≈ 7.5s total).
+ *     Worst case: 5 × 15s dispatch + ~7.5s backoff ≈ 82.5s, safely inside the
+ *     ~2min of remaining budget before the function's hard kill.
+ *   - Otherwise: a true foreground caller not proven in a background
+ *     function. Unchanged: 2 attempts / 10s — it has a live connected client
+ *     as a fallback (the terminal `auto_continue` event still reaches it).
+ */
+export function resolveContinuationDispatchBudget(opts: {
+  chainViaDurableBackground: boolean;
+  workerProvenInBackgroundFunction: boolean;
+}): ContinuationDispatchBudget {
+  if (opts.chainViaDurableBackground) {
+    return {
+      maxDispatchAttempts: 3,
+      dispatchResponseTimeoutMs: 15_000,
+      backoffCapMs: Infinity,
+    };
+  }
+  if (opts.workerProvenInBackgroundFunction) {
+    return {
+      maxDispatchAttempts: 5,
+      dispatchResponseTimeoutMs: 15_000,
+      backoffCapMs: 4_000,
+    };
+  }
+  return {
+    maxDispatchAttempts: 2,
+    dispatchResponseTimeoutMs: 10_000,
+    backoffCapMs: Infinity,
+  };
+}
+
+/**
+ * True when a `fireInternalDispatch` failure is Netlify's Functions platform
+ * loop-protection response (`HTTP 508 Loop Detected`), matched against the
+ * exact message `self-dispatch.ts`'s `dispatchResponseError` constructs
+ * (`Self-dispatch to ${path} returned HTTP ${res.status} ${res.statusText}...`).
+ * Matches on the status code alone (not the reason phrase text) so it is
+ * robust to any wording Netlify's edge puts in `statusText`.
+ *
+ * VERIFIED: production `agent_runs` diagnostics show exactly this failure mode
+ * — 8 successful `chain_dispatch_sent` self-dispatches followed by a 9th/10th
+ * that dies with `HTTP 508 Loop Detected`, terminal reason
+ * `background_continuation_dispatch_failed`. UNVERIFIED (Netlify does not
+ * document the mechanism — checked the Functions overview, Functions API
+ * reference, Background Functions overview, Status Codes reference, and
+ * Request Chain troubleshooting docs, none mention it): the ONLY public
+ * confirmation is a Netlify staff forum reply — "we prevent multiple
+ * executions after one-another as that's a 'loop' ... I believe we enforce
+ * this after 9 or 10 self-invocations"
+ * (https://answers.netlify.com/t/self-invoke-background-function-via-post-requests/146012)
+ * — which also confirms Background Functions do NOT escape the limit (the
+ * reporter's case was already a `-background` function self-invoking). See
+ * `MAX_NESTED_SELF_DISPATCH_DEPTH` for how this classification is used.
+ */
+export function isLoopProtectionDispatchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /\bHTTP\s*508\b/i.test(err.message);
+}
+
+/**
+ * Conservative safety margin on NESTED self-dispatch chaining — a
+ * continuation dispatched directly from within the live invocation that is
+ * about to finish, as opposed to being picked up later by the
+ * unclaimed-background-run sweep (`agent-chat-plugin.ts`), which fires its
+ * redispatch from an unrelated, timer-driven invocation rather than from
+ * inside the chain's own execution.
+ *
+ * Netlify's loop-protection ceiling is undocumented and platform-reported
+ * only approximately ("I believe... 9 or 10" — see
+ * `isLoopProtectionDispatchError`), so hard-coding that exact number here
+ * would be pinning behavior to a number Netlify itself won't commit to, and
+ * production evidence shows it can trigger by the 9th self-dispatch. Rather
+ * than only reacting after triggering that undocumented limit,
+ * `chainServerDrivenContinuation` proactively hands a chunk to the sweep once
+ * `backgroundContinuationCount` (nested hops since the last chain break)
+ * reaches this value — comfortably below the observed ~9-10 failure point —
+ * instead of attempting another nested dispatch. This is the SAME deferred-
+ * recovery path already used when a dispatch fails outright: the row is left
+ * `status='running', dispatch_mode='background'` for the sweep to redispatch,
+ * never silently dropped.
+ *
+ * The sweep's redispatch marker intentionally omits `continuationCount` (see
+ * the "Unclaimed background-run sweep" in `agent-chat-plugin.ts`), so a
+ * sweep-recovered chunk's own `backgroundContinuationCount` resets to 0 —
+ * this constant therefore bounds each NESTED segment between chain breaks,
+ * not the whole turn. The TRUE ceiling on total turn length is unaffected by
+ * that reset: it is the durable per-turn SQL ledger (`countRunsForTurn`,
+ * checked above in this function) plus `MAX_BACKGROUND_RUN_CONTINUATIONS` —
+ * both counted independently of this in-marker value — so a legitimately
+ * long turn keeps making progress in bounded nested segments, each recovered
+ * by the sweep, until it genuinely exhausts the intentional overall budget
+ * and fails loud with `turn_continuation_budget_exhausted`.
+ */
+export const MAX_NESTED_SELF_DISPATCH_DEPTH = 6;
+
 /**
  * Server-driven continuation handoff for a chunk that hit its soft-timeout
  * boundary still unfinished: mint the next chunk's runId, PRE-INSERT its run
@@ -4959,12 +5140,26 @@ export interface ChainServerDrivenContinuationDeps {
  * `_process-run` self-dispatch carrying ids only (the body is persisted on
  * the row as `dispatch_payload`), fully AWAIT the dispatch acknowledgment
  * with retries, and mark this chunk terminal only after the handoff landed.
- * On failure every path is loud: the successor row is errored, the failure
- * is recorded as the run's diag stage, and this chunk is flipped to errored
- * with a terminal reason — never a silent loss. (For a FOREGROUND self-chain
- * the client additionally still receives the terminal `auto_continue` event
- * — run-manager emits it after this callback — so the existing client
- * re-POST path takes over as the fallback.)
+ * On failure this chunk always goes terminal loudly (diag stage + terminal
+ * reason recorded — never a silent loss), but the successor row's fate
+ * depends on WHY the dispatch failed:
+ *   - the pre-insert itself failed (no successor row exists) — nothing for a
+ *     sweep to find, so this is unrecoverable: fail loud immediately with
+ *     `background_continuation_dispatch_failed`.
+ *   - every dispatch attempt failed but the successor row DOES exist with its
+ *     `dispatch_payload` intact — this is RECOVERABLE: the row is left alone
+ *     (`status='running', dispatch_mode='background'`) instead of being
+ *     errored, so the unclaimed-background-run sweep in `agent-chat-plugin.ts`
+ *     can redispatch it once `UNCLAIMED_BACKGROUND_RUN_GRACE_MS` has passed.
+ *     This chunk is flipped to errored with the distinct, honest
+ *     `background_continuation_dispatch_deferred` reason — the TURN is
+ *     deferred, not dead. The sweep still bounds this by
+ *     `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`: past that it falls back
+ *     to the existing loud reap, so a genuinely dead handoff never hangs
+ *     silently forever. (For a FOREGROUND self-chain the client additionally
+ *     still receives the terminal `auto_continue` event — run-manager emits
+ *     it after this callback — so the existing client re-POST path is a
+ *     second, faster fallback alongside the sweep.)
  *
  * `chainViaDurableBackground` selects the dispatch target:
  *   - true  → the durable-background worker chain (unchanged behavior): the
@@ -4980,7 +5175,14 @@ export interface ChainServerDrivenContinuationDeps {
  *     a dead handoff — after a failed/timed-out attempt the successor's
  *     ATOMIC CLAIM is consulted (`readBackgroundRunClaim`): a row that
  *     flipped to `background-processing` (or already went terminal) proves
- *     the handoff landed, so no retry is fired. 2 attempts, ~10s settle.
+ *     the handoff landed, so no retry is fired.
+ *
+ * `chainViaDurableBackground` does NOT alone determine the retry BUDGET —
+ * see `resolveContinuationDispatchBudget` and `workerProvenInBackgroundFunction`
+ * below: a worker forced onto this same `false` target because it is proven
+ * to already be inside a real background function gets a materially larger
+ * budget than a true foreground caller, since it has no connected-client
+ * fallback and minutes of remaining wall clock instead of seconds.
  *
  * Never throws — all failure paths are handled (recorded + marked) inside.
  */
@@ -4994,6 +5196,13 @@ export async function chainServerDrivenContinuation(opts: {
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
   chainViaDurableBackground: boolean;
+  /** True only when this worker is PROVEN (by runtime function name) to
+   *  already be executing inside a real Netlify `-background` function —
+   *  distinct from `chainViaDurableBackground`, which is forced `false` for
+   *  this exact worker (it cannot dispatch to its own function URL from a
+   *  live invocation). Widens the retry budget; does NOT change the dispatch
+   *  target. See `resolveContinuationDispatchBudget`. Defaults to `false`. */
+  workerProvenInBackgroundFunction?: boolean;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
   const d = {
@@ -5060,10 +5269,13 @@ export async function chainServerDrivenContinuation(opts: {
     : AGENT_CHAT_PROCESS_RUN_PATH;
   const continuationExpectsNetlifyBackgroundFunction =
     dispatchPathTargetsNetlifyBackgroundFunction(continuationDispatchPath);
-  const maxDispatchAttempts = opts.chainViaDurableBackground ? 3 : 2;
-  const dispatchResponseTimeoutMs = opts.chainViaDurableBackground
-    ? 15_000
-    : 10_000;
+  const dispatchBudget = resolveContinuationDispatchBudget({
+    chainViaDurableBackground: opts.chainViaDurableBackground,
+    workerProvenInBackgroundFunction:
+      opts.workerProvenInBackgroundFunction === true,
+  });
+  const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
+  const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
@@ -5140,14 +5352,38 @@ export async function chainServerDrivenContinuation(opts: {
         };
     let dispatched = false;
     let lastDispatchErr: unknown;
+    // Proactive nested-chain safety margin — see `MAX_NESTED_SELF_DISPATCH_DEPTH`.
+    // Skip the nested dispatch attempt entirely once this segment's hop count
+    // reaches the cap; a nested attempt at this depth is expected to trip
+    // Netlify's loop protection, so there is nothing to gain by trying it and
+    // burning this worker's remaining wall clock on a doomed call. Falls
+    // straight into the same deferred-recovery path below as an exhausted
+    // retry budget.
+    const nestedDepthExceeded =
+      opts.backgroundContinuationCount >= MAX_NESTED_SELF_DISPATCH_DEPTH;
+    if (nestedDepthExceeded) {
+      lastDispatchErr = new Error(
+        `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${opts.backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${MAX_NESTED_SELF_DISPATCH_DEPTH}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
+      );
+    }
     for (
       let attempt = 0;
-      attempt < maxDispatchAttempts && !dispatched;
+      !nestedDepthExceeded && attempt < maxDispatchAttempts && !dispatched;
       attempt++
     ) {
       try {
         if (attempt > 0) {
-          await d.sleep(500 * 2 ** attempt);
+          // Uncapped budgets (durable-background and true-foreground) keep
+          // the original `500 * 2 ** attempt` schedule unchanged. The capped
+          // budget (proven-in-background-function) instead uses a schedule
+          // starting at 500ms and doubling per gap, capped at
+          // `backoffCapMs` — see `resolveContinuationDispatchBudget` for why
+          // this stays well inside the worker's remaining wall clock even
+          // with 5 attempts.
+          const backoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
+            ? Math.min(500 * 2 ** (attempt - 1), dispatchBudget.backoffCapMs)
+            : 500 * 2 ** attempt;
+          await d.sleep(backoffMs);
           // Keep the pre-inserted successor row visibly alive while we
           // retry: the awaited attempts + backoff can outlast
           // UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and without a fresh
@@ -5199,25 +5435,99 @@ export async function chainServerDrivenContinuation(opts: {
           `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
           dispatchErr instanceof Error ? dispatchErr.message : dispatchErr,
         );
+        // Netlify loop protection (see `isLoopProtectionDispatchError`) is a
+        // property of this same live, nested call chain — retrying the exact
+        // same nested self-dispatch within the next few seconds will not
+        // change that, so further attempts are a guaranteed-doomed use of
+        // this worker's remaining wall clock. Stop immediately (instead of
+        // burning the full `maxDispatchAttempts` budget) and fall into the
+        // same deferred-recovery path below, which hands the successor to the
+        // sweep — a genuinely different, non-nested invocation.
+        if (isLoopProtectionDispatchError(dispatchErr)) {
+          break;
+        }
       }
     }
     if (!dispatched) {
-      // The pre-inserted successor row would otherwise sit unclaimed until
-      // the sweep reaps it — error it now so the failure is immediate and
-      // truthful.
       if (nextRowInserted) {
-        const nextStatusUpdated = await d
-          .updateRunStatusIfRunning(nextRunId, "errored")
+        // Classify WHY this handoff is being deferred — distinct, greppable
+        // tags so production diagnostics (which is all that is readable from
+        // a background worker) can tell "we proactively avoided Netlify loop
+        // protection", "we hit loop protection and stopped retrying", and "a
+        // generic transient dispatch failure exhausted its retry budget"
+        // apart, instead of lumping every deferred handoff into one bucket.
+        const deferralClassification = nestedDepthExceeded
+          ? "proactive_depth_cap"
+          : isLoopProtectionDispatchError(lastDispatchErr)
+            ? "netlify_loop_protection"
+            : "dispatch_budget_exhausted";
+        // RECOVERABLE: the successor row already exists in SQL with its
+        // rehydration payload (`dispatch_payload`) intact and is still
+        // `status='running', dispatch_mode='background'` — exactly the state
+        // the unclaimed-background-run sweep (`agent-chat-plugin.ts`) already
+        // scans for. Do NOT error it here: leave it alone so the sweep can
+        // redispatch it once `UNCLAIMED_BACKGROUND_RUN_GRACE_MS` has passed,
+        // bounded by `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` before it
+        // falls back to the existing loud reap
+        // (`background_worker_never_started`) — so this is deferred, never a
+        // silent hang. This chunk still goes terminal (its own soft-timeout
+        // budget is genuinely spent), but with an honest reason: the TURN is
+        // not dead, only this handoff attempt was.
+        //
+        // THREE-SITE INVARIANT (keep in lockstep — a future reader must not
+        // "fix" one without the others): this deferral only survives because
+        // the ~1s client poll in `getActiveRunForThreadAsync`
+        // (run-manager.ts) ALSO skips `reapUnclaimedBackgroundRun` while the
+        // successor is within `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
+        // (via `shouldRedispatchUnclaimedBackgroundRun`). Without that guard a
+        // connected client would reap this row at the 25s grace, before the
+        // ~2-min sweep, defeating the deferral. The sweep in agent-chat-plugin
+        // is the recovery actor; run-manager is the guard; this is the
+        // producer.
+        await d
+          .recordRunDiagnostic(
+            nextRunId,
+            RUN_DIAG_STAGE.workerThrew,
+            `chain_dispatch_deferred[${deferralClassification}]: dispatch budget exhausted (${maxDispatchAttempts} attempts) awaiting unclaimed-run sweep redispatch; ${
+              lastDispatchErr instanceof Error
+                ? lastDispatchErr.message
+                : String(lastDispatchErr)
+            }`,
+          )
+          .catch(() => {});
+        await d
+          .recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerThrew,
+            `chain_dispatch_deferred[${deferralClassification}] nextRunId=${nextRunId} ${
+              lastDispatchErr instanceof Error
+                ? lastDispatchErr.message
+                : String(lastDispatchErr)
+            }`,
+          )
+          .catch(() => {});
+        console.error(
+          `[agent-chat] background continuation dispatch deferred (${deferralClassification}); leaving the pre-inserted successor for the unclaimed-run sweep to redispatch:`,
+          lastDispatchErr instanceof Error
+            ? lastDispatchErr.message
+            : lastDispatchErr,
+        );
+        const statusUpdated = await d
+          .updateRunStatusIfRunning(runId, "errored")
           .catch(() => false);
-        if (nextStatusUpdated) {
+        if (statusUpdated) {
           await d
             .setRunTerminalReason(
-              nextRunId,
-              "background_continuation_dispatch_failed",
+              runId,
+              "background_continuation_dispatch_deferred",
             )
             .catch(() => {});
         }
+        return;
       }
+      // No successor row exists at all (the pre-insert itself failed) — there
+      // is nothing for the sweep to find and recover, so this really is
+      // fatal. Fail loud immediately via the shared catch block below.
       throw lastDispatchErr instanceof Error
         ? lastDispatchErr
         : new Error(String(lastDispatchErr));
@@ -5233,6 +5543,7 @@ export async function chainServerDrivenContinuation(opts: {
       .markBackgroundContinuationChunkTerminal({
         runId,
         continuationReason,
+        terminalEvent: run.events.at(-1)?.event,
       })
       .catch(() => {});
   } catch (chainErr) {
@@ -6599,6 +6910,14 @@ export function createProductionAgentHandler(
                     isAgentChatDurableBackgroundEnabled({
                       appOptIn: options.durableBackgroundRuns === true,
                     }) && !runsInBackgroundFunction,
+                  // Only changes the retry BUDGET, never the dispatch target
+                  // above: a worker proven in a real background function has
+                  // minutes of remaining wall clock and no connected-client
+                  // fallback, so it must not be demoted to the foreground's
+                  // 2-attempt budget just because it was forced onto the
+                  // regular-function dispatch target. See
+                  // `resolveContinuationDispatchBudget`.
+                  workerProvenInBackgroundFunction: runsInBackgroundFunction,
                 });
               }
             } finally {

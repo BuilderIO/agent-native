@@ -13,6 +13,9 @@
  *   __EDITOR_CHROME_SCALE_Y__  — number string, e.g. "1.5"
  *   __DESIGN_CANVAS_SCREEN_ID__ — string literal for the owning screen/file id
  *   __DESIGN_CANVAS_BOARD_SURFACE__ — boolean literal for top-level board iframe
+ *   __DESIGN_CANVAS_CONTENT_OFFSET_X__ — embedded board render-window x offset
+ *   __DESIGN_CANVAS_CONTENT_OFFSET_Y__ — embedded board render-window y offset
+ *   __RUNTIME_LAYER_SNAPSHOT_ENABLED__ — true only for URL-backed localhost apps
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -28,6 +31,9 @@ declare var __EDITOR_CHROME_SCALE_X__: string;
 declare var __EDITOR_CHROME_SCALE_Y__: string;
 declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
+declare var __DESIGN_CANVAS_CONTENT_OFFSET_X__: number;
+declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
+declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -51,6 +57,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var textEditingEnabled = !readOnly && textEditingEnabledFlag;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
+  var designCanvasContentOffsetX =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
+  var designCanvasContentOffsetY =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+  var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   var scaleToolEnabled = false;
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment). Tracks which single node id
@@ -209,6 +220,359 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el.id ||
       ""
     );
+  }
+
+  /**
+   * React 19 development builds keep the exact jsxDEV call site on the host
+   * element's Fiber `_debugStack`, even though React does not emit that source
+   * location as a DOM attribute. Recover it without depending on React internals
+   * for mutations: this is read-only provenance used to identify the selected
+   * source file and line. Explicit data-source-* / data-loc attributes still
+   * win below, and production builds simply return undefined.
+   */
+  // Fiber debug stacks are immutable for the lifetime of a mounted host node.
+  // Keep the relatively expensive Object.keys + owner walk off the snapshot
+  // hot path after the first successful read. A WeakMap also means React can
+  // collect unmounted nodes normally. Do not cache misses: the bridge can run
+  // before a slow/Suspense hydration attaches Fiber to an existing DOM node.
+  var reactDebugProvenanceCache =
+    typeof WeakMap !== "undefined"
+      ? new WeakMap<Element, ReturnType<typeof reactDebugProvenance>>()
+      : null;
+
+  function reactDebugProvenance(el: Element):
+    | {
+        sourceFile: string;
+        line: number;
+        column?: number;
+        component?: string;
+      }
+    | undefined {
+    var cached = reactDebugProvenanceCache?.get(el);
+    if (cached !== undefined) return cached;
+    var fiberKey = Object.keys(el).find(function (key) {
+      return key.indexOf("__reactFiber$") === 0;
+    });
+    if (!fiberKey) return undefined;
+    var fiber = (el as unknown as Record<string, any>)[fiberKey];
+    for (var depth = 0; fiber && depth < 12; depth += 1) {
+      var stack = String(fiber._debugStack?.stack || "");
+      var lines = stack.split("\n");
+      for (var index = 0; index < lines.length; index += 1) {
+        var lineText = lines[index];
+        var match = lineText.match(
+          /(?:\(|\s)(https?:\/\/[^\s)]+?):(\d+):(\d+)\)?\s*$/,
+        );
+        if (!match) continue;
+        try {
+          var sourceUrl = new URL(match[1]);
+          var pathname = decodeURIComponent(sourceUrl.pathname);
+          if (pathname.indexOf("/node_modules/") >= 0) continue;
+          var sourceFile =
+            pathname.indexOf("/@fs/") === 0
+              ? pathname.slice("/@fs".length)
+              : pathname.replace(/^\/+/, "");
+          if (!sourceFile) continue;
+          var componentMatch = lineText.match(/\bat\s+([^\s(]+)\s*\(/);
+          var provenance = {
+            sourceFile: sourceFile,
+            line: parseInt(match[2], 10),
+            column: parseInt(match[3], 10),
+            component: componentMatch ? componentMatch[1] : undefined,
+          };
+          reactDebugProvenanceCache?.set(el, provenance);
+          return provenance;
+        } catch (_error) {
+          // Ignore malformed/non-URL debug frames and keep walking owners.
+        }
+      }
+      fiber = fiber.return;
+    }
+    return undefined;
+  }
+
+  var runtimeLayerSnapshotTimer: number | null = null;
+  var runtimeLayerSnapshotMaxTimer: number | null = null;
+  var lastRuntimeLayerSnapshotHtml = "";
+
+  function runtimeLayerHash(value: string): string {
+    var hash = 0x811c9dc5;
+    for (var index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function runtimeLayerStructuralPath(el: Element): string {
+    var parts: string[] = [];
+    var node: Element | null = el;
+    while (node && node !== document.body) {
+      var tag = node.tagName.toLowerCase();
+      var parent = node.parentElement;
+      if (parent) {
+        var sameTag = Array.prototype.filter.call(
+          parent.children,
+          function (sibling) {
+            return sibling.tagName === node!.tagName;
+          },
+        );
+        tag += ":nth-of-type(" + (sameTag.indexOf(node) + 1) + ")";
+      }
+      parts.unshift(tag);
+      node = parent;
+    }
+    return parts.join(" > ") || "body";
+  }
+
+  function ensureRuntimeLayerNodeId(el: Element): string {
+    var existing = el.getAttribute("data-agent-native-node-id")?.trim();
+    if (existing) return existing;
+    var provenance = reactDebugProvenance(el);
+    var provenanceKey = provenance
+      ? [
+          provenance.sourceFile,
+          provenance.line,
+          provenance.column || 0,
+          provenance.component || "",
+        ].join(":")
+      : "dom";
+    var nodeId =
+      "runtime-" +
+      runtimeLayerHash(
+        designCanvasScreenId +
+          ":" +
+          provenanceKey +
+          ":" +
+          runtimeLayerStructuralPath(el),
+      );
+    // This attribute is editor-only and never persisted. Stamping the live DOM
+    // gives the runtime projection and the selectable element one exact shared
+    // identity. Qualifying the hash with the owning screen/file id prevents a
+    // shared React shell from producing the same layer id in two route iframes
+    // (which would make the editor's document-wide owner map route selection
+    // and hover to whichever screen registered last). The structural path
+    // keeps the id stable across reloads within that iframe while still
+    // disambiguating repeated JSX emitted from the same source location.
+    el.setAttribute("data-agent-native-node-id", nodeId);
+    return nodeId;
+  }
+
+  function isRuntimeLayerVisualNode(el: Element): boolean {
+    if (
+      /^(script|style|template|noscript|link|meta|title)$/i.test(el.tagName)
+    ) {
+      return false;
+    }
+    return !(
+      isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]")
+    );
+  }
+
+  function serializeRuntimeLayerSnapshot(): {
+    html: string;
+    nodeCount: number;
+  } | null {
+    if (!document.body) return null;
+    var sourceNodes = Array.prototype.slice.call(
+      document.body.querySelectorAll("*"),
+    ) as Element[];
+    var cloneBody = document.body.cloneNode(true) as HTMLElement;
+    var cloneNodes = Array.prototype.slice.call(
+      cloneBody.querySelectorAll("*"),
+    ) as Element[];
+    var nodeCount = 0;
+    for (
+      var index = 0;
+      index < sourceNodes.length && index < cloneNodes.length;
+      index += 1
+    ) {
+      var sourceNode = sourceNodes[index];
+      var cloneNode = cloneNodes[index];
+      if (!isRuntimeLayerVisualNode(sourceNode)) {
+        cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
+        continue;
+      }
+      cloneNode.setAttribute(
+        "data-agent-native-node-id",
+        ensureRuntimeLayerNodeId(sourceNode),
+      );
+      var provenance = reactDebugProvenance(sourceNode);
+      if (provenance) {
+        cloneNode.setAttribute("data-source-file", provenance.sourceFile);
+        cloneNode.setAttribute("data-source-line", String(provenance.line));
+        if (provenance.column) {
+          cloneNode.setAttribute(
+            "data-source-column",
+            String(provenance.column),
+          );
+        }
+        if (provenance.component) {
+          cloneNode.setAttribute("data-component-name", provenance.component);
+        }
+      }
+      nodeCount += 1;
+    }
+    cloneBody
+      .querySelectorAll("[data-an-runtime-layer-remove]")
+      .forEach(function (node) {
+        node.remove();
+      });
+    cloneBody
+      .querySelectorAll("script,style,template,noscript,link,meta,title")
+      .forEach(function (node) {
+        node.remove();
+      });
+    cloneBody.setAttribute(
+      "data-agent-native-node-id",
+      ensureRuntimeLayerNodeId(document.body),
+    );
+    cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
+    var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
+    if (html.length > 2_000_000) return null;
+    return { html: html, nodeCount: nodeCount };
+  }
+
+  function postRuntimeLayerSnapshot(): void {
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+    }
+    if (runtimeLayerSnapshotMaxTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+    }
+    runtimeLayerSnapshotTimer = null;
+    runtimeLayerSnapshotMaxTimer = null;
+    var snapshot = serializeRuntimeLayerSnapshot();
+    if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    lastRuntimeLayerSnapshotHtml = snapshot.html;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:runtime-layer-snapshot",
+        payload: snapshot,
+      },
+      "*",
+    );
+  }
+
+  function scheduleRuntimeLayerSnapshot(): void {
+    // A leading-edge throttle still serializes a fast clock, streaming list,
+    // or hydration loop five times per second forever. Debounce on the trailing
+    // edge so a normal React commit becomes one snapshot, with a bounded max
+    // wait so a genuinely continuous stream still refreshes Layers eventually
+    // without monopolising the iframe main thread.
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+    }
+    runtimeLayerSnapshotTimer = window.setTimeout(
+      postRuntimeLayerSnapshot,
+      300,
+    );
+    if (runtimeLayerSnapshotMaxTimer === null) {
+      runtimeLayerSnapshotMaxTimer = window.setTimeout(
+        postRuntimeLayerSnapshot,
+        1500,
+      );
+    }
+  }
+
+  // Runtime Layers describes hierarchy, names, and layout containers. It does
+  // not need a new full-document snapshot for animation-frame churn such as
+  // transform/opacity/style streaming or state-only utility classes. Compare
+  // only the class/style subset that can change the projected Layers tree.
+  function runtimeLayerClassSignature(value: string | null): string {
+    return String(value || "")
+      .split(/\s+/)
+      .map(function (token) {
+        var parts = token.split(":");
+        var utility = String(parts[parts.length - 1] || "").replace(/^!/, "");
+        if (
+          /^(?:flex|inline-flex|grid|inline-grid|hidden|block|inline-block|flex-row|flex-col)$/.test(
+            utility,
+          ) ||
+          /^(?:items|justify)-/.test(utility)
+        ) {
+          return utility;
+        }
+        // The projection only asks whether a component-like class exists; a
+        // transition from `button-idle` to `button-active` does not change the
+        // layer type and should not trigger another full snapshot.
+        return /(?:component|card|button|control)/.test(utility)
+          ? "component-like"
+          : "";
+      })
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  }
+
+  function runtimeLayerStyleSignature(value: string | null): string {
+    var relevant: Record<string, string> = {};
+    String(value || "")
+      .split(";")
+      .forEach(function (declaration) {
+        var separator = declaration.indexOf(":");
+        if (separator < 0) return;
+        var property = declaration.slice(0, separator).trim().toLowerCase();
+        if (
+          !/^(?:display|flex-direction|align-items|justify-content)$/.test(
+            property,
+          )
+        ) {
+          return;
+        }
+        relevant[property] = declaration.slice(separator + 1).trim();
+      });
+    return Object.keys(relevant)
+      .sort()
+      .map(function (property) {
+        return property + ":" + relevant[property];
+      })
+      .join(";");
+  }
+
+  function runtimeLayerMutationIsMeaningful(mutation: MutationRecord): boolean {
+    var target = mutation.target as Element;
+    if (
+      target.nodeType === 1 &&
+      (isOverlayElement(target) ||
+        target.closest?.("[data-agent-native-edit-overlay]"))
+    ) {
+      return false;
+    }
+    if (mutation.type === "childList") {
+      var changedNodes = Array.prototype.slice
+        .call(mutation.addedNodes)
+        .concat(Array.prototype.slice.call(mutation.removedNodes));
+      return changedNodes.some(function (node: Node) {
+        var element =
+          node.nodeType === 1
+            ? (node as Element)
+            : node.parentElement || mutation.target;
+        return !(
+          element.nodeType === 1 &&
+          (isOverlayElement(element as Element) ||
+            (element as Element).closest?.("[data-agent-native-edit-overlay]"))
+        );
+      });
+    }
+    if (mutation.type === "characterData") {
+      return true;
+    }
+    if (mutation.type !== "attributes") return false;
+    var name = mutation.attributeName || "";
+    if (name === "class") {
+      return (
+        runtimeLayerClassSignature(mutation.oldValue) !==
+        runtimeLayerClassSignature(target.getAttribute("class"))
+      );
+    }
+    if (name === "style") {
+      return (
+        runtimeLayerStyleSignature(mutation.oldValue) !==
+        runtimeLayerStyleSignature(target.getAttribute("style"))
+      );
+    }
+    return true;
   }
 
   function isDocumentRootElement(el: Element | null): boolean {
@@ -806,10 +1170,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           "Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.",
       });
     }
-    // --- provenance: read source-location attributes when present ---
-    // These are emitted by connected apps via @vitejs/plugin-react jsxDEV or a
-    // Babel source plugin.  Cross-origin localhost iframes cannot be read (CSP /
-    // same-origin policy), so this will be undefined in that case — expected.
+    // --- provenance: read explicit source-location attributes when present,
+    // then fall back to React's development-only jsxDEV Fiber stack. ---
     var provenance:
       | {
           sourceFile?: string;
@@ -842,6 +1204,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           : beforeLastPart;
         dataSourceLine = hasColumn ? previousPart : lastPart;
         if (hasColumn) dataSourceColumn = lastPart;
+      }
+    }
+    if (!dataSourceFile) {
+      var reactProvenance = reactDebugProvenance(el);
+      if (reactProvenance) {
+        dataSourceFile = reactProvenance.sourceFile;
+        dataSourceLine = String(reactProvenance.line);
+        dataSourceColumn = reactProvenance.column
+          ? String(reactProvenance.column)
+          : null;
+        dataComponentName =
+          dataComponentName || reactProvenance.component || null;
       }
     }
     if (
@@ -884,11 +1258,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         lineHeight: cs.lineHeight,
         letterSpacing: cs.letterSpacing,
         textAlign: cs.textAlign,
+        // Clean longhand for decoration-toggle state (Cmd+U underline /
+        // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
+        // `textDecoration` shorthand — see typography-helpers.ts's
+        // PERSISTENCE GOTCHA comment: reads use this clean value, writes
+        // still commit through the shorthand property name.
+        textDecorationLine: cs.textDecorationLine,
         display: cs.display,
         overflow: cs.overflow,
         flexDirection: cs.flexDirection,
         justifyContent: cs.justifyContent,
         alignItems: cs.alignItems,
+        justifyItems: cs.justifyItems,
         alignSelf: cs.alignSelf,
         flexGrow: cs.flexGrow,
         flexShrink: cs.flexShrink,
@@ -896,12 +1277,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         order: cs.order,
         gridColumn: cs.gridColumn,
         gridRow: cs.gridRow,
+        gridTemplateColumns: cs.gridTemplateColumns,
+        gridTemplateRows: cs.gridTemplateRows,
+        gridAutoFlow: cs.gridAutoFlow,
         position: cs.position,
         top: cs.top,
         right: cs.right,
         bottom: cs.bottom,
         left: cs.left,
         gap: cs.gap,
+        rowGap: cs.rowGap,
+        columnGap: cs.columnGap,
         width: cs.width,
         height: cs.height,
         opacity: cs.opacity,
@@ -961,6 +1347,9 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         width: rect.width,
         height: rect.height,
       },
+      parentBoundingRect: el.parentElement
+        ? rectInfoForElement(el.parentElement)
+        : undefined,
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       htmlContent:
         el.innerHTML && el.innerHTML !== el.textContent
@@ -1475,6 +1864,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  // Last element an "element-hover" message was actually posted for. Lets
+  // the shield's pointermove handler skip getLightElementInfo's two
+  // getComputedStyle calls plus the postMessage on every one of the dozens
+  // of raw pointermove ticks a slow hover over one unchanged element
+  // produces — only the FIRST tick that lands on a given element needs to
+  // tell the host anything new. The parent already de-dupes on its side
+  // (see the "PF9" equality-bail comment in DesignEditor.tsx), so skipping
+  // the redundant sends here is a pure perf win with no behavior change.
+  var lastHoverInfoPostedEl: Element | null = null;
+
+  // Every path that clears (or invalidates) the current hover must re-arm the
+  // post gate above through this helper, not just null out hoveredEl. If a
+  // path nulls hoveredEl without resetting lastHoverInfoPostedEl, the pointer
+  // returning to the SAME element the gate already posted for will silently
+  // skip re-posting "element-hover" to the host, leaving its hover state
+  // stuck until a different element is hovered.
+  function clearHoverGate(): void {
+    hoveredEl = null;
+    lastHoverInfoPostedEl = null;
+  }
+
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
   var activeMarqueeSelection: {
@@ -1648,6 +2058,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var spacingHatchNodesByKey: Record<string, Element> = {};
   var spacingOverlayRenderKey = "";
   var activeDragCancel: (() => boolean) | null = null;
+  var bridgeSpaceKeyPressed = false;
+  var bridgeSpaceKeyConsumedByDrag = false;
   var activeCrossScreenStyleSnapshot: unknown | undefined = undefined;
   var spacingDrag: {
     key: string;
@@ -1668,7 +2080,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   function clearRuntimeSelection(): void {
     selectedEl = null;
-    hoveredEl = null;
+    clearHoverGate();
     setPassiveSelectionElements([]);
     clearSpacingHoverTimer();
     selectedSpacingHovered = false;
@@ -1925,8 +2337,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var persistentNodes = Array.prototype.slice.call(
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
-    var activeSelector =
-      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // A forced whole-document replace is used for structural edits (duplicate,
+    // delete, cut/paste, undo/redo). Never fall back to the current selection
+    // in that mode: doing so activates the single-subtree fast path below,
+    // which can faithfully replace the selected node while silently omitting
+    // newly inserted or removed siblings elsewhere in the document.
+    var activeSelector = forceFullDocument
+      ? ""
+      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -2009,7 +2427,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
             selectedEl = document.querySelector(matchedSelector);
           } catch (_err) {}
         }
-        hoveredEl = null;
+        clearHoverGate();
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
           positionOverlay(selectionOverlay, selectedEl);
           postElementSelect(selectedEl);
@@ -2043,7 +2461,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     applyHiddenSelectors();
 
     selectedEl = null;
-    hoveredEl = null;
+    clearHoverGate();
     for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
       try {
         var match = document.querySelector(activeCandidates[i]);
@@ -3366,6 +3784,86 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // Transition/animation overlay tracking: the ResizeObserver above only
+  // fires on border-box SIZE changes, so a purely transform- or left/top-
+  // driven CSS transition/animation on the selected or hovered element (very
+  // common for hover states, toggles, carousels in AI-generated prototypes)
+  // never triggers it. Without this, the one-shot MutationObserver callback
+  // that fires when the triggering class/style attribute changes reads
+  // getBoundingClientRect() at essentially the START of the transition, and
+  // the overlay then freezes there while the real element visually slides/
+  // fades to its final position — the selection outline and its handles
+  // visibly detach from the animating element for the transition's whole
+  // duration. Fixed by running a bounded rAF refresh loop for the duration of
+  // any transition/animation that starts on a tracked element, so the
+  // overlay follows every intermediate frame instead of only the first and
+  // (via the next unrelated mutation/resize/scroll) last.
+  var overlayAnimationTrackingActive = false;
+  var overlayAnimationTrackingUntil = 0;
+  var overlayAnimationTrackingStartedAt = 0;
+  // Covers the vast majority of real UI transitions/animations (hover/toggle
+  // durations are almost always well under a second); the max below is a
+  // safety net for a transition whose end event never fires (e.g. cancelled
+  // by a later style write with no transitionend), so a slow/held animation
+  // can't pin this loop on forever.
+  var OVERLAY_ANIMATION_TRACKING_WINDOW_MS = 1000;
+  var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4000;
+
+  function isOverlayAnimationTrackingTarget(
+    target: EventTarget | null,
+  ): boolean {
+    if (!target) return false;
+    return target === selectedEl || target === hoveredEl;
+  }
+
+  function tickOverlayAnimationTracking(): void {
+    if (!overlayAnimationTrackingActive) return;
+    refreshOverlays();
+    var now = Date.now();
+    if (
+      now >= overlayAnimationTrackingUntil ||
+      now - overlayAnimationTrackingStartedAt >=
+        OVERLAY_ANIMATION_TRACKING_MAX_MS
+    ) {
+      overlayAnimationTrackingActive = false;
+      return;
+    }
+    window.requestAnimationFrame(tickOverlayAnimationTracking);
+  }
+
+  // Re-armed (window extended) by every qualifying transitionrun/
+  // animationstart, so a sequence of staggered transitions on the same
+  // element keeps the loop running for their combined duration rather than
+  // stopping partway through.
+  function startOverlayAnimationTracking(): void {
+    var now = Date.now();
+    overlayAnimationTrackingUntil = now + OVERLAY_ANIMATION_TRACKING_WINDOW_MS;
+    if (overlayAnimationTrackingActive) return;
+    overlayAnimationTrackingActive = true;
+    overlayAnimationTrackingStartedAt = now;
+    window.requestAnimationFrame(tickOverlayAnimationTracking);
+  }
+
+  function onOverlayAnimationTrackingEvent(e: Event): void {
+    if (isOverlayAnimationTrackingTarget(e.target as EventTarget | null)) {
+      startOverlayAnimationTracking();
+    }
+  }
+  // Capture-phase, delegated on document (not per-element add/remove-
+  // listener bookkeeping tied to selection changes): transitionrun/
+  // animationstart bubble, so one pair of listeners registered once at
+  // bridge init covers whichever element is currently selected/hovered.
+  document.addEventListener(
+    "transitionrun",
+    onOverlayAnimationTrackingEvent,
+    true,
+  );
+  document.addEventListener(
+    "animationstart",
+    onOverlayAnimationTrackingEvent,
+    true,
+  );
+
   function hideMeasurements(): void {
     measurementOverlay.style.display = "none";
     measurementOverlay.innerHTML = "";
@@ -3711,7 +4209,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // not intercept Tab when the user is tabbing through browser UI with nothing
     // selected (preserves native keyboard accessibility).
     if (key === "Tab") return !!selectedEl;
-    if (key === "Delete" || key === "Backspace") return !primary;
+    if (key === "Delete" || key === "Backspace") {
+      // Cmd/Ctrl+Backspace is Figma's "ungroup" chord (see onUngroup in
+      // useDesignHotkeys.ts) — carve out that one primary-modifier exception
+      // so it isn't swallowed by the blanket "no modifier" rule below. Any
+      // other primary+Delete/Backspace combo has no host binding, so it stays
+      // local (matches prior behavior).
+      if (primary) return key === "Backspace" && !e.altKey && !e.shiftKey;
+      return true;
+    }
     if (/^Arrow/.test(key || "")) return !e.altKey;
     if (primary) {
       return (
@@ -3730,11 +4236,44 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           "0",
           "]",
           "[",
+          // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
+          "u",
+          // Cmd/Ctrl+F — find (onFind). Bridge's "primary" doesn't distinguish
+          // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
+          // forwarding is harmless when the host has no match for the combo.
+          "f",
+          // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
+          // onPasteToReplace) — both live under bare primary+r.
+          "r",
+          // Cmd/Ctrl+\ — toggle UI (onToggleUi).
+          "\\",
         ].indexOf(normalized) !== -1 ||
         e.code === "Digit1" ||
         e.code === "Digit2" ||
         key === "1" ||
-        key === "2"
+        key === "2" ||
+        // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
+        // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
+        // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
+        // shortcuts the host has no bare-primary binding for — are left
+        // alone (see useDesignHotkeys.ts: both require event.shiftKey).
+        (e.shiftKey && (normalized === "h" || normalized === "l")) ||
+        // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        // (onDetachInstance / onCreateComponent). Gated on altKey so bare
+        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
+        // binding for either.
+        (e.altKey && (normalized === "b" || normalized === "k")) ||
+        // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
+        // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
+        // on LITERAL Control on every platform (never remapped to Cmd), so
+        // this mirrors that exact gate instead of the generic "primary" flag
+        // — a blanket "t" entry above would otherwise swallow the common
+        // Cmd+T "new tab" browser shortcut for a combo the host never binds.
+        (e.ctrlKey &&
+          e.altKey &&
+          !e.metaKey &&
+          !e.shiftKey &&
+          (normalized === "h" || normalized === "t"))
       );
     }
     if (
@@ -4158,8 +4697,64 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   function openContextMenuAtEvent(e) {
     stopNativeInteraction(e);
     blurActiveTextEditor();
-    var target = elementFromEditorPoint(e.clientX, e.clientY);
-    if (!target && lastEditorPointWasBlocked) return;
+    var shieldPointerEvents = shieldOverlay.style.pointerEvents;
+    var selectionPointerEvents = selectionOverlay.style.pointerEvents;
+    var highlightPointerEvents = highlightOverlay.style.pointerEvents;
+    shieldOverlay.style.pointerEvents = "none";
+    selectionOverlay.style.pointerEvents = "none";
+    highlightOverlay.style.pointerEvents = "none";
+    var pointTargets = document.elementsFromPoint
+      ? document.elementsFromPoint(e.clientX, e.clientY)
+      : [document.elementFromPoint(e.clientX, e.clientY)];
+    shieldOverlay.style.pointerEvents = shieldPointerEvents;
+    selectionOverlay.style.pointerEvents = selectionPointerEvents;
+    highlightOverlay.style.pointerEvents = highlightPointerEvents;
+
+    var candidateElements: Element[] = [];
+    var layerCandidates: Array<{
+      key: string;
+      label: string;
+      info: unknown;
+    }> = [];
+    pointTargets.forEach(function (pointTarget) {
+      if (!pointTarget || pointTarget.nodeType !== 1) return;
+      if (isOverlayElement(pointTarget)) return;
+      var candidate = selectionTargetForHit(pointTarget);
+      if (
+        !candidate ||
+        isDocumentRootElement(candidate) ||
+        isOverlayElement(candidate) ||
+        isLayerInteractionBlocked(candidate) ||
+        isTemplateCloneElement(candidate) ||
+        candidateElements.indexOf(candidate) !== -1
+      ) {
+        return;
+      }
+      candidateElements.push(candidate);
+      var candidateInfo = getElementInfo(candidate);
+      var explicitLabel =
+        (candidate.getAttribute &&
+          candidate.getAttribute("data-agent-native-layer-name")) ||
+        "";
+      var textLabel = (candidate.textContent || "").trim().replace(/\s+/g, " ");
+      var label =
+        explicitLabel ||
+        candidateInfo.componentName ||
+        candidate.id ||
+        (textLabel && textLabel.length <= 48 ? textLabel : "") ||
+        candidate.tagName.toLowerCase();
+      var identity =
+        candidateInfo.sourceId ||
+        candidateInfo.selector ||
+        String(layerCandidates.length);
+      layerCandidates.push({
+        key: String(identity) + ":" + String(layerCandidates.length),
+        label: String(label).slice(0, 80),
+        info: candidateInfo,
+      });
+    });
+
+    var target = candidateElements[0] || null;
     var info = null;
     if (target) {
       selectedSpacingHovered = false;
@@ -4168,7 +4763,6 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
         info = getElementInfo(selectedEl);
         positionOverlay(selectionOverlay, selectedEl);
-        postElementSelect(selectedEl, e);
       } else {
         selectedEl = null;
         hideSelectionOverlay();
@@ -4177,9 +4771,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     (window.parent as Window).postMessage(
       {
         type: "element-contextmenu",
+        screenId: designCanvasScreenId,
         clientX: e.clientX,
         clientY: e.clientY,
         payload: info,
+        layerCandidates: layerCandidates,
       },
       "*",
     );
@@ -4217,6 +4813,61 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     return null;
   }
 
+  // Host-driven Layers-panel moves must never inherit findRuntimeTarget's
+  // selected-element shortcut or first-match querySelector behavior. Runtime
+  // React trees routinely repeat classes and component markup, so a selector
+  // is only safe when it identifies exactly one live element. Prefer the
+  // runtime projection's stable source id and fall back to the selector only
+  // when that id has no match at all.
+  function findUniqueRuntimeStructureTarget(selector, sourceId) {
+    var matches = new Set<Element>();
+    if (typeof sourceId === "string" && sourceId) {
+      var attributes = [
+        "data-agent-native-node-id",
+        "data-code-layer-id",
+        "data-layer-id",
+        "data-builder-id",
+        "data-loc",
+        "id",
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        try {
+          var sourceMatches = document.querySelectorAll(
+            "[" + attributes[i] + '=\"' + escapeAttribute(sourceId) + '\"]',
+          );
+          for (var j = 0; j < sourceMatches.length; j += 1) {
+            matches.add(sourceMatches[j]);
+          }
+        } catch (_err) {}
+      }
+      if (matches.size > 1) return null;
+      if (matches.size === 1) {
+        var sourceMatch = Array.from(matches)[0];
+        return sourceMatch &&
+          sourceMatch !== document.body &&
+          sourceMatch !== document.documentElement &&
+          !isOverlayElement(sourceMatch) &&
+          !isLayerInteractionBlocked(sourceMatch)
+          ? sourceMatch
+          : null;
+      }
+    }
+    if (typeof selector !== "string" || !selector) return null;
+    try {
+      var selectorMatches = document.querySelectorAll(selector);
+      if (selectorMatches.length !== 1) return null;
+      var selectorMatch = selectorMatches[0];
+      return selectorMatch !== document.body &&
+        selectorMatch !== document.documentElement &&
+        !isOverlayElement(selectorMatch) &&
+        !isLayerInteractionBlocked(selectorMatch)
+        ? selectorMatch
+        : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
   function removeRuntimeTarget(selector, selectorCandidates) {
     var target = findRuntimeTarget(selector, selectorCandidates);
     if (
@@ -4237,7 +4888,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       selectedEl = null;
       hideSelectionOverlay();
     }
-    hoveredEl = null;
+    clearHoverGate();
     highlightOverlay.style.display = "none";
     hideMeasurements();
     refreshOverlays();
@@ -5362,7 +6013,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (primitive !== "rectangle" && primitive !== "rect") return false;
+    if (
+      primitive !== "rectangle" &&
+      primitive !== "rect" &&
+      primitive !== "frame"
+    )
+      return false;
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }
@@ -6014,6 +6670,125 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     };
   }
 
+  /** Resolve a flow child's full Figma-style move target. The legacy reorder
+   * resolver always fell back to the current parent/root, so a child could be
+   * reordered but never dragged out of auto layout onto the freeform screen.
+   * Keep ordinary flow insertion intact, but turn a root/background release
+   * into an absolute-container move. Space preserves the current parent;
+   * Control drops into an auto-layout parent as Ignore auto layout. */
+  function flowMoveTargetForPoint(
+    el,
+    clientX,
+    clientY,
+    excludeEls,
+    keepCurrentParent,
+    ignoreTargetAutoLayout,
+  ) {
+    if (!el || !el.parentElement) return null;
+    var currentParent = el.parentElement;
+    var dragged: Element[] = [el].concat(excludeEls || []);
+    var parentRect = currentParent.getBoundingClientRect();
+    var pointerOutsideCurrentParent =
+      clientX < parentRect.left ||
+      clientX > parentRect.right ||
+      clientY < parentRect.top ||
+      clientY > parentRect.bottom;
+
+    if (keepCurrentParent && pointerOutsideCurrentParent) {
+      var retainedSlot = nearestChildInsertionTarget(
+        currentParent,
+        clientX,
+        clientY,
+        dragged,
+      );
+      return (
+        retainedSlot || {
+          anchor: currentParent,
+          placement: "inside",
+          axis: parentFlowAxis(currentParent),
+          dropMode: "flow-insert",
+        }
+      );
+    }
+
+    var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+    var container = dropContainerForTarget(target);
+
+    // Figma Ignore auto layout: Control-drag into an auto-layout frame keeps
+    // the new parent but excludes the object from its flow.
+    if (
+      ignoreTargetAutoLayout &&
+      container &&
+      container !== document.body &&
+      isAutoLayoutElement(container)
+    ) {
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: parentFlowAxis(container),
+        dropMode: "absolute-container",
+      };
+    }
+
+    // A target whose resolved container is body is the freeform screen/root,
+    // not an auto-layout list. Reparent inside body and preserve the release
+    // point with absolute positioning instead of inserting before/after a
+    // top-level frame as another flow child.
+    if (
+      currentParent !== document.body &&
+      (container === document.body ||
+        container === document.documentElement ||
+        target?.anchor === document.body)
+    ) {
+      return {
+        anchor: document.body,
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      };
+    }
+
+    // Flow child dropped into a plain container: match the absolute-drag path
+    // by converting that container to auto layout before the structural move.
+    if (
+      target &&
+      target.dropMode === "flow-insert" &&
+      container &&
+      container !== document.body &&
+      isContainerDropTarget(container) &&
+      !isAutoLayoutElement(container)
+    ) {
+      target.needsAutoLayoutConversion = true;
+      target.conversionTarget = container;
+    }
+    return target;
+  }
+
+  /** Apply Figma's Control-drag "Ignore auto layout" modifier to an
+   * absolute/freeform drag target. The flow-origin path above already made
+   * this conversion, but the ordinary absolute drag path used to ignore the
+   * modifier and strip position/left/top on drop. Resolve to the auto-layout
+   * container itself so the object keeps absolute positioning inside its new
+   * parent, regardless of whether the pointer is over a child insertion slot
+   * or the container background. */
+  function ignoreAutoLayoutForDropTarget(target) {
+    var container = dropContainerForTarget(target);
+    if (
+      !target ||
+      !container ||
+      container === document.body ||
+      !isAutoLayoutElement(container)
+    ) {
+      return target;
+    }
+    return {
+      anchor: container,
+      placement: "inside",
+      axis: parentFlowAxis(container),
+      dropMode: "absolute-container",
+    };
+  }
+
   // Accepts a single element or an array (group drags temporarily disable
   // pointer-events on EVERY dragged member so the hit test sees what's
   // underneath the whole group, not a sibling member riding along under the
@@ -6368,6 +7143,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     for (var i = 0; i < ABS_POSITION_INLINE_PROPS.length; i += 1) {
       htmlEl.style.removeProperty(ABS_POSITION_INLINE_PROPS[i]);
     }
+    // Utility classes and authored stylesheets can still resolve the member
+    // to absolute/fixed after the inline properties are removed. The host
+    // strips those source declarations in the same structural history step,
+    // but waiting for its in-place document round-trip leaves one rendered
+    // frame where the optimistically reparented node is still absolute and
+    // appears to jump or overlap. Override only that residual computed state
+    // until the source replacement arrives. Inline-authored absolute nodes
+    // naturally compute as static after the removal and keep the historical
+    // empty-inline-style behavior.
+    var afterRemoval = window.getComputedStyle(htmlEl).position;
+    if (afterRemoval === "absolute" || afterRemoval === "fixed") {
+      // An authored stylesheet may carry !important, so the optimistic
+      // override must match that priority. Tell the host to persist the same
+      // narrow override; otherwise its source round-trip would re-apply the
+      // stylesheet and pop the newly-flowed child back out of auto layout.
+      htmlEl.style.setProperty("position", "static", "important");
+      target.forceFlowPositionOverride = true;
+    }
   }
 
   // Absolute-container nest rebase: an "absolute-container" drop keeps the
@@ -6389,6 +7182,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // (transform-inflated) bounding box.
   function rebaseAbsoluteMemberForContainerDrop(el, target): void {
     if (!el || !target || target.dropMode !== "absolute-container") return;
+    // Flow children are prepared directly in the destination containing-block
+    // coordinate space immediately before their DOM move. Rebasing those
+    // coordinates as if they came from an old absolute containing block would
+    // apply the parent-origin delta twice.
+    if (target.absoluteCoordinatesPrepared) return;
     var container = dropContainerForTarget(target);
     if (!container || container === document.body || container === el) return;
     if (el.contains && el.contains(container)) return;
@@ -6399,12 +7197,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // coordinates (border box + border widths − its own scroll offsets).
     var containerRect = container.getBoundingClientRect();
     var containerCS = window.getComputedStyle(container);
+    var boardOffsetX = designCanvasBoardSurface
+      ? designCanvasContentOffsetX
+      : 0;
+    var boardOffsetY = designCanvasBoardSurface
+      ? designCanvasContentOffsetY
+      : 0;
     var newOriginX =
-      containerRect.left +
+      containerRect.left -
+      boardOffsetX +
       readPx(containerCS.borderLeftWidth) -
       container.scrollLeft;
     var newOriginY =
-      containerRect.top +
+      containerRect.top -
+      boardOffsetY +
       readPx(containerCS.borderTopWidth) -
       container.scrollTop;
     // Current containing block origin: the member's offsetParent when it is
@@ -6426,16 +7232,89 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (offsetParentIsRealContainingBlock) {
         var opRect = offsetParent.getBoundingClientRect();
         var opCS = window.getComputedStyle(offsetParent);
+        // The finite board offset is applied to `body > [data-node-id]`, not
+        // to body itself. A top-level member whose containing block is the
+        // positioned body therefore still has a true origin of 0; subtracting
+        // the render offset here poisoned a frame nest by exactly one chunk
+        // (for example -4096px). Nested containing blocks do inherit the
+        // translated top-level visual space, so only those need normalization.
+        var oldContainingBlockOffsetX =
+          designCanvasBoardSurface && offsetParent !== document.body
+            ? boardOffsetX
+            : 0;
+        var oldContainingBlockOffsetY =
+          designCanvasBoardSurface && offsetParent !== document.body
+            ? boardOffsetY
+            : 0;
         oldOriginX =
-          opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+          opRect.left -
+          oldContainingBlockOffsetX +
+          readPx(opCS.borderLeftWidth) -
+          offsetParent.scrollLeft;
         oldOriginY =
-          opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+          opRect.top -
+          oldContainingBlockOffsetY +
+          readPx(opCS.borderTopWidth) -
+          offsetParent.scrollTop;
       }
     }
     var currentLeft = readPx(htmlEl.style.left || cs.left);
     var currentTop = readPx(htmlEl.style.top || cs.top);
     htmlEl.style.left = currentLeft + (oldOriginX - newOriginX) + "px";
     htmlEl.style.top = currentTop + (oldOriginY - newOriginY) + "px";
+  }
+
+  /** Convert flow members to absolute positioning at their drag release point
+   * before moving them into a freeform root/absolute container. The DOM move
+   * happens synchronously in the same event turn, so no intermediate frame is
+   * painted; postVisualStructureChange then measures the final geometry for
+   * the source persistence/undo entry. */
+  function prepareFlowMembersForAbsoluteDrop(
+    members: Element[],
+    target,
+    startRects: DOMRect[],
+    gestureStartRect: DOMRect,
+    pointerOffset: { x: number; y: number },
+    clientX: number,
+    clientY: number,
+  ): void {
+    if (!target || target.dropMode !== "absolute-container") return;
+    var container = dropContainerForTarget(target);
+    if (!container) return;
+    var containerRect = container.getBoundingClientRect();
+    var containerCS = window.getComputedStyle(container);
+    var containerIsBodyContainingBlock = true;
+    if (container === document.body) {
+      containerIsBodyContainingBlock =
+        containerCS.position !== "static" ||
+        containerCS.transform !== "none" ||
+        (containerCS.getPropertyValue("translate") || "none") !== "none";
+    }
+    var originX = containerIsBodyContainingBlock
+      ? containerRect.left +
+        readPx(containerCS.borderLeftWidth) -
+        container.scrollLeft
+      : -(window.scrollX || 0);
+    var originY = containerIsBodyContainingBlock
+      ? containerRect.top +
+        readPx(containerCS.borderTopWidth) -
+        container.scrollTop
+      : -(window.scrollY || 0);
+    var desiredGestureLeft = clientX - pointerOffset.x;
+    var desiredGestureTop = clientY - pointerOffset.y;
+    var deltaX = desiredGestureLeft - gestureStartRect.left;
+    var deltaY = desiredGestureTop - gestureStartRect.top;
+
+    members.forEach(function (member, index) {
+      var startRect = startRects[index] || member.getBoundingClientRect();
+      var htmlEl = member as HTMLElement;
+      htmlEl.style.position = "absolute";
+      htmlEl.style.left = Math.round(startRect.left + deltaX - originX) + "px";
+      htmlEl.style.top = Math.round(startRect.top + deltaY - originY) + "px";
+      htmlEl.style.removeProperty("right");
+      htmlEl.style.removeProperty("bottom");
+    });
+    target.absoluteCoordinatesPrepared = true;
   }
 
   function applyRuntimeReorder(el, target) {
@@ -6481,9 +7360,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         anchorSourceId: getSourceId(target.anchor),
         placement: target.placement,
         dropMode: target.dropMode || "flow-insert",
+        forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
+        anchorPayload: getElementInfo(target.anchor),
       },
       "*",
     );
@@ -6750,7 +7631,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   // pointer went down on when this drag preserves a 2+ selection instead of
   // collapsing to one element (see beginPotentialShieldDrag's group branch).
   // Defaults to selectedEl — the selection-overlay drag path.
-  function startMove(e, gestureElParam?: Element) {
+  function startMove(
+    e,
+    gestureElParam?: Element,
+    pointerStartParam?: { clientX: number; clientY: number },
+  ) {
     var gestureEl = gestureElParam || selectedEl;
     if (!gestureEl) return;
     if (isLayerInteractionBlocked(gestureEl)) return;
@@ -6864,11 +7749,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // Snapshot the element being reordered so a concurrent select-element or
       // clear-selection postMessage cannot mutate the wrong element mid-drag.
       var reorderEl = gestureEl;
-      var currentTarget = reorderTargetForPoint(
+      var reorderGroupStartRects = groupEls.map(function (member) {
+        return member.getBoundingClientRect();
+      });
+      var reorderGestureStartRect = reorderEl.getBoundingClientRect();
+      var keepCurrentFlowParent = bridgeSpaceKeyPressed;
+      var currentTarget = flowMoveTargetForPoint(
         reorderEl,
         e.clientX,
         e.clientY,
         groupOthers,
+        keepCurrentFlowParent,
+        Boolean(e.ctrlKey),
       );
       showInsertionGuideFor(currentTarget);
       // Cross-screen drag state: true when the pointer is outside this iframe's
@@ -6879,9 +7771,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       var reorderSourceId = getSourceId(reorderEl);
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
       var reorderRect = reorderEl.getBoundingClientRect();
+      var reorderPointerStart = pointerStartParam || e;
       var reorderPointerOffset = {
-        x: e.clientX - reorderRect.left,
-        y: e.clientY - reorderRect.top,
+        x: reorderPointerStart.clientX - reorderRect.left,
+        y: reorderPointerStart.clientY - reorderRect.top,
       };
       function onReorderMove(ev) {
         var vw = window.innerWidth;
@@ -6918,7 +7811,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           showTransformBadge("Move layer", cx, cy);
         } else {
           // Cursor is inside this iframe — use existing in-iframe behavior.
-          currentTarget = reorderTargetForPoint(reorderEl, cx, cy, groupOthers);
+          currentTarget = flowMoveTargetForPoint(
+            reorderEl,
+            cx,
+            cy,
+            groupOthers,
+            keepCurrentFlowParent,
+            Boolean(ev.ctrlKey),
+          );
           showInsertionGuideFor(currentTarget);
           showTransformBadge(currentTarget ? "Move layer" : "Move", cx, cy);
         }
@@ -6927,6 +7827,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("keydown", onReorderKeyDown, true);
+        document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
       }
       function onReorderEscape() {
@@ -6953,10 +7854,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         return true;
       }
       function onReorderKeyDown(ev) {
+        if (ev.code === "Space" || ev.key === " ") {
+          keepCurrentFlowParent = true;
+          ev.preventDefault();
+          return;
+        }
         if (ev.key === "Escape") {
           stopNativeInteraction(ev);
           onReorderEscape();
         }
+      }
+      function onReorderKeyUp(ev) {
+        if (ev.code !== "Space" && ev.key !== " ") return;
+        keepCurrentFlowParent = false;
+        ev.preventDefault();
       }
       function onReorderUp(ev) {
         cleanupReorderDrag();
@@ -6997,6 +7908,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         // already clears cross-screen state on re-entry so checking the
         // momentary excursion flag here would wrongly drop the element nowhere.
         if (outsideOnDrop) return;
+        currentTarget = flowMoveTargetForPoint(
+          reorderEl,
+          cx,
+          cy,
+          groupOthers,
+          keepCurrentFlowParent,
+          Boolean(ev?.ctrlKey),
+        );
         if (!currentTarget) {
           // No valid drop target — clean up the clone if one was inserted so
           // no ghost element is left in the DOM.
@@ -7013,6 +7932,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           }
           return;
         }
+        if (
+          currentTarget.needsAutoLayoutConversion &&
+          currentTarget.conversionTarget
+        ) {
+          applyAutoLayoutConversionForDrop(
+            currentTarget.conversionTarget,
+            groupEls,
+          );
+        }
+        prepareFlowMembersForAbsoluteDrop(
+          groupEls,
+          currentTarget,
+          reorderGroupStartRects,
+          reorderGestureStartRect,
+          reorderPointerOffset,
+          cx,
+          cy,
+        );
         if (duplicatedForDrag) {
           applyRuntimeReorder(reorderEl, currentTarget);
           postVisualDuplicateChange(
@@ -7052,6 +7989,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("keydown", onReorderKeyDown, true);
+      document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);
       return;
     }
@@ -7114,6 +8052,34 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
+    // rAF-coalesce the "move" phase postMessage: a raw mousemove/pointermove
+    // stream can fire well above 60/s on a high-poll-rate mouse or trackpad,
+    // and every tick of this handler already recomputes a getBoundingClientRect
+    // for postCrossScreenDrag — batching to one postMessage per animation
+    // frame matches the parent's own equivalent coalescing (see
+    // MultiScreenCanvas.tsx's rAF-batched cross-screen hit-test) without
+    // changing what gets sent, only how often. cleanupMoveDrag cancels any
+    // still-pending tick so a stale "move" can never post after "end"/"cancel".
+    var crossScreenDragMoveScheduled = false;
+    var crossScreenDragMovePendingEv: {
+      clientX: number;
+      clientY: number;
+    } | null = null;
+    function flushCrossScreenDragMove() {
+      crossScreenDragMoveScheduled = false;
+      var pendingEv = crossScreenDragMovePendingEv;
+      crossScreenDragMovePendingEv = null;
+      if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+    }
+    function scheduleCrossScreenDragMove(ev): void {
+      crossScreenDragMovePendingEv = {
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+      };
+      if (crossScreenDragMoveScheduled) return;
+      crossScreenDragMoveScheduled = true;
+      window.requestAnimationFrame(flushCrossScreenDragMove);
+    }
     function onMove(ev) {
       if (
         !moved &&
@@ -7168,7 +8134,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
       });
       if (!duplicatedForDrag && !isGroupDrag) {
-        postCrossScreenDrag("move", dragEl, ev);
+        scheduleCrossScreenDragMove(ev);
       }
       if (
         !duplicatedForDrag &&
@@ -7178,14 +8144,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         hideInsertionGuide();
         setMembersOpacity(null);
       } else {
-        currentAutoLayoutTarget = !duplicatedForDrag
-          ? autoLayoutInsertionTargetForPoint(
-              dragEl,
-              ev.clientX,
-              ev.clientY,
-              groupOthers,
-            )
-          : null;
+        currentAutoLayoutTarget =
+          !duplicatedForDrag && !bridgeSpaceKeyPressed
+            ? autoLayoutInsertionTargetForPoint(
+                dragEl,
+                ev.clientX,
+                ev.clientY,
+                groupOthers,
+              )
+            : null;
+        if (currentAutoLayoutTarget && ev.ctrlKey) {
+          currentAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
+            currentAutoLayoutTarget,
+          );
+        }
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
           setMembersOpacity("0.4");
@@ -7229,6 +8201,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
+      // Drop any rAF-scheduled "move" tick so it can never fire and post
+      // after this gesture's "end"/"cancel" phase has already gone out.
+      crossScreenDragMoveScheduled = false;
+      crossScreenDragMovePendingEv = null;
     }
     function cancelMoveDrag() {
       cleanupMoveDrag();
@@ -7280,16 +8256,32 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         restoreSourceDragPosition();
         return;
       }
-      if (ev && !duplicatedForDrag && !outsideOnDrop) {
+      if (
+        ev &&
+        !duplicatedForDrag &&
+        !outsideOnDrop &&
+        !bridgeSpaceKeyPressed
+      ) {
         var finalAutoLayoutTarget = autoLayoutInsertionTargetForPoint(
           dragEl,
           ev.clientX,
           ev.clientY,
           groupOthers,
         );
+        if (finalAutoLayoutTarget && ev.ctrlKey) {
+          finalAutoLayoutTarget = ignoreAutoLayoutForDropTarget(
+            finalAutoLayoutTarget,
+          );
+        }
         if (finalAutoLayoutTarget) {
           currentAutoLayoutTarget = finalAutoLayoutTarget;
         }
+      } else if (bridgeSpaceKeyPressed) {
+        // Space is Figma's retain-parent modifier. Absolute/freeform drags
+        // already move in their current containing-block coordinates, so
+        // suppressing the nest target keeps the existing parent while still
+        // committing the new left/top in one style change.
+        currentAutoLayoutTarget = null;
       }
       if (duplicatedForDrag && !moved) {
         // Alt-click with no real drag — remove the premature clone and restore the original selection.
@@ -7408,11 +8400,24 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     var originalInlineFontSize = resizeEl.style.fontSize;
     ensurePositionable(resizeEl);
     var cs = window.getComputedStyle(resizeEl);
-    // Bug fix: use CSS width/height (not getBoundingClientRect) for the resize
-    // origin dimensions so that rotated elements don't use the inflated
-    // axis-aligned bounding box as the starting size.
-    var originW = readPx(resizeEl.style.width || cs.width);
-    var originH = readPx(resizeEl.style.height || cs.height);
+    // Bug fix: use COMPUTED width/height (never the raw inline style string)
+    // for the resize origin dimensions. Two distinct hazards, one fix:
+    //   1. Rotated elements — getBoundingClientRect() returns the inflated
+    //      axis-aligned bounding box of the rotated box, not its own
+    //      width/height, so it can't seed the origin either.
+    //   2. Non-px inline values — an inline style of "100%" / "50vw" / "2rem"
+    //      / "auto" / "calc(...)" is NOT a pixel measurement. Reading
+    //      `resizeEl.style.width` directly and running it through
+    //      parseFloat (readPx) previously parsed "100%" as the number 100
+    //      and treated it as 100PX, so a +50px drag produced 150px instead
+    //      of correctly growing from the ~358px the element actually
+    //      rendered at. getComputedStyle always resolves to the element's
+    //      used-value size in px regardless of the authored unit (and is
+    //      unaffected by a rotate transform, unlike getBoundingClientRect),
+    //      so it's the one source that's simultaneously rotation-safe and
+    //      unit-agnostic.
+    var originW = readPx(cs.width);
+    var originH = readPx(cs.height);
     // K-scale (Figma "Scale" tool) parity: capture the element's own border
     // width and font size once at drag-start so a uniform per-tick scale
     // factor (derived from width/height growth, see nextRect below) can
@@ -7442,6 +8447,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // Capture the element rotation once at drag-start so per-move projection is
     // cheap and consistent even if the transform changes during the drag.
     var resizeTheta = (currentRotation(resizeEl) * Math.PI) / 180;
+    // Figma commit-semantics parity: a resize must only ever write the
+    // axis/axes the user actually dragged. A pure vertical edge-drag (handle
+    // "n"/"s", no Shift, scale tool off) must leave width completely alone —
+    // e.g. a `width: 100%` element stays percentage-based after a
+    // height-only resize instead of being silently pinned to a px value the
+    // user never touched. These accumulate for the life of the gesture (once
+    // an axis is touched — including transiently, e.g. Shift held mid-drag
+    // then released — it stays "touched" for this gesture's commit) and
+    // gate both the live style writes in onMove and the committed style keys
+    // in onUp.
+    var widthTouched = false;
+    var heightTouched = false;
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
@@ -7519,15 +8536,42 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         if (handle.indexOf("n") !== -1 || handle.indexOf("s") !== -1)
           top = origin.top - (height - origin.height) / 2;
       }
-      return { left: left, top: top, width: width, height: height };
+      // Which axis/axes this handle actually drives: the handle's own
+      // letters directly touch their axis; an active aspect-ratio lock
+      // (Shift or the K-scale tool) additionally derives the OTHER axis from
+      // the touched one for a single-axis edge handle (e.g. dragging "n"
+      // with Shift held also changes width to hold the ratio). Two-letter
+      // corner handles already touch both axes regardless of the lock.
+      var handlesWidth =
+        handle.indexOf("w") !== -1 || handle.indexOf("e") !== -1;
+      var handlesHeight =
+        handle.indexOf("n") !== -1 || handle.indexOf("s") !== -1;
+      var aspectLocked = !!(ev.shiftKey || scaleToolEnabled);
+      var touchesWidth = handlesWidth || (aspectLocked && handlesHeight);
+      var touchesHeight = handlesHeight || (aspectLocked && handlesWidth);
+      return {
+        left: left,
+        top: top,
+        width: width,
+        height: height,
+        touchesWidth: touchesWidth,
+        touchesHeight: touchesHeight,
+      };
     }
     function onMove(ev) {
       if (!resizeEl) return;
       var rect = nextRect(ev);
+      if (rect.touchesWidth) widthTouched = true;
+      if (rect.touchesHeight) heightTouched = true;
       resizeEl.style.left = Math.round(rect.left) + "px";
       resizeEl.style.top = Math.round(rect.top) + "px";
-      resizeEl.style.width = Math.round(rect.width) + "px";
-      resizeEl.style.height = Math.round(rect.height) + "px";
+      // Only write width/height for an axis this gesture actually touched —
+      // writing the untouched axis every tick (even to its own unchanged
+      // origin value) would silently convert e.g. `width: 100%` to a px
+      // value on a pure vertical drag, which is exactly the "shrank instead
+      // of preserved" class of bug this fixes.
+      if (widthTouched) resizeEl.style.width = Math.round(rect.width) + "px";
+      if (heightTouched) resizeEl.style.height = Math.round(rect.height) + "px";
       if (scaleToolEnabled) {
         // Uniform scale factor: scaleToolEnabled already forces the
         // aspect-ratio lock above (nextRect), so width/origin.width and
@@ -7591,9 +8635,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         position: resizeEl.style.position,
         left: resizeEl.style.left,
         top: resizeEl.style.top,
-        width: resizeEl.style.width,
-        height: resizeEl.style.height,
       };
+      // Only commit width/height for an axis this gesture actually touched
+      // (see widthTouched/heightTouched above) — a pure vertical or
+      // horizontal edge-drag must not also commit a px value for the axis
+      // the user never dragged, which would silently convert e.g.
+      // `width: 100%` to a fixed px width.
+      if (widthTouched) styles.width = resizeEl.style.width;
+      if (heightTouched) styles.height = resizeEl.style.height;
       // Only include borderWidth/fontSize when the K-scale tool actually
       // changed them (originBorderWidth/originFontSize > 0 AND
       // scaleToolEnabled) — a normal resize must never introduce these keys,
@@ -7798,12 +8847,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         collectMoveGroupMembers(groupGestureMember).length > 1
       ) {
         suppressNextShieldClickBriefly();
-        startMove(ev, groupGestureMember);
+        startMove(ev, groupGestureMember, {
+          clientX: startX,
+          clientY: startY,
+        });
         return;
       }
       selectTarget(dragTarget, ev);
       suppressNextShieldClickBriefly();
-      startMove(ev);
+      startMove(ev, undefined, { clientX: startX, clientY: startY });
     }
     function onUp(ev) {
       clearPendingShieldDrag();
@@ -7935,6 +8987,19 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   document.addEventListener(
     "keydown",
     function (e) {
+      if (
+        e.key === " " &&
+        e.code === "Space" &&
+        !activeTextEditEl &&
+        !isEditorTypingTarget(e.target)
+      ) {
+        bridgeSpaceKeyPressed = true;
+        if (activeDragCancel) {
+          bridgeSpaceKeyConsumedByDrag = true;
+          stopNativeInteraction(e);
+          return;
+        }
+      }
       // T25: pending-window keydown routing — a begin-text-edit is still
       // waiting for its node. Keystrokes that land in THIS document during
       // the wait belong to the upcoming text session: buffer printable
@@ -8080,6 +9145,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     "keyup",
     function (e) {
       if (e.key !== " " || e.code !== "Space") return;
+      bridgeSpaceKeyPressed = false;
+      if (bridgeSpaceKeyConsumedByDrag) {
+        bridgeSpaceKeyConsumedByDrag = false;
+        stopNativeInteraction(e);
+        return;
+      }
       if (activeTextEditEl || isEditorTypingTarget(e.target)) return;
       stopNativeInteraction(e);
       (window.parent as Window).postMessage(
@@ -8311,6 +9382,45 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       }
       return;
     }
+    // Template-clone text-edit rejection (mirrors the reorder-rejection fix
+    // above): `target` here can be a raw Alpine `<template x-for>`/`x-if`
+    // runtime clone — findTextEditTarget's climb only requires every
+    // descendant tag to be inline-editable, it never checks whether the
+    // ancestor chain crosses a clone boundary, so a repeated list/card item
+    // whose own content is plain text passes straight through. Entering
+    // contenteditable on that clone lets the user type and see the change
+    // live (it's a real DOM node), but the clone has no per-instance
+    // counterpart in the static source HTML (only the single `<template>`
+    // stays there), so getSelector's live-DOM nth-of-type path — unlike
+    // hit-test.bridge.ts's source-equivalent selector builder — cannot
+    // resolve it on commit. Previously the edit silently failed on the host
+    // (error toast, or a no-op) and vanished for good on the next Alpine
+    // re-render, with no indication anything was wrong. Reject up front
+    // instead — same UX contract as the reorder-rejection badge — and fall
+    // back to selecting the nearest source-backed ancestor (typically the
+    // repeated item's container) so the user isn't left with a stale or
+    // empty selection.
+    if (!programmaticFlag && isTemplateCloneElement(target)) {
+      showRejectedDragBadge(
+        "Can't edit repeated items directly",
+        e.clientX,
+        e.clientY,
+      );
+      // No ongoing gesture here (unlike the reorder-rejection badge, which
+      // hides on the drag's own mouseup/Escape) to hide it on, so time it
+      // out on its own instead of leaving it on screen indefinitely.
+      window.setTimeout(hideTransformBadge, 1400);
+      var rejectedTextEditFallback = selectionTargetForHit(target);
+      if (
+        rejectedTextEditFallback &&
+        !isLayerInteractionBlocked(rejectedTextEditFallback)
+      ) {
+        selectedEl = rejectedTextEditFallback;
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl, e);
+      }
+      return;
+    }
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
     // style edit posts from selectedEl, so it must point at a patchable
@@ -8378,6 +9488,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       target.removeEventListener("keyup", onSelectionChange, true);
       target.removeEventListener("mouseup", onSelectionChange, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      window.removeEventListener("blur", onWindowBlur, true);
       target.removeAttribute("contenteditable");
       target.removeAttribute("data-agent-native-text-editing");
       document.documentElement.removeAttribute(
@@ -8443,17 +9554,37 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // Escape/blur would take, instead of only resetting activeTextEditEl.
     finishActiveTextEdit = finish;
 
-    function onBlur() {
-      if (programmaticTextEdit && !(target.textContent || "").trim()) {
-        window.setTimeout(function () {
-          if (committed || (target.textContent || "").trim()) return;
-          target.focus();
-          updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
-          postTextEditingState(target, true);
-        }, 0);
-        return;
+    var emptyProgrammaticRefocusScheduled = false;
+    function refocusEmptyProgrammaticEdit() {
+      if (
+        emptyProgrammaticRefocusScheduled ||
+        !programmaticTextEdit ||
+        (target.textContent || "").trim()
+      ) {
+        return false;
       }
+      emptyProgrammaticRefocusScheduled = true;
+      window.setTimeout(function () {
+        emptyProgrammaticRefocusScheduled = false;
+        if (committed || (target.textContent || "").trim()) return;
+        target.focus();
+        updateTextEditingChrome(target, originalMinWidth, originalMinHeight);
+        postTextEditingState(target, true);
+      }, 0);
+      return true;
+    }
+
+    function onBlur() {
+      if (refocusEmptyProgrammaticEdit()) return;
       finish(true);
+    }
+
+    // Moving focus from a child browsing context back to the host canvas does
+    // not consistently blur the iframe's activeElement in Chromium. Listen at
+    // the window boundary too so the newly created empty text field keeps the
+    // keyboard until the user types or explicitly exits.
+    function onWindowBlur() {
+      refocusEmptyProgrammaticEdit();
     }
 
     function onKeyDown(ev) {
@@ -8525,6 +9656,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     target.addEventListener("keyup", onSelectionChange, true);
     target.addEventListener("mouseup", onSelectionChange, true);
     document.addEventListener("selectionchange", onSelectionChange);
+    window.addEventListener("blur", onWindowBlur, true);
     target.focus();
     if (programmaticTextEdit) {
       // The synthesized point sits at the (0×0) node's edge and resolves to the
@@ -8560,8 +9692,27 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     textTarget: HTMLElement,
     force: boolean,
   ): void {
-    // If we are already editing this element, do nothing.
-    if (activeTextEditEl && activeTextEditEl === textTarget) return;
+    // The host canvas can reclaim keyboard focus while React settles a newly
+    // created layer. In that case this document still reports the same
+    // activeElement even though its browsing context no longer has focus, so
+    // treating the session as already active makes every retry a no-op and the
+    // user's first keystroke hits host shortcuts. Re-focus the existing
+    // session instead of rebuilding it.
+    if (activeTextEditEl && activeTextEditEl === textTarget) {
+      if (document.activeElement !== textTarget || !document.hasFocus()) {
+        textTarget.focus();
+        try {
+          var refocusRange = document.createRange();
+          refocusRange.selectNodeContents(textTarget);
+          refocusRange.collapse(false);
+          var refocusSelection = window.getSelection();
+          refocusSelection.removeAllRanges();
+          refocusSelection.addRange(refocusRange);
+        } catch {}
+        postTextEditingState(textTarget, true);
+      }
+      return;
+    }
     // Synthesise coordinates at the end of the element content so the caret
     // lands at the insertion point (right after any placeholder text).
     var bteRect = textTarget.getBoundingClientRect();
@@ -8653,6 +9804,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        // Re-arm the hover-info post gate below: leaving all content (e.g.
+        // pointer over empty canvas or off the iframe entirely) means the
+        // NEXT element this pointer lands on — even if it's the same one
+        // hovered before — is a genuinely new hover the host hasn't heard
+        // about since.
+        lastHoverInfoPostedEl = null;
         return;
       }
       if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
@@ -8696,11 +9853,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       } else {
         hideMeasurements();
       }
-      var info = getLightElementInfo(hoveredEl);
-      (window.parent as Window).postMessage(
-        { type: "element-hover", payload: info },
-        "*",
-      );
+      if (hoveredEl !== lastHoverInfoPostedEl) {
+        lastHoverInfoPostedEl = hoveredEl;
+        var info = getLightElementInfo(hoveredEl);
+        (window.parent as Window).postMessage(
+          { type: "element-hover", payload: info },
+          "*",
+        );
+      }
     },
     true,
   );
@@ -8734,7 +9894,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         updateSpacingOverlay(selectedEl);
         return;
       }
-      hoveredEl = null;
+      // Leaving the iframe entirely (e.g. to a panel or outside the window)
+      // must re-arm the post gate, not just clear hoveredEl — otherwise the
+      // pointer returning to this SAME element never re-posts "element-hover"
+      // and the host's hover highlight stays stuck at "nothing".
+      clearHoverGate();
       if (!spacingDrag) {
         scheduleSpacingHoverClear(e);
       }
@@ -8809,6 +9973,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (!textEditingEnabled && activeTextEditEl) {
         activeTextEditEl.blur();
       }
+      return;
+    }
+    if (e.data.type === "set-content-offset") {
+      var nextContentOffsetX = Number(e.data.x);
+      var nextContentOffsetY = Number(e.data.y);
+      designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX)
+        ? nextContentOffsetX
+        : 0;
+      designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY)
+        ? nextContentOffsetY
+        : 0;
       return;
     }
     // begin-text-edit: enter text-editing mode for the element identified by
@@ -9019,7 +10194,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         );
         if (
           textEditStatusEditingEl &&
-          document.activeElement === textEditStatusEditingEl
+          document.activeElement === textEditStatusEditingEl &&
+          document.hasFocus()
         ) {
           textEditStatus = "active";
         } else if (
@@ -9117,13 +10293,28 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       // whenever the cursor RESTED on a handle (the user only ever saw the
       // badge flash, i.e. "the value box never shows"). A same-element
       // replay must be a no-op for hover state.
-      if (target !== selectedEl) {
+      var selectionChangedByHost = target !== selectedEl;
+      if (selectionChangedByHost) {
         selectedSpacingHovered = false;
         hoveredSpacingHandleKey = "";
       }
       selectedEl = target;
       positionOverlay(selectionOverlay, target);
       if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
+      // A host-driven selection (e.g. picking a layer in the Layers panel)
+      // only ever moved the overlay above — it never sent the rich
+      // getElementInfo() payload (computedStyles, portableStyleSnapshot,
+      // gradients, etc.) back up, unlike pointer-driven selection which
+      // calls postElementSelect() immediately. The properties panel's
+      // "element-select" listener was therefore left with whatever payload
+      // (or lack of one) it already had, which surfaced as an empty Fill
+      // section and zeroed-out layout fields right after a Layers-panel
+      // click even though the same element selected by clicking the canvas
+      // rendered correctly. Post the full payload on genuine selection
+      // changes only — the `selectionChangedByHost` guard above already
+      // keeps this a no-op on the ~1-2s poll-tick replay so it can't turn
+      // into a message-spam loop.
+      if (selectionChangedByHost) postElementSelect(target);
       return;
     }
     if (e.data.type === "hover-element") {
@@ -9146,7 +10337,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         hoverCandidates.push(String(e.data.selector));
       }
       if (hoverCandidates.length === 0) {
-        hoveredEl = null;
+        clearHoverGate();
         highlightOverlay.style.display = "none";
         hideMeasurements();
         return;
@@ -9184,10 +10375,70 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         hideSelectionOverlay();
       }
       if (hoveredEl && isLayerInteractionBlocked(hoveredEl)) {
-        hoveredEl = null;
+        clearHoverGate();
         highlightOverlay.style.display = "none";
       }
       applyHiddenSelectors();
+      return;
+    }
+    if (e.data.type === "runtime-structure-move") {
+      if (readOnly) return;
+      var runtimePlacement = String(e.data.placement || "");
+      if (
+        runtimePlacement !== "before" &&
+        runtimePlacement !== "after" &&
+        runtimePlacement !== "inside"
+      ) {
+        return;
+      }
+      var runtimeSubject = findUniqueRuntimeStructureTarget(
+        String(e.data.subjectSelector || ""),
+        typeof e.data.subjectSourceId === "string"
+          ? e.data.subjectSourceId
+          : "",
+      );
+      var runtimeAnchor = findUniqueRuntimeStructureTarget(
+        String(e.data.anchorSelector || ""),
+        typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
+      );
+      if (
+        !runtimeSubject ||
+        !runtimeAnchor ||
+        runtimeSubject === runtimeAnchor ||
+        runtimeSubject.contains(runtimeAnchor)
+      ) {
+        return;
+      }
+      if (
+        (runtimePlacement === "inside" &&
+          !isContainerDropTarget(runtimeAnchor)) ||
+        (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
+      ) {
+        return;
+      }
+      var runtimeTarget = {
+        anchor: runtimeAnchor,
+        placement: runtimePlacement,
+        axis: parentFlowAxis(
+          runtimePlacement === "inside"
+            ? runtimeAnchor
+            : runtimeAnchor.parentElement!,
+        ),
+        dropMode:
+          runtimePlacement === "inside" &&
+          isAbsolutePrimitiveContainer(runtimeAnchor)
+            ? "absolute-container"
+            : "flow-insert",
+      };
+      var runtimeOrigin = {
+        prevParent: runtimeSubject.parentElement!,
+        prevNextSibling: runtimeSubject.nextSibling,
+        prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
+      };
+      applyRuntimeReorder(runtimeSubject, runtimeTarget);
+      selectedEl = runtimeSubject;
+      positionOverlay(selectionOverlay, selectedEl);
+      postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
       return;
     }
     if (e.data.type === "visual-structure-ack") {
@@ -9385,6 +10636,42 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   window.addEventListener("scroll", scheduleRefreshOverlays, true);
   window.addEventListener("resize", scheduleRefreshOverlays);
   applyEditorChromeScale();
+
+  if (
+    runtimeLayerSnapshotEnabled &&
+    typeof MutationObserver !== "undefined" &&
+    document.body
+  ) {
+    var runtimeLayerObserver = new MutationObserver(function (mutations) {
+      var hasMeaningfulMutation = mutations.some(
+        runtimeLayerMutationIsMeaningful,
+      );
+      if (hasMeaningfulMutation) scheduleRuntimeLayerSnapshot();
+    });
+    runtimeLayerObserver.observe(document.body, {
+      attributes: true,
+      attributeOldValue: true,
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributeFilter: [
+        "aria-label",
+        "class",
+        "data-agent-native-component",
+        "data-agent-native-layer-name",
+        "data-an-primitive",
+        "data-component-name",
+        "data-source-column",
+        "data-source-file",
+        "data-source-line",
+        "hidden",
+        "id",
+        "style",
+        "title",
+      ],
+    });
+  }
+  if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 
   // One-time ready signal: tells the host that every message listener above is
   // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,

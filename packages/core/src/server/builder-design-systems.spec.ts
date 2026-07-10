@@ -53,6 +53,41 @@ describe("Builder design-system helpers", () => {
     expect(files.map((file) => file.name)).toEqual(["ok.css", "also-ok.css"]);
   });
 
+  it("base64-decodes a binary .fig file instead of UTF-8-mangling it (regression: .fig upload silently corrupted binary bytes)", () => {
+    // A real .fig is a zip container -- PK\x03\x04 magic, per the fig-writer
+    // spike's own README -- and its bytes are NOT valid UTF-8 (many bytes
+    // are >= 0x80 with no valid continuation sequence). Round-tripping
+    // arbitrary binary through TextEncoder().encode() (the old
+    // default-and-only path) corrupts it; through base64 + Buffer.from it
+    // must come back byte-identical.
+    const binaryBytes = new Uint8Array([
+      0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x80, 0x81, 0xfe, 0x7f, 0x10, 0x20,
+    ]);
+    const base64Content = Buffer.from(binaryBytes).toString("base64");
+
+    const files = buildBuilderDesignSystemIndexFiles({
+      codeFiles: [
+        {
+          filename: "spike-output.fig",
+          content: base64Content,
+          encoding: "base64",
+        },
+      ],
+    });
+
+    expect(files).toHaveLength(1);
+    expect(files[0].name).toBe("spike-output.fig");
+    expect(files[0].mimeType).toBe("application/octet-stream");
+    expect(Array.from(files[0].data)).toEqual(Array.from(binaryBytes));
+  });
+
+  it("still treats codeFiles as UTF-8 text by default when encoding is omitted (no behavior change for existing text callers)", () => {
+    const files = buildBuilderDesignSystemIndexFiles({
+      codeFiles: [{ filename: "tokens.css", content: ":root{--x:1}" }],
+    });
+    expect(new TextDecoder().decode(files[0].data)).toBe(":root{--x:1}");
+  });
+
   it("creates a local proxy that preserves the Builder DSI reference", () => {
     const fields = createBuilderDesignSystemProxyFields({
       result: {

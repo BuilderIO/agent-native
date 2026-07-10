@@ -208,6 +208,17 @@ the connected app's text/code files through the bridge
 - Saves are conflict-checked against the file's on-disk version — a file that
   changed since it was read fails with a version conflict instead of being
   overwritten.
+- React/TSX canvas edits use build/debug provenance to locate the responsible
+  source, but structural meaning belongs to the coding agent. Do not apply a
+  generic AST reparent/group/ungroup transform. Hand off the exact subject and
+  target source anchors plus their runtime relationship; repeated `.map()`
+  instances, shared components, dynamic expressions, and cross-file edits
+  always require semantic inspection.
+- For every semantic React write, read the file first, pass that exact
+  `versionHash` to `write-local-file` with `requireExpectedVersionHash: true`,
+  re-read and re-plan if it conflicts, and
+  verify the resulting HMR/runtime state before treating the preview as saved.
+  Human write consent remains mandatory and cannot be granted by an agent.
 
 ## Verification
 

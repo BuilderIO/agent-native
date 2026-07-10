@@ -191,6 +191,11 @@ const DeckContext = createContext<DeckContextType | null>(null);
 
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
+// Bounded exponential backoff for SSE reconnect after a fatal error (e.g. a
+// non-2xx response, which EventSource treats as terminal and never retries
+// on its own — see the SSE effect below). Doubles from BASE up to MAX.
+const SSE_RECONNECT_BASE_MS = 1_000;
+const SSE_RECONNECT_MAX_MS = 30_000;
 
 type DeckListActionResult = {
   decks?: unknown[];
@@ -235,6 +240,30 @@ const saveStateListeners = new Set<() => void>();
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
+
+// Every raw deck fetch (the legacy full-replace PUT, the create POST) MUST be
+// bounded. Without a timeout, a stalled connection leaves the awaited promise
+// forever pending, so the `finally` that drains `inFlightSaves` /
+// `pendingCreateIdsRef` never runs — wedging the deck id in a set that
+// `hasUncommittedDeckChanges` reads, which permanently suppresses the poll's
+// and the SSE resync's open-deck refetch (the editor goes blind to agent edits
+// until a full page reload). Matches the granular `patch-deck` path, which is
+// already bounded at 60s by `actionFetch`'s DEFAULT_ACTION_TIMEOUT_MS.
+const RAW_DECK_FETCH_TIMEOUT_MS = 60_000;
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit = {},
+  timeoutMs = RAW_DECK_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
 // is unchanged or React will infinite-loop (it compares snapshots with
@@ -311,9 +340,12 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
       if (ops.length === 0) return;
 
       if (ops[0].op === "full-replace") {
-        // Legacy full-deck PUT — used by undo/redo and setDeckSlides
+        // Legacy full-deck PUT — used by undo/redo and setDeckSlides.
+        // Bounded so a stalled PUT can't wedge `inFlightSaves` forever (its
+        // `finally` cleanup below only runs once this await settles; an
+        // AbortError from the timeout is a rejection that still reaches it).
         const deck = ops[0].deck;
-        await fetch(`${appBasePath()}/api/decks/${deckId}`, {
+        await fetchWithTimeout(`${appBasePath()}/api/decks/${deckId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(deck),
@@ -738,7 +770,11 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
-  const res = await fetch(`${appBasePath()}/api/decks`, {
+  // Bounded so a stalled create response can't leave the deck id in
+  // `pendingCreateIdsRef` forever (cleared only in the caller's `.finally`,
+  // which needs this promise to settle). A wedged pending-create id would
+  // otherwise suppress the open-deck refetch just like a wedged save.
+  const res = await fetchWithTimeout(`${appBasePath()}/api/decks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(deck),
@@ -776,6 +812,57 @@ export function hasUncommittedDeckChanges(
     pendingSaves.has(deckId) ||
     inFlightSaves.has(deckId)
   );
+}
+
+/**
+ * Additive, content-preserving reconcile of a server deck snapshot onto the
+ * local copy — used when the open deck has uncommitted local edits, where a
+ * wholesale adopt would clobber the user's in-progress typing.
+ *
+ * The concern the "uncommitted changes" guard originally addressed (don't
+ * overwrite local edits with slightly-stale server state) is legitimate for
+ * slide BODIES, but it must not make the client permanently blind to the
+ * agent ADDING slides — that is the production staleness bug. So we split the
+ * two concerns:
+ *   - never overwrite the content of a slide that exists locally, and
+ *   - never drop a local-only slide (an unsaved local add), but
+ *   - always surface server slides that are missing locally (agent additions),
+ *     positioned to follow the server's ordering.
+ *
+ * Removals and content changes to slides that exist on both sides are left to
+ * the clean-deck path (`applyRemoteDeckUpdate`), which runs once local edits
+ * settle. This merge is intentionally conservative: it can only ADD slides, so
+ * it can never destroy local work, yet it always heals an empty/stale rail.
+ *
+ * Returns the same `local` reference when nothing was added, so callers can
+ * cheaply detect "no change".
+ */
+export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
+  const localIds = new Set(local.slides.map((s) => s.id));
+  const additions = server.slides.filter((s) => !localIds.has(s.id));
+  if (additions.length === 0) return local;
+
+  // Walk the server order, emitting local slides with their local (possibly
+  // dirty) content and inserting server-only additions in place. Any local
+  // slide not present on the server (an unsaved local add) is carried over at
+  // the end so we never drop unsaved local work.
+  const localById = new Map(local.slides.map((s) => [s.id, s]));
+  const emitted = new Set<string>();
+  const merged: Slide[] = [];
+  for (const s of server.slides) {
+    const localSlide = localById.get(s.id);
+    merged.push(localSlide ?? s);
+    emitted.add(s.id);
+  }
+  for (const s of local.slides) {
+    if (!emitted.has(s.id)) {
+      merged.push(s);
+      emitted.add(s.id);
+    }
+  }
+  // Keep local scalar fields (title/tweaks/etc. may be locally edited); only
+  // the slide set is reconciled here.
+  return { ...local, slides: merged };
 }
 
 export const defaultSlideContent: Record<SlideLayout, string> = {
@@ -980,6 +1067,109 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Re-fetch the deck list and diff it against local state (added/removed
+  // decks). Shared by the fallback poll and the SSE resync-on-reconnect path
+  // below so both pull from one implementation of "what changed".
+  const refetchDeckListIfChanged = useCallback(async () => {
+    const fresh = await fetchDecksFromAPI();
+    // A null result means the fetch failed (network error or non-2xx). Skip
+    // the diff so we don't wipe local state on a transient failure.
+    if (fresh === null) return;
+    const pending = pendingCreateIdsRef.current;
+    const currentDecks = decksRef.current;
+    const currentIds = new Set(currentDecks.map((d) => d.id));
+    const freshIds = new Set(fresh.map((d) => d.id));
+    // Check if deck list changed (added or removed). Optimistic decks still
+    // in flight are preserved (not treated as removed).
+    const added = fresh.filter((d) => !currentIds.has(d.id));
+    const removed = currentDecks.filter(
+      (d) => !freshIds.has(d.id) && !pending.has(d.id),
+    );
+    if (added.length === 0 && removed.length === 0) return;
+    lastExternalUpdateRef.current = Date.now();
+    setDecks((prev) => {
+      const prevIds = new Set(prev.map((d) => d.id));
+      // Only add decks that aren't already in prev (prevents duplicates when
+      // the closure's deck snapshot is stale compared to `prev`).
+      let next = prev.filter((d) => freshIds.has(d.id) || pending.has(d.id));
+      for (const a of added) {
+        if (!prevIds.has(a.id)) next = [...next, a];
+      }
+      return next;
+    });
+  }, []);
+
+  // Re-fetch the currently-open deck's full slide data and reconcile it.
+  //
+  // We ALWAYS fetch — never gate on pending-create or uncommitted-edits state.
+  // Gating the fetch was the liveness bug: a wedged `pendingSaves` /
+  // `inFlightSaves` / `pendingCreateIdsRef` entry (or a legitimately dirty
+  // deck) would make the editor permanently blind to agent-added slides.
+  //
+  // How we APPLY the result depends on whether there are local edits to
+  // protect:
+  //   - Clean deck → adopt the server snapshot wholesale (handles content
+  //     changes, removals, and reorders too), exactly as before.
+  //   - Dirty deck / unsaved local create → additive merge only: surface
+  //     agent-added slides without ever overwriting or dropping local slides.
+  const refetchOpenDeckIfChanged = useCallback(
+    async (currentOpenId: string) => {
+      const serverDeck = await fetchDeckFromAPI(currentOpenId);
+      // Null means 404 (row not created yet), a transient failure, or a
+      // still-pending create — nothing authoritative to reconcile.
+      if (!serverDeck) return;
+      const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
+
+      const hasLocalEdits =
+        pendingCreateIdsRef.current.has(currentOpenId) ||
+        hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current);
+
+      if (hasLocalEdits && clientDeck) {
+        // Content-preserving: only ADD server slides missing locally.
+        const merged = mergeServerAddedSlides(clientDeck, serverDeck);
+        if (merged === clientDeck) return; // nothing new to surface
+        lastExternalUpdateRef.current = Date.now();
+        setDecks((prev) => {
+          const idx = prev.findIndex((d) => d.id === currentOpenId);
+          if (idx < 0) return prev;
+          const next = [...prev];
+          next[idx] = merged;
+          return next;
+        });
+        return;
+      }
+
+      const changed =
+        !clientDeck ||
+        clientDeck.updatedAt !== serverDeck.updatedAt ||
+        clientDeck.slides.length !== serverDeck.slides.length;
+      if (!changed) return;
+      lastExternalUpdateRef.current = Date.now();
+      applyRemoteDeckUpdate(serverDeck);
+    },
+    [applyRemoteDeckUpdate],
+  );
+
+  /**
+   * Full resync of authoritative deck/slide state from the server. The SSE
+   * channel (`notifyClients` server-side) is fire-and-forget to whatever
+   * connections are live at broadcast time — there is no backlog or replay,
+   * so any event emitted while this tab was disconnected is gone forever.
+   * Call this whenever the SSE connection (re)establishes after a drop so
+   * agent writes made during the gap show up without requiring a full page
+   * reload.
+   */
+  const resyncDeckState = useCallback(async () => {
+    try {
+      await refetchDeckListIfChanged();
+    } catch {}
+    const currentOpenId = currentOpenDeckIdFromWindow();
+    if (!currentOpenId) return;
+    try {
+      await refetchOpenDeckIfChanged(currentOpenId);
+    } catch {}
+  }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
+
   const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
     setDecks(nextDecks);
     // A baseline reset (initial mount, route change, or access reload) starts a
@@ -1053,79 +1243,29 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     async function poll() {
       if (stopped || isHidden()) return;
-      try {
-        const now = Date.now();
-        const currentOpenId = readOpenDeckId();
-        const pending = pendingCreateIdsRef.current;
+      const now = Date.now();
+      const currentOpenId = readOpenDeckId();
 
+      try {
         if (
           !currentOpenId ||
           now - lastListFetchAt >= DECK_LIST_FALLBACK_POLL_MS
         ) {
           lastListFetchAt = now;
-          const fresh = await fetchDecksFromAPI();
-          // A null result means the fetch failed (network error or non-2xx).
-          // Skip the diff so we don't wipe local state on a transient failure
-          // — otherwise the user's open deck disappears and they're bounced
-          // back to the empty "Create your first deck" screen until the next
-          // poll succeeds.
-          if (fresh !== null) {
-            const currentDecks = decksRef.current;
-            const currentIds = new Set(currentDecks.map((d) => d.id));
-            const freshIds = new Set(fresh.map((d) => d.id));
-            // Check if deck list changed (added or removed). Optimistic decks
-            // still in flight are preserved (not treated as removed).
-            const added = fresh.filter((d) => !currentIds.has(d.id));
-            const removed = currentDecks.filter(
-              (d) => !freshIds.has(d.id) && !pending.has(d.id),
-            );
-            if (added.length > 0 || removed.length > 0) {
-              lastExternalUpdateRef.current = Date.now();
-              setDecks((prev) => {
-                const prevIds = new Set(prev.map((d) => d.id));
-                let next = prev.filter(
-                  (d) => freshIds.has(d.id) || pending.has(d.id),
-                );
-                // Only add decks that aren't already in prev (prevents duplicates
-                // when the closure's deck snapshot is stale compared to `prev`).
-                for (const a of added) {
-                  if (!prevIds.has(a.id)) next = [...next, a];
-                }
-                return next;
-              });
-            }
-          }
+          // A failed fetch (network error or non-2xx) is swallowed inside
+          // refetchDeckListIfChanged — skip the diff so we don't wipe local
+          // state on a transient failure, otherwise the user's open deck
+          // disappears and they're bounced back to the empty "Create your
+          // first deck" screen until the next poll succeeds.
+          await refetchDeckListIfChanged();
         }
 
         // Also re-fetch the currently-open deck so agent-added slides show up.
         // The list endpoint may not include full slide contents, and SSE can
         // miss events if the client reconnects between broadcasts.
-        //
-        // Skip the refetch if a save is pending or in flight — the server's
-        // copy might be a few hundred ms behind the local edits the user is
-        // mid-typing, and overwriting wholesale would briefly revert their
-        // characters before the next save lands. The next poll tick (after
-        // saves settle) catches up.
-        if (
-          currentOpenId &&
-          !pending.has(currentOpenId) &&
-          !hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current)
-        ) {
+        if (currentOpenId) {
           try {
-            const serverDeck = await fetchDeckFromAPI(currentOpenId);
-            if (serverDeck) {
-              const clientDeck = decksRef.current.find(
-                (d) => d.id === currentOpenId,
-              );
-              const changed =
-                !clientDeck ||
-                clientDeck.updatedAt !== serverDeck.updatedAt ||
-                clientDeck.slides.length !== serverDeck.slides.length;
-              if (changed) {
-                lastExternalUpdateRef.current = Date.now();
-                applyRemoteDeckUpdate(serverDeck);
-              }
-            }
+            await refetchOpenDeckIfChanged(currentOpenId);
           } catch {}
         }
       } catch {}
@@ -1160,7 +1300,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [applyRemoteDeckUpdate, loading]);
+  }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);
 
   // The dirty-deck set is now only used as a sentinel that "something changed
   // for this deck". Ops are enqueued directly in each mutation handler below;
@@ -1184,11 +1324,53 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     }
   }, [decks, loading]);
 
-  // Listen for file changes via SSE (so agent edits show up in real-time)
+  // Listen for deck changes via SSE (so agent edits show up in real-time).
+  //
+  // EventSource auto-reconnects on its own ONLY for network-level drops
+  // (readyState stays CONNECTING while it retries). A non-2xx HTTP response
+  // — e.g. a transient 503 during a cold start — is FATAL per spec: the
+  // browser sets readyState CLOSED and never retries. Without our own
+  // reconnect logic, a single 503 permanently kills live updates for the
+  // rest of the tab's life (the rail goes stale until a manual reload).
+  //
+  // We reconnect manually with bounded exponential backoff, and because
+  // notifyClients() on the server has no backlog/replay (fire-and-forget to
+  // whatever connections are live at broadcast time — see
+  // server/handlers/decks.ts), every reconnect after the first triggers a
+  // full resync via resyncDeckState() so agent writes made during the gap
+  // aren't silently lost.
   useEffect(() => {
     if (isEmbedAuthActive()) return;
-    const evtSource = new EventSource(`${appBasePath()}/api/decks/events`);
-    evtSource.onmessage = async (event) => {
+    let stopped = false;
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let hasConnectedOnce = false;
+
+    const isHidden = () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden";
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimer || isHidden()) return;
+      const delay = Math.min(
+        SSE_RECONNECT_BASE_MS * 2 ** retryCount,
+        SSE_RECONNECT_MAX_MS,
+      );
+      retryCount += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    const handleMessage = async (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "deck-deleted" && data.deckId) {
@@ -1211,8 +1393,67 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
       } catch {}
     };
-    return () => evtSource.close();
-  }, [applyRemoteDeckUpdate]);
+
+    const connect = () => {
+      if (stopped || isHidden()) return;
+      // Never leak the previous connection.
+      if (es) {
+        es.close();
+        es = null;
+      }
+      const next = new EventSource(`${appBasePath()}/api/decks/events`);
+      es = next;
+      next.onmessage = handleMessage;
+      next.onopen = () => {
+        retryCount = 0;
+        // Every reconnect after the first can have missed broadcasts made
+        // while we were disconnected — the SSE channel has no backlog, so
+        // resync authoritative state instead of trusting the stream alone
+        // to have caught us up.
+        if (hasConnectedOnce) {
+          void resyncDeckState();
+        }
+        hasConnectedOnce = true;
+      };
+      next.onerror = () => {
+        if (es !== next) return;
+        if (next.readyState === EventSource.CLOSED) {
+          // Fatal per spec (non-2xx status, bad content-type, etc.) — the
+          // browser will not retry on its own. Reconnect ourselves.
+          next.close();
+          es = null;
+          scheduleReconnect();
+        }
+        // readyState === CONNECTING means the browser is already retrying a
+        // network-level drop on its own; onopen above resyncs once that
+        // succeeds.
+      };
+    };
+
+    const handleVisibilityChange = () => {
+      if (isHidden()) {
+        clearReconnectTimer();
+        return;
+      }
+      retryCount = 0;
+      if (!es || es.readyState === EventSource.CLOSED) {
+        connect();
+      }
+    };
+
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopped = true;
+      clearReconnectTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (es) {
+        es.close();
+        es = null;
+      }
+    };
+  }, [applyRemoteDeckUpdate, resyncDeckState]);
 
   // Flush pending (debounced) saves before the tab is hidden or unloaded so the
   // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the

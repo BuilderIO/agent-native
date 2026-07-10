@@ -9,6 +9,7 @@ import {
 } from "../../code-workbench-theme";
 import {
   dispatchKeybinding,
+  runCommand,
   type WorkbenchCommand,
   type WorkbenchCommandContext,
 } from "../commands";
@@ -93,11 +94,22 @@ export function MonacoHost({
     // Safety net: Monaco's own Cmd+S binding (if any) is not guaranteed, and
     // the root's capture-phase keydown handler already dispatches workbench
     // commands before Monaco sees them — this addCommand is a belt-and-
-    // braces fallback for save specifically.
+    // braces fallback for save specifically. It goes through the same
+    // `workbench.save` command (via runCommand) as every other invocation
+    // path, not a bare `api.save()` call, so a failed save (stale version,
+    // missing local write consent, network error) still surfaces a toast /
+    // consent-retry here instead of failing silently.
     editor.addCommand(
       monacoModule.KeyMod.CtrlCmd | monacoModule.KeyCode.KeyS,
       () => {
-        void commandContextRef.current.api.save();
+        const saveCommand = commandsRef.current.find(
+          (command) => command.id === "workbench.save",
+        );
+        if (saveCommand) {
+          void runCommand(saveCommand, commandContextRef.current);
+        } else {
+          void commandContextRef.current.api.save();
+        }
       },
     );
 

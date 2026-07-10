@@ -6,7 +6,10 @@ import type {
   DocumentPropertyValue,
   SuggestSourceJoinKeyResponse,
 } from "../shared/api.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+} from "./_builder-cms-read-client.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -52,8 +55,12 @@ export default defineAction({
 
     let secondaryValues: Record<string, DocumentPropertyValue>[];
     if (args.candidateSourceType === "builder-cms") {
+      const modelFields = await readBuilderCmsModelFields({
+        model: args.candidateSourceTable,
+      }).catch(() => []);
       const read = await readBuilderCmsContentEntries({
         model: args.candidateSourceTable,
+        fieldPaths: modelFields.map((field) => `data.${field.name}`),
       });
       secondaryValues = (read.state === "live" ? read.entries : [])
         .map((entry) => entry.sourceValues)

@@ -54,14 +54,35 @@ describe("video player mobile controls", () => {
     expect(videoPlayerSource).toContain("onSeekRelative={seekByMs}");
   });
 
-  it("routes video surface clicks and taps through the same playback activation", () => {
+  it("reveals controls on touch while mouse clicks toggle playback", () => {
     const videoPlayerSource = readSource("./video-player.tsx");
     const activation = videoPlayerSource.indexOf("const activateVideoSurface");
-    const touchTap = videoPlayerSource.indexOf("activateVideoSurface();");
-    const clickTap = videoPlayerSource.lastIndexOf("activateVideoSurface();");
+    const touchBehavior = videoPlayerSource.indexOf(
+      'if (input === "touch" && !hideChrome)',
+      activation,
+    );
+    const revealControls = videoPlayerSource.indexOf(
+      "bumpControls();",
+      touchBehavior,
+    );
+    const playbackToggle = videoPlayerSource.indexOf(
+      "togglePlayback();",
+      revealControls,
+    );
+    const touchTap = videoPlayerSource.indexOf(
+      'activateVideoSurface("touch");',
+      playbackToggle,
+    );
+    const clickTap = videoPlayerSource.indexOf(
+      'activateVideoSurface("mouse");',
+      touchTap,
+    );
 
     expect(activation).toBeGreaterThan(-1);
-    expect(touchTap).toBeGreaterThan(activation);
+    expect(touchBehavior).toBeGreaterThan(activation);
+    expect(revealControls).toBeGreaterThan(touchBehavior);
+    expect(playbackToggle).toBeGreaterThan(revealControls);
+    expect(touchTap).toBeGreaterThan(playbackToggle);
     expect(clickTap).toBeGreaterThan(touchTap);
   });
 });

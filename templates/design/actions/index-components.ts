@@ -34,7 +34,7 @@ import {
   type ComponentInstance,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,24 +89,8 @@ export default defineAction({
     const access = await assertAccess("design", designId, "editor");
 
     // ── Source type + capability check ──────────────────────────────────────
-    let rawSourceType: unknown = "inline";
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Stale JSON — default to inline.
-      }
-    }
-
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
 
     // Real-app sources gate on `indexComponents`.  For inline designs this

@@ -8561,10 +8561,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // covers the initial dispatch (a connected client is polling the claim),
       // but a server-chained CONTINUATION handoff has no foreground watching
       // it: if the dispatch is lost after the successor row was inserted, the
-      // row would sit at dispatch_mode='background' forever and the turn hangs
-      // silently. This sweep reaps such rows into a loud, attributable error
-      // (`background_worker_never_started`) that the client renders, instead
-      // of an idle spinner. Cheap: one indexed-ish query per 2-min window.
+      // row would otherwise sit at dispatch_mode='background' forever and the
+      // turn hangs silently. `chainServerDrivenContinuation` (production-agent.ts)
+      // leaves exactly such a row behind — status='running', dispatch_mode=
+      // 'background', `dispatch_payload` intact — when it exhausts its own
+      // dispatch retry budget, instead of erroring it immediately. This sweep
+      // gives that row a real chance to RECOVER: within
+      // `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` of its original
+      // `started_at` it redispatches the handoff (same `_process-run`
+      // processor, same persisted payload); past that bound it falls back to
+      // the existing loud reap (`background_worker_never_started`) so a
+      // genuinely dead handoff still fails loud, never silently. A
+      // redispatch is always safe to attempt — even a duplicate or
+      // late-arriving one — because the worker's `claimBackgroundRun` atomic
+      // CAS (status='running' AND dispatch_mode='background' -> 'background-
+      // processing') is the sole gate on actual execution; a row that was
+      // already claimed or already reaped by a concurrent path just loses the
+      // CAS and no-ops. Cheap: one indexed-ish query per 2-min window.
+      //
+      // THREE-SITE INVARIANT (keep in lockstep): this sweep only ever sees the
+      // deferred successor because the ~1s client poll in
+      // `getActiveRunForThreadAsync` (run-manager.ts) skips its own
+      // `reapUnclaimedBackgroundRun` while the row is within the redispatch
+      // bound (`shouldRedispatchUnclaimedBackgroundRun`). If a future change
+      // makes that client poll reap deferred successors at the 25s grace
+      // again, this sweep will almost never win the race for connected clients.
+      // Do not edit one site without the others (producer:
+      // chainServerDrivenContinuation in production-agent.ts; guard:
+      // run-manager.ts; recovery actor: here).
       (() => {
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
@@ -8577,22 +8601,85 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             (async () => {
               const {
-                listUnclaimedBackgroundRunIds,
+                listUnclaimedBackgroundRunRows,
                 reapUnclaimedBackgroundRun,
+                updateRunHeartbeat,
+                shouldRedispatchUnclaimedBackgroundRun,
               } = await import("../agent/run-store.js");
-              let runIds: string[];
+              const { resolveAgentChatProcessRunDispatchPath } =
+                await import("../agent/durable-background.js");
+              const { fireInternalDispatch } =
+                await import("./self-dispatch.js");
+              let rows: { id: string; startedAt: number }[];
               try {
-                runIds = await listUnclaimedBackgroundRunIds();
+                rows = await listUnclaimedBackgroundRunRows();
               } catch {
                 return; // Table may not exist yet on first boot
               }
-              for (const staleRunId of runIds) {
+              for (const row of rows) {
                 try {
-                  const reaped = await reapUnclaimedBackgroundRun(staleRunId);
+                  if (shouldRedispatchUnclaimedBackgroundRun(row)) {
+                    // Bump liveness BEFORE attempting the redispatch so the
+                    // row doesn't look freshly-stale again the instant this
+                    // tick returns — best-effort, the CAS is what actually
+                    // matters for correctness, not this timing.
+                    await updateRunHeartbeat(row.id).catch(() => {});
+                    try {
+                      // DELIBERATE: this marker omits `continuationCount`.
+                      // `chainServerDrivenContinuation` (production-agent.ts)
+                      // reads `backgroundRunMarker.continuationCount` to
+                      // compute `backgroundContinuationCount`, defaulting to 0
+                      // when absent — so a chunk recovered here always starts
+                      // a fresh nested-dispatch segment at depth 0, regardless
+                      // of how deep the chain was before this sweep picked it
+                      // up. This is what makes the sweep a genuine CHAIN
+                      // BREAK, not just a retry: this redispatch fires from an
+                      // unrelated, timer-driven invocation rather than from
+                      // inside the prior chain's own live execution, so
+                      // starting its nested-depth count over at 0 here is
+                      // correct — see `MAX_NESTED_SELF_DISPATCH_DEPTH` in
+                      // production-agent.ts for why nested depth is bounded
+                      // and how this reset keeps a long turn progressing past
+                      // Netlify's undocumented self-invocation loop-protection
+                      // limit instead of dying at it. Do not "fix" this by
+                      // adding `continuationCount` back without re-reading
+                      // that constant's doc comment.
+                      await fireInternalDispatch({
+                        path: resolveAgentChatProcessRunDispatchPath(),
+                        taskId: row.id,
+                        body: {
+                          internalContinuation: true,
+                          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+                            runId: row.id,
+                            payloadRef: true,
+                          },
+                        },
+                        awaitResponse: true,
+                        responseTimeoutMs: 15_000,
+                      });
+                      console.error(
+                        "[agent-chat] redispatched unclaimed background run (handoff recovery):",
+                        row.id,
+                      );
+                    } catch (redispatchErr) {
+                      console.error(
+                        "[agent-chat] unclaimed background run redispatch attempt failed (retrying until the redispatch bound, then reaping):",
+                        row.id,
+                        redispatchErr instanceof Error
+                          ? redispatchErr.message
+                          : redispatchErr,
+                      );
+                    }
+                    continue;
+                  }
+                  // Redispatch bound exceeded — this handoff is not
+                  // recovering. Fall back to the pre-existing loud reap so
+                  // the turn fails loud instead of retrying forever.
+                  const reaped = await reapUnclaimedBackgroundRun(row.id);
                   if (reaped) {
                     console.error(
-                      "[agent-chat] swept unclaimed background run (handoff lost):",
-                      staleRunId,
+                      "[agent-chat] swept unclaimed background run (handoff lost, redispatch bound exceeded):",
+                      row.id,
                     );
                   }
                 } catch {

@@ -14,6 +14,12 @@ description: >-
 
 Recording sharing uses the framework `sharing` system — not a custom share table. Recordings are registered via `registerShareableResource({ type: "recording", ... })` in `server/db/index.ts`. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted and handle per-user grants, per-org grants, and the three visibility levels (`private` / `org` / `public`).
 
+Unlike the framework-wide private default, normal Clips recordings and uploaded
+videos default to **public** so their copied share links work immediately.
+Embedded bug-report recordings are the exception and default to organization
+visibility. Callers can still explicitly create a private or organization-only
+recording, and owners/admins can change visibility from the Share dialog.
+
 Clips **adds two things** on top of the framework system:
 
 1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
@@ -62,7 +68,7 @@ import { ShareDialog } from "@agent-native/core/client";
     </>
   }
   embedTabContent={<EmbedSnippetAndOptions recordingId={recording.id} />}
-/>
+/>;
 ```
 
 - `shareUrl` / `embedUrl` — the copy-link and embed URLs the framework renders in its tabs.
@@ -163,11 +169,11 @@ Required Slack app setup:
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
-| Endpoint | Meaning |
-| -------- | ------- |
-| `/api/agent-context.json?id=<recordingId>` | Clip metadata, transcript summary, recommended frames, and API discovery links |
-| `/api/agent-transcript.json?id=<recordingId>` | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp |
+| Endpoint                                          | Meaning                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:

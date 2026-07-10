@@ -361,6 +361,7 @@ const messages = {
     searchPlaceholder: "搜尋逐字稿",
     copyTranscript: "複製逐字稿",
     downloadSrt: "下載 .srt",
+    regenerate: "重新產生逐字稿",
     cleanupRunning: "在背景清理逐字稿。",
     noMatches: "沒有符合項目。",
     noTranscript: "還沒有逐字稿。",

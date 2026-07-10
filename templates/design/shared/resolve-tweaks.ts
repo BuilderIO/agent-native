@@ -16,8 +16,23 @@
  */
 
 import type { TweakDefinition } from "./api.js";
+import { sourceContentHash } from "./source-workspace.js";
 
 export type TweakSelections = Record<string, string | number | boolean>;
+
+/**
+ * Stable optimistic-concurrency token for the persisted selection map.
+ * Object insertion order is not semantic, so sort keys before hashing to keep
+ * browser and server comparisons byte-identical.
+ */
+export function tweakSelectionsHash(
+  selections: Readonly<Record<string, unknown>>,
+): string {
+  const canonicalEntries = Object.keys(selections)
+    .sort()
+    .map((key) => [key, selections[key]]);
+  return sourceContentHash(JSON.stringify(canonicalEntries));
+}
 
 /**
  * Resolve tweak definitions + a selection map to concrete CSS custom-property

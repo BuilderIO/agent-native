@@ -30,8 +30,10 @@ import {
   claimAgentChatSubmit,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
+  reportAgentChatSubmitResult,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import { agentNativePath, appPath } from "./api-path.js";
@@ -79,6 +81,8 @@ interface PendingSend {
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
+  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
+  submitMessageId?: string;
 }
 
 /**
@@ -93,14 +97,18 @@ interface PendingDelivery {
 
 /** The single path that hands a queued send to a mounted chat ref. */
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode) {
+  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.submitMessageId
+        ? { submitMessageId: send.submitMessageId }
+        : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -1767,6 +1775,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1777,7 +1786,14 @@ export function MultiTabAssistantChat({
       if (openSidebar !== false && !background) {
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
-      if (postMessageSubmissionsDisabled) return;
+      if (postMessageSubmissionsDisabled) {
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "composer-disabled",
+        );
+        return;
+      }
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
@@ -1791,9 +1807,11 @@ export function MultiTabAssistantChat({
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
+        ...(submitMessageId ? { submitMessageId } : {}),
       };
 
       const sendToTab = (threadId: string) => {
+        if (isAgentChatSubmitCancelled(submitMessageId)) return;
         // If a model override was specified, apply it only if we recognize it
         if (model) {
           const matchedGroup = availableModels.find((g) =>
@@ -1826,8 +1844,17 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
-        createThread(requestedTabId).then((newId) => {
-          if (newId) {
+        createThread(requestedTabId)
+          .then((newId) => {
+            if (isAgentChatSubmitCancelled(submitMessageId)) return;
+            if (!newId) {
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "thread-create-failed",
+              );
+              return;
+            }
             newThreadIds.current.add(newId);
             if (background) {
               mountedTabsRef.current.add(newId);
@@ -1842,8 +1869,14 @@ export function MultiTabAssistantChat({
             if (background && previousTabId) {
               switchThreadState(previousTabId);
             }
-          }
-        });
+          })
+          .catch(() => {
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "thread-create-failed",
+            );
+          });
       } else {
         const currentTabId = activeThreadIdRef.current;
         if (currentTabId) {
@@ -1901,6 +1934,7 @@ export function MultiTabAssistantChat({
     const active = activeThreadIdRef.current;
     const remaining: PendingDelivery[] = [];
     for (const delivery of pendingDeliveries.current) {
+      if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
       const threadId = delivery.threadId ?? active ?? null;
       const ref = threadId ? chatRefs.current.get(threadId) : null;
       if (threadId && ref) {

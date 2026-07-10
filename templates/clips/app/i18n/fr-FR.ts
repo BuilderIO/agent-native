@@ -386,6 +386,7 @@ const messages = {
     searchPlaceholder: "Rechercher la transcription",
     copyTranscript: "Copier la transcription",
     downloadSrt: "Télécharger .srt",
+    regenerate: "Régénérer la transcription",
     cleanupRunning: "Nettoyage de la transcription en arrière-plan.",
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",

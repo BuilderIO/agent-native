@@ -31,9 +31,9 @@ import {
 } from "../../shared/pen-path";
 import {
   createPrimitiveInsertFromSpec,
-  getSingleScreenCreationTool,
   parsePenPathFromSerializedD,
-} from "./DesignEditor";
+} from "./design-editor/canvas-primitives";
+import { getSingleScreenCreationTool } from "./design-editor/tool-state";
 
 describe("getSingleScreenCreationTool", () => {
   it("returns null in overview mode regardless of tool", () => {
@@ -190,25 +190,45 @@ describe("createPrimitiveInsertFromSpec", () => {
     ).toBeNull();
   });
 
-  it("builds a minimal 2-node open pen path from a single click point", () => {
+  it("preserves the complete multi-anchor Bezier path from focused-screen authoring", () => {
+    const penPath: PenPath = {
+      nodes: [
+        createSmoothNode({ x: 30, y: 30 }, { x: 55, y: 10 }),
+        createSmoothNode({ x: 150, y: 90 }, { x: 125, y: 110 }),
+      ],
+      closed: false,
+    };
     const result = createPrimitiveInsertFromSpec(
-      { tool: "pen", points: [{ x: 30, y: 30 }], fromClick: true },
+      {
+        tool: "pen",
+        points: penPath.nodes.map((node) => node.point),
+        penPath,
+        fromClick: false,
+      },
       "node-pen",
     );
     expect(result?.kind).toBe("path");
     expect(result?.nodeId).toBe("node-pen");
     expect(result?.points).toEqual([
       { x: 30, y: 30 },
-      { x: 150, y: 30 },
+      { x: 150, y: 90 },
     ]);
-    expect(result?.pathData).toBe("M 30 30 L 150 30");
-    expect(result?.geometry).toEqual({ x: 30, y: 30, width: 120, height: 12 });
+    expect(result?.pathData).toBe(serializePenPath(penPath));
+    expect(result?.pathData).toContain(" C ");
   });
 
-  it("returns null for pen with no start point", () => {
+  it("does not fabricate a path until focused-screen pen authoring has two anchors", () => {
     expect(
       createPrimitiveInsertFromSpec(
-        { tool: "pen", points: [], fromClick: true },
+        {
+          tool: "pen",
+          points: [{ x: 0, y: 0 }],
+          penPath: {
+            nodes: [createCornerNode({ x: 0, y: 0 })],
+            closed: false,
+          },
+          fromClick: true,
+        },
         "node-pen-empty",
       ),
     ).toBeNull();
@@ -291,6 +311,38 @@ describe("parsePenPathFromSerializedD (inverse of serializePenPath)", () => {
       nodes: [createCornerNode({ x: 12, y: 34 })],
       closed: false,
     });
+  });
+
+  it("round-trips an asymmetric cusp node (handleOut only, no handleIn) in the middle of an open path", () => {
+    // The cusp's incoming segment renders as a straight "L" (its handleIn is
+    // absent) while its outgoing segment renders as a curve "C" (it has a
+    // handleOut) — the reconstructed node must come back with exactly that
+    // one-sided handle shape, not gain a phantom handleIn nor lose the
+    // handleOut.
+    const cusp = createSmoothNode(
+      { x: 50, y: 50 },
+      { x: 90, y: 30 },
+      { breakSymmetry: true },
+    );
+    expect(cusp.handleIn).toBeUndefined();
+    expect(cusp.handleOut).toEqual({ x: 90, y: 30 });
+
+    const path: PenPath = {
+      nodes: [
+        createCornerNode({ x: 0, y: 0 }),
+        cusp,
+        createCornerNode({ x: 150, y: 20 }),
+      ],
+      closed: false,
+    };
+    const d = serializePenPath(path);
+    expect(d).toContain(" L 50 50 C ");
+
+    const parsed = parsePenPathFromSerializedD(d);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.nodes[1].handleIn).toBeUndefined();
+    expect(parsed!.nodes[1].handleOut).toEqual({ x: 90, y: 30 });
+    expect(serializePenPath(parsed!)).toBe(d);
   });
 
   it("returns null for empty input", () => {

@@ -182,4 +182,47 @@ describe("foreground self-chain — reaper coverage for the handoff window", () 
     expect(await reapUnclaimedBackgroundRun(successor)).toBe(false);
     expect((await getRunById(successor))?.status).toBe("running");
   });
+
+  // ── Deferred-successor recovery: sweep redispatch vs. reap interleaving ──
+  // A dispatch-deferred successor can now be recovered by the sweep OR reaped by
+  // a backstop; these prove the claim CAS keeps the two mutually exclusive so
+  // there is never a double-run and never a run-forever.
+
+  it("a redispatched worker that ARRIVES AFTER the row was reaped cannot execute (CAS requires status='running')", async () => {
+    const { successor, thread } = ids();
+    await insertRun(successor, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+    setLiveness(successor, Date.now() - 60_000);
+
+    // A backstop (client-poll past the bound, or reapIfStale) reaps the row
+    // first: it is now terminal.
+    expect(await reapUnclaimedBackgroundRun(successor)).toBe(true);
+    expect((await getRunById(successor))?.status).toBe("errored");
+
+    // A sweep redispatch that was already in flight lands late; the worker it
+    // wakes tries to claim — the CAS (status='running' AND
+    // dispatch_mode='background') rejects the reaped row, so it no-ops instead
+    // of executing a turn nobody is watching.
+    expect(await claimBackgroundRun(successor)).toBe(false);
+  });
+
+  it("once a redispatched worker CLAIMS the row, a later reap cannot resurrect or double-run it", async () => {
+    const { successor, thread } = ids();
+    await insertRun(successor, thread, "turn-1", {
+      dispatchMode: "background",
+    });
+
+    // The sweep redispatched and a worker won the claim first: the row is now
+    // dispatch_mode='background-processing', still running.
+    expect(await claimBackgroundRun(successor)).toBe(true);
+
+    // A concurrent unclaimed-reap can no longer touch it — its WHERE clause
+    // requires dispatch_mode='background', which the claim already changed. So
+    // the claimed worker owns the run exclusively; no reap, no second claim.
+    setLiveness(successor, Date.now() - 60_000);
+    expect(await reapUnclaimedBackgroundRun(successor)).toBe(false);
+    expect((await getRunById(successor))?.status).toBe("running");
+    expect(await claimBackgroundRun(successor)).toBe(false);
+  });
 });

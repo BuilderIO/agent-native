@@ -12,6 +12,7 @@ import {
   waitForReadyRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
 import {
+  chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
   type UploadMode,
@@ -1576,11 +1577,11 @@ export default function RecordRoute() {
               hasAudio: true,
               width: meta.width,
               height: meta.height,
-              visibility: reportContext ? "org" : undefined,
+              visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: uploadMimeType,
-              requestStreaming: false,
+              requestStreaming: true,
             }),
           },
         );
@@ -1596,10 +1597,16 @@ export default function RecordRoute() {
           );
         }
         const created = (await res.json()) as {
-          result?: { id: string; uploadChunkUrl: string; abortUrl?: string };
+          result?: {
+            id: string;
+            uploadChunkUrl: string;
+            abortUrl?: string;
+            uploadMode?: UploadMode;
+          };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          uploadMode?: UploadMode;
         };
         const info =
           created.result ??
@@ -1607,6 +1614,7 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl?: string;
+            uploadMode?: UploadMode;
           });
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
@@ -1707,7 +1715,12 @@ export default function RecordRoute() {
 
         await Promise.all(
           Array.from(
-            { length: Math.min(UPLOAD_PARALLELISM, parallelChunks.length) },
+            {
+              length: Math.min(
+                chunkUploadParallelism(info.uploadMode, UPLOAD_PARALLELISM),
+                parallelChunks.length,
+              ),
+            },
             worker,
           ),
         );

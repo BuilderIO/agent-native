@@ -376,6 +376,7 @@ const messages = {
     searchPlaceholder: "성적표 검색",
     copyTranscript: "성적표 복사",
     downloadSrt: ".srt 다운로드",
+    regenerate: "스크립트 다시 생성",
     cleanupRunning: "백그라운드에서 기록을 정리합니다.",
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",

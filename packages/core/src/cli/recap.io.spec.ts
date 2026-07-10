@@ -543,6 +543,12 @@ describe("runShot — playwright not available", () => {
     const fakePage = {
       goto: vi.fn(async (nextUrl: string) => {
         gotoUrls.push(nextUrl);
+        return {
+          ok: () => true,
+          status: () => 200,
+          url: () => nextUrl,
+          headers: () => ({ "content-type": "text/html; charset=utf-8" }),
+        };
       }),
       waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),

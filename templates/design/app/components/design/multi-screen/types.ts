@@ -10,7 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
-} from "../DesignCanvas";
+} from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
   ElementInfo,
@@ -34,6 +34,8 @@ export interface ScreenFile {
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Read-only localhost preview credential. Never a filesystem token. */
+  previewToken?: string;
   /**
    * When set, renders multiple side-by-side breakpoint frames (mobile-first,
    * §6.4). Each entry is a pixel width; the active breakpoint determines the
@@ -93,12 +95,14 @@ export interface ScreenMetadata {
   sourceType?: string;
   lod?: string;
   previewState?: string;
+  status?: string;
   title?: string;
   width?: number;
   height?: number;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  previewToken?: string;
 }
 
 export interface DuplicateRequest {
@@ -114,6 +118,12 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Hidden screen/file rows retain geometry but do not render or participate
+   * in overview hit testing, fit, or selection until shown again. */
+  hiddenScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Locked screen/file rows remain visible but cannot be selected or
+   * transformed directly from the overview canvas. */
+  lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
@@ -145,9 +155,22 @@ export interface MultiScreenCanvasProps {
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
+    /**
+     * The moveNode/moveNodeBetweenDocuments anchor: the containing primitive
+     * itself when `placement` is "inside" (append), or a sibling child of
+     * that container when `placement` is "before"/"after" (flow-insert at a
+     * specific index) — see PrimitiveDropTarget.anchorNodeId in
+     * primitive-drop-target.ts, which resolves which one to pass.
+     */
     targetNodeId: string;
     targetScreenId: string;
-    placement: "inside";
+    /**
+     * "inside" appends into the target container (absolute-drop parity with
+     * the historic behavior). "before"/"after" flow-inserts next to
+     * `targetNodeId` at the resolved auto-layout index, mirroring
+     * onCrossScreenElementDrop's targetAnchorPlacement contract.
+     */
+    placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;

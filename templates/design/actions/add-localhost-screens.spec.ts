@@ -28,6 +28,22 @@ describe("add-localhost-screens URL handling", () => {
     expect(slugForPath("localhost:1234/onboarding/3")).toBe("onboarding-3");
   });
 
+  it("canonicalizes equivalent loopback aliases to the connected origin", () => {
+    expect(
+      routeUrl("http://127.0.0.1:1234", {
+        url: "localhost:1234/onboarding/3?plan=team",
+      }),
+    ).toBe("http://127.0.0.1:1234/onboarding/3?plan=team");
+  });
+
+  it("rejects absolute screen URLs outside the connected dev server", () => {
+    expect(() =>
+      routeUrl("http://localhost:1234", {
+        url: "https://example.com/onboarding/3",
+      }),
+    ).toThrow(/connected dev server origin/);
+  });
+
   it("uses viewport-specific filenames for duplicate responsive screens", () => {
     expect(viewportFilename("/", 390, 844)).toBe("localhost-home-390x844.html");
   });

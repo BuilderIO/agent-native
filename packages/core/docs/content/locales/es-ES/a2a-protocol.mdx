@@ -438,6 +438,18 @@ Este límite es importante porque el bucle del agente acepta entradas de formato
 
 La verificación JWT (`verifyA2AToken` en `server.ts`) acepta tokens firmados con el `A2A_SECRET` global o con un secreto de ámbito de organización buscado desde SQL a través del reclamo `org_domain` del token, y aplica los reclamos `aud`/`iss` propios del token cuando están presentes.
 
+### Sincronización de secretos de la organización {#organization-secret-sync}
+
+La configuración **Organización → Autenticación entre aplicaciones** administra el secreto con ámbito de organización que autentica la delegación entre aplicaciones implementadas por separado en la misma organización. No es una configuración de inicio de sesión de usuarios ni de Cross-App SSO. El secreto complementa el `A2A_SECRET` de la implementación: un JWT de A2A con una reclamación `org_domain` se puede verificar con el secreto de la organización correspondiente.
+
+El propietario de la organización debe asignar a cada aplicación participante el mismo dominio de correo permitido y el mismo secreto con ámbito de organización:
+
+1. En la primera aplicación, genere o revele el secreto en **Organización → Autenticación entre aplicaciones**.
+2. En cada aplicación adicional, elija **Pegar secreto de otra aplicación** y pegue ese valor. Este paso manual es necesario para la primera conexión: una aplicación que aún no tiene el secreto no puede verificar una solicitud de sincronización remota.
+3. Cuando las aplicaciones compartan el secreto, use **Sincronizar con aplicaciones** para enviar futuras actualizaciones a las aplicaciones conectadas y detectadas. El resultado informa de cualquier aplicación que no se pudo actualizar.
+
+Al **Regenerar** el secreto, la interfaz de configuración lo sincroniza de inmediato y firma la actualización con el secreto anterior para que las aplicaciones ya conectadas puedan verificar el cambio. Si una aplicación pierde esa sincronización, pegue allí el nuevo secreto manualmente y vuelva a sincronizar. Trate este secreto como cualquier otra credencial: no lo incluya en código del cliente, registros ni configuraciones de clientes de terceros.
+
 ## Continuaciones {#continuations}
 
 Cuando un agente llama a un par remoto A2A que no regresa inmediatamente, el marco sondea `tasks/get` hasta que la tarea se resuelve. Esto está conectado a través de `A2AClient.sendAndWait`, que es el modo predeterminado utilizado por el asistente `callAgent()`.

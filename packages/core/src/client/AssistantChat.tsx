@@ -55,9 +55,11 @@ import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   refreshAgentChatContext,
+  reportAgentChatSubmitResult,
   subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
@@ -197,6 +199,8 @@ export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
+  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
+  submitMessageId?: string;
 }
 
 function createUserMessageRunConfig(
@@ -3651,9 +3655,12 @@ const AssistantChatInner = forwardRef<
       trackInRunsTray = false,
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
+      submitMessageId?: string,
     ) => {
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (agentEngineConfigured.state === "missing") {
         void ensureAgentEngineReadyForSubmit();
+        reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
         return;
       }
       if (!preserveReconnectAutoRecoveryBudget) {
@@ -3687,8 +3694,10 @@ const AssistantChatInner = forwardRef<
             ? err.message
             : "Attachment could not be processed.";
         setComposerError(msg);
+        reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
         return;
       }
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
       const imageAttachments = createAgentImageAttachments(images);
       const allAttachments = [
         ...(queuedAttachments ?? []),
@@ -3782,6 +3791,11 @@ const AssistantChatInner = forwardRef<
               setComposerError(
                 `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
               );
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
               return;
             }
           }
@@ -3789,6 +3803,7 @@ const AssistantChatInner = forwardRef<
         }
       }
       // ── End body-size guard ──────────────────────────────────────────
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -3863,9 +3878,16 @@ const AssistantChatInner = forwardRef<
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
           setOptimisticRunning(false);
+          reportAgentChatSubmitResult(submitMessageId, false, "append-failed");
           throw error;
         }
       }
+      // The turn is now either queued behind the active run or already a
+      // visible message — either way it has reached the chat. This is
+      // intentionally reported before the agent's response resolves: a
+      // caller like sendToAgentChatAndConfirm only needs to know the submit
+      // wasn't silently dropped, not whether the run itself later succeeds.
+      reportAgentChatSubmitResult(submitMessageId, true);
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
@@ -3927,6 +3949,9 @@ const AssistantChatInner = forwardRef<
           undefined,
           false,
           options?.trackInRunsTray === true,
+          false,
+          false,
+          options?.submitMessageId,
         );
       },
       prefillMessage(text: string) {

@@ -8,7 +8,7 @@ import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
 import {
   languageForSourcePath,
@@ -107,17 +107,7 @@ export interface SourceWorkspaceContext {
 }
 
 function parseDesignDataSourceType(value: unknown): DesignSourceType {
-  if (typeof value !== "string") return "inline";
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const raw = (parsed as Record<string, unknown>).sourceType;
-      return normalizeDesignSourceType(raw) ?? "inline";
-    }
-  } catch {
-    // Invalid design data falls back to inline, matching existing actions.
-  }
-  return "inline";
+  return designSourceTypeFromData(value);
 }
 
 function parseDesignDataBoardFileId(value: unknown): string | null {
@@ -221,6 +211,70 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
   };
 }
 
+/**
+ * A caller-supplied editor snapshot has two distinct identities:
+ *
+ * - `content` is the working copy the mutation must transform (it may contain
+ *   unsaved local edits), while
+ * - `expectedVersionHash` is the live source version that working copy is
+ *   allowed to replace.
+ *
+ * Hashing `currentContent` for both roles creates a false conflict whenever a
+ * local working copy is legitimately ahead of the persisted/live base. This
+ * helper accepts that working copy only when its SQL revision still matches
+ * and the live document is either the persisted base it was derived from or
+ * the working copy itself (for callers that already published it to Yjs).
+ * Any third live value is a genuine concurrent edit and fails closed. The
+ * returned live hash must be passed to `writeInlineSourceFile`, whose
+ * read-check-write lock closes the race after this preparation step.
+ */
+export class SourceWorkspaceEditConflictError extends Error {
+  constructor(
+    message = "Source file changed since the editor snapshot was prepared.",
+  ) {
+    super(message);
+    this.name = "SourceWorkspaceEditConflictError";
+  }
+}
+
+export async function prepareInlineSourceEdit(args: {
+  file: SourceWorkspaceFile;
+  currentContent?: string;
+  revision?: string;
+}): Promise<{ content: string; expectedVersionHash: string }> {
+  const live = await readLiveSourceFile(args.file);
+
+  if (args.currentContent === undefined) {
+    return {
+      content: live.content,
+      expectedVersionHash: live.versionHash,
+    };
+  }
+
+  if (!args.revision) {
+    throw new SourceWorkspaceEditConflictError(
+      "A source revision is required with current editor content.",
+    );
+  }
+  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+    throw new SourceWorkspaceEditConflictError();
+  }
+
+  const persistedVersionHash = sourceContentHash(args.file.content ?? "");
+  const workingVersionHash = sourceContentHash(args.currentContent);
+  if (
+    live.versionHash !== persistedVersionHash &&
+    live.versionHash !== workingVersionHash
+  ) {
+    throw new SourceWorkspaceEditConflictError();
+  }
+
+  return {
+    content: args.currentContent,
+    expectedVersionHash: live.versionHash,
+  };
+}
+
 export async function writeInlineSourceFile(args: {
   designId: string;
   file: SourceWorkspaceFile;
@@ -302,7 +356,16 @@ export async function writeInlineSourceFile(args: {
 
     await db
       .update(schema.designFiles)
-      .set({ content: authoritativeContent, updatedAt })
+      .set({
+        content: authoritativeContent,
+        updatedAt,
+        // This action/agent write is outside the browser save sequence. Break
+        // that lineage so a later tab revision must pass its ordinary content
+        // hash guard instead of inheriting a stale same-source bypass.
+        contentOperationSource: null,
+        contentOperationRevision: null,
+        contentOperationResultHash: null,
+      })
       .where(eq(schema.designFiles.id, args.file.id));
 
     await db

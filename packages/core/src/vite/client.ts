@@ -762,12 +762,15 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@codemirror/lang-sql" },
+    { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
     { specifier: "@excalidraw/mermaid-to-excalidraw" },
     {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
+    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },
@@ -795,6 +798,11 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-toggle" },
     { specifier: "@radix-ui/react-toggle-group" },
     { specifier: "@radix-ui/react-tooltip" },
+    { specifier: "@sentry/browser" },
+    {
+      specifier: "@shadcn/react/message-scroller",
+      packageName: "@shadcn/react",
+    },
     { specifier: "@tanstack/react-query" },
     { specifier: "@tabler/icons-react" },
     { specifier: "@tiptap/core" },
@@ -813,6 +821,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@tiptap/pm/state", packageName: "@tiptap/pm" },
     { specifier: "@tiptap/react" },
     { specifier: "@tiptap/starter-kit" },
+    { specifier: "@uiw/react-codemirror" },
     { specifier: "@xterm/addon-fit" },
     { specifier: "@xterm/addon-web-links" },
     { specifier: "@xterm/xterm" },
@@ -865,6 +874,8 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "html2canvas" },
+    { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
     { specifier: "mermaid" },
@@ -872,6 +883,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
+    { specifier: "react-i18next" },
     { specifier: "react-markdown" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
@@ -916,7 +928,24 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     .filter(({ specifier, packageName }) =>
       hasOptimizeDep(packageName ?? specifier, cwd),
     )
-    .map(({ specifier }) => specifier);
+    .map(({ specifier, packageName }) => {
+      const dependencyName = packageName ?? specifier;
+      // In the monorepo, core is source-aliased and its dependencies live
+      // under packages/core/node_modules. A bare optimizeDeps.include entry
+      // is resolved from the template root, so core-only dependencies fail
+      // the initial prebundle and are rediscovered after the page loads. Vite
+      // then rebundles and reloads the editor. Its documented nested-dependency
+      // syntax resolves the right-hand package from core's package directory,
+      // while app-owned dependencies should remain direct entries.
+      if (
+        inMonorepo &&
+        !hasDep(dependencyName, cwd) &&
+        hasCoreDep(dependencyName, cwd)
+      ) {
+        return `@agent-native/core > ${specifier}`;
+      }
+      return specifier;
+    });
 }
 
 /**
@@ -2590,6 +2619,14 @@ function createAgentNativeConfig(
           ...(userConfig.ssr ?? {}),
           noExternal: /^(?!node:)/,
           external: [
+            // Yjs is used by both server-side collaboration actions and the
+            // client SSR graph. If Vite inlines it here, Nitro also emits its
+            // own server copy and a single request imports Yjs twice, breaking
+            // Yjs constructor identity. This externalizes only Vite's
+            // intermediate React Router SSR graph; Nitro's final Node/edge
+            // bundle still owns and bundles the dependency, so both paths
+            // share one portable module instance.
+            "yjs",
             ...NODE_SSR_NATIVE_EXTERNALS,
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],

@@ -122,6 +122,12 @@ describe("design db.ts migration entries follow the naming convention", () => {
     expect(duplicates).toEqual([]);
   });
 
+  it("keeps migration versions unique and strictly increasing", () => {
+    const versions = entries.map((entry) => entry.version);
+    expect(new Set(versions).size).toBe(versions.length);
+    expect(versions).toEqual([...versions].sort((left, right) => left - right));
+  });
+
   it("every migration entry with version > 18 has a name", () => {
     const missingNames = entries
       .filter((e) => e.version > 18)

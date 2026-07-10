@@ -436,6 +436,18 @@ This boundary matters because the agent loop accepts free-form input from a remo
 
 JWT verification (`verifyA2AToken` in `server.ts`) accepts tokens signed with either the global `A2A_SECRET` or an org-scoped secret looked up from SQL via the token's `org_domain` claim, and enforces the token's own `aud`/`iss` claims when present.
 
+### Organization secret sync {#organization-secret-sync}
+
+The **Organization → Cross-app authentication** setting manages the org-scoped secret used to authenticate delegation between separately deployed apps in the same organization. It is not a user sign-in or Cross-App SSO setting. The secret supplements a deployment's `A2A_SECRET`: an A2A JWT with an `org_domain` claim can be verified against the matching organization's secret.
+
+An organization owner should give every participating app the same allowed email domain and the same org-scoped secret:
+
+1. In the first app, generate or reveal the secret in **Organization → Cross-app authentication**.
+2. In each additional app, choose **Paste secret from another app** and paste that value. This manual step is required for the first connection: an app that does not already have the secret cannot verify a remote sync request.
+3. Once apps share the secret, use **Sync to apps** to push future updates to connected, discovered apps. The result reports any app that could not be updated.
+
+When you **Regenerate** the secret, the settings UI immediately syncs it and signs the update with the previous secret so already connected apps can verify the change. If an app misses that sync, paste the new secret there manually, then sync again. Treat this secret like any other credential: do not put it in client-side code, logs, or a third-party client configuration.
+
 ## Continuations {#continuations}
 
 When an agent calls a remote A2A peer that doesn't return immediately, the framework polls `tasks/get` until the task settles. This is wired through `A2AClient.sendAndWait`, which is the default mode used by the `callAgent()` helper.

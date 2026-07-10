@@ -11,14 +11,13 @@
 //
 // Sources (June 2026):
 //  Anthropic  https://platform.claude.com/docs/en/about-claude/models/overview
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
-//             https://developers.openai.com/api/docs/models/gpt-5.4
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
 //  Google     https://ai.google.dev/gemini-api/docs/models
 //  OpenRouter https://openrouter.ai/api/v1/models
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude-*        → 200_000  (Haiku 4.5 and earlier models)
-//  gpt-5*          → 1_050_000 (GPT-5.4/5.5 flagship context)
+//  gpt-5*          → 1_050_000 (GPT-5.6 Sol/Terra flagship context)
 //  gemini-2* / gemini-3* → 1_048_576
 //  everything else → 128_000  (safe conservative floor)
 //
@@ -37,9 +36,9 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-haiku-4-5-20251001": 200_000,
 
   // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
-  "gpt-5-5": 1_050_000,
-  "gpt-5-4": 1_050_000,
-  "gpt-5-4-mini": 400_000,
+  "gpt-5-6-sol": 1_050_000,
+  "gpt-5-6-terra": 1_050_000,
+  "gpt-5-6-luna": 400_000,
 
   // ── Gemini (Builder gateway IDs) ─────────────────────────────────────────
   "gemini-3-1-pro": 1_048_576,
@@ -52,15 +51,16 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "anthropic/claude-opus-4.7": 1_000_000,
   "anthropic/claude-sonnet-5": 1_000_000,
   "anthropic/claude-sonnet-4.6": 1_000_000,
-  "openai/gpt-5.5": 1_050_000,
-  "openai/gpt-5.4": 1_050_000,
+  "openai/gpt-5.6-sol": 1_050_000,
+  "openai/gpt-5.6-terra": 1_050_000,
+  "openai/gpt-5.6-luna": 1_050_000,
   "google/gemini-2.5-flash": 1_048_576,
   "z-ai/glm-5.2": 1_048_576,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
-  "gpt-5.5": 1_050_000,
-  "gpt-5.4": 1_050_000,
-  "gpt-5.4-mini": 400_000,
+  "gpt-5.6-sol": 1_050_000,
+  "gpt-5.6-terra": 1_050_000,
+  "gpt-5.6-luna": 400_000,
 
   // ── AI-SDK native Google IDs ──────────────────────────────────────────────
   "gemini-3.5-flash": 1_048_576,
@@ -127,15 +127,13 @@ export function getContextWindowForModel(modelId: string): number {
 //  Anthropic  https://platform.claude.com/docs/en/docs/about-claude/models/overview
 //             (Fable 5 / Opus 4.8 / Opus 4.7 / Sonnet 5 / Sonnet 4.6 = 128K;
 //              Haiku 4.5 / Sonnet 4.5 / Opus 4.5 = 64K)
-//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.5
-//             https://developers.openai.com/api/docs/models/gpt-5.4
-//             https://developers.openai.com/api/docs/models/gpt-5.4-mini
-//             (GPT-5.5 / GPT-5.4 / GPT-5.4-mini = 128K)
+//  OpenAI     https://developers.openai.com/api/docs/models/gpt-5.6
+//             (GPT-5.6 Sol / Terra / Luna = 40K)
 //
 // Family defaults (used when a model id isn't listed explicitly):
 //  claude flagship (fable-5 / opus-4.6+ / sonnet-5 / sonnet-4.6) → 128_000
 //  claude-* (Haiku 4.5, older/unknown Claude ids)                → 64_000
-//  gpt-5*                                                        → 128_000
+//  gpt-5*                                                        → 128_000 (safe fallback)
 //  everything else                                               → 64_000
 //    (safe conservative ceiling that matches the previous global clamp)
 // ---------------------------------------------------------------------------
@@ -151,9 +149,9 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-haiku-4-5-20251001": 64_000,
 
   // ── Builder gateway OpenAI IDs (dot→dash) ────────────────────────────────
-  "gpt-5-5": 128_000,
-  "gpt-5-4": 128_000,
-  "gpt-5-4-mini": 128_000,
+  "gpt-5-6-sol": 40_000,
+  "gpt-5-6-terra": 40_000,
+  "gpt-5-6-luna": 40_000,
 
   // ── OpenRouter model IDs ──────────────────────────────────────────────────
   "anthropic/claude-fable-5": 128_000,
@@ -161,13 +159,14 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "anthropic/claude-opus-4.7": 128_000,
   "anthropic/claude-sonnet-5": 128_000,
   "anthropic/claude-sonnet-4.6": 128_000,
-  "openai/gpt-5.5": 128_000,
-  "openai/gpt-5.4": 128_000,
+  "openai/gpt-5.6-sol": 40_000,
+  "openai/gpt-5.6-terra": 40_000,
+  "openai/gpt-5.6-luna": 128_000,
 
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
-  "gpt-5.5": 128_000,
-  "gpt-5.4": 128_000,
-  "gpt-5.4-mini": 128_000,
+  "gpt-5.6-sol": 40_000,
+  "gpt-5.6-terra": 40_000,
+  "gpt-5.6-luna": 40_000,
 };
 
 /**
@@ -243,7 +242,7 @@ function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.5";
+const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
 const FRAMEWORK_DEFAULT_BUILDER_MODEL = ANTHROPIC_DEFAULT_MODEL_ID;
 const FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL = builderGatewayModelId(
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
@@ -262,8 +261,8 @@ export const AGENT_MODEL_CONFIG = {
       CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
-      "gpt-5-4",
-      "gpt-5-4-mini",
+      "gpt-5-6-terra",
+      "gpt-5-6-luna",
       "gemini-3-1-pro",
       "gemini-3-5-flash",
       "gemini-3-1-flash-lite",
@@ -292,8 +291,8 @@ export const AGENT_MODEL_CONFIG = {
       defaultModel: FRAMEWORK_DEFAULT_OPENAI_MODEL,
       supportedModels: [
         FRAMEWORK_DEFAULT_OPENAI_MODEL,
-        "gpt-5.4",
-        "gpt-5.4-mini",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
       ],
     },
     openrouter: {
@@ -303,7 +302,8 @@ export const AGENT_MODEL_CONFIG = {
         "anthropic/claude-opus-4.8",
         OPENROUTER_CLAUDE_SONNET_MODEL_ID,
         FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
-        "openai/gpt-5.4",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
         "z-ai/glm-5.2",
