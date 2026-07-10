@@ -11,6 +11,7 @@ export interface PendingGeneration {
   files?: UploadedFile[];
   title?: string;
   source?: string;
+  templateId?: string;
   designSystemId?: string | null;
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];

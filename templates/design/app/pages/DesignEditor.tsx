@@ -153,6 +153,7 @@ import {
   IconLock,
   IconPuzzle,
   IconKeyboard,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -326,6 +327,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -1288,6 +1298,23 @@ function designGenerationDirectives(
     'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
     "After generate-design succeeds, stop and summarize what was created.",
+  ];
+}
+
+function designTemplateRefinementDirectives(
+  designId: string,
+  templateId: string,
+  designSystemId?: string | null,
+): string[] {
+  return [
+    `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
+    ...designSystemGenerationDirectives(designSystemId),
+    `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
+    "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
+    "Layers marked `data-agent-native-locked=\"true\"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.",
+    "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",
+    "Prefer one bounded search-replace edit pass. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
+    "After edit-design succeeds, stop and summarize the refinement.",
   ];
 }
 
@@ -5339,6 +5366,10 @@ function DesignEditor() {
   const applyTweaksMutation = useActionMutation("apply-tweaks");
   const applyTweaksAsync = applyTweaksMutation.mutateAsync;
   const duplicateDesignMutation = useActionMutation("duplicate-design");
+  const saveDesignAsTemplateMutation = useActionMutation(
+    "save-design-as-template",
+  );
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const applyMotionEditMutation = useActionMutation("apply-motion-edit");
@@ -7064,6 +7095,8 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!id || files.length === 0) return;
+    const pending = readPendingGeneration(id);
+    if (pending?.templateId) return;
     clearGenerationCompleteTimer();
     clearPendingGeneration(id);
     setHasPendingGeneration(false);
@@ -7073,13 +7106,17 @@ function DesignEditor() {
   }, [clearGenerationCompleteTimer, id, files.length]);
 
   useEffect(() => {
-    if (!id || !design || files.length > 0) return;
+    if (!id || !design) return;
 
     const pending = readPendingGeneration(id);
     if (!pending) {
       setHasPendingGeneration(false);
       return;
     }
+    const templateRefinement = Boolean(
+      pending.templateId && files.length > 0,
+    );
+    if (files.length > 0 && !templateRefinement) return;
 
     if (isPendingGenerationStale(pending)) {
       markGenerationStale();
@@ -7100,7 +7137,7 @@ function DesignEditor() {
     const fileContext = formatUploadedFileContext(uploadedFiles);
     const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
     const sourceContext = pending.source
-      ? `The user picked the "${pending.source}" template.`
+      ? `The user picked the "${pending.source}" template${pending.templateId ? ` (id: "${pending.templateId}")` : ""}.`
       : "The user just created a new empty design.";
     const pendingDesignSystemId =
       pending.designSystemId === undefined
@@ -7133,11 +7170,17 @@ function DesignEditor() {
         designSystemContext,
         fileContext,
         "",
-        ...(shouldExploreVariants
-          ? designVariantGenerationDirectives(id, pendingDesignSystemId)
-          : shouldSkipQuestions
-            ? designGenerationDirectives(id, pendingDesignSystemId)
-            : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+        ...(pending.templateId
+          ? designTemplateRefinementDirectives(
+              id,
+              pending.templateId,
+              pendingDesignSystemId,
+            )
+          : shouldExploreVariants
+            ? designVariantGenerationDirectives(id, pendingDesignSystemId)
+            : shouldSkipQuestions
+              ? designGenerationDirectives(id, pendingDesignSystemId)
+              : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
       ].join("\n");
 
       clearGenerationCompleteTimer();
@@ -26968,6 +27011,14 @@ ${serializedHtml}
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => setSaveTemplateOpen(true)}
+          disabled={!canEditDesign || files.length === 0}
+        >
+          <IconTemplate className="mr-2 h-4 w-4" />
+          {t("designEditor.saveAsTemplate")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <IconFileExport className="mr-2 h-4 w-4" />
@@ -29111,6 +29162,39 @@ ${serializedHtml}
         </DialogContent>
       </Dialog>
 
+      <SaveTemplateDialog
+        open={saveTemplateOpen}
+        onOpenChange={setSaveTemplateOpen}
+        defaultTitle={design.title}
+        defaultDescription={design.description ?? ""}
+        screenCount={files.length}
+        lockedLayerCount={lockedLayerIds.size}
+        saving={saveDesignAsTemplateMutation.isPending}
+        onSave={async (values) => {
+          try {
+            const result = (await saveDesignAsTemplateMutation.mutateAsync({
+              designId: id,
+              ...values,
+            })) as { lockedLayerCount?: number };
+            setSaveTemplateOpen(false);
+            toast.success(
+              t("designEditor.templateSaved", {
+                count: result.lockedLayerCount ?? lockedLayerIds.size,
+              }),
+            );
+            await queryClient.invalidateQueries({
+              queryKey: ["action", "list-design-templates"],
+            });
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("designEditor.templateSaveFailed"),
+            );
+          }
+        }}
+      />
+
       {/* Localhost write-consent dialog: shown when the agent or editor wants to
           persist an edit to a local HTML/CSS source file and no valid grant
           exists for the active connection yet. */}
@@ -29130,5 +29214,139 @@ ${serializedHtml}
         />
       )}
     </div>
+  );
+}
+
+type TemplateCategory =
+  | "ad"
+  | "one-pager"
+  | "landing-page"
+  | "social"
+  | "presentation"
+  | "other";
+
+function SaveTemplateDialog({
+  open,
+  onOpenChange,
+  defaultTitle,
+  defaultDescription,
+  screenCount,
+  lockedLayerCount,
+  saving,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  defaultTitle: string;
+  defaultDescription: string;
+  screenCount: number;
+  lockedLayerCount: number;
+  saving: boolean;
+  onSave: (values: {
+    title: string;
+    description?: string;
+    category: TemplateCategory;
+  }) => Promise<void>;
+}) {
+  const t = useT();
+  const [title, setTitle] = useState(defaultTitle);
+  const [description, setDescription] = useState(defaultDescription);
+  const [category, setCategory] = useState<TemplateCategory>("other");
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(defaultTitle);
+    setDescription(defaultDescription);
+    setCategory("other");
+  }, [defaultDescription, defaultTitle, open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("designEditor.saveAsTemplate")}</DialogTitle>
+          <DialogDescription>
+            {t("designEditor.saveTemplateDescription")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-1">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">{t("designEditor.templateName")}</span>
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              autoFocus
+            />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">
+              {t("designEditor.templateDescription")}
+            </span>
+            <Textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={3}
+            />
+          </label>
+          <div className="grid gap-1.5 text-sm">
+            <span className="font-medium">{t("designEditor.templateCategory")}</span>
+            <Select
+              value={category}
+              onValueChange={(value) => setCategory(value as TemplateCategory)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {(
+                    [
+                      "ad",
+                      "social",
+                      "one-pager",
+                      "landing-page",
+                      "presentation",
+                      "other",
+                    ] as const
+                  ).map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {t(`templatesPage.categories.${value}`)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="rounded-lg border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+            {t("designEditor.templateSnapshotSummary", {
+              screens: screenCount,
+              locks: lockedLayerCount,
+            })}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            {t("home.cancel")}
+          </Button>
+          <Button
+            onClick={() =>
+              void onSave({
+                title: title.trim(),
+                description: description.trim() || undefined,
+                category,
+              })
+            }
+            disabled={!title.trim() || saving}
+          >
+            {saving ? <Spinner className="size-4" /> : null}
+            {t("designEditor.saveTemplate")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
