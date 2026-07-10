@@ -8,6 +8,8 @@ description: "Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 
 에이전트를 Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 또는 WhatsApp에 연결할 수 있습니다. 메모리, 도구, 대화 기록은 그대로 유지됩니다.
 
 > **정확한 지원 범위:** Teams는 공식 Bot Framework JWT를 검증하고 원래 대화에 답합니다. Discord는 Ed25519 서명 HTTP 인터랙션을 통한 슬래시 명령과 지연 응답을 지원합니다. 일반 서버 메시지와 DM에는 Gateway 런타임이 필요합니다. Telegram은 `message_thread_id`를 유지하고 WhatsApp은 수신 `wamid`를 문맥 답장에 사용합니다.
+>
+> Teams에는 `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`가 필요합니다. Discord에는 `DISCORD_APPLICATION_ID`와 `DISCORD_PUBLIC_KEY`가 필요합니다. Telegram에는 `TELEGRAM_WEBHOOK_SECRET`, WhatsApp에는 `WHATSAPP_APP_SECRET`도 필요합니다.
 
 > **디스패치 템플릿을 사용하십니까?** 이 모든 것이 **설정 → 메시지**에 연결되어 있습니다. 각 플랫폼을 연결하려면 클릭하세요. 자신만의 템플릿을 사용자 정의하거나 구축하지 않는 한 이 페이지의 나머지 부분을 읽을 필요가 없습니다. [Dispatch](/docs/dispatch) 또는 [Dispatch template reference](/docs/template-dispatch)를 참조하세요.
 

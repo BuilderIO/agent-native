@@ -8,6 +8,8 @@ description: "تحدث إلى وكيلك عبر Slack أو Microsoft Teams أو 
 قم بتوصيل وكيلك بـ Slack أو Microsoft Teams أو تفاعلات Discord أو البريد الإلكتروني أو Telegram أو WhatsApp. إنه الوكيل نفسه بنفس الذاكرة والأدوات وسجل المحادثات.
 
 > **نطاق الدعم بدقة:** يتحقق Teams من رموز JWT الرسمية لـ Bot Framework ويرد في المحادثة الأصلية. يدعم Discord أوامر الشرطة المائلة عبر تفاعلات HTTP الموقعة بـ Ed25519 مع إقرار مؤجل؛ ولا يستقبل رسائل الخادم العادية أو الرسائل المباشرة من دون تشغيل Gateway. يحتفظ Telegram بـ `message_thread_id` ويستخدم WhatsApp قيمة `wamid` الواردة للردود السياقية.
+>
+> يتطلب Teams القيم `MICROSOFT_TEAMS_APP_ID` و`MICROSOFT_TEAMS_APP_PASSWORD` و`MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`. ويتطلب Discord القيم `DISCORD_APPLICATION_ID` و`DISCORD_PUBLIC_KEY`. كما يتطلب Telegram القيمة `TELEGRAM_WEBHOOK_SECRET` ويتطلب WhatsApp القيمة `WHATSAPP_APP_SECRET` بالإضافة إلى بيانات الاعتماد الحالية.
 
 > **هل تستخدم قالب الإرسال؟** تم إعداد كل هذا لك في **الإعدادات → المراسلة**. انقر لربط كل نظام أساسي — لن تحتاج إلى قراءة بقية هذه الصفحة إلا إذا كنت تقوم بتخصيص القالب الخاص بك أو إنشائه. راجع [Dispatch](/docs/dispatch) أو [Dispatch template reference](/docs/template-dispatch).
 

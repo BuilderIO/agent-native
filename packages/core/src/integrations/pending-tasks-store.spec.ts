@@ -178,4 +178,36 @@ describe("integration pending task store", () => {
       false,
     );
   });
+
+  it("erases transient provider credentials from terminal task payloads", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { markTaskCompleted, markTaskFailed } = await loadStore();
+
+    await markTaskCompleted("discord-task-completed");
+    await markTaskFailed("discord-task-failed", "interaction expired");
+
+    const terminalUpdates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_pending_tasks"),
+      );
+    expect(terminalUpdates).toHaveLength(2);
+    expect(terminalUpdates[0].sql).toContain("payload = ?");
+    expect(terminalUpdates[0].args).toEqual([
+      "completed",
+      expect.any(Number),
+      expect.any(Number),
+      "{}",
+      "discord-task-completed",
+    ]);
+    expect(terminalUpdates[1].args).toEqual([
+      "failed",
+      expect.any(Number),
+      "interaction expired",
+      "{}",
+      "discord-task-failed",
+    ]);
+  });
 });
