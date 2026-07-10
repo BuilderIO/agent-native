@@ -146,6 +146,12 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "awareness={collabEnabled ? awareness : null}",
     );
+    expect(documentEditorSource).toContain(
+      'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
+    );
+    expect(documentEditorSource).toContain(
+      'awareness.setLocalStateField("canFlushDocument", false)',
+    );
 
     // Comments stay editor-only — viewers must not open the comment endpoints.
     expect(documentEditorSource).toContain(

@@ -16,11 +16,13 @@ const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
 
 function parseAwarenessState(state: string): {
+  canFlushDocument?: boolean;
   visible?: boolean;
   user?: { email?: unknown };
 } | null {
   try {
     return JSON.parse(state) as {
+      canFlushDocument?: boolean;
       visible?: boolean;
       user?: { email?: unknown };
     };
@@ -40,13 +42,15 @@ function awarenessSessionEmail(entry: {
   return typeof email === "string" && email.trim() ? email.trim() : null;
 }
 
-function isActiveHumanAwareness(entry: {
+function isActiveFlushCapableAwareness(entry: {
   clientId: number;
   state: string;
 }): boolean {
   if (entry.clientId === AGENT_CLIENT_ID) return false;
   const state = parseAwarenessState(entry.state);
-  return !!state?.user && state.visible !== false;
+  return (
+    !!state?.user && state.visible !== false && state.canFlushDocument === true
+  );
 }
 
 export async function flushOpenDocumentEditorToSql(args: {
@@ -59,13 +63,15 @@ export async function flushOpenDocumentEditorToSql(args: {
   if (!(await hasCollabState(args.documentId))) return;
 
   // Persisted Yjs state outlives browser tabs. Only require a handshake while
-  // at least one non-expired human awareness row says an editor is actually
-  // open; otherwise SQL is the best durable snapshot and waiting would make
-  // every previously-opened document stall for four seconds.
+  // at least one non-expired human awareness row explicitly says its editor can
+  // service the flush request. Viewers also publish awareness so they can see
+  // live cursors, but their read-only editor never polls this request. Treating
+  // viewer presence as a blocker would make pull/push/conflict actions time out
+  // even though SQL is already their authoritative snapshot.
   const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
-  const activeHumanRows = awarenessRows.filter(isActiveHumanAwareness);
-  if (activeHumanRows.length === 0) return;
-  const activeSessionEmails = activeHumanRows
+  const flushCapableRows = awarenessRows.filter(isActiveFlushCapableAwareness);
+  if (flushCapableRows.length === 0) return;
+  const activeSessionEmails = flushCapableRows
     .map(awarenessSessionEmail)
     .filter((email): email is string => !!email);
 

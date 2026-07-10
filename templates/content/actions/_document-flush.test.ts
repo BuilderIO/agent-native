@@ -36,6 +36,7 @@ describe("flushOpenDocumentEditorToSql", () => {
       {
         clientId: 123,
         state: JSON.stringify({
+          canFlushDocument: true,
           visible: true,
           user: { email: "owner@example.com" },
         }),
@@ -147,5 +148,79 @@ describe("flushOpenDocumentEditorToSql", () => {
     ).resolves.toBeUndefined();
 
     expect(mocks.appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("uses SQL immediately when the only active collaborators are read-only viewers", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 123,
+        state: JSON.stringify({
+          canFlushDocument: false,
+          visible: true,
+          user: { email: "viewer@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          visible: true,
+          user: { email: "legacy-viewer@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+
+    await expect(
+      flushOpenDocumentEditorToSql({
+        documentId: "doc-1",
+        ownerEmail: "owner@example.com",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.appStatePut).not.toHaveBeenCalled();
+    expect(mocks.appStateGet).not.toHaveBeenCalled();
+  });
+
+  it("still waits when an edit-capable collaborator is present beside viewers", async () => {
+    mocks.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 123,
+        state: JSON.stringify({
+          canFlushDocument: false,
+          visible: true,
+          user: { email: "viewer@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+      {
+        clientId: 456,
+        state: JSON.stringify({
+          canFlushDocument: true,
+          visible: true,
+          user: { email: "shared-editor@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+    mocks.appStateGet.mockImplementation(async () => ({
+      id: "doc-1",
+      requestId: mocks.appStatePut.mock.calls[0]?.[2]?.requestId,
+      status: "success",
+    }));
+
+    const flush = flushOpenDocumentEditorToSql({
+      documentId: "doc-1",
+      ownerEmail: "owner@example.com",
+    });
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(flush).resolves.toBeUndefined();
+    expect(mocks.appStatePut).toHaveBeenCalledWith(
+      "shared-editor@example.com",
+      "flush-request-doc-1",
+      expect.objectContaining({ id: "doc-1" }),
+      { requestSource: "agent" },
+    );
   });
 });

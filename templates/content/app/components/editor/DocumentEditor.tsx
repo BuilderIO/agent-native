@@ -477,6 +477,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
   canEditRef.current = editorCanEdit;
 
+  // Viewers intentionally join awareness so they receive live cursors, but
+  // only an editor runs the app-state flush poller below. Publish that exact
+  // capability so server-side pull/push/conflict actions do not wait on a
+  // read-only tab that can never acknowledge their request.
+  useEffect(() => {
+    if (!awareness || !collabEnabled) return;
+    awareness.setLocalStateField("canFlushDocument", editorCanEdit);
+    return () => {
+      awareness.setLocalStateField("canFlushDocument", false);
+    };
+  }, [awareness, collabEnabled, editorCanEdit]);
+
   // Initialize from fetched document, reset on document switch
   useEffect(() => {
     if (!document) return;

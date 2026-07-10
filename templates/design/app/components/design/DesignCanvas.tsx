@@ -1088,6 +1088,19 @@ export function DesignCanvas({
   // process really doesn't know this key" — see classifyLiveEditHealthProbe
   // above.
   const bridgeInstanceIdRef = useRef<string | null>(null);
+  // A destructive watchdog outcome replaces the live iframe with the neutral
+  // pending document. The live document can still have queued its ready
+  // handshake immediately before that replacement; once unmounted, its
+  // WindowProxy no longer equals iframeRef.current.contentWindow and would be
+  // rejected by the normal bridge trust check. Preserve exactly that retired
+  // generation so its late ready can restore the matching bridge key. Both
+  // source-window identity and bridge-key identity must match, preventing a
+  // stale document from reviving a different screen/script generation.
+  const lateLiveEditReadyRecoveryRef = useRef<{
+    source: Window;
+    bridgeKey: string;
+    registrationHandoffKey: string | null;
+  } | null>(null);
   // Guards the auto-reregister probe below against overlapping runs and bounds
   // how many times it will silently retry before giving up and surfacing the
   // existing error/Retry UI (MAX_LIVE_EDIT_RESTART_ATTEMPTS). This budget is
@@ -1318,6 +1331,7 @@ export function DesignCanvas({
       setRegisteredLiveEditBridgeKey(null);
       setBridgeRegistrationError(null);
       setLiveEditSameInstanceStalledError(null);
+      lateLiveEditReadyRecoveryRef.current = null;
       return;
     }
     let cancelled = false;
@@ -1376,6 +1390,7 @@ export function DesignCanvas({
         // pathological bridge that keeps minting a new bridgeInstanceId
         // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
         setBridgeRegistrationError(null);
+        lateLiveEditReadyRecoveryRef.current = null;
         setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
       } catch (error) {
         if (!cancelled) {
@@ -1426,6 +1441,7 @@ export function DesignCanvas({
       liveEditSameInstanceRearmTimerRef.current = undefined;
     }
     setLiveEditSameInstanceStalledError(null);
+    lateLiveEditReadyRecoveryRef.current = null;
   }, [liveEditBridgeKey]);
 
   // Manual retry (offline-state "Retry" button): reset the backoff so the
@@ -1481,6 +1497,14 @@ export function DesignCanvas({
           if (registrationHandoffKey) {
             liveEditRegistrationHandoff.delete(registrationHandoffKey);
           }
+          const lateReadySource = iframeRef.current?.contentWindow;
+          lateLiveEditReadyRecoveryRef.current = lateReadySource
+            ? {
+                source: lateReadySource,
+                bridgeKey: liveEditBridgeKey,
+                registrationHandoffKey,
+              }
+            : null;
           setRegisteredLiveEditBridgeKey(null);
           setBridgeRegistrationError({
             bridgeKey: liveEditBridgeKey,
@@ -1557,6 +1581,14 @@ export function DesignCanvas({
       if (registrationHandoffKey) {
         liveEditRegistrationHandoff.delete(registrationHandoffKey);
       }
+      const lateReadySource = iframeRef.current?.contentWindow;
+      lateLiveEditReadyRecoveryRef.current = lateReadySource
+        ? {
+            source: lateReadySource,
+            bridgeKey: liveEditBridgeKey,
+            registrationHandoffKey,
+          }
+        : null;
       setRegisteredLiveEditBridgeKey(null);
       setBridgeRegistrationError({
         bridgeKey: liveEditBridgeKey,
@@ -1570,6 +1602,14 @@ export function DesignCanvas({
       if (registrationHandoffKey) {
         liveEditRegistrationHandoff.delete(registrationHandoffKey);
       }
+      const lateReadySource = iframeRef.current?.contentWindow;
+      lateLiveEditReadyRecoveryRef.current = lateReadySource
+        ? {
+            source: lateReadySource,
+            bridgeKey: liveEditBridgeKey,
+            registrationHandoffKey,
+          }
+        : null;
       setRegisteredLiveEditBridgeKey(null);
       setBridgeRegistrationError({
         bridgeKey: liveEditBridgeKey,
@@ -1987,6 +2027,10 @@ export function DesignCanvas({
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       const iframeWindow = iframeRef.current?.contentWindow;
+      const lateReadyRecovery =
+        e.data?.type === "agent-native:editor-chrome-ready"
+          ? lateLiveEditReadyRecoveryRef.current
+          : null;
       // For fusion sources the Builder-hosted app is cross-origin, so the strict
       // `origin === parentOrigin` check can never match. We still require window
       // identity (the message must come from our own iframe window, not any
@@ -1995,7 +2039,7 @@ export function DesignCanvas({
       // *.builder.io family) before relaxing the origin check. If the origin is
       // not on the allowlist we keep the strict check so a hostile frame that
       // somehow shares our window reference still can't be trusted.
-      const trusted =
+      const trustedCurrentFrame =
         sourceType === "fusion"
           ? iframeWindow !== null &&
             e.source === iframeWindow &&
@@ -2012,6 +2056,20 @@ export function DesignCanvas({
                     )
                   : [],
             });
+      const trustedLateLiveEditReady =
+        sourceType === "localhost" &&
+        lateReadyRecovery !== null &&
+        lateReadyRecovery.bridgeKey === liveEditBridgeKey &&
+        isTrustedCanvasBridgeMessage({
+          source: e.source,
+          origin: e.origin,
+          iframeWindow: lateReadyRecovery.source,
+          parentOrigin: window.location.origin,
+          allowedOrigins: [originFromUrl(bridgeUrl)].filter(
+            (origin): origin is string => Boolean(origin),
+          ),
+        });
+      const trusted = trustedCurrentFrame || trustedLateLiveEditReady;
       if (!trusted) {
         return;
       }
@@ -2032,6 +2090,26 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
+        if (trustedLateLiveEditReady && lateReadyRecovery) {
+          // This handshake belongs to the one retired live document saved by
+          // the destructive watchdog path, not the pending iframe now in the
+          // DOM. Restore its exact registration generation and let the newly
+          // mounted live document send the normal ready signal; do not mark
+          // the pending document ready or flush one-shot messages into it.
+          lateLiveEditReadyRecoveryRef.current = null;
+          if (lateReadyRecovery.registrationHandoffKey) {
+            liveEditRegistrationHandoff.set(
+              lateReadyRecovery.registrationHandoffKey,
+              Date.now(),
+            );
+          }
+          setBridgeRegistrationError((current) =>
+            current?.bridgeKey === lateReadyRecovery.bridgeKey ? null : current,
+          );
+          setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
+          return;
+        }
+        lateLiveEditReadyRecoveryRef.current = null;
         bridgeReadyRef.current = true;
         setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         // A confirmed ready handshake proves this bridgeInstanceId/key pair
@@ -2515,6 +2593,7 @@ export function DesignCanvas({
     isEmbeddedFrame,
     sourceType,
     bridgeUrl,
+    liveEditBridgeKey,
     fusionUrl,
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,

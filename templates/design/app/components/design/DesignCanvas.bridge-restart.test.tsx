@@ -102,16 +102,17 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     ).length;
   }
 
-  function postReadyHandshake() {
-    const iframe = container.querySelector("iframe");
-    if (!iframe?.contentWindow) {
-      throw new Error("expected the live-edit iframe to be mounted");
+  function postReadyHandshake(source?: Window) {
+    const iframeWindow =
+      source ?? container.querySelector("iframe")?.contentWindow;
+    if (!iframeWindow) {
+      throw new Error("expected a live-edit iframe window");
     }
     window.dispatchEvent(
       new MessageEvent("message", {
         data: { type: "agent-native:editor-chrome-ready" },
         origin: BRIDGE_URL,
-        source: iframe.contentWindow,
+        source: iframeWindow,
       }),
     );
   }
@@ -282,6 +283,60 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
     expect(container.textContent ?? "").toContain(
       "Is the local dev server still running?",
+    );
+  });
+
+  it("recovers from a destructive watchdog error when the exact retired live document posts ready late", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
+        return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
+      }
+      if (url.startsWith(`${BRIDGE_URL}/health`)) {
+        return Promise.reject(new Error("temporary health probe failure"));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    await renderLiveEditCanvas();
+    const liveIframe = container.querySelector("iframe");
+    const retiredLiveWindow = liveIframe?.contentWindow;
+    expect(retiredLiveWindow).toBeTruthy();
+    expect(liveIframe?.getAttribute("src")).toContain("/live-edit");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+    expect(container.querySelector("iframe")?.getAttribute("src")).toBeNull();
+
+    // Window identity is part of the recovery token: an otherwise well-formed
+    // ready packet from another same-origin window cannot revive the key.
+    await act(async () => {
+      postReadyHandshake(window);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain(
+      "Live editor connection failed",
+    );
+
+    // The live document that the watchdog retired had already queued ready.
+    // Its exact WindowProxy + bridge-key generation is allowed to restore the
+    // registration, clearing both the error and the pending placeholder.
+    await act(async () => {
+      postReadyHandshake(retiredLiveWindow!);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain(
+      "Live editor connection failed",
+    );
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+    expect(container.querySelector("iframe")?.getAttribute("src")).toContain(
+      "/live-edit",
     );
   });
 
