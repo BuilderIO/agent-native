@@ -3143,6 +3143,7 @@ function applyMoveNodeEdit(
   element: ParsedElement,
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
+  destinationParent?: ParsedElement,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   if (element.index === anchor.index) return "conflict";
   if (anchor.start >= element.start && anchor.end <= element.end) {
@@ -3152,7 +3153,14 @@ function applyMoveNodeEdit(
     return "unsupported";
   }
 
-  const fragment = html.slice(element.start, element.end);
+  const sourceParentIndex = element.parentIndex;
+  const entersNewParent =
+    destinationParent !== undefined &&
+    sourceParentIndex !== destinationParent.index;
+  const rawFragment = html.slice(element.start, element.end);
+  const fragment = entersNewParent
+    ? prepareMovedFragmentForParent(rawFragment, destinationParent)
+    : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
   )}`;
@@ -3176,6 +3184,51 @@ function applyMoveNodeEdit(
       confidence: 0.78,
     },
   };
+}
+
+/**
+ * Whether children of this element participate in normal flex/grid flow.
+ * Inline style is authoritative for inspector-created auto layout; the class
+ * checks cover authored Tailwind/utility layouts in standalone Alpine files.
+ */
+function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
+  if (!element) return false;
+  const display = parseStyle(attributeValue(element, "style")).display;
+  if (
+    display === "flex" ||
+    display === "inline-flex" ||
+    display === "grid" ||
+    display === "inline-grid"
+  ) {
+    return true;
+  }
+  const classes = new Set(classList(element));
+  return (
+    classes.has("flex") ||
+    classes.has("inline-flex") ||
+    classes.has("grid") ||
+    classes.has("inline-grid")
+  );
+}
+
+/**
+ * A Figma auto-layout drop makes the moved layer a flow child. Carrying its
+ * former `position:absolute` offsets into the new flex/grid parent leaves it
+ * visually detached from ordering, gap, and alignment even though the layer
+ * tree says it was reparented. Normalize only the moved fragment's root; its
+ * descendants keep their own positioning contexts unchanged.
+ */
+function prepareMovedFragmentForParent(
+  fragment: string,
+  destinationParent: ParsedElement | undefined,
+): string {
+  if (!isFlowLayoutContainer(destinationParent)) return fragment;
+  const fragmentRoot = parseHtmlElements(fragment).find(
+    (element) => element.parentIndex === undefined,
+  );
+  return fragmentRoot
+    ? stripAbsolutePositioningFromChild(fragment, fragmentRoot)
+    : fragment;
 }
 
 /** Generate a fresh unique data-agent-native-node-id value not already in the set. */
@@ -3264,11 +3317,42 @@ function stripAbsolutePositioningFromChild(
   child: ParsedElement,
 ): string {
   const currentStyle = attributeValue(child, "style");
-  if (!currentStyle) return html;
-  const nextStyle = stripStyleProperties(currentStyle, [
-    ...AUTO_LAYOUT_STRIP_PROPS,
-  ]);
-  return replaceOrInsertAttribute(html, child, "style", nextStyle);
+  let nextHtml = currentStyle
+    ? replaceOrInsertAttribute(
+        html,
+        child,
+        "style",
+        stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS]),
+      )
+    : html;
+
+  // Source-backed Alpine/Tailwind designs commonly express positioning as
+  // utility classes instead of inline CSS. Once the layer moves into a new
+  // flex/grid parent, those utilities would keep it out of flow even though
+  // the Layers tree shows it as a child. Remove only position-mode utilities;
+  // inset utilities can remain because they are inert for a statically
+  // positioned flex/grid item, and preserving them avoids needless source
+  // churn if the user later makes the layer absolute again.
+  const reparsedRoot = parseHtmlElements(nextHtml).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!reparsedRoot) return nextHtml;
+  const classes = classList(reparsedRoot);
+  const flowClasses = classes.filter((token) => {
+    const variants = token.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return (
+      utility !== "absolute" && utility !== "fixed" && utility !== "sticky"
+    );
+  });
+  if (flowClasses.length === classes.length) return nextHtml;
+  nextHtml = replaceOrInsertAttribute(
+    nextHtml,
+    reparsedRoot,
+    "class",
+    flowClasses.join(" "),
+  );
+  return nextHtml;
 }
 
 /**
@@ -4018,7 +4102,19 @@ export function applyVisualEdit(
     const removedLength = element.end - element.start;
     moveInsertAt =
       element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
-    edit = applyMoveNodeEdit(html, element, anchorElement, intent);
+    const destinationParent =
+      intent.placement === "inside"
+        ? anchorElement
+        : anchorResolution.node.parentId
+          ? initial.elementByNodeId.get(anchorResolution.node.parentId)
+          : undefined;
+    edit = applyMoveNodeEdit(
+      html,
+      element,
+      anchorElement,
+      intent,
+      destinationParent,
+    );
   }
 
   if (typeof edit === "string") {
@@ -4265,6 +4361,13 @@ export function moveNodeBetweenDocuments(
         : destHtml.length;
       anchorRedirected = true;
     }
+    const destinationParent =
+      placement === "inside"
+        ? anchor
+        : anchor.parentIndex === undefined
+          ? undefined
+          : destElements[anchor.parentIndex];
+    fragment = prepareMovedFragmentForParent(fragment, destinationParent);
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
     // Default: find <body> and append inside it, or append at end of doc.

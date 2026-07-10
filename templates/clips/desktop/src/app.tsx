@@ -1527,6 +1527,10 @@ export function App() {
   // from THAT render and stops the camera stream even though recording is
   // still in flight.
   const recordingFlowGateRef = useRef(false);
+  // Stop detaches the recorder state before optimization/upload finishes so a
+  // fresh camera session can recover immediately. Keep that post-stop phase
+  // separate so React cleanup does not close the finalizing progress window.
+  const recordingStopFinalizingRef = useRef(false);
   useEffect(() => {
     recordingFlowGateRef.current = isRecording || recordingFlowActive;
   }, [isRecording, recordingFlowActive]);
@@ -1565,7 +1569,9 @@ export function App() {
       // Hide them from here instead. Guard on !recordingInFlight so
       // we don't rip the toolbar out from under an active recording.
       if (!recordingFlowGateRef.current) {
-        invoke("hide_overlays").catch(() => {});
+        invoke("hide_overlays", {
+          preserveFinalizing: recordingStopFinalizingRef.current,
+        }).catch(() => {});
       }
     };
   }, [toolbarActive]);
@@ -1721,7 +1727,9 @@ export function App() {
       // source changed (e.g. cameraId flip re-runs this effect): hiding
       // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
-        invoke("hide_overlays").catch(() => {});
+        invoke("hide_overlays", {
+          preserveFinalizing: recordingStopFinalizingRef.current,
+        }).catch(() => {});
       }
     };
   }, [bubbleActive, cameraId, bubbleSessionEpoch]);
@@ -2351,6 +2359,7 @@ export function App() {
         // finalize; keeping `recorder` set through the whole upload made
         // reopen show a blank preview and made Start a silent no-op.
         const handle = recorder;
+        recordingStopFinalizingRef.current = true;
         bubbleStreamTransferredToRecorder.current = false;
         bubbleStreamRef.current = null;
         recordingFlowGateRef.current = false;
@@ -2381,6 +2390,7 @@ export function App() {
           setRecError(err instanceof Error ? err.message : String(err));
           await loadPendingUploads();
         } finally {
+          recordingStopFinalizingRef.current = false;
           invoke("set_recording_state", { active: false }).catch(() => {});
           if (stopFailed || stopResult?.localOnly) {
             invoke("show_popover").catch(() => {});

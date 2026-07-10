@@ -275,6 +275,85 @@ async function primitiveLeftPositions(
   );
 }
 
+async function primitiveParentNodeId(
+  page: Page,
+  filename: string,
+  nodeId: string,
+): Promise<string | null> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, id }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const node = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      return (
+        node?.parentElement?.getAttribute("data-agent-native-node-id") ?? null
+      );
+    },
+    { html: content, id: nodeId },
+  );
+}
+
+async function primitiveInlinePosition(
+  page: Page,
+  filename: string,
+  nodeId: string,
+): Promise<{ left: number; top: number } | null> {
+  const content = await fileContent(page, filename);
+  return page.evaluate(
+    ({ html, id }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const node = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      if (!node) return null;
+      return {
+        left: Number.parseFloat(node.style.left),
+        top: Number.parseFloat(node.style.top),
+      };
+    },
+    { html: content, id: nodeId },
+  );
+}
+
+async function negativeBoardRectangleViewport(page: Page): Promise<{
+  iframeWidth: number;
+  iframeHeight: number;
+  rectX: number;
+  rectY: number;
+  rectRight: number;
+  rectBottom: number;
+  offsetStyle: string;
+} | null> {
+  const iframe = page
+    .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+    .first();
+  if ((await iframe.count()) === 0) return null;
+  return iframe.evaluate((element) => {
+    const frame = element as HTMLIFrameElement;
+    const doc = frame.contentDocument;
+    if (!doc) return null;
+    const rectangle = Array.from(
+      doc.querySelectorAll<HTMLElement>('[data-an-primitive="rectangle"]'),
+    ).find((candidate) => Number.parseFloat(candidate.style.left) < 0);
+    if (!rectangle) return null;
+    const rect = rectangle.getBoundingClientRect();
+    return {
+      iframeWidth: frame.clientWidth,
+      iframeHeight: frame.clientHeight,
+      rectX: rect.x,
+      rectY: rect.y,
+      rectRight: rect.right,
+      rectBottom: rect.bottom,
+      offsetStyle:
+        doc.querySelector<HTMLStyleElement>(
+          "style[data-agent-native-content-offset]",
+        )?.textContent ?? "",
+    };
+  });
+}
+
 async function dragInEmptyCanvasLeftOf(
   page: Page,
   shellName: string,
@@ -654,6 +733,22 @@ async function primitiveViewportBox(
     .locator(`[data-agent-native-node-id="${nodeId}"]`)
     .boundingBox();
   if (!box) throw new Error(`primitive not found: ${nodeId}`);
+  return box;
+}
+
+async function boardPrimitiveViewportBox(
+  page: Page,
+  nodeId: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const iframe = page
+    .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
+    .first();
+  await expect(iframe).toBeVisible();
+  const box = await iframe
+    .contentFrame()
+    .locator(`[data-agent-native-node-id="${nodeId}"]`)
+    .boundingBox();
+  if (!box) throw new Error(`board primitive not found: ${nodeId}`);
   return box;
 }
 
@@ -1131,6 +1226,189 @@ test("dragging a rectangle between screens moves it across files", async ({
     });
 });
 
+test("dragging a screen primitive into a board rectangle nests and persists", async ({
+  page,
+}) => {
+  await postAction(page.request, "create-file", {
+    designId,
+    filename: "about.html",
+    content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
+    fileType: "html",
+  });
+  await gotoEditor(page, designId);
+  await expect(screenShell(page, "About")).toBeVisible();
+
+  const homeShell = screenShell(page, "Home");
+  const homeCardBox = await homeShell
+    .locator("[data-screen-card]")
+    .boundingBox();
+  if (!homeCardBox) throw new Error("missing Home screen card box");
+
+  const boardIdsBefore = await primitiveNodeIds(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+  const boardStart = {
+    x: homeCardBox.x - 20,
+    y: homeCardBox.y + 240,
+  };
+  const boardEnd = {
+    x: boardStart.x - 180,
+    y: boardStart.y + 150,
+  };
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: boardStart,
+    end: boardEnd,
+  });
+  await expect
+    .poll(() => primitiveNodeIds(page, "__board__.html", "rectangle"), {
+      timeout: 20_000,
+    })
+    .toHaveLength(boardIdsBefore.length + 1);
+  const boardIdsAfter = await primitiveNodeIds(
+    page,
+    "__board__.html",
+    "rectangle",
+  );
+  const targetId = boardIdsAfter.find((id) => !boardIdsBefore.includes(id));
+  if (!targetId) throw new Error("new board rectangle id was not found");
+
+  const homeIdsBefore = await primitiveNodeIds(page, "index.html", "rectangle");
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: homeCardBox.x + homeCardBox.width * 0.1,
+      y: homeCardBox.y + homeCardBox.height * 0.08,
+    },
+    end: {
+      x: homeCardBox.x + homeCardBox.width * 0.2,
+      y: homeCardBox.y + homeCardBox.height * 0.16,
+    },
+  });
+  const homeIdsAfter = await primitiveNodeIds(page, "index.html", "rectangle");
+  const movedId = homeIdsAfter.find((id) => !homeIdsBefore.includes(id));
+  if (!movedId) throw new Error("new screen rectangle id was not found");
+  const movedBox = await primitiveViewportBox(homeShell, movedId);
+
+  await dragBetween(
+    page,
+    {
+      x: movedBox.x + movedBox.width / 2,
+      y: movedBox.y + movedBox.height / 2,
+    },
+    {
+      x: (boardStart.x + boardEnd.x) / 2,
+      y: (boardStart.y + boardEnd.y) / 2,
+    },
+  );
+
+  await expect
+    .poll(
+      async () => ({
+        sourceStillOwnsNode: (
+          await primitiveNodeIds(page, "index.html", "rectangle")
+        ).includes(movedId),
+        boardParentId: await primitiveParentNodeId(
+          page,
+          "__board__.html",
+          movedId,
+        ),
+      }),
+      { timeout: 20_000 },
+    )
+    .toEqual({ sourceStillOwnsNode: false, boardParentId: targetId });
+
+  await gotoEditor(page, designId);
+  await expect
+    .poll(() => primitiveParentNodeId(page, "__board__.html", movedId), {
+      timeout: 20_000,
+    })
+    .toBe(targetId);
+});
+
+test("same-board rectangle nesting into a finite-origin frame persists without poisoned coordinates", async ({
+  page,
+}) => {
+  const boardFile = (await designFiles(page)).find(
+    (file) => file.filename === "__board__.html",
+  );
+  if (!boardFile) throw new Error("board file was not created");
+  const targetId = "e2e-board-frame";
+  const movedId = "e2e-board-rectangle";
+  await postAction(page.request, "update-file", {
+    id: boardFile.id,
+    content: `<!doctype html><html><head><style>html,body{background:transparent}body{margin:0;position:relative;overflow:visible}</style></head><body>
+      <div data-agent-native-node-id="${targetId}" data-agent-native-layer-name="Frame" data-an-primitive="frame" style="position:absolute;left:-190px;top:120px;width:160px;height:180px;overflow:hidden;background:rgba(99,102,241,.12);border:1px solid rgb(99,102,241)"></div>
+      <div data-agent-native-node-id="${movedId}" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:-150px;top:360px;width:60px;height:60px;background:rgb(34,197,94)"></div>
+    </body></html>`,
+  });
+  await gotoEditor(page, designId);
+
+  let movedBox = await boardPrimitiveViewportBox(page, movedId);
+  await page.mouse.click(
+    movedBox.x + movedBox.width / 2,
+    movedBox.y + movedBox.height / 2,
+  );
+  await expect(selectedLayerRow(page)).toContainText("Rectangle");
+  // Selection makes the board the active edit surface. Re-read both boxes
+  // after that state transition before beginning the structural drag.
+  const targetBox = await boardPrimitiveViewportBox(page, targetId);
+  movedBox = await boardPrimitiveViewportBox(page, movedId);
+
+  await dragBetween(
+    page,
+    {
+      x: movedBox.x + movedBox.width / 2,
+      y: movedBox.y + movedBox.height / 2,
+    },
+    {
+      x: targetBox.x + targetBox.width / 2,
+      y: targetBox.y + targetBox.height / 2,
+    },
+  );
+
+  await expect
+    .poll(
+      async () => ({
+        parentId: await primitiveParentNodeId(page, "__board__.html", movedId),
+        position: await primitiveInlinePosition(
+          page,
+          "__board__.html",
+          movedId,
+        ),
+      }),
+      { timeout: 20_000 },
+    )
+    .toEqual({
+      parentId: targetId,
+      position: {
+        left: expect.any(Number),
+        top: expect.any(Number),
+      },
+    });
+  const nestedPosition = await primitiveInlinePosition(
+    page,
+    "__board__.html",
+    movedId,
+  );
+  expect(nestedPosition).not.toBeNull();
+  expect(Math.abs(nestedPosition!.left)).toBeLessThan(240);
+  expect(Math.abs(nestedPosition!.top)).toBeLessThan(180);
+
+  await gotoEditor(page, designId);
+  await expect
+    .poll(() => primitiveParentNodeId(page, "__board__.html", movedId), {
+      timeout: 20_000,
+    })
+    .toBe(targetId);
+  const reloadedPosition = await primitiveInlinePosition(
+    page,
+    "__board__.html",
+    movedId,
+  );
+  expect(reloadedPosition).toEqual(nestedPosition);
+});
+
 test("frame insertion inside a screen creates a nested frame", async ({
   page,
 }) => {
@@ -1265,6 +1543,44 @@ test("rectangle drawn left of the first screen persists on the board", async ({
       return Math.min(...positions);
     })
     .toBeLessThan(0);
+
+  await expect
+    .poll(
+      async () => {
+        const summary = await negativeBoardRectangleViewport(page);
+        return Boolean(
+          summary &&
+          summary.iframeWidth <= 24_576 &&
+          summary.iframeHeight <= 24_576 &&
+          summary.rectX >= 0 &&
+          summary.rectY >= 0 &&
+          summary.rectRight <= summary.iframeWidth &&
+          summary.rectBottom <= summary.iframeHeight &&
+          summary.offsetStyle.includes("translate:"),
+        );
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+
+  // The finite render origin is derived again after a cold load. The board
+  // node must remain inside the iframe viewport instead of reverting to the
+  // old fixed +/-65536 projection and becoming visually clipped.
+  await gotoEditor(page, designId);
+  await expect
+    .poll(
+      async () => {
+        const summary = await negativeBoardRectangleViewport(page);
+        return Boolean(
+          summary &&
+          summary.iframeWidth <= 24_576 &&
+          summary.rectX >= 0 &&
+          summary.rectRight <= summary.iframeWidth,
+        );
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
 });
 
 test("pen escape cancels the in-progress path and enter commits vector art", async ({

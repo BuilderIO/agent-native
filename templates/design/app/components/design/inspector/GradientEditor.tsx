@@ -285,11 +285,18 @@ export function parseGradientCss(
 interface AngleDialProps {
   angle: number;
   onChange: (angle: number) => void;
+  /** Fires once when a drag gesture ends (pointerup/pointercancel) — see GradientEditorProps.onCommit. */
+  onCommit?: () => void;
   disabled?: boolean;
 }
 
 /** design-editor circular dial for rotating gradient angle. */
-function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
+function AngleDial({
+  angle,
+  onChange,
+  onCommit,
+  disabled = false,
+}: AngleDialProps) {
   const dialRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -319,10 +326,12 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
   };
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const wasDragging = draggingRef.current;
     draggingRef.current = false;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    if (wasDragging) onCommit?.();
   };
 
   const dotAngle = ((angle - 90) * Math.PI) / 180;
@@ -349,9 +358,11 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
           e.preventDefault();
           onChange((angle + 1) % 360);
+          onCommit?.();
         } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
           e.preventDefault();
           onChange((angle - 1 + 360) % 360);
+          onCommit?.();
         }
       }}
       className={cn(
@@ -394,6 +405,18 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
 export interface GradientEditorProps {
   value: GradientValue;
   onChange: (value: GradientValue) => void;
+  /**
+   * Fires once per discrete edit or drag gesture — mirrors the
+   * `onChangeComplete` convention used by `DesignColorPickerProps` (see the
+   * doc comment there): `onChange` alone fires on every stop-drag/angle-drag
+   * pointermove tick (cheap live preview), while `onCommit` fires exactly
+   * once (stop added, stop removed, stop-drag pointerup, angle-drag
+   * pointerup, or a position/angle field committed via blur/Enter) so a
+   * caller that persists through history only records one entry per gesture
+   * instead of one per tick. Optional so existing callers that only wired
+   * `onChange` keep their current every-tick-is-final behavior.
+   */
+  onCommit?: () => void;
   selectedStopId: string;
   onSelectStop: (id: string) => void;
   disabled?: boolean;
@@ -412,6 +435,7 @@ const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA; // total component height
 export function GradientEditor({
   value,
   onChange,
+  onCommit,
   selectedStopId,
   onSelectStop,
   disabled = false,
@@ -419,6 +443,10 @@ export function GradientEditor({
 }: GradientEditorProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
+  // Set once a stop-drag actually moves the pointer (vs a plain click that
+  // only selects the stop) — endStopDrag uses this to skip firing onCommit
+  // for a no-op "select" click where nothing actually changed.
+  const stopDragMovedRef = useRef(false);
   // Track whether a pointerdown on the bar started a drag (vs click-to-add).
   const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
 
@@ -502,6 +530,7 @@ export function GradientEditor({
     };
     onChange({ ...value, stops: [...value.stops, newStop] });
     onSelectStop(newStop.id);
+    onCommit?.();
   };
 
   const startStopDrag = (
@@ -513,6 +542,7 @@ export function GradientEditor({
     event.preventDefault();
     onSelectStop(id);
     draggingStopRef.current = id;
+    stopDragMovedRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -520,6 +550,7 @@ export function GradientEditor({
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     if (!draggingStopRef.current || disabled) return;
+    stopDragMovedRef.current = true;
     updateStopPosition(
       draggingStopRef.current,
       positionFromPointer(event.clientX),
@@ -527,10 +558,14 @@ export function GradientEditor({
   };
 
   const endStopDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const wasDragging =
+      draggingStopRef.current !== null && stopDragMovedRef.current;
     draggingStopRef.current = null;
+    stopDragMovedRef.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (wasDragging) onCommit?.();
   };
 
   const removeStop = (id: string) => {
@@ -541,6 +576,7 @@ export function GradientEditor({
     if (selectedStopId === id) {
       onSelectStop(nearestStopId(nextStops, removed?.position) ?? "");
     }
+    onCommit?.();
   };
 
   const setAngle = (angle: number) => {
@@ -576,6 +612,7 @@ export function GradientEditor({
       return;
     }
     updateStopPosition(selectedStopId, parsed);
+    onCommit?.();
   };
 
   const revertPositionDraft = () => {
@@ -651,6 +688,28 @@ export function GradientEditor({
                 e.stopPropagation();
                 removeStop(stop.id);
               }}
+              onKeyDown={(e) => {
+                if (disabled) return;
+                // Figma parity: Delete/Backspace removes the focused stop,
+                // and Left/Right nudges its position (Shift for a bigger
+                // step) — mirrors the numeric position field's arrow-key
+                // behavior but works directly on the handle too.
+                if (e.key === "Delete" || e.key === "Backspace") {
+                  e.preventDefault();
+                  removeStop(stop.id);
+                  return;
+                }
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  const step = e.shiftKey ? 10 : 1;
+                  const delta = e.key === "ArrowRight" ? step : -step;
+                  updateStopPosition(
+                    stop.id,
+                    clamp(stop.position + delta, 0, 100),
+                  );
+                  onCommit?.();
+                }
+              }}
               className={cn(
                 // Base: round handle with white border ring + outer accent ring
                 "absolute cursor-grab active:cursor-grabbing",
@@ -724,6 +783,7 @@ export function GradientEditor({
             <AngleDial
               angle={value.angle}
               onChange={setAngle}
+              onCommit={onCommit}
               disabled={disabled}
             />
             <div className="flex h-6 w-14 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
@@ -744,7 +804,10 @@ export function GradientEditor({
                     setAngleInput(e.target.value);
                   }
                 }}
-                onBlur={() => setAngleInput(null)}
+                onBlur={() => {
+                  setAngleInput(null);
+                  onCommit?.();
+                }}
                 className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
               />
               <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">

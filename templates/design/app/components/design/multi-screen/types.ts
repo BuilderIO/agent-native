@@ -149,9 +149,22 @@ export interface MultiScreenCanvasProps {
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
+    /**
+     * The moveNode/moveNodeBetweenDocuments anchor: the containing primitive
+     * itself when `placement` is "inside" (append), or a sibling child of
+     * that container when `placement` is "before"/"after" (flow-insert at a
+     * specific index) — see PrimitiveDropTarget.anchorNodeId in
+     * primitive-drop-target.ts, which resolves which one to pass.
+     */
     targetNodeId: string;
     targetScreenId: string;
-    placement: "inside";
+    /**
+     * "inside" appends into the target container (absolute-drop parity with
+     * the historic behavior). "before"/"after" flow-inserts next to
+     * `targetNodeId` at the resolved auto-layout index, mirroring
+     * onCrossScreenElementDrop's targetAnchorPlacement contract.
+     */
+    placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;

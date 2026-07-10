@@ -5046,12 +5046,26 @@ export function resolveContinuationDispatchBudget(opts: {
  * `_process-run` self-dispatch carrying ids only (the body is persisted on
  * the row as `dispatch_payload`), fully AWAIT the dispatch acknowledgment
  * with retries, and mark this chunk terminal only after the handoff landed.
- * On failure every path is loud: the successor row is errored, the failure
- * is recorded as the run's diag stage, and this chunk is flipped to errored
- * with a terminal reason — never a silent loss. (For a FOREGROUND self-chain
- * the client additionally still receives the terminal `auto_continue` event
- * — run-manager emits it after this callback — so the existing client
- * re-POST path takes over as the fallback.)
+ * On failure this chunk always goes terminal loudly (diag stage + terminal
+ * reason recorded — never a silent loss), but the successor row's fate
+ * depends on WHY the dispatch failed:
+ *   - the pre-insert itself failed (no successor row exists) — nothing for a
+ *     sweep to find, so this is unrecoverable: fail loud immediately with
+ *     `background_continuation_dispatch_failed`.
+ *   - every dispatch attempt failed but the successor row DOES exist with its
+ *     `dispatch_payload` intact — this is RECOVERABLE: the row is left alone
+ *     (`status='running', dispatch_mode='background'`) instead of being
+ *     errored, so the unclaimed-background-run sweep in `agent-chat-plugin.ts`
+ *     can redispatch it once `UNCLAIMED_BACKGROUND_RUN_GRACE_MS` has passed.
+ *     This chunk is flipped to errored with the distinct, honest
+ *     `background_continuation_dispatch_deferred` reason — the TURN is
+ *     deferred, not dead. The sweep still bounds this by
+ *     `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`: past that it falls back
+ *     to the existing loud reap, so a genuinely dead handoff never hangs
+ *     silently forever. (For a FOREGROUND self-chain the client additionally
+ *     still receives the terminal `auto_continue` event — run-manager emits
+ *     it after this callback — so the existing client re-POST path is a
+ *     second, faster fallback alongside the sweep.)
  *
  * `chainViaDurableBackground` selects the dispatch target:
  *   - true  → the durable-background worker chain (unchanged behavior): the
@@ -5316,22 +5330,74 @@ export async function chainServerDrivenContinuation(opts: {
       }
     }
     if (!dispatched) {
-      // The pre-inserted successor row would otherwise sit unclaimed until
-      // the sweep reaps it — error it now so the failure is immediate and
-      // truthful.
       if (nextRowInserted) {
-        const nextStatusUpdated = await d
-          .updateRunStatusIfRunning(nextRunId, "errored")
+        // RECOVERABLE: the successor row already exists in SQL with its
+        // rehydration payload (`dispatch_payload`) intact and is still
+        // `status='running', dispatch_mode='background'` — exactly the state
+        // the unclaimed-background-run sweep (`agent-chat-plugin.ts`) already
+        // scans for. Do NOT error it here: leave it alone so the sweep can
+        // redispatch it once `UNCLAIMED_BACKGROUND_RUN_GRACE_MS` has passed,
+        // bounded by `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS` before it
+        // falls back to the existing loud reap
+        // (`background_worker_never_started`) — so this is deferred, never a
+        // silent hang. This chunk still goes terminal (its own soft-timeout
+        // budget is genuinely spent), but with an honest reason: the TURN is
+        // not dead, only this handoff attempt was.
+        //
+        // THREE-SITE INVARIANT (keep in lockstep — a future reader must not
+        // "fix" one without the others): this deferral only survives because
+        // the ~1s client poll in `getActiveRunForThreadAsync`
+        // (run-manager.ts) ALSO skips `reapUnclaimedBackgroundRun` while the
+        // successor is within `UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS`
+        // (via `shouldRedispatchUnclaimedBackgroundRun`). Without that guard a
+        // connected client would reap this row at the 25s grace, before the
+        // ~2-min sweep, defeating the deferral. The sweep in agent-chat-plugin
+        // is the recovery actor; run-manager is the guard; this is the
+        // producer.
+        await d
+          .recordRunDiagnostic(
+            nextRunId,
+            RUN_DIAG_STAGE.workerThrew,
+            `chain_dispatch_deferred: dispatch budget exhausted (${maxDispatchAttempts} attempts) awaiting unclaimed-run sweep redispatch; ${
+              lastDispatchErr instanceof Error
+                ? lastDispatchErr.message
+                : String(lastDispatchErr)
+            }`,
+          )
+          .catch(() => {});
+        await d
+          .recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerThrew,
+            `chain_dispatch_deferred nextRunId=${nextRunId} ${
+              lastDispatchErr instanceof Error
+                ? lastDispatchErr.message
+                : String(lastDispatchErr)
+            }`,
+          )
+          .catch(() => {});
+        console.error(
+          "[agent-chat] background continuation dispatch exhausted its retry budget; leaving the pre-inserted successor for the unclaimed-run sweep to redispatch:",
+          lastDispatchErr instanceof Error
+            ? lastDispatchErr.message
+            : lastDispatchErr,
+        );
+        const statusUpdated = await d
+          .updateRunStatusIfRunning(runId, "errored")
           .catch(() => false);
-        if (nextStatusUpdated) {
+        if (statusUpdated) {
           await d
             .setRunTerminalReason(
-              nextRunId,
-              "background_continuation_dispatch_failed",
+              runId,
+              "background_continuation_dispatch_deferred",
             )
             .catch(() => {});
         }
+        return;
       }
+      // No successor row exists at all (the pre-insert itself failed) — there
+      // is nothing for the sweep to find and recover, so this really is
+      // fatal. Fail loud immediately via the shared catch block below.
       throw lastDispatchErr instanceof Error
         ? lastDispatchErr
         : new Error(String(lastDispatchErr));

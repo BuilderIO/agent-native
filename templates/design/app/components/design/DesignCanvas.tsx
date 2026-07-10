@@ -55,6 +55,7 @@ import {
 } from "./design-canvas/creation";
 import { isElementInfoPayload } from "./design-canvas/element-payload";
 import {
+  embeddedContentOffsetCss,
   embeddedContentOffsetStyle,
   getEmbeddedFrameBackgroundStyle,
   getEmbeddedFrameDocumentContent,
@@ -91,6 +92,7 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   DeviceFrameType,
+  RuntimeStructureMoveRequest,
 } from "./types";
 
 /**
@@ -320,6 +322,10 @@ interface DesignCanvasProps {
     status?: number;
     contentType?: string;
   }) => void;
+  onRuntimeLayerSnapshot?: (snapshot: {
+    html: string;
+    nodeCount: number;
+  }) => void;
   /**
    * Explicit Builder-hosted app URL for fusion source rendering.
    *
@@ -381,6 +387,8 @@ interface DesignCanvasProps {
     requestId: number;
     acks: Array<{ requestId: string; applied: boolean }>;
   } | null;
+  /** One-shot host request to optimistically move a runtime-only layer. */
+  runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
   embeddedFrameBackground?: string;
   transparentBackground?: boolean;
   editorChromeScaleX?: number;
@@ -434,6 +442,7 @@ interface DesignCanvasProps {
       dropMode?: "flow-insert" | "absolute-container";
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
+      anchorElementInfo?: ElementInfo;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -685,6 +694,67 @@ function snapshotEndpointUrl(bridgeUrl: string, previewUrl: string): string {
   return endpoint.toString();
 }
 
+function healthEndpointUrl(bridgeUrl: string): string {
+  return new URL("/health", bridgeUrl).toString();
+}
+
+/**
+ * Decides how to react to a suspected `unknown-bridge-key` failure on the
+ * localhost live-edit bridge.
+ *
+ * The bridge mints a fresh `bridgeInstanceId` every time its process boots
+ * (see `startDesignConnectBridge` in packages/core/src/cli/design-connect.ts)
+ * and echoes it on `/health`, on a successful `/live-edit-bridge`
+ * registration, and on the "unknown bridge key" 409 from `/live-edit`. The
+ * 409 itself is usually unreadable here: the live iframe navigates directly
+ * to the bridge's `/live-edit` URL (a real cross-origin request), so this
+ * component can't inspect the response body or status code the way a
+ * same-origin `fetch` could. Instead, callers probe `/health` — a route that
+ * never requires the preview token — and pass its `bridgeInstanceId` in as
+ * `responseBridgeInstanceId` alongside the assumed failure `code`.
+ *
+ * - Different id than what we last registered with ⇒ the bridge PROCESS
+ *   restarted (crash, machine sleep/wake, manual restart) since our last
+ *   successful registration. That's not a caller bug: silently re-POST the
+ *   same script/key and reload the frame with no user-facing error
+ *   ("reregister").
+ * - Same id (or no id / non-restart code at all) ⇒ the process that accepted
+ *   our registration is still running, so a genuine unknown-bridge-key 409
+ *   means something else is wrong (stale bridgeKey, real bug). Surface the
+ *   existing error/Retry UI instead of silently looping ("error").
+ *
+ * Deliberately NOT exported: every other pure helper in this file
+ * (getExternalPreviewUrl, snapshotEndpointUrl, buildEditorChromeBridgeScript,
+ * contentHash, isAllowedFusionOrigin, originFromUrl, ...) stays module-private
+ * so DesignCanvas.tsx keeps exporting only the DesignCanvas component itself
+ * — see DesignCanvas.refreshBoundary.test.ts, which guards the Fast Refresh
+ * boundary this file relies on given how often it's edited during live design
+ * sessions. Its decision logic is covered by behavioral tests in
+ * DesignCanvas.bridge-restart.test.tsx instead of a direct unit import.
+ */
+function shouldReregisterBridge(
+  cachedBridgeInstanceId: string | null | undefined,
+  responseBridgeInstanceId: string | null | undefined,
+  code: string | null | undefined,
+): "reregister" | "error" {
+  if (code !== "unknown-bridge-key") return "error";
+  if (!cachedBridgeInstanceId || !responseBridgeInstanceId) return "error";
+  return cachedBridgeInstanceId === responseBridgeInstanceId
+    ? "error"
+    : "reregister";
+}
+
+// Grace period after the live-edit bridge is (re)registered and the real
+// iframe document is mounted before a missing "agent-native:editor-chrome-ready"
+// handshake is treated as a suspected bridge restart rather than an in-flight
+// page load. Generous relative to typical localhost load times so a slow but
+// healthy dev server is never misdiagnosed as restarted.
+const LIVE_EDIT_READY_TIMEOUT_MS = 4000;
+// Caps the silent auto-reregister loop below so a pathological bridge that
+// keeps minting a new bridgeInstanceId on every probe (or that never manages
+// to actually register) can't retry forever without ever surfacing an error.
+const MAX_LIVE_EDIT_RESTART_ATTEMPTS = 3;
+
 function originFromUrl(value: string | undefined): string | null {
   if (!value) return null;
   try {
@@ -701,6 +771,9 @@ function buildEditorChromeBridgeScript(args: {
   editorChromeScaleY: number;
   screenId: string;
   boardSurface: boolean;
+  contentOffsetX: number;
+  contentOffsetY: number;
+  runtimeLayerSnapshotEnabled: boolean;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -715,6 +788,18 @@ function buildEditorChromeBridgeScript(args: {
       .replace(
         "__DESIGN_CANVAS_BOARD_SURFACE__",
         args.boardSurface ? "true" : "false",
+      )
+      .replace(
+        "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+        String(Math.round(args.contentOffsetX)),
+      )
+      .replace(
+        "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+        String(Math.round(args.contentOffsetY)),
+      )
+      .replace(
+        "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+        args.runtimeLayerSnapshotEnabled ? "true" : "false",
       )
   );
 }
@@ -734,6 +819,7 @@ export function DesignCanvas({
   bridgeUrl,
   externalSnapshotHtml,
   onExternalContentSnapshot,
+  onRuntimeLayerSnapshot,
   fusionUrl,
   previewToken,
   zoom,
@@ -747,6 +833,7 @@ export function DesignCanvas({
   styleBaselineResetRequest,
   textRevertRequest,
   structureAckRequest,
+  runtimeStructureMoveRequest,
   embeddedFrameBackground,
   transparentBackground = false,
   editorChromeScaleX = 1,
@@ -861,8 +948,11 @@ export function DesignCanvas({
   const postOneShotBridgeMessage = useCallback((message: unknown) => {
     const iframe = iframeRef.current;
     const win = iframe?.contentWindow;
-    if (!win) return false;
-    if (!bridgeReadyRef.current) {
+    // A one-shot prop can arrive in the same render that first creates the
+    // iframe. Keep it queued even when the ref/contentWindow is not attached
+    // yet; otherwise the effect records its request id as handled and the
+    // command is lost permanently before the bridge can announce readiness.
+    if (!win || !bridgeReadyRef.current) {
       pendingOneShotMessagesRef.current.push(message);
       return true;
     }
@@ -891,6 +981,31 @@ export function DesignCanvas({
   // manual retry click (see handleManualSnapshotRetry) so the next failure
   // starts the backoff over rather than continuing to climb.
   const snapshotRetryAttemptRef = useRef(0);
+  // Mirrors the snapshot fetch's own retry/error state above: the
+  // /live-edit-bridge registration POST used to have no retry/backoff or
+  // error surface at all — a transient failure (dev server hiccup, brief
+  // network blip) left registeredLiveEditBridgeKey stuck at null forever,
+  // which pins waitingForLiveEditBridge true and the user stares at
+  // "Preparing live editor..." with no explanation and no way to recover
+  // short of reloading the whole page.
+  const bridgeRegistrationRetryAttemptRef = useRef(0);
+  const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
+    useState(0);
+  const [bridgeRegistrationError, setBridgeRegistrationError] = useState<{
+    bridgeKey: string;
+    message: string;
+  } | null>(null);
+  // Cache of the bridgeInstanceId returned by the client's LAST successful
+  // /live-edit-bridge registration POST (see the registration effect below).
+  // Compared against a later /health probe's bridgeInstanceId to tell "the
+  // bridge process restarted since we registered" apart from "the same
+  // process really doesn't know this key" — see shouldReregisterBridge above.
+  const bridgeInstanceIdRef = useRef<string | null>(null);
+  // Guards the auto-reregister probe below against overlapping runs and bounds
+  // how many times it will silently retry before giving up and surfacing the
+  // existing error/Retry UI (MAX_LIVE_EDIT_RESTART_ATTEMPTS).
+  const liveEditRestartInFlightRef = useRef(false);
+  const liveEditRestartAttemptRef = useRef(0);
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
   // Resolve the URL to render in the iframe:
@@ -912,6 +1027,10 @@ export function DesignCanvas({
     }
     return getExternalPreviewUrl(renderedContent);
   }, [fusionUrl, renderedContent, sourceType]);
+  const runtimeLayerSnapshotEnabled =
+    sourceType === "localhost" &&
+    Boolean(rawExternalPreviewUrl) &&
+    Boolean(onRuntimeLayerSnapshot);
   const activeExternalSnapshotHtml =
     externalSnapshotHtml ??
     (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
@@ -921,6 +1040,21 @@ export function DesignCanvas({
   // registered with the localhost bridge via a large POST, so folding live zoom
   // in would re-fire the registration effect on every zoom tick. Live scale is
   // pushed separately over the `set-editor-chrome-scale` postMessage below.
+  //
+  // readOnly and editMode are ALSO intentionally excluded from the deps below
+  // (only read for their FIRST-render baked value) — mirroring the srcdoc
+  // useMemo's own "readOnly and editMode are intentionally NOT deps" comment
+  // for inline screens further down this file. Before this fix, this memo
+  // (unlike the inline srcdoc one) DID list them as deps: every readOnly/
+  // editMode change rebuilt this script, which changed liveEditBridgeKey
+  // (its contentHash), which is embedded in the localhost iframe's `src` via
+  // resolveLiveEditPreviewUrl — so a routine Edit ⇄ Preview toggle (or a
+  // canEditDesign permission flip) forced a real cross-origin navigation of
+  // the embedded dev-server iframe, losing its in-app route/scroll/state.
+  // Live readOnly/editMode changes flow through the set-read-only and
+  // set-text-editing-enabled postMessages (see the useEffects below) exactly
+  // like the inline path, so no live-update behavior is lost by removing
+  // them here.
   const editorChromeBridgeForCurrentState = useMemo(
     () =>
       buildEditorChromeBridgeScript({
@@ -930,8 +1064,12 @@ export function DesignCanvas({
         editorChromeScaleY: 1,
         screenId: screenId ?? contentKey ?? "",
         boardSurface,
+        contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+        contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        runtimeLayerSnapshotEnabled,
       }),
-    [boardSurface, contentKey, editMode, readOnly, screenId],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
   );
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
@@ -1024,16 +1162,37 @@ export function DesignCanvas({
 
   // Register the editor bridge script with the localhost live-edit bridge so
   // it gets injected into the proxied preview. Re-runs only when the script
-  // content (liveEditBridgeKey) or the bridge target changes.
+  // content (liveEditBridgeKey) or the bridge target changes (or a retry —
+  // auto or manual — bumps bridgeRegistrationRetryNonce).
+  //
+  // Mirrors the external-source-snapshot fetch effect's own retry/backoff:
+  // a transient failure used to leave registeredLiveEditBridgeKey stuck at
+  // null forever (console.warn only, no retry, no error UI), pinning
+  // waitingForLiveEditBridge true with no way to recover short of a full
+  // page reload.
   useEffect(() => {
     if (!usesLiveEditInjectedBridge || !bridgeUrl || !previewToken) {
+      bridgeRegistrationRetryAttemptRef.current = 0;
+      liveEditRestartAttemptRef.current = 0;
       setRegisteredLiveEditBridgeKey(null);
+      setBridgeRegistrationError(null);
       return;
     }
     let cancelled = false;
+    let retryTimer: number | undefined;
     setRegisteredLiveEditBridgeKey((current) =>
       current === liveEditBridgeKey ? current : null,
     );
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      const delay = getSnapshotRetryDelayMs(
+        bridgeRegistrationRetryAttemptRef.current,
+      );
+      bridgeRegistrationRetryAttemptRef.current += 1;
+      retryTimer = window.setTimeout(() => {
+        setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+      }, delay);
+    };
     void (async () => {
       const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
       try {
@@ -1051,23 +1210,159 @@ export function DesignCanvas({
         if (!response.ok) {
           throw new Error(`Bridge registration failed (${response.status})`);
         }
-        if (!cancelled) setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
+        const payload = (await response.json().catch(() => null)) as {
+          bridgeInstanceId?: string;
+        } | null;
+        if (payload && typeof payload.bridgeInstanceId === "string") {
+          // Cache the instance id from THIS successful registration so a
+          // later suspected-restart probe (see handleSuspectedBridgeRestart)
+          // can tell a genuinely restarted bridge process apart from the same
+          // process rejecting a stale key.
+          bridgeInstanceIdRef.current = payload.bridgeInstanceId;
+        }
+        if (cancelled) return;
+        bridgeRegistrationRetryAttemptRef.current = 0;
+        // liveEditRestartAttemptRef is intentionally NOT reset here: a
+        // successful registration POST only proves the bridge accepted the
+        // script, not that the live document actually loaded it (that's what
+        // the ready-handshake watchdog below still has to confirm). Resetting
+        // the restart budget on every registration success — rather than only
+        // on a genuine agent-native:editor-chrome-ready — would let a
+        // pathological bridge that keeps minting a new bridgeInstanceId
+        // reregister forever, defeating MAX_LIVE_EDIT_RESTART_ATTEMPTS.
+        setBridgeRegistrationError(null);
+        setRegisteredLiveEditBridgeKey(liveEditBridgeKey);
       } catch (error) {
         if (!cancelled) {
           console.warn("live-edit bridge registration failed", error);
           setRegisteredLiveEditBridgeKey(null);
+          setBridgeRegistrationError({
+            bridgeKey: liveEditBridgeKey,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          scheduleRetry();
         }
       }
     })();
     return () => {
       cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
   }, [
+    bridgeRegistrationRetryNonce,
     bridgeUrl,
     liveEditBridgeKey,
     liveEditBridgeScript,
     previewToken,
     usesLiveEditInjectedBridge,
+  ]);
+
+  // Manual retry (offline-state "Retry" button): reset the backoff so the
+  // user-initiated attempt fires immediately, mirroring
+  // handleManualSnapshotRetry below.
+  const handleManualBridgeRegistrationRetry = useCallback(() => {
+    bridgeRegistrationRetryAttemptRef.current = 0;
+    liveEditRestartAttemptRef.current = 0;
+    setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+  }, []);
+
+  // The registered iframe's `src` is a real cross-origin navigation straight
+  // to the bridge's authenticated /live-edit URL, so this component can never
+  // read that response's status or body (a 409 "unknown-bridge-key" looks
+  // identical to any other document from here). What IS observable is
+  // whether the editor-chrome bridge's "agent-native:editor-chrome-ready"
+  // handshake (see the message handler below) arrives within a reasonable
+  // window after we mounted the real document. A healthy load posts ready
+  // almost immediately; a 409 never injects the bridge script at all, so
+  // ready never arrives. Treat a stuck non-ready state as a suspected restart
+  // and settle it with a /health probe instead of guessing from the error UI.
+  const handleSuspectedBridgeRestart = useCallback(async () => {
+    if (!bridgeUrl || !previewToken) return;
+    if (liveEditRestartInFlightRef.current) return;
+    if (liveEditRestartAttemptRef.current >= MAX_LIVE_EDIT_RESTART_ATTEMPTS) {
+      setRegisteredLiveEditBridgeKey(null);
+      setBridgeRegistrationError({
+        bridgeKey: liveEditBridgeKey,
+        message: t("designCanvas.localBridge.confirmationRetryExhausted"),
+      });
+      return;
+    }
+    liveEditRestartInFlightRef.current = true;
+    try {
+      const response = await fetch(healthEndpointUrl(bridgeUrl));
+      const payload = (await response.json().catch(() => null)) as {
+        bridgeInstanceId?: string;
+      } | null;
+      const responseBridgeInstanceId =
+        payload && typeof payload.bridgeInstanceId === "string"
+          ? payload.bridgeInstanceId
+          : null;
+      const decision = shouldReregisterBridge(
+        bridgeInstanceIdRef.current,
+        responseBridgeInstanceId,
+        "unknown-bridge-key",
+      );
+      liveEditRestartAttemptRef.current += 1;
+      if (decision === "reregister") {
+        // The bridge process restarted since our last registration — silently
+        // re-POST the same script/key and reload the frame. Resetting
+        // registeredLiveEditBridgeKey (without setting an error) re-arms the
+        // "Preparing live editor..." placeholder — the same neutral state
+        // already shown on first connect — and bumping the retry nonce
+        // re-triggers the registration effect above.
+        bridgeInstanceIdRef.current = responseBridgeInstanceId;
+        setRegisteredLiveEditBridgeKey(null);
+        setBridgeRegistrationError(null);
+        setBridgeRegistrationRetryNonce((nonce) => nonce + 1);
+      } else {
+        // Same bridge process still doesn't know this key (or /health
+        // couldn't confirm a restart) — this isn't a transient restart, so
+        // surface the existing error/Retry UI instead of looping forever.
+        setRegisteredLiveEditBridgeKey(null);
+        setBridgeRegistrationError({
+          bridgeKey: liveEditBridgeKey,
+          message: t("designCanvas.localBridge.connectionNotConfirmed"),
+        });
+      }
+    } catch (error) {
+      liveEditRestartAttemptRef.current += 1;
+      setRegisteredLiveEditBridgeKey(null);
+      setBridgeRegistrationError({
+        bridgeKey: liveEditBridgeKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      liveEditRestartInFlightRef.current = false;
+    }
+  }, [bridgeUrl, liveEditBridgeKey, previewToken, t]);
+
+  // Arm the ready-handshake watchdog whenever the real authenticated live-edit
+  // document is (re)mounted in editor-chrome mode (the only mode that ever
+  // posts agent-native:editor-chrome-ready — see usesLiveEditEditorBridge).
+  // liveEditBridgeRegistered flips false→true on every fresh mount (including
+  // the reregister cycle above), so this effect reliably rearms each time.
+  useEffect(() => {
+    if (
+      !usesLiveEditEditorBridge ||
+      !liveEditBridgeRegistered ||
+      !externalPreviewUrl
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled || bridgeReadyRef.current) return;
+      void handleSuspectedBridgeRestart();
+    }, LIVE_EDIT_READY_TIMEOUT_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    usesLiveEditEditorBridge,
+    liveEditBridgeRegistered,
+    externalPreviewUrl,
+    handleSuspectedBridgeRestart,
   ]);
 
   useEffect(() => {
@@ -1326,7 +1621,16 @@ export function DesignCanvas({
           .replace(
             "__DESIGN_CANVAS_BOARD_SURFACE__",
             boardSurface ? "true" : "false",
-          );
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+          )
+          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -1380,8 +1684,6 @@ export function DesignCanvas({
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
-    embeddedFrame?.contentOffsetX,
-    embeddedFrame?.contentOffsetY,
     embeddedFrameBackground,
     embeddedGestureBridgeForCurrentState,
     iframeRenderContent,
@@ -1432,8 +1734,29 @@ export function DesignCanvas({
         return;
       }
       if (!e.data || !e.data.type) return;
+      if (e.data.type === "agent-native:runtime-layer-snapshot") {
+        const payload = e.data.payload;
+        if (
+          payload &&
+          typeof payload.html === "string" &&
+          payload.html.length <= 2_000_000 &&
+          Number.isFinite(payload.nodeCount)
+        ) {
+          onRuntimeLayerSnapshot?.({
+            html: payload.html,
+            nodeCount: Math.max(0, Math.floor(payload.nodeCount)),
+          });
+        }
+        return;
+      }
       if (e.data.type === "agent-native:editor-chrome-ready") {
         bridgeReadyRef.current = true;
+        // A confirmed ready handshake proves this bridgeInstanceId/key pair
+        // is genuinely live — clear the suspected-restart attempt counter so
+        // a later transient hiccup gets the full retry budget again instead
+        // of inheriting an already-elevated count from an unrelated earlier
+        // load.
+        liveEditRestartAttemptRef.current = 0;
         flushPendingOneShotMessages();
         return;
       }
@@ -1579,6 +1902,9 @@ export function DesignCanvas({
               dropMode,
               sourceRect,
               anchorRect,
+              anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
+                ? e.data.anchorPayload
+                : undefined,
             },
           );
           if (requestId && applied !== "pending") {
@@ -1842,6 +2168,7 @@ export function DesignCanvas({
     return () => window.removeEventListener("message", handleMessage);
   }, [
     onElementSelect,
+    onRuntimeLayerSnapshot,
     onElementMarqueeSelect,
     onElementHover,
     onClearSelection,
@@ -2127,6 +2454,55 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
+  // The board iframe is a finite paint window over an infinite logical
+  // canvas. Re-centering that window must update its CSS/bridge coordinate
+  // offset in place; rebuilding srcdoc here would reload the iframe, flash,
+  // and discard transient Alpine state on every chunk crossing.
+  const embeddedContentOffsetX = embeddedFrame?.contentOffsetX ?? 0;
+  const embeddedContentOffsetY = embeddedFrame?.contentOffsetY ?? 0;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const applyOffset = () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (doc) {
+          const css = embeddedContentOffsetCss(
+            embeddedContentOffsetX,
+            embeddedContentOffsetY,
+          );
+          let style = doc.querySelector<HTMLStyleElement>(
+            "style[data-agent-native-content-offset]",
+          );
+          if (!css) {
+            style?.remove();
+          } else {
+            if (!style) {
+              style = doc.createElement("style");
+              style.setAttribute("data-agent-native-content-offset", "");
+              (doc.head ?? doc.documentElement).appendChild(style);
+            }
+            style.textContent = css;
+          }
+        }
+      } catch {
+        // Cross-origin localhost/fusion frames are updated only through their
+        // own bridge below; direct document access is intentionally optional.
+      }
+      iframe.contentWindow?.postMessage(
+        {
+          type: "set-content-offset",
+          x: embeddedContentOffsetX,
+          y: embeddedContentOffsetY,
+        },
+        "*",
+      );
+    };
+    applyOffset();
+    iframe.addEventListener("load", applyOffset);
+    return () => iframe.removeEventListener("load", applyOffset);
+  }, [embeddedContentOffsetX, embeddedContentOffsetY]);
+
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.
   // The initial baked __READ_ONLY__ placeholder covers first paint; subsequent
@@ -2371,6 +2747,27 @@ export function DesignCanvas({
       });
     }
   }, [postOneShotBridgeMessage, structureAckRequest]);
+
+  const lastRuntimeStructureMoveRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureMoveRequest) return;
+    if (
+      lastRuntimeStructureMoveRequestIdRef.current ===
+      runtimeStructureMoveRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureMoveRequestIdRef.current =
+      runtimeStructureMoveRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "runtime-structure-move",
+      subjectSelector: runtimeStructureMoveRequest.subject.selector,
+      subjectSourceId: runtimeStructureMoveRequest.subject.sourceId,
+      anchorSelector: runtimeStructureMoveRequest.anchor.selector,
+      anchorSourceId: runtimeStructureMoveRequest.anchor.sourceId,
+      placement: runtimeStructureMoveRequest.placement,
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -2870,7 +3267,41 @@ export function DesignCanvas({
       ) : null}
       {waitingForEditableExternalSnapshot || waitingForLiveEditBridge ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
-          {waitingForLiveEditBridge ? (
+          {waitingForLiveEditBridge &&
+          bridgeRegistrationError?.bridgeKey === liveEditBridgeKey ? (
+            // Mirrors the snapshot-fetch offline card below: a stuck
+            // registration used to look identical to ordinary "still
+            // registering" with no explanation and no way to recover short
+            // of a full page reload. Only shown for the CURRENT
+            // liveEditBridgeKey — a stale error from a previous script
+            // revision must not linger after content/mode changes move on
+            // to registering a new one.
+            <div className="pointer-events-auto flex max-w-[28rem] flex-col items-center gap-2 rounded-md border bg-card px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <IconPlugConnectedX className="size-4 shrink-0 text-destructive" />
+                {
+                  "Live editor connection failed" /* i18n-ignore local dev bridge registration failure title */
+                }
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {
+                  "Is the local dev server still running?" /* i18n-ignore local dev bridge registration failure subtitle */
+                }
+              </div>
+              <div className="w-full truncate rounded bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                {bridgeRegistrationError.message}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleManualBridgeRegistrationRetry}
+              >
+                <IconRefresh className="size-3.5" />
+                {"Retry" /* i18n-ignore local dev bridge retry button */}
+              </Button>
+            </div>
+          ) : waitingForLiveEditBridge ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */

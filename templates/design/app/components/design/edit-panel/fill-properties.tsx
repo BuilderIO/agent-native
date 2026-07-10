@@ -12,6 +12,7 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
+import { useState } from "react";
 
 import {
   Popover,
@@ -24,16 +25,19 @@ import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement } from "./element-classification";
+import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
+  addFillLayerPatch,
   averageGradientOpacity,
   buildGradientLayer,
-  defaultGradientLayer,
   gradientLabel,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
+  removeBaseFillPatch,
   removeFillLayerAtIndex,
+  setImageFillLayerPatch,
   splitCssLayers,
   withLayerSizeMarker,
 } from "./fill-gradient-helpers";
@@ -45,7 +49,6 @@ import {
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
-  compactCssValue,
   cssColorOrFallback,
   swatchStyle,
 } from "./position-helpers";
@@ -87,6 +90,16 @@ export function FillProperties({
   const styles = element.computedStyles;
   const isTextFillElement = isTextElement(element);
   const fillProperty = isTextFillElement ? "color" : "backgroundColor";
+  // Stash for a hidden layer's real pre-hide backgroundSize (e.g. a custom
+  // cover/contain/percentage) so re-showing it restores that value instead
+  // of permanently discarding it for "auto" — the same React-state stash
+  // pattern effects-properties.tsx uses for hidden shadow/blur effects (see
+  // `hiddenEffectStash` there), keyed by element + layer index so unrelated
+  // elements/layers never collide.
+  const [hiddenFillSizeStash, setHiddenFillSizeStash] = useState<
+    Record<string, string>
+  >({});
+  const fillStashKey = elementStableKey(element);
   const fillValue = isTextFillElement
     ? styles.color || ""
     : styles.backgroundColor || "";
@@ -239,50 +252,16 @@ export function FillProperties({
                 );
                 return;
               }
-              if (!colorHasVisibleAlpha(styles.backgroundColor)) {
-                onStyleChange(
-                  "backgroundColor",
-                  cssColorOrFallback(styles.backgroundColor, "#ffffff"),
-                );
-                return;
-              }
-              const current = compactCssValue(styles.backgroundImage, "");
-              const nextLayer = defaultGradientLayer(
-                "linear",
-                styles.backgroundColor || "#ffffff",
-              );
-              if (!current) {
-                onStyleChange("backgroundImage", nextLayer);
-                return;
-              }
-              // Prepending a layer without also prepending matching entries
-              // to the other three index-aligned parallel arrays
-              // (size/repeat/position) would shift every existing layer's
-              // index by one, silently re-pairing each of them with the
-              // *previous* layer's size/repeat/position (same class of bug
-              // as the removeLayer fix above). Commit a default entry for
-              // the new layer in all four arrays together, in one patch.
-              const patch = {
-                backgroundImage: `${nextLayer}, ${current}`,
-                backgroundSize: joinCssLayers([
-                  "auto",
-                  ...backgroundSizeLayers,
-                ]),
-                backgroundRepeat: joinCssLayers([
-                  "no-repeat",
-                  ...backgroundRepeatLayers,
-                ]),
-                backgroundPosition: joinCssLayers([
-                  "0% 0%",
-                  ...backgroundPositionLayers,
-                ]),
-              };
-              if (onStylesChange) {
-                onStylesChange(patch);
-                return;
-              }
-              Object.entries(patch).forEach(([property, value]) =>
-                onStyleChange(property, value),
+              commitStylePatch(
+                addFillLayerPatch({
+                  backgroundColor: styles.backgroundColor,
+                  backgroundLayers,
+                  backgroundSizeLayers,
+                  backgroundRepeatLayers,
+                  backgroundPositionLayers,
+                }),
+                onStyleChange,
+                onStylesChange,
               );
             }}
           >
@@ -342,15 +321,19 @@ export function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundImage", v)
                   }
-                  onImageFillChange={
+                  // Layer-index-aware: ColorInput merges the edited image
+                  // into the correct backgroundImage/backgroundSize/
+                  // backgroundRepeat/backgroundPosition index and hands back
+                  // the full four-property patch here, already preserving
+                  // every other stacked gradient/image layer (see
+                  // `imageFillChangePatch`) — commit it as-is instead of
+                  // rebuilding a single-layer patch that would silently wipe
+                  // those siblings.
+                  onImageFillLayerChange={
                     isTextFillElement
                       ? undefined
-                      : (value) =>
-                          commitStylePatch(
-                            imageFillToBackgroundStyles(value),
-                            onStyleChange,
-                            onStylesChange,
-                          )
+                      : (patch) =>
+                          commitStylePatch(patch, onStyleChange, onStylesChange)
                   }
                   documentColors={documentColors}
                   pickerKey={[
@@ -384,20 +367,13 @@ export function FillProperties({
               </SectionIconButton>
               <SectionIconButton
                 label={t("editPanel.labels.removeLayer")}
-                onClick={() => {
-                  if (isTextFillElement) {
-                    onStyleChange(fillProperty, "transparent");
-                    return;
-                  }
-                  if (onStylesChange) {
-                    onStylesChange({
-                      backgroundColor: "transparent",
-                      backgroundImage: "none",
-                    });
-                  } else {
-                    onStyleChange(fillProperty, "transparent");
-                  }
-                }}
+                onClick={() =>
+                  commitStylePatch(
+                    removeBaseFillPatch(fillProperty),
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
               >
                 <IconMinus className="size-3.5" />
               </SectionIconButton>
@@ -415,12 +391,18 @@ export function FillProperties({
           {!isTextFillElement
             ? backgroundLayers.map((layer, index) => {
                 const gradient = parseGradientLayer(layer);
-                // Hidden state lives in the real, persisted backgroundSize
-                // marker (see withLayerSizeMarker) rather than React state,
-                // so it survives deselect/reselect. Opacity still reflects
-                // the gradient's own stop opacities for display, but no
-                // longer drives hide/show — a layer can be a fully-opaque
-                // gradient and still be hidden via zero-size.
+                // Hidden state itself lives in the real, persisted
+                // backgroundSize marker (see withLayerSizeMarker) rather than
+                // React state, so it survives deselect/reselect. Opacity
+                // still reflects the gradient's own stop opacities for
+                // display, but no longer drives hide/show — a layer can be a
+                // fully-opaque gradient and still be hidden via zero-size.
+                // The layer's *original* size (a custom cover/contain/
+                // percentage) can't be recovered from the marker itself once
+                // overwritten, so it's separately stashed in component state
+                // for the round trip (see hiddenFillSizeStash below) —
+                // same pattern as effects-properties.tsx's hiddenEffectStash
+                // for hidden shadow/blur effects.
                 const hidden = isLayerHiddenBySize(backgroundSizeLayers[index]);
                 const opacity = gradient
                   ? averageGradientOpacity(gradient.stops)
@@ -463,14 +445,47 @@ export function FillProperties({
                     onStyleChange(property, value),
                   );
                 };
+                const sizeStashKey = `${fillStashKey}:fill-size:${index}`;
                 const setLayerHidden = (nextHidden: boolean) => {
+                  if (nextHidden) {
+                    // Stash the real pre-hide size (a custom cover/contain/
+                    // percentage — see withLayerSizeMarker) so re-showing
+                    // can restore it instead of permanently discarding it
+                    // for "auto". Skip stashing if the layer is somehow
+                    // already hidden (nothing real to preserve).
+                    const current = backgroundSizeLayers[index];
+                    if (current && !isLayerHiddenBySize(current)) {
+                      setHiddenFillSizeStash((prev) => ({
+                        ...prev,
+                        [sizeStashKey]: current,
+                      }));
+                    }
+                    onStyleChange(
+                      "backgroundSize",
+                      withLayerSizeMarker(
+                        backgroundSizeLayers,
+                        backgroundLayers.length,
+                        index,
+                        true,
+                      ),
+                    );
+                    return;
+                  }
+
+                  const restored = hiddenFillSizeStash[sizeStashKey];
+                  setHiddenFillSizeStash((prev) => {
+                    const next = { ...prev };
+                    delete next[sizeStashKey];
+                    return next;
+                  });
                   onStyleChange(
                     "backgroundSize",
                     withLayerSizeMarker(
                       backgroundSizeLayers,
                       backgroundLayers.length,
                       index,
-                      nextHidden,
+                      false,
+                      restored,
                     ),
                   );
                 };
@@ -536,6 +551,35 @@ export function FillProperties({
                               ),
                             );
                           }}
+                          // Editing an existing image layer's URL/fit
+                          // through its own row popover previously had no
+                          // `onImageFillChange` wired at all, so it fell
+                          // through to `emitPaintValue(imageFillToCss(...))`
+                          // — a single-property `background` SHORTHAND
+                          // string (e.g. `url(...) center / cover no-repeat`)
+                          // written into `backgroundImage` alone, which is
+                          // invalid CSS for that longhand and left
+                          // backgroundSize/backgroundRepeat/backgroundPosition
+                          // untouched. Merge into this layer's own index
+                          // across all four parallel arrays instead (same
+                          // helper the base-row fix uses — see
+                          // `imageFillChangePatch` in panel-primitives.tsx).
+                          onImageFillChange={(value) =>
+                            commitStylePatch(
+                              setImageFillLayerPatch(
+                                {
+                                  backgroundImage: backgroundLayers,
+                                  backgroundSize: backgroundSizeLayers,
+                                  backgroundRepeat: backgroundRepeatLayers,
+                                  backgroundPosition: backgroundPositionLayers,
+                                },
+                                index,
+                                imageFillToBackgroundStyles(value),
+                              ),
+                              onStyleChange,
+                              onStylesChange,
+                            )
+                          }
                           paintType={gradient?.type ?? "image"}
                           backgroundImage={layer}
                           backgroundSize={backgroundSizeLayers[index]}

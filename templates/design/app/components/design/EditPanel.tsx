@@ -170,7 +170,6 @@ import {
   componentNameForElementInfo,
   cssElementSize,
   displayLabel,
-  elementHasLayoutChildren,
   elementIsComponentSelection,
   horizontalToJustify,
   inferElementSizing,
@@ -321,7 +320,6 @@ import {
   type ExportSettingsValue,
   type FrameSizePreset,
   type FrameSizePresetCategoryKey,
-  imageFillToBackgroundStyles,
   InteractionStatePanel,
   type ActiveInteractionState,
   type DesignFillRow,
@@ -1153,12 +1151,17 @@ function PageProperties({
           backgroundRepeat={styles.backgroundRepeat}
           backgroundPosition={styles.backgroundPosition}
           onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
-          onImageFillChange={(value) =>
-            commitStylePatch(
-              imageFillToBackgroundStyles(value),
-              onStyleChange,
-              onStylesChange,
-            )
+          // Layer-index-aware: ColorInput merges the edited image into the
+          // correct backgroundImage/backgroundSize/backgroundRepeat/
+          // backgroundPosition index and hands back the full four-property
+          // patch here, already preserving every other stacked
+          // gradient/image layer (same pattern as FillProperties' base fill
+          // row — see fill-properties.tsx). The single-layer
+          // `onImageFillChange` this previously used always overwrote the
+          // *whole* background stack via `imageFillToBackgroundStyles`,
+          // silently wiping any other stacked background layer.
+          onImageFillLayerChange={(patch) =>
+            commitStylePatch(patch, onStyleChange, onStylesChange)
           }
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}

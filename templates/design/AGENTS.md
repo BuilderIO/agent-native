@@ -202,12 +202,27 @@ patterns live in `.agents/skills/`.
   layers: text, classes, styles, attributes, source order, and small structural
   changes. Use it for selected-element edits before falling back to full
   `update-design` / `generate-design` rewrites.
+- For localhost React/TSX screens, treat compiler/debug metadata (project-relative
+  source file, line, column, component, and runtime multiplicity) as evidence
+  for locating source, not as permission to run a generic AST transform.
+  Compiler tooling may verify an anchor, classify a literal edit, and validate
+  syntax. Reparenting, grouping/ungrouping, wrappers, dynamic expressions,
+  repeated `.map()` instances, shared components, and cross-file changes must
+  be handed to the coding agent with both runtime relationships and exact
+  source anchors so it can inspect the surrounding program semantics.
+- A localhost React handoff must read each source file first, write with the
+  exact returned `versionHash` as `expectedVersionHash` with
+  `requireExpectedVersionHash: true`, re-read and re-plan on conflict, and leave the
+  optimistic canvas preview in place until the dev server/HMR confirms the
+  runtime result. Never report a semantic canvas change as persisted merely
+  because it was submitted to the coding agent.
 - Prefer `data-agent-native-layer-name="Readable name"` on meaningful elements.
   The projection uses it before semantic/text fallbacks, and layer renames should
   persist by updating that attribute.
-- Current limitation: visual code-layer edits are HTML-only. Localhost source
-  mode can list and resolve local routes now, but file reads/writes remain a
-  bridge contract until explicit permission controls are hardened.
+- Inline/Alpine screens continue to use deterministic HTML code-layer edits.
+  Localhost React/TSX screens use the semantic coding-agent handoff above;
+  deterministic direct React writes remain intentionally limited to narrowly
+  proven literal edits and never include generic structural transforms.
 
 ## Code Workspace
 

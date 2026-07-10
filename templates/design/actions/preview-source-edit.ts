@@ -9,6 +9,7 @@ import {
 import {
   applySourceEdit,
   previewSourceDiff,
+  sourceContentHash,
 } from "../shared/source-workspace.js";
 
 const sourceEditSchema = z.discriminatedUnion("kind", [
@@ -77,7 +78,15 @@ export default defineAction({
       conflict:
         workspace.sourceType === "inline" ? null : "unsupported-source-backend",
       currentVersionHash: live.versionHash,
-      nextVersionHash: next.changed ? undefined : live.versionHash,
+      // The hash the file WOULD have after this edit is applied — needed
+      // exactly when something changed, so a caller can pass it as
+      // apply-source-edit's expectedVersionHash and close the
+      // preview→apply race (detect if the file changed again in between).
+      // When nothing changed, the content is still `live.content`, so there
+      // is no new hash to report.
+      nextVersionHash: next.changed
+        ? sourceContentHash(next.content)
+        : undefined,
       editsApplied: next.editsApplied,
       diff: previewSourceDiff(live.content, next.content),
     };

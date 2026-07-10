@@ -76,9 +76,11 @@ export function getScreenFrameOriginCanvas(args: {
  * `getInitialFrameGeometry(index, ...)` fallback `getSelectedScreenGeometryForInspector`
  * and `getScreenFrameOriginCanvas` above already use — as `FrameEntry[]` for
  * `@shared/canvas-math` bounds/fit helpers (`getFrameGroupBounds`,
- * `getCameraForBounds`). Optionally includes the board frame (real Figma has
- * no board-file equivalent, but a design with only board primitives and no
- * screens should still have something to fit to).
+ * `getCameraForBounds`). Optionally includes the bounds of actual board
+ * content. This must never receive the logical board hit-test surface: that
+ * surface is intentionally enormous and including it would make zoom-to-fit
+ * and adjacent-screen placement behave as though the design were 131,072px
+ * wide even when the board is empty.
  */
 export function getAllScreenFrameEntries(args: {
   overviewScreens: Array<{
@@ -87,7 +89,7 @@ export function getAllScreenFrameEntries(args: {
     height?: number;
   }>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
-  boardFrameGeometry?: FrameGeometry;
+  boardContentBounds?: FrameGeometry | null;
   boardFileId?: string | null;
 }): FrameEntry[] {
   const entries: FrameEntry[] = args.overviewScreens.map((screen, index) => {
@@ -103,10 +105,10 @@ export function getAllScreenFrameEntries(args: {
   });
   if (
     args.boardFileId &&
-    args.boardFrameGeometry &&
+    args.boardContentBounds &&
     !entries.some((entry) => entry.id === args.boardFileId)
   ) {
-    entries.push({ id: args.boardFileId, geometry: args.boardFrameGeometry });
+    entries.push({ id: args.boardFileId, geometry: args.boardContentBounds });
   }
   return entries;
 }
@@ -435,4 +437,40 @@ export function shouldPopToOverviewOnZoomChange(args: {
 }): boolean {
   if (args.suppressExplicitZoom) return false;
   return shouldPopToOverviewOnZoomOut(args);
+}
+
+/**
+ * PASTE-HERE-IN-CONTENT: converts a viewport client point into a
+ * screen/iframe-local canvas point, given that iframe's own
+ * boundingClientRect and the zoom percent (0-100) currently scaling it.
+ *
+ * Shared by DesignEditor's getContextCanvasPoint (the background/board
+ * right-click path, reached through CanvasContextMenu's own
+ * onContextMenuCapture) and handleIframeContextMenu (a right-click that
+ * lands ON rendered screen content — an element, or empty in-screen space —
+ * which opens the menu imperatively via a ref and so bypasses
+ * onContextMenuCapture, and with it getCanvasPoint, entirely). Before this
+ * was wired into handleIframeContextMenu too, "Paste here" triggered from a
+ * right-click on actual screen content never got a canvasX/canvasY at all
+ * and silently fell back to the position-less cascade/offset paste instead
+ * of landing under the cursor — only a right-click on the empty canvas
+ * background (which still goes through onContextMenuCapture) worked.
+ *
+ * Returns null when there's no iframe rect to measure against or the zoom
+ * factor is non-positive (would divide by zero / invert the sign), matching
+ * "no reliable canvas point" — callers fall back to their own
+ * container-relative or position-less behavior in that case.
+ */
+export function computeIframeLocalCanvasPoint(args: {
+  clientX: number;
+  clientY: number;
+  iframeRect: { left: number; top: number } | null | undefined;
+  zoomPercent: number;
+}): { x: number; y: number } | null {
+  if (!args.iframeRect || !(args.zoomPercent > 0)) return null;
+  const factor = args.zoomPercent / 100;
+  return {
+    x: Math.max(0, (args.clientX - args.iframeRect.left) / factor),
+    y: Math.max(0, (args.clientY - args.iframeRect.top) / factor),
+  };
 }

@@ -179,6 +179,20 @@ describe("document editor layout", () => {
     );
   });
 
+  it("localizes the live-editor flush failure fallback", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain('t("editor.liveDocumentSaveBeforeSyncFailed")');
+    expect(source).not.toContain(
+      'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
+    );
+  });
+
   it("lets slash-created page references use the editor save pipeline", () => {
     const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),

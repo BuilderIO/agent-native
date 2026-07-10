@@ -17,9 +17,36 @@ import {
   nextAutoExpandedIds,
   nextExpandedIdsForSubtree,
   shouldResyncLayerSelectionAnchor,
+  shapeLayerUsesLayoutGlyph,
   type FlatLayerRow,
   type LayersPanelNode,
 } from "./LayersPanel";
+
+describe("LayersPanel promoted rectangle glyphs", () => {
+  it("uses the auto-layout glyph after a rectangle becomes a flex container", () => {
+    expect(
+      shapeLayerUsesLayoutGlyph({
+        type: "rectangle",
+        layout: { isFlexContainer: true, flexDirection: "row" },
+      }),
+    ).toBe(true);
+    expect(
+      shapeLayerUsesLayoutGlyph({
+        type: "shape",
+        layout: { isGridContainer: true },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps an ordinary rectangle on the rectangle glyph", () => {
+    expect(
+      shapeLayerUsesLayoutGlyph({
+        type: "rectangle",
+        layout: { isFlexContainer: false, isGridContainer: false },
+      }),
+    ).toBe(false);
+  });
+});
 
 function row(
   id: string,

@@ -14,7 +14,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { commitElementMinMax, isTextElement } from "./element-classification";
+import {
+  commitElementMinMax,
+  isContainerElement,
+  isTextElement,
+} from "./element-classification";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -123,6 +127,60 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+describe("isContainerElement — primitive inspector layout semantics", () => {
+  it("treats empty rectangle and frame primitives as containers", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "rectangle",
+          sourceId: "draft-rect-1",
+          childElementCount: 0,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "frame",
+          sourceId: "draft-frame-1",
+          childElementCount: 0,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not mistake a flex-backed T-tool primitive for a container", () => {
+    expect(
+      isContainerElement(
+        makeElement({
+          primitiveKind: "text",
+          sourceId: "draft-text-1",
+          isFlexContainer: true,
+          childElementCount: 0,
+          textContent: "Label",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps div-backed non-container drawing primitives as leaves", () => {
+    for (const primitiveKind of [
+      "ellipse",
+      "line",
+      "arrow",
+      "polygon",
+      "star",
+      "path",
+    ]) {
+      expect(
+        isContainerElement(
+          makeElement({ primitiveKind, childElementCount: 0 }),
+        ),
+      ).toBe(false);
+    }
   });
 });
 

@@ -18,6 +18,12 @@ import {
 
 import type { ElementInfo } from "@/components/design/types";
 
+import {
+  buildReactSemanticHandoff,
+  redactReactSourceAnchor,
+  type ReactSourceAnchor,
+  type ReactSourceScope,
+} from "./react-semantic-handoff";
 import { camelStyleProperty } from "./style-utils";
 
 export interface PendingVisualStyleEdit {
@@ -26,6 +32,7 @@ export interface PendingVisualStyleEdit {
   screenName: string;
   selector: string;
   sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
@@ -104,6 +111,7 @@ export interface PendingLiveTextEdit {
   screenName: string;
   selector: string;
   sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
   tagName?: string | null;
   classes: string[];
   value: string;
@@ -120,11 +128,152 @@ export interface PendingLiveStructureEdit {
   screenName: string;
   selector: string;
   sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
   anchorSelector: string;
   anchorSourceId?: string | null;
+  anchorSourceAnchor?: ReactSourceAnchor;
   placement: "before" | "after" | "inside";
   requestId?: string;
   updatedAt: number;
+}
+
+/**
+ * Convert bridge provenance into a bounded semantic source anchor. Runtime
+ * ids remain useful for correlating the live preview, but they are never
+ * treated as source identities by the coding-agent handoff.
+ */
+interface NormalizedResolvablePath {
+  value: string;
+  absolute: boolean;
+  caseInsensitive: boolean;
+}
+
+function normalizeResolvablePath(
+  rawValue: string | undefined,
+): NormalizedResolvablePath | undefined {
+  const raw = rawValue?.trim().replace(/\\/g, "/");
+  if (!raw || raw.includes("\0")) return undefined;
+
+  let prefix = "";
+  let remainder = raw;
+  let absolute = false;
+  let caseInsensitive = false;
+  const drive = raw.match(/^([a-z]):(\/.*)?$/i);
+  if (drive) {
+    // `C:foo` is drive-relative and must not be treated as a project path.
+    if (!drive[2]?.startsWith("/")) return undefined;
+    prefix = `${drive[1]!.toUpperCase()}:/`;
+    remainder = drive[2].slice(1);
+    absolute = true;
+    caseInsensitive = true;
+  } else if (raw.startsWith("//")) {
+    const [server, share, ...rest] = raw.slice(2).split("/");
+    if (!server || !share) return undefined;
+    prefix = `//${server}/${share}`;
+    remainder = rest.join("/");
+    absolute = true;
+    caseInsensitive = true;
+  } else if (raw.startsWith("/")) {
+    prefix = "/";
+    remainder = raw.slice(1);
+    absolute = true;
+  } else if (/^[a-z]+:/i.test(raw)) {
+    // URL-like values and unsupported drive-relative paths are not files.
+    return undefined;
+  }
+
+  const segments: string[] = [];
+  for (const segment of remainder.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 0) {
+        segments.pop();
+      } else if (!absolute) {
+        // A relative path may not escape its unknown project root.
+        return undefined;
+      }
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  const suffix = segments.join("/");
+  const value = absolute
+    ? prefix.endsWith("/")
+      ? `${prefix}${suffix}`
+      : suffix
+        ? `${prefix}/${suffix}`
+        : prefix
+    : suffix;
+  if (!value) return undefined;
+  return { value, absolute, caseInsensitive };
+}
+
+function sourcePathRelativeToRoot(args: {
+  sourceFile: string;
+  rootPath?: string;
+}): string | undefined {
+  const source = normalizeResolvablePath(args.sourceFile);
+  if (!source) return undefined;
+  if (!source.absolute) return source.value;
+
+  const root = normalizeResolvablePath(args.rootPath);
+  if (!root?.absolute || root.caseInsensitive !== source.caseInsensitive) {
+    return undefined;
+  }
+  const comparableSource = source.caseInsensitive
+    ? source.value.toLowerCase()
+    : source.value;
+  const comparableRoot = root.caseInsensitive
+    ? root.value.toLowerCase()
+    : root.value;
+  const rootPrefix = comparableRoot.endsWith("/")
+    ? comparableRoot
+    : `${comparableRoot}/`;
+  if (!comparableSource.startsWith(rootPrefix)) return undefined;
+  const relative = source.value.slice(rootPrefix.length);
+  return normalizeResolvablePath(relative)?.value;
+}
+
+export function reactSourceAnchorForPendingEdit(args: {
+  info?: Pick<ElementInfo, "provenance" | "sourceId" | "selector"> | null;
+  id?: string;
+  runtimeMultiplicity?: number;
+  scope?: ReactSourceScope;
+  reason?: string;
+  rootPath?: string;
+}): ReactSourceAnchor | undefined {
+  const provenance = args.info?.provenance;
+  const sourceFile = provenance?.sourceFile?.trim();
+  if (!sourceFile || !provenance?.line || !provenance.column) return undefined;
+  const runtimeMultiplicity =
+    Number.isInteger(args.runtimeMultiplicity) &&
+    (args.runtimeMultiplicity ?? 0) > 0
+      ? args.runtimeMultiplicity!
+      : 1;
+  const relPath = sourcePathRelativeToRoot({
+    sourceFile,
+    rootPath: args.rootPath,
+  });
+  return {
+    id:
+      args.id?.trim() ||
+      args.info?.sourceId?.trim() ||
+      args.info?.selector?.trim() ||
+      undefined,
+    // Keep the raw Fiber value only in local state. Prompt serialization goes
+    // through redactReactSourceAnchor, which omits absolute paths until the
+    // connection root has resolved them to a safe project-relative relPath.
+    sourceFile,
+    ...(relPath ? { relPath } : {}),
+    line: provenance.line,
+    column: provenance.column,
+    component: provenance.component,
+    runtimeMultiplicity,
+    ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
+    scope:
+      args.scope ?? (runtimeMultiplicity > 1 ? "repeated-render" : "unknown"),
+  };
 }
 
 export type PendingLiveNonStyleEdit =
@@ -289,6 +438,7 @@ export function formatPendingVisualStylePrompt(args: {
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
+    sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
@@ -296,6 +446,21 @@ export function formatPendingVisualStylePrompt(args: {
   }));
   const hasBreakpointScopedEdits = args.edits.some(
     (edit) => edit.breakpoint && edit.breakpoint.upperBoundPx !== null,
+  );
+  const reactSourceAnchors = [
+    ...args.edits.map((edit) => edit.sourceAnchor),
+    ...(args.liveEdits ?? []).flatMap((edit) =>
+      edit.kind === "structure"
+        ? [edit.sourceAnchor, edit.anchorSourceAnchor]
+        : [edit.sourceAnchor],
+    ),
+  ].filter((anchor): anchor is ReactSourceAnchor => Boolean(anchor));
+  const hasReactSourceAnchors = reactSourceAnchors.length > 0;
+  const hasRepeatedOrSharedReactScope = reactSourceAnchors.some(
+    (anchor) =>
+      (anchor.runtimeMultiplicity ?? 1) > 1 ||
+      anchor.scope === "repeated-render" ||
+      anchor.scope === "shared-component-definition",
   );
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
@@ -306,12 +471,44 @@ export function formatPendingVisualStylePrompt(args: {
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
+        sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
       };
     }
+    const subjectAnchor = edit.sourceAnchor
+      ? { ...edit.sourceAnchor, id: "subject" }
+      : undefined;
+    const targetAnchor = edit.anchorSourceAnchor
+      ? { ...edit.anchorSourceAnchor, id: "target" }
+      : undefined;
+    const semanticHandoff =
+      subjectAnchor && targetAnchor
+        ? buildReactSemanticHandoff({
+            operation: edit.placement === "inside" ? "reparent" : "move",
+            desiredChange: `Move the selected runtime element ${edit.placement} the target runtime element.`,
+            sourceAnchors: [subjectAnchor, targetAnchor],
+            runtimeRelationship: {
+              kind: edit.placement,
+              subjectAnchorIds: ["subject"],
+              targetAnchorId: "target",
+              screenId: edit.screenId,
+              description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+            },
+            // The packet intentionally starts without a hash: its execution
+            // contract requires read-local-file before every write.
+            versionHashes: [],
+          })
+        : {
+            ok: false as const,
+            rejection: {
+              code: "missing-source-provenance" as const,
+              reason:
+                "Exact subject and target source anchors were not both available for this React structure edit.",
+            },
+          };
     return {
       kind: edit.kind,
       screenId: edit.screenId,
@@ -319,9 +516,14 @@ export function formatPendingVisualStylePrompt(args: {
       screenName: edit.screenName,
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
+      sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
       anchorSelector: edit.anchorSelector,
       anchorSourceId: edit.anchorSourceId ?? null,
+      anchorSourceAnchor: redactReactSourceAnchor(edit.anchorSourceAnchor),
       placement: edit.placement,
+      ...(semanticHandoff.ok
+        ? { semanticHandoff: semanticHandoff.handoff }
+        : { semanticHandoffFailure: semanticHandoff.rejection }),
     };
   });
 
@@ -333,6 +535,12 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     "",
     "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasReactSourceAnchors
+      ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. Verify every project-relative file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, or other structural transform. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
+      : "",
+    hasRepeatedOrSharedReactScope
+      ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."
+      : "",
     hasBreakpointScopedEdits
       ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports."
       : "",
@@ -359,6 +567,43 @@ export function resolveOverviewScreenSourceType(
     (screen.bridgeUrl ? "localhost" : undefined) ??
     fallbackSourceType
   );
+}
+
+export function shouldUseRuntimeLayerProjection(args: {
+  screen:
+    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | null
+    | undefined;
+  fallbackSourceType?: DesignSourceType;
+  content: string;
+}): boolean {
+  if (
+    resolveOverviewScreenSourceType(
+      args.screen,
+      args.fallbackSourceType ?? "inline",
+    ) !== "localhost"
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(args.content.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function shouldPreferRuntimeLayerProjection(args: {
+  eligible: boolean;
+  runtimeNodeCount: number;
+  sourceNodeCount: number;
+}): boolean {
+  // A hydrated localhost tree is the visible app's ground truth even when SSR
+  // happened to emit the same number of nodes (or more wrappers). Keep the
+  // source projection separately for writes; never use counts to decide which
+  // tree represents the live Layers panel.
+  void args.sourceNodeCount;
+  return args.eligible && args.runtimeNodeCount > 0;
 }
 
 export function shouldShowPendingVisualStyleApply(args: {

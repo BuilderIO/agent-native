@@ -13,6 +13,9 @@
  *   __EDITOR_CHROME_SCALE_Y__  — number string, e.g. "1.5"
  *   __DESIGN_CANVAS_SCREEN_ID__ — string literal for the owning screen/file id
  *   __DESIGN_CANVAS_BOARD_SURFACE__ — boolean literal for top-level board iframe
+ *   __DESIGN_CANVAS_CONTENT_OFFSET_X__ — embedded board render-window x offset
+ *   __DESIGN_CANVAS_CONTENT_OFFSET_Y__ — embedded board render-window y offset
+ *   __RUNTIME_LAYER_SNAPSHOT_ENABLED__ — true only for URL-backed localhost apps
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -28,6 +31,9 @@ declare var __EDITOR_CHROME_SCALE_X__: string;
 declare var __EDITOR_CHROME_SCALE_Y__: string;
 declare var __DESIGN_CANVAS_SCREEN_ID__: string;
 declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
+declare var __DESIGN_CANVAS_CONTENT_OFFSET_X__: number;
+declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
+declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -51,6 +57,11 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   var textEditingEnabled = !readOnly && textEditingEnabledFlag;
   var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
   var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
+  var designCanvasContentOffsetX =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
+  var designCanvasContentOffsetY =
+    Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+  var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   var scaleToolEnabled = false;
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment). Tracks which single node id
@@ -209,6 +220,359 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el.id ||
       ""
     );
+  }
+
+  /**
+   * React 19 development builds keep the exact jsxDEV call site on the host
+   * element's Fiber `_debugStack`, even though React does not emit that source
+   * location as a DOM attribute. Recover it without depending on React internals
+   * for mutations: this is read-only provenance used to identify the selected
+   * source file and line. Explicit data-source-* / data-loc attributes still
+   * win below, and production builds simply return undefined.
+   */
+  // Fiber debug stacks are immutable for the lifetime of a mounted host node.
+  // Keep the relatively expensive Object.keys + owner walk off the snapshot
+  // hot path after the first successful read. A WeakMap also means React can
+  // collect unmounted nodes normally. Do not cache misses: the bridge can run
+  // before a slow/Suspense hydration attaches Fiber to an existing DOM node.
+  var reactDebugProvenanceCache =
+    typeof WeakMap !== "undefined"
+      ? new WeakMap<Element, ReturnType<typeof reactDebugProvenance>>()
+      : null;
+
+  function reactDebugProvenance(el: Element):
+    | {
+        sourceFile: string;
+        line: number;
+        column?: number;
+        component?: string;
+      }
+    | undefined {
+    var cached = reactDebugProvenanceCache?.get(el);
+    if (cached !== undefined) return cached;
+    var fiberKey = Object.keys(el).find(function (key) {
+      return key.indexOf("__reactFiber$") === 0;
+    });
+    if (!fiberKey) return undefined;
+    var fiber = (el as unknown as Record<string, any>)[fiberKey];
+    for (var depth = 0; fiber && depth < 12; depth += 1) {
+      var stack = String(fiber._debugStack?.stack || "");
+      var lines = stack.split("\n");
+      for (var index = 0; index < lines.length; index += 1) {
+        var lineText = lines[index];
+        var match = lineText.match(
+          /(?:\(|\s)(https?:\/\/[^\s)]+?):(\d+):(\d+)\)?\s*$/,
+        );
+        if (!match) continue;
+        try {
+          var sourceUrl = new URL(match[1]);
+          var pathname = decodeURIComponent(sourceUrl.pathname);
+          if (pathname.indexOf("/node_modules/") >= 0) continue;
+          var sourceFile =
+            pathname.indexOf("/@fs/") === 0
+              ? pathname.slice("/@fs".length)
+              : pathname.replace(/^\/+/, "");
+          if (!sourceFile) continue;
+          var componentMatch = lineText.match(/\bat\s+([^\s(]+)\s*\(/);
+          var provenance = {
+            sourceFile: sourceFile,
+            line: parseInt(match[2], 10),
+            column: parseInt(match[3], 10),
+            component: componentMatch ? componentMatch[1] : undefined,
+          };
+          reactDebugProvenanceCache?.set(el, provenance);
+          return provenance;
+        } catch (_error) {
+          // Ignore malformed/non-URL debug frames and keep walking owners.
+        }
+      }
+      fiber = fiber.return;
+    }
+    return undefined;
+  }
+
+  var runtimeLayerSnapshotTimer: number | null = null;
+  var runtimeLayerSnapshotMaxTimer: number | null = null;
+  var lastRuntimeLayerSnapshotHtml = "";
+
+  function runtimeLayerHash(value: string): string {
+    var hash = 0x811c9dc5;
+    for (var index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  function runtimeLayerStructuralPath(el: Element): string {
+    var parts: string[] = [];
+    var node: Element | null = el;
+    while (node && node !== document.body) {
+      var tag = node.tagName.toLowerCase();
+      var parent = node.parentElement;
+      if (parent) {
+        var sameTag = Array.prototype.filter.call(
+          parent.children,
+          function (sibling) {
+            return sibling.tagName === node!.tagName;
+          },
+        );
+        tag += ":nth-of-type(" + (sameTag.indexOf(node) + 1) + ")";
+      }
+      parts.unshift(tag);
+      node = parent;
+    }
+    return parts.join(" > ") || "body";
+  }
+
+  function ensureRuntimeLayerNodeId(el: Element): string {
+    var existing = el.getAttribute("data-agent-native-node-id")?.trim();
+    if (existing) return existing;
+    var provenance = reactDebugProvenance(el);
+    var provenanceKey = provenance
+      ? [
+          provenance.sourceFile,
+          provenance.line,
+          provenance.column || 0,
+          provenance.component || "",
+        ].join(":")
+      : "dom";
+    var nodeId =
+      "runtime-" +
+      runtimeLayerHash(
+        designCanvasScreenId +
+          ":" +
+          provenanceKey +
+          ":" +
+          runtimeLayerStructuralPath(el),
+      );
+    // This attribute is editor-only and never persisted. Stamping the live DOM
+    // gives the runtime projection and the selectable element one exact shared
+    // identity. Qualifying the hash with the owning screen/file id prevents a
+    // shared React shell from producing the same layer id in two route iframes
+    // (which would make the editor's document-wide owner map route selection
+    // and hover to whichever screen registered last). The structural path
+    // keeps the id stable across reloads within that iframe while still
+    // disambiguating repeated JSX emitted from the same source location.
+    el.setAttribute("data-agent-native-node-id", nodeId);
+    return nodeId;
+  }
+
+  function isRuntimeLayerVisualNode(el: Element): boolean {
+    if (
+      /^(script|style|template|noscript|link|meta|title)$/i.test(el.tagName)
+    ) {
+      return false;
+    }
+    return !(
+      isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]")
+    );
+  }
+
+  function serializeRuntimeLayerSnapshot(): {
+    html: string;
+    nodeCount: number;
+  } | null {
+    if (!document.body) return null;
+    var sourceNodes = Array.prototype.slice.call(
+      document.body.querySelectorAll("*"),
+    ) as Element[];
+    var cloneBody = document.body.cloneNode(true) as HTMLElement;
+    var cloneNodes = Array.prototype.slice.call(
+      cloneBody.querySelectorAll("*"),
+    ) as Element[];
+    var nodeCount = 0;
+    for (
+      var index = 0;
+      index < sourceNodes.length && index < cloneNodes.length;
+      index += 1
+    ) {
+      var sourceNode = sourceNodes[index];
+      var cloneNode = cloneNodes[index];
+      if (!isRuntimeLayerVisualNode(sourceNode)) {
+        cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
+        continue;
+      }
+      cloneNode.setAttribute(
+        "data-agent-native-node-id",
+        ensureRuntimeLayerNodeId(sourceNode),
+      );
+      var provenance = reactDebugProvenance(sourceNode);
+      if (provenance) {
+        cloneNode.setAttribute("data-source-file", provenance.sourceFile);
+        cloneNode.setAttribute("data-source-line", String(provenance.line));
+        if (provenance.column) {
+          cloneNode.setAttribute(
+            "data-source-column",
+            String(provenance.column),
+          );
+        }
+        if (provenance.component) {
+          cloneNode.setAttribute("data-component-name", provenance.component);
+        }
+      }
+      nodeCount += 1;
+    }
+    cloneBody
+      .querySelectorAll("[data-an-runtime-layer-remove]")
+      .forEach(function (node) {
+        node.remove();
+      });
+    cloneBody
+      .querySelectorAll("script,style,template,noscript,link,meta,title")
+      .forEach(function (node) {
+        node.remove();
+      });
+    cloneBody.setAttribute(
+      "data-agent-native-node-id",
+      ensureRuntimeLayerNodeId(document.body),
+    );
+    cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
+    var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
+    if (html.length > 2_000_000) return null;
+    return { html: html, nodeCount: nodeCount };
+  }
+
+  function postRuntimeLayerSnapshot(): void {
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+    }
+    if (runtimeLayerSnapshotMaxTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+    }
+    runtimeLayerSnapshotTimer = null;
+    runtimeLayerSnapshotMaxTimer = null;
+    var snapshot = serializeRuntimeLayerSnapshot();
+    if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+    lastRuntimeLayerSnapshotHtml = snapshot.html;
+    (window.parent as Window).postMessage(
+      {
+        type: "agent-native:runtime-layer-snapshot",
+        payload: snapshot,
+      },
+      "*",
+    );
+  }
+
+  function scheduleRuntimeLayerSnapshot(): void {
+    // A leading-edge throttle still serializes a fast clock, streaming list,
+    // or hydration loop five times per second forever. Debounce on the trailing
+    // edge so a normal React commit becomes one snapshot, with a bounded max
+    // wait so a genuinely continuous stream still refreshes Layers eventually
+    // without monopolising the iframe main thread.
+    if (runtimeLayerSnapshotTimer !== null) {
+      window.clearTimeout(runtimeLayerSnapshotTimer);
+    }
+    runtimeLayerSnapshotTimer = window.setTimeout(
+      postRuntimeLayerSnapshot,
+      300,
+    );
+    if (runtimeLayerSnapshotMaxTimer === null) {
+      runtimeLayerSnapshotMaxTimer = window.setTimeout(
+        postRuntimeLayerSnapshot,
+        1500,
+      );
+    }
+  }
+
+  // Runtime Layers describes hierarchy, names, and layout containers. It does
+  // not need a new full-document snapshot for animation-frame churn such as
+  // transform/opacity/style streaming or state-only utility classes. Compare
+  // only the class/style subset that can change the projected Layers tree.
+  function runtimeLayerClassSignature(value: string | null): string {
+    return String(value || "")
+      .split(/\s+/)
+      .map(function (token) {
+        var parts = token.split(":");
+        var utility = String(parts[parts.length - 1] || "").replace(/^!/, "");
+        if (
+          /^(?:flex|inline-flex|grid|inline-grid|hidden|block|inline-block|flex-row|flex-col)$/.test(
+            utility,
+          ) ||
+          /^(?:items|justify)-/.test(utility)
+        ) {
+          return utility;
+        }
+        // The projection only asks whether a component-like class exists; a
+        // transition from `button-idle` to `button-active` does not change the
+        // layer type and should not trigger another full snapshot.
+        return /(?:component|card|button|control)/.test(utility)
+          ? "component-like"
+          : "";
+      })
+      .filter(Boolean)
+      .sort()
+      .join(" ");
+  }
+
+  function runtimeLayerStyleSignature(value: string | null): string {
+    var relevant: Record<string, string> = {};
+    String(value || "")
+      .split(";")
+      .forEach(function (declaration) {
+        var separator = declaration.indexOf(":");
+        if (separator < 0) return;
+        var property = declaration.slice(0, separator).trim().toLowerCase();
+        if (
+          !/^(?:display|flex-direction|align-items|justify-content)$/.test(
+            property,
+          )
+        ) {
+          return;
+        }
+        relevant[property] = declaration.slice(separator + 1).trim();
+      });
+    return Object.keys(relevant)
+      .sort()
+      .map(function (property) {
+        return property + ":" + relevant[property];
+      })
+      .join(";");
+  }
+
+  function runtimeLayerMutationIsMeaningful(mutation: MutationRecord): boolean {
+    var target = mutation.target as Element;
+    if (
+      target.nodeType === 1 &&
+      (isOverlayElement(target) ||
+        target.closest?.("[data-agent-native-edit-overlay]"))
+    ) {
+      return false;
+    }
+    if (mutation.type === "childList") {
+      var changedNodes = Array.prototype.slice
+        .call(mutation.addedNodes)
+        .concat(Array.prototype.slice.call(mutation.removedNodes));
+      return changedNodes.some(function (node: Node) {
+        var element =
+          node.nodeType === 1
+            ? (node as Element)
+            : node.parentElement || mutation.target;
+        return !(
+          element.nodeType === 1 &&
+          (isOverlayElement(element as Element) ||
+            (element as Element).closest?.("[data-agent-native-edit-overlay]"))
+        );
+      });
+    }
+    if (mutation.type === "characterData") {
+      return true;
+    }
+    if (mutation.type !== "attributes") return false;
+    var name = mutation.attributeName || "";
+    if (name === "class") {
+      return (
+        runtimeLayerClassSignature(mutation.oldValue) !==
+        runtimeLayerClassSignature(target.getAttribute("class"))
+      );
+    }
+    if (name === "style") {
+      return (
+        runtimeLayerStyleSignature(mutation.oldValue) !==
+        runtimeLayerStyleSignature(target.getAttribute("style"))
+      );
+    }
+    return true;
   }
 
   function isDocumentRootElement(el: Element | null): boolean {
@@ -806,10 +1170,8 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           "Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.",
       });
     }
-    // --- provenance: read source-location attributes when present ---
-    // These are emitted by connected apps via @vitejs/plugin-react jsxDEV or a
-    // Babel source plugin.  Cross-origin localhost iframes cannot be read (CSP /
-    // same-origin policy), so this will be undefined in that case — expected.
+    // --- provenance: read explicit source-location attributes when present,
+    // then fall back to React's development-only jsxDEV Fiber stack. ---
     var provenance:
       | {
           sourceFile?: string;
@@ -842,6 +1204,18 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           : beforeLastPart;
         dataSourceLine = hasColumn ? previousPart : lastPart;
         if (hasColumn) dataSourceColumn = lastPart;
+      }
+    }
+    if (!dataSourceFile) {
+      var reactProvenance = reactDebugProvenance(el);
+      if (reactProvenance) {
+        dataSourceFile = reactProvenance.sourceFile;
+        dataSourceLine = String(reactProvenance.line);
+        dataSourceColumn = reactProvenance.column
+          ? String(reactProvenance.column)
+          : null;
+        dataComponentName =
+          dataComponentName || reactProvenance.component || null;
       }
     }
     if (
@@ -1475,6 +1849,15 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  // Last element an "element-hover" message was actually posted for. Lets
+  // the shield's pointermove handler skip getLightElementInfo's two
+  // getComputedStyle calls plus the postMessage on every one of the dozens
+  // of raw pointermove ticks a slow hover over one unchanged element
+  // produces — only the FIRST tick that lands on a given element needs to
+  // tell the host anything new. The parent already de-dupes on its side
+  // (see the "PF9" equality-bail comment in DesignEditor.tsx), so skipping
+  // the redundant sends here is a pure perf win with no behavior change.
+  var lastHoverInfoPostedEl: Element | null = null;
   var passiveSelectionEls: Element[] = [];
   var passiveSelectionOverlays: HTMLElement[] = [];
   var activeMarqueeSelection: {
@@ -3372,6 +3755,86 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     }
   }
 
+  // Transition/animation overlay tracking: the ResizeObserver above only
+  // fires on border-box SIZE changes, so a purely transform- or left/top-
+  // driven CSS transition/animation on the selected or hovered element (very
+  // common for hover states, toggles, carousels in AI-generated prototypes)
+  // never triggers it. Without this, the one-shot MutationObserver callback
+  // that fires when the triggering class/style attribute changes reads
+  // getBoundingClientRect() at essentially the START of the transition, and
+  // the overlay then freezes there while the real element visually slides/
+  // fades to its final position — the selection outline and its handles
+  // visibly detach from the animating element for the transition's whole
+  // duration. Fixed by running a bounded rAF refresh loop for the duration of
+  // any transition/animation that starts on a tracked element, so the
+  // overlay follows every intermediate frame instead of only the first and
+  // (via the next unrelated mutation/resize/scroll) last.
+  var overlayAnimationTrackingActive = false;
+  var overlayAnimationTrackingUntil = 0;
+  var overlayAnimationTrackingStartedAt = 0;
+  // Covers the vast majority of real UI transitions/animations (hover/toggle
+  // durations are almost always well under a second); the max below is a
+  // safety net for a transition whose end event never fires (e.g. cancelled
+  // by a later style write with no transitionend), so a slow/held animation
+  // can't pin this loop on forever.
+  var OVERLAY_ANIMATION_TRACKING_WINDOW_MS = 1000;
+  var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4000;
+
+  function isOverlayAnimationTrackingTarget(
+    target: EventTarget | null,
+  ): boolean {
+    if (!target) return false;
+    return target === selectedEl || target === hoveredEl;
+  }
+
+  function tickOverlayAnimationTracking(): void {
+    if (!overlayAnimationTrackingActive) return;
+    refreshOverlays();
+    var now = Date.now();
+    if (
+      now >= overlayAnimationTrackingUntil ||
+      now - overlayAnimationTrackingStartedAt >=
+        OVERLAY_ANIMATION_TRACKING_MAX_MS
+    ) {
+      overlayAnimationTrackingActive = false;
+      return;
+    }
+    window.requestAnimationFrame(tickOverlayAnimationTracking);
+  }
+
+  // Re-armed (window extended) by every qualifying transitionrun/
+  // animationstart, so a sequence of staggered transitions on the same
+  // element keeps the loop running for their combined duration rather than
+  // stopping partway through.
+  function startOverlayAnimationTracking(): void {
+    var now = Date.now();
+    overlayAnimationTrackingUntil = now + OVERLAY_ANIMATION_TRACKING_WINDOW_MS;
+    if (overlayAnimationTrackingActive) return;
+    overlayAnimationTrackingActive = true;
+    overlayAnimationTrackingStartedAt = now;
+    window.requestAnimationFrame(tickOverlayAnimationTracking);
+  }
+
+  function onOverlayAnimationTrackingEvent(e: Event): void {
+    if (isOverlayAnimationTrackingTarget(e.target as EventTarget | null)) {
+      startOverlayAnimationTracking();
+    }
+  }
+  // Capture-phase, delegated on document (not per-element add/remove-
+  // listener bookkeeping tied to selection changes): transitionrun/
+  // animationstart bubble, so one pair of listeners registered once at
+  // bridge init covers whichever element is currently selected/hovered.
+  document.addEventListener(
+    "transitionrun",
+    onOverlayAnimationTrackingEvent,
+    true,
+  );
+  document.addEventListener(
+    "animationstart",
+    onOverlayAnimationTrackingEvent,
+    true,
+  );
+
   function hideMeasurements(): void {
     measurementOverlay.style.display = "none";
     measurementOverlay.innerHTML = "";
@@ -4221,6 +4684,61 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       } catch (_err) {}
     }
     return null;
+  }
+
+  // Host-driven Layers-panel moves must never inherit findRuntimeTarget's
+  // selected-element shortcut or first-match querySelector behavior. Runtime
+  // React trees routinely repeat classes and component markup, so a selector
+  // is only safe when it identifies exactly one live element. Prefer the
+  // runtime projection's stable source id and fall back to the selector only
+  // when that id has no match at all.
+  function findUniqueRuntimeStructureTarget(selector, sourceId) {
+    var matches = new Set<Element>();
+    if (typeof sourceId === "string" && sourceId) {
+      var attributes = [
+        "data-agent-native-node-id",
+        "data-code-layer-id",
+        "data-layer-id",
+        "data-builder-id",
+        "data-loc",
+        "id",
+      ];
+      for (var i = 0; i < attributes.length; i += 1) {
+        try {
+          var sourceMatches = document.querySelectorAll(
+            "[" + attributes[i] + '=\"' + escapeAttribute(sourceId) + '\"]',
+          );
+          for (var j = 0; j < sourceMatches.length; j += 1) {
+            matches.add(sourceMatches[j]);
+          }
+        } catch (_err) {}
+      }
+      if (matches.size > 1) return null;
+      if (matches.size === 1) {
+        var sourceMatch = Array.from(matches)[0];
+        return sourceMatch &&
+          sourceMatch !== document.body &&
+          sourceMatch !== document.documentElement &&
+          !isOverlayElement(sourceMatch) &&
+          !isLayerInteractionBlocked(sourceMatch)
+          ? sourceMatch
+          : null;
+      }
+    }
+    if (typeof selector !== "string" || !selector) return null;
+    try {
+      var selectorMatches = document.querySelectorAll(selector);
+      if (selectorMatches.length !== 1) return null;
+      var selectorMatch = selectorMatches[0];
+      return selectorMatch !== document.body &&
+        selectorMatch !== document.documentElement &&
+        !isOverlayElement(selectorMatch) &&
+        !isLayerInteractionBlocked(selectorMatch)
+        ? selectorMatch
+        : null;
+    } catch (_err) {
+      return null;
+    }
   }
 
   function removeRuntimeTarget(selector, selectorCandidates) {
@@ -5368,7 +5886,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (primitive !== "rectangle" && primitive !== "rect") return false;
+    if (
+      primitive !== "rectangle" &&
+      primitive !== "rect" &&
+      primitive !== "frame"
+    )
+      return false;
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }
@@ -6405,12 +6928,20 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     // coordinates (border box + border widths − its own scroll offsets).
     var containerRect = container.getBoundingClientRect();
     var containerCS = window.getComputedStyle(container);
+    var boardOffsetX = designCanvasBoardSurface
+      ? designCanvasContentOffsetX
+      : 0;
+    var boardOffsetY = designCanvasBoardSurface
+      ? designCanvasContentOffsetY
+      : 0;
     var newOriginX =
-      containerRect.left +
+      containerRect.left -
+      boardOffsetX +
       readPx(containerCS.borderLeftWidth) -
       container.scrollLeft;
     var newOriginY =
-      containerRect.top +
+      containerRect.top -
+      boardOffsetY +
       readPx(containerCS.borderTopWidth) -
       container.scrollTop;
     // Current containing block origin: the member's offsetParent when it is
@@ -6432,10 +6963,30 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (offsetParentIsRealContainingBlock) {
         var opRect = offsetParent.getBoundingClientRect();
         var opCS = window.getComputedStyle(offsetParent);
+        // The finite board offset is applied to `body > [data-node-id]`, not
+        // to body itself. A top-level member whose containing block is the
+        // positioned body therefore still has a true origin of 0; subtracting
+        // the render offset here poisoned a frame nest by exactly one chunk
+        // (for example -4096px). Nested containing blocks do inherit the
+        // translated top-level visual space, so only those need normalization.
+        var oldContainingBlockOffsetX =
+          designCanvasBoardSurface && offsetParent !== document.body
+            ? boardOffsetX
+            : 0;
+        var oldContainingBlockOffsetY =
+          designCanvasBoardSurface && offsetParent !== document.body
+            ? boardOffsetY
+            : 0;
         oldOriginX =
-          opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+          opRect.left -
+          oldContainingBlockOffsetX +
+          readPx(opCS.borderLeftWidth) -
+          offsetParent.scrollLeft;
         oldOriginY =
-          opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+          opRect.top -
+          oldContainingBlockOffsetY +
+          readPx(opCS.borderTopWidth) -
+          offsetParent.scrollTop;
       }
     }
     var currentLeft = readPx(htmlEl.style.left || cs.left);
@@ -6490,6 +7041,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
+        anchorPayload: getElementInfo(target.anchor),
       },
       "*",
     );
@@ -7120,6 +7672,34 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
+    // rAF-coalesce the "move" phase postMessage: a raw mousemove/pointermove
+    // stream can fire well above 60/s on a high-poll-rate mouse or trackpad,
+    // and every tick of this handler already recomputes a getBoundingClientRect
+    // for postCrossScreenDrag — batching to one postMessage per animation
+    // frame matches the parent's own equivalent coalescing (see
+    // MultiScreenCanvas.tsx's rAF-batched cross-screen hit-test) without
+    // changing what gets sent, only how often. cleanupMoveDrag cancels any
+    // still-pending tick so a stale "move" can never post after "end"/"cancel".
+    var crossScreenDragMoveScheduled = false;
+    var crossScreenDragMovePendingEv: {
+      clientX: number;
+      clientY: number;
+    } | null = null;
+    function flushCrossScreenDragMove() {
+      crossScreenDragMoveScheduled = false;
+      var pendingEv = crossScreenDragMovePendingEv;
+      crossScreenDragMovePendingEv = null;
+      if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+    }
+    function scheduleCrossScreenDragMove(ev): void {
+      crossScreenDragMovePendingEv = {
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+      };
+      if (crossScreenDragMoveScheduled) return;
+      crossScreenDragMoveScheduled = true;
+      window.requestAnimationFrame(flushCrossScreenDragMove);
+    }
     function onMove(ev) {
       if (
         !moved &&
@@ -7174,7 +7754,7 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
         state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
       });
       if (!duplicatedForDrag && !isGroupDrag) {
-        postCrossScreenDrag("move", dragEl, ev);
+        scheduleCrossScreenDragMove(ev);
       }
       if (
         !duplicatedForDrag &&
@@ -7235,6 +7815,10 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       document.removeEventListener(events.up, onUp, true);
       document.removeEventListener("keydown", onMoveKeyDown, true);
       clearActiveDragCancel(cancelMoveDrag);
+      // Drop any rAF-scheduled "move" tick so it can never fire and post
+      // after this gesture's "end"/"cancel" phase has already gone out.
+      crossScreenDragMoveScheduled = false;
+      crossScreenDragMovePendingEv = null;
     }
     function cancelMoveDrag() {
       cleanupMoveDrag();
@@ -8317,6 +8901,45 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       }
       return;
     }
+    // Template-clone text-edit rejection (mirrors the reorder-rejection fix
+    // above): `target` here can be a raw Alpine `<template x-for>`/`x-if`
+    // runtime clone — findTextEditTarget's climb only requires every
+    // descendant tag to be inline-editable, it never checks whether the
+    // ancestor chain crosses a clone boundary, so a repeated list/card item
+    // whose own content is plain text passes straight through. Entering
+    // contenteditable on that clone lets the user type and see the change
+    // live (it's a real DOM node), but the clone has no per-instance
+    // counterpart in the static source HTML (only the single `<template>`
+    // stays there), so getSelector's live-DOM nth-of-type path — unlike
+    // hit-test.bridge.ts's source-equivalent selector builder — cannot
+    // resolve it on commit. Previously the edit silently failed on the host
+    // (error toast, or a no-op) and vanished for good on the next Alpine
+    // re-render, with no indication anything was wrong. Reject up front
+    // instead — same UX contract as the reorder-rejection badge — and fall
+    // back to selecting the nearest source-backed ancestor (typically the
+    // repeated item's container) so the user isn't left with a stale or
+    // empty selection.
+    if (!programmaticFlag && isTemplateCloneElement(target)) {
+      showRejectedDragBadge(
+        "Can't edit repeated items directly",
+        e.clientX,
+        e.clientY,
+      );
+      // No ongoing gesture here (unlike the reorder-rejection badge, which
+      // hides on the drag's own mouseup/Escape) to hide it on, so time it
+      // out on its own instead of leaving it on screen indefinitely.
+      window.setTimeout(hideTransformBadge, 1400);
+      var rejectedTextEditFallback = selectionTargetForHit(target);
+      if (
+        rejectedTextEditFallback &&
+        !isLayerInteractionBlocked(rejectedTextEditFallback)
+      ) {
+        selectedEl = rejectedTextEditFallback;
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl, e);
+      }
+      return;
+    }
     // Anchor the selection identity to the nearest source-backed element. Text
     // editing still operates on the actual target text node, but a later
     // style edit posts from selectedEl, so it must point at a patchable
@@ -8700,6 +9323,12 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        // Re-arm the hover-info post gate below: leaving all content (e.g.
+        // pointer over empty canvas or off the iframe entirely) means the
+        // NEXT element this pointer lands on — even if it's the same one
+        // hovered before — is a genuinely new hover the host hasn't heard
+        // about since.
+        lastHoverInfoPostedEl = null;
         return;
       }
       if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
@@ -8743,11 +9372,14 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       } else {
         hideMeasurements();
       }
-      var info = getLightElementInfo(hoveredEl);
-      (window.parent as Window).postMessage(
-        { type: "element-hover", payload: info },
-        "*",
-      );
+      if (hoveredEl !== lastHoverInfoPostedEl) {
+        lastHoverInfoPostedEl = hoveredEl;
+        var info = getLightElementInfo(hoveredEl);
+        (window.parent as Window).postMessage(
+          { type: "element-hover", payload: info },
+          "*",
+        );
+      }
     },
     true,
   );
@@ -8856,6 +9488,17 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       if (!textEditingEnabled && activeTextEditEl) {
         activeTextEditEl.blur();
       }
+      return;
+    }
+    if (e.data.type === "set-content-offset") {
+      var nextContentOffsetX = Number(e.data.x);
+      var nextContentOffsetY = Number(e.data.y);
+      designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX)
+        ? nextContentOffsetX
+        : 0;
+      designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY)
+        ? nextContentOffsetY
+        : 0;
       return;
     }
     // begin-text-edit: enter text-editing mode for the element identified by
@@ -9238,6 +9881,66 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
       applyHiddenSelectors();
       return;
     }
+    if (e.data.type === "runtime-structure-move") {
+      if (readOnly) return;
+      var runtimePlacement = String(e.data.placement || "");
+      if (
+        runtimePlacement !== "before" &&
+        runtimePlacement !== "after" &&
+        runtimePlacement !== "inside"
+      ) {
+        return;
+      }
+      var runtimeSubject = findUniqueRuntimeStructureTarget(
+        String(e.data.subjectSelector || ""),
+        typeof e.data.subjectSourceId === "string"
+          ? e.data.subjectSourceId
+          : "",
+      );
+      var runtimeAnchor = findUniqueRuntimeStructureTarget(
+        String(e.data.anchorSelector || ""),
+        typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
+      );
+      if (
+        !runtimeSubject ||
+        !runtimeAnchor ||
+        runtimeSubject === runtimeAnchor ||
+        runtimeSubject.contains(runtimeAnchor)
+      ) {
+        return;
+      }
+      if (
+        (runtimePlacement === "inside" &&
+          !isContainerDropTarget(runtimeAnchor)) ||
+        (runtimePlacement !== "inside" && !runtimeAnchor.parentElement)
+      ) {
+        return;
+      }
+      var runtimeTarget = {
+        anchor: runtimeAnchor,
+        placement: runtimePlacement,
+        axis: parentFlowAxis(
+          runtimePlacement === "inside"
+            ? runtimeAnchor
+            : runtimeAnchor.parentElement!,
+        ),
+        dropMode:
+          runtimePlacement === "inside" &&
+          isAbsolutePrimitiveContainer(runtimeAnchor)
+            ? "absolute-container"
+            : "flow-insert",
+      };
+      var runtimeOrigin = {
+        prevParent: runtimeSubject.parentElement!,
+        prevNextSibling: runtimeSubject.nextSibling,
+        prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject),
+      };
+      applyRuntimeReorder(runtimeSubject, runtimeTarget);
+      selectedEl = runtimeSubject;
+      positionOverlay(selectionOverlay, selectedEl);
+      postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+      return;
+    }
     if (e.data.type === "visual-structure-ack") {
       var move = pendingStructureMoves[e.data.requestId];
       if (!move) return;
@@ -9433,6 +10136,42 @@ declare var __DESIGN_CANVAS_BOARD_SURFACE__: boolean;
   window.addEventListener("scroll", scheduleRefreshOverlays, true);
   window.addEventListener("resize", scheduleRefreshOverlays);
   applyEditorChromeScale();
+
+  if (
+    runtimeLayerSnapshotEnabled &&
+    typeof MutationObserver !== "undefined" &&
+    document.body
+  ) {
+    var runtimeLayerObserver = new MutationObserver(function (mutations) {
+      var hasMeaningfulMutation = mutations.some(
+        runtimeLayerMutationIsMeaningful,
+      );
+      if (hasMeaningfulMutation) scheduleRuntimeLayerSnapshot();
+    });
+    runtimeLayerObserver.observe(document.body, {
+      attributes: true,
+      attributeOldValue: true,
+      childList: true,
+      characterData: true,
+      subtree: true,
+      attributeFilter: [
+        "aria-label",
+        "class",
+        "data-agent-native-component",
+        "data-agent-native-layer-name",
+        "data-an-primitive",
+        "data-component-name",
+        "data-source-column",
+        "data-source-file",
+        "data-source-line",
+        "hidden",
+        "id",
+        "style",
+        "title",
+      ],
+    });
+  }
+  if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 
   // One-time ready signal: tells the host that every message listener above is
   // now attached, so one-shot commands (begin-text-edit, set-editor-chrome-scale,

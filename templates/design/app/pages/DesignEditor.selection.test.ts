@@ -59,6 +59,8 @@ import {
   getPendingVisualStylePropertyCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
+  shouldPreferRuntimeLayerProjection,
+  shouldUseRuntimeLayerProjection,
   shouldShowPendingVisualStyleApply,
   formatPendingVisualStylePrompt,
   buildPendingVisualStyleRevertPatches,
@@ -86,6 +88,7 @@ import {
   shouldUseOverviewRuntimeReplacement,
   shouldIncludeScreenRenameContentOverride,
   shouldMirrorSelectedElementToAgentChat,
+  computeOverviewScreenPickSelectionIds,
 } from "./design-editor/selection-state";
 import {
   getDesignToolActivationState,
@@ -663,6 +666,53 @@ describe("DesignEditor pending visual style edits", () => {
         ]),
       }),
     ).toBe(true);
+  });
+
+  it("uses runtime layers only for URL-backed localhost screens", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost", bridgeUrl: "http://127.0.0.1:7336" },
+        content: "http://127.0.0.1:9210/",
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "inline" },
+        content:
+          '<div x-data="{}"><template x-for="item in items"></template></div>',
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost" },
+        content:
+          '<div x-data="{}">Inline Alpine remains source projected</div>',
+      }),
+    ).toBe(false);
+  });
+
+  it("prefers a valid live runtime tree even when its node count is equal or smaller", () => {
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 3,
+        sourceNodeCount: 3,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 2,
+        sourceNodeCount: 5,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: false,
+        runtimeNodeCount: 8,
+        sourceNodeCount: 2,
+      }),
+    ).toBe(false);
   });
 
   it("hides the apply styles affordance for non-localhost visual edits", () => {
@@ -2447,5 +2497,54 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
         additive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("computeOverviewScreenPickSelectionIds", () => {
+  // PICK-RACE: MultiScreenCanvas's onPick prop is `(id: string) => void` —
+  // no modifier info — even though a shift-click there already toggled a
+  // full multi-id array internally before calling onPick with just the
+  // resulting primary id. handleOverviewScreenPick used to always clobber
+  // selectedLayerIdsState down to [pickedId], which is wrong for both
+  // shift-click cases below; the fix defers entirely to the
+  // onScreenSelectionChange-reported overviewSelectedScreenIds while shift
+  // is held instead of guessing a (necessarily wrong) merged array.
+  it("replaces the selection with the singleton pick when shift is not held", () => {
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: false,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-b"]);
+  });
+
+  it("does not clobber a multi-screen selection on a shift-click ADD", () => {
+    // handleFrameClick already added "screen-b" to ITS OWN selectedIds and
+    // reported "screen-b" as the new primary via onPick; DesignEditor's
+    // selectedLayerIdsState still shows only ["screen-a"] until the
+    // onScreenSelectionChange effect lands ["screen-a", "screen-b"] a render
+    // later. The fix must not overwrite it with a wrong singleton meanwhile.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-a"]);
+  });
+
+  it("does not clobber the remaining selection on a shift-click REMOVE", () => {
+    // Selection was [A, B, C]; shift-clicking B toggles it off, and
+    // handleFrameClick reports the new primary (the last remaining id, "C")
+    // through onPick — NOT the full remaining array. A naive
+    // [pickedId] === ["C"] clobber would incorrectly drop "A" too.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-c",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a", "screen-b", "screen-c"],
+      }),
+    ).toEqual(["screen-a", "screen-b", "screen-c"]);
   });
 });

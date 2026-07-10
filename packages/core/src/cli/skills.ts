@@ -631,6 +631,20 @@ replace them with copied \`srcdoc\` HTML unless the user explicitly asks for a
 frozen snapshot. To change a state, rerun \`add-localhost-screens\` with the new
 path/query or duplicate the screen and update the copy's URL metadata.
 
+## React Source Writeback
+
+- Use compiler/debug provenance (project-relative file, line, column,
+  component, and runtime multiplicity) to locate React/TSX source. Treat it as
+  evidence, not as permission for a generic AST structural transform.
+- Reparenting, grouping/ungrouping, wrappers, dynamic expressions, repeated
+  \`.map()\` instances, shared components, and cross-file changes go through the
+  coding agent with exact subject/target anchors and their runtime
+  relationship.
+- Before each write, read the file and pass its exact \`versionHash\` to
+  \`write-local-file\` with \`requireExpectedVersionHash: true\`; on conflict,
+  re-read and re-plan. Keep the optimistic preview until HMR/runtime confirms
+  the result. Human write consent remains mandatory and agents cannot grant it.
+
 ## Verification
 
 - \`list-localhost-connections\` returns the expected connection and routes.

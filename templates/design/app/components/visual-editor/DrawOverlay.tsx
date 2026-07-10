@@ -111,6 +111,18 @@ interface PendingTextInput {
   /** Fractional y (0..1) of the visual rect. */
   yFrac: number;
   value: string;
+  /**
+   * Monotonic generation id. A click that opens a new pending text box while
+   * an earlier one is still focused fires pointerdown (which replaces the
+   * ref synchronously) before the outgoing box's native `blur` event runs.
+   * Without this, that trailing blur reads the *new* (empty) pending input
+   * out of the ref and wipes it via `commitTextAnnotation`'s unconditional
+   * `setPendingTextInput(null)` before the user can type anything. Callers
+   * pass the generation captured at their own render so a stale blur/Enter/
+   * Escape from a since-replaced box is a no-op instead of clobbering the
+   * newer one.
+   */
+  generation: number;
 }
 
 /**
@@ -227,6 +239,7 @@ export function DrawOverlay({
   const [textMode, setTextMode] = useState(false);
   const [textInput, setTextInput] = useState<PendingTextInput | null>(null);
   const textInputStateRef = useRef<PendingTextInput | null>(null);
+  const textInputGenerationRef = useRef(0);
   const textInputRef = useRef<HTMLInputElement>(null);
   // Escape cancels the pending text annotation, but unmounting the input also
   // fires its blur handler, which would commit the very annotation the user
@@ -301,6 +314,7 @@ export function DrawOverlay({
       setInstruction("");
       cancelingTextRef.current = false;
       lastCreatedAtRef.current = 0;
+      textInputGenerationRef.current = 0;
     }
   }, [resetActiveStroke, setPendingTextInput, visible]);
 
@@ -389,6 +403,49 @@ export function DrawOverlay({
     // the new visual size.
   }, [strokes, currentStroke, color, lineWidth, resizeTick, zoom]);
 
+  /**
+   * Commits the pending text annotation (if any) and clears the pending
+   * input. `expectedGeneration`, when passed, guards against a stale
+   * blur/Enter/Escape belonging to a pending text box that has since been
+   * replaced or already cleared — see `PendingTextInput.generation`. Called
+   * with no argument to force-commit whatever is currently pending (e.g.
+   * before opening a new text box, or right before Send).
+   */
+  const commitTextAnnotation = useCallback(
+    (expectedGeneration?: number) => {
+      const pendingText = textInputStateRef.current;
+      if (
+        !pendingText ||
+        (expectedGeneration !== undefined &&
+          pendingText.generation !== expectedGeneration)
+      ) {
+        return;
+      }
+      // Clear the authoritative pending value first. Enter, blur, and Send can
+      // all occur in the same browser turn; any later handler becomes a no-op
+      // instead of duplicating the label.
+      setPendingTextInput(null);
+      if (!pendingText.value.trim()) return;
+
+      const ann: DrawAnnotation = {
+        id: crypto.randomUUID(),
+        type: "text",
+        text: pendingText.value.trim(),
+        // Store fractional position so the label stays anchored across zoom changes.
+        position: { x: pendingText.xFrac, y: pendingText.yFrac },
+        color,
+        lineWidth,
+        createdAt: nextCreatedAt(),
+      };
+      const nextTexts = [...textAnnotationsRef.current, ann];
+      textAnnotationsRef.current = nextTexts;
+      setTextAnnotations(nextTexts);
+      // A new text annotation also clears the redo stack.
+      setRedoStack([]);
+    },
+    [color, lineWidth, nextCreatedAt, setPendingTextInput],
+  );
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -399,10 +456,16 @@ export function DrawOverlay({
       if (textMode) {
         e.preventDefault();
         cancelingTextRef.current = false;
+        // Commit whatever text box was still open (using the current ref,
+        // which still holds the outgoing box at this point) before replacing
+        // it, so clicking a new spot never silently drops the previous label.
+        commitTextAnnotation();
+        textInputGenerationRef.current += 1;
         setPendingTextInput({
           xFrac: (e.clientX - rect.left) / rect.width,
           yFrac: (e.clientY - rect.top) / rect.height,
           value: "",
+          generation: textInputGenerationRef.current,
         });
         return;
       }
@@ -422,7 +485,14 @@ export function DrawOverlay({
         // gesture. The pointer-id guard still prevents cross-pointer mixing.
       }
     },
-    [canvasInteractive, color, lineWidth, setPendingTextInput, textMode],
+    [
+      canvasInteractive,
+      color,
+      commitTextAnnotation,
+      lineWidth,
+      setPendingTextInput,
+      textMode,
+    ],
   );
 
   const handlePointerMove = useCallback(
@@ -607,31 +677,6 @@ export function DrawOverlay({
       },
       duration: 6000,
     });
-  };
-
-  const commitTextAnnotation = () => {
-    const pendingText = textInputStateRef.current;
-    // Clear the authoritative pending value first. Enter, blur, and Send can
-    // all occur in the same browser turn; any later handler becomes a no-op
-    // instead of duplicating the label.
-    setPendingTextInput(null);
-    if (!pendingText || !pendingText.value.trim()) return;
-
-    const ann: DrawAnnotation = {
-      id: crypto.randomUUID(),
-      type: "text",
-      text: pendingText.value.trim(),
-      // Store fractional position so the label stays anchored across zoom changes.
-      position: { x: pendingText.xFrac, y: pendingText.yFrac },
-      color,
-      lineWidth,
-      createdAt: nextCreatedAt(),
-    };
-    const nextTexts = [...textAnnotationsRef.current, ann];
-    textAnnotationsRef.current = nextTexts;
-    setTextAnnotations(nextTexts);
-    // A new text annotation also clears the redo stack.
-    setRedoStack([]);
   };
 
   const send = () => {
@@ -957,7 +1002,11 @@ export function DrawOverlay({
                     cancelingTextRef.current = false;
                     return;
                   }
-                  commitTextAnnotation();
+                  // Pass this render's generation so a trailing blur that
+                  // arrives after pointerdown has already opened a *newer*
+                  // text box (see PendingTextInput.generation) is a no-op
+                  // instead of wiping the box the user just started typing.
+                  commitTextAnnotation(textInput.generation);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -965,7 +1014,7 @@ export function DrawOverlay({
                     // Committing unmounts the focused input, which can emit a
                     // blur event in the same turn. Skip that second commit.
                     cancelingTextRef.current = true;
-                    commitTextAnnotation();
+                    commitTextAnnotation(textInput.generation);
                   }
                   if (e.key === "Escape") {
                     cancelingTextRef.current = true;

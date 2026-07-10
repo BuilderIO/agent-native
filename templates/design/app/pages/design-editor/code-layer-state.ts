@@ -306,11 +306,41 @@ export function bridgeSourceIdForCodeLayerNode(node: CodeLayerNode): string {
   );
 }
 
+function positiveIntegerDataAttribute(
+  value: string | undefined,
+): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function provenanceForCodeLayerNode(
+  node: CodeLayerNode,
+): ElementInfo["provenance"] {
+  const sourceFile = node.dataAttributes["data-source-file"]?.trim();
+  const line = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-line"],
+  );
+  const column = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-column"],
+  );
+  const component = node.dataAttributes["data-component-name"]?.trim();
+  if (!sourceFile && !line && !column && !component) return undefined;
+  return {
+    ...(sourceFile ? { sourceFile } : {}),
+    ...(line ? { line } : {}),
+    ...(column ? { column } : {}),
+    ...(component ? { component } : {}),
+  };
+}
+
 export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
   return {
     tagName: node.tag,
     id: typeof node.attributes.id === "string" ? node.attributes.id : undefined,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
+    provenance: provenanceForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
     computedStyles: Object.fromEntries(
@@ -358,24 +388,27 @@ export function refreshedComputedStyles(
     : sourceWithAliases;
 }
 
+function codeLayerNodeMatchesSourceId(
+  node: CodeLayerNode,
+  sourceId: string,
+): boolean {
+  return (
+    node.id === sourceId ||
+    node.dataAttributes["data-agent-native-node-id"] === sourceId ||
+    node.dataAttributes["data-code-layer-id"] === sourceId ||
+    node.dataAttributes["data-layer-id"] === sourceId ||
+    node.dataAttributes["data-builder-id"] === sourceId ||
+    node.dataAttributes["data-loc"] === sourceId ||
+    node.attributes.id === sourceId
+  );
+}
+
 export function codeLayerNodeMatchesBridgeTarget(
   node: CodeLayerNode,
   selector?: string,
   sourceId?: string,
 ): boolean {
-  if (sourceId) {
-    if (node.id === sourceId) return true;
-    if (
-      node.dataAttributes["data-agent-native-node-id"] === sourceId ||
-      node.dataAttributes["data-code-layer-id"] === sourceId ||
-      node.dataAttributes["data-layer-id"] === sourceId ||
-      node.dataAttributes["data-builder-id"] === sourceId ||
-      node.dataAttributes["data-loc"] === sourceId ||
-      node.attributes.id === sourceId
-    ) {
-      return true;
-    }
-  }
+  if (sourceId && codeLayerNodeMatchesSourceId(node, sourceId)) return true;
   return codeLayerSelectorMatches(node, selector);
 }
 
@@ -384,11 +417,34 @@ export function resolveCodeLayerNodeFromBridge(
   selector?: string,
   sourceId?: string,
 ): CodeLayerNode | null {
-  return (
-    projection.nodes.find((node) =>
-      codeLayerNodeMatchesBridgeTarget(node, selector, sourceId),
-    ) ?? null
+  // Id-based match first, across the WHOLE projection (not just up to
+  // whichever node the old combined-predicate `.find()` reached first) — a
+  // sourceId identifies one node by its own stable id/data-attribute, which
+  // is unique in a well-formed projection, so this branch alone can never be
+  // ambiguous. Checking it before the selector fallback also fixes a subtler
+  // pre-existing bug: the old single-pass `.find()` could match an EARLIER
+  // node purely by selector before ever reaching the correct sourceId match
+  // later in iteration order.
+  if (sourceId) {
+    const idMatch = projection.nodes.find((node) =>
+      codeLayerNodeMatchesSourceId(node, sourceId),
+    );
+    if (idMatch) return idMatch;
+  }
+  // No sourceId (or no node carries it yet, e.g. a bridge target minted a
+  // fresh pending id the projection hasn't picked up) — fall back to the
+  // bridge's structural selector. Unlike an id, a generic short selector
+  // (e.g. a 2-segment "div > p" suffix path) can legitimately match several
+  // repeated list/card/row instances. The server-side resolver for the same
+  // problem (code-layer.ts's resolveTarget) explicitly refuses to resolve a
+  // selector that matches more than one node rather than silently picking
+  // the first DOM-order match — mirror that discipline here so a duplicate/
+  // move/style edit can never silently land on the wrong sibling instance.
+  if (!selector) return null;
+  const selectorMatches = projection.nodes.filter((node) =>
+    codeLayerSelectorMatches(node, selector),
   );
+  return selectorMatches.length === 1 ? selectorMatches[0]! : null;
 }
 
 export function collapsedElementText(value: string | null | undefined): string {

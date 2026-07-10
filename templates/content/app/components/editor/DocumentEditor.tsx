@@ -813,6 +813,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           try {
             const next = await pushDocumentToNotion.mutateAsync({
               documentId,
+              // The exact editor value was persisted immediately above. Avoid
+              // a redundant live-editor flush handshake on every auto-sync
+              // save; manual pushes/conflict choices keep the safe default.
+              flushOpenEditor: false,
             });
             queryClient.setQueryData(
               documentSyncStatusQueryKey(documentId, { autoSync }),
@@ -1030,8 +1034,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       try {
         const res = await fetch(flushPath);
         if (res.ok) {
-          const pending = (await res.json()) as { id?: string } | null;
+          const pending = (await res.json()) as {
+            id?: string;
+            ts?: number;
+            requestId?: string;
+            status?: "pending" | "success" | "error";
+            error?: string;
+          } | null;
           if (pending && active) {
+            // A terminal acknowledgement waits for the requesting action to
+            // read and clear it. Retrying here could hide a failed flush or
+            // replace the explicit success signal before the server sees it.
+            if (pending.status === "error" || pending.status === "success") {
+              if (active) setTimeout(poll, 600);
+              return;
+            }
             const title = localTitleRef.current;
             const content = localContentRef.current;
             const updates: Record<string, string> = {};
@@ -1043,30 +1060,60 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             try {
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdates(updates);
-                // A CAS conflict here means a newer write landed between this
-                // editor's last reconcile and the flush; leave watermarks
-                // alone so the external-change effects reconcile this editor
-                // to the winning server content instead of us claiming the
-                // now-discarded flush content as saved.
-                if (!isDocumentUpdateConflict(saved)) {
-                  const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                  adoptConfirmedSaveWatermarks({
-                    saved,
-                    savedAt,
-                    title,
-                    content,
-                    updates,
-                    lastSavedTitleRef,
-                    lastSavedContentRef,
-                  });
+                if (isDocumentUpdateConflict(saved)) {
+                  // Do not acknowledge a CAS loss as a successful flush. The
+                  // requester must stop instead of pushing/replacing stale SQL.
+                  throw new Error(
+                    "The document changed while preparing it for sync.",
+                  );
                 }
+                const savedAt = saved?.updatedAt ?? new Date().toISOString();
+                adoptConfirmedSaveWatermarks({
+                  saved,
+                  savedAt,
+                  title,
+                  content,
+                  updates,
+                  lastSavedTitleRef,
+                  lastSavedContentRef,
+                });
               }
-            } finally {
-              // Acknowledge the flush even if nothing changed — the SQL row is
-              // already current, and pull-document is waiting on this delete.
+              // Explicitly acknowledge this exact request only after the live
+              // editor state is confirmed in SQL (or nothing needed saving).
+              // A delete is ambiguous with a transient app-state read failure.
               await fetch(flushPath, {
-                method: "DELETE",
-                headers: { "X-Agent-Native-CSRF": "1" },
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-CSRF": "1",
+                },
+                body: JSON.stringify({
+                  id: pending.id ?? documentId,
+                  ts: pending.ts ?? Date.now(),
+                  requestId: pending.requestId,
+                  status: "success",
+                }),
+              }).catch(() => {});
+            } catch (error) {
+              // Keep a durable negative acknowledgement so the requesting
+              // Notion action can fail closed instead of timing out and using a
+              // stale documents row. The server clears this after reading it.
+              await fetch(flushPath, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-CSRF": "1",
+                },
+                body: JSON.stringify({
+                  id: pending.id ?? documentId,
+                  ts: pending.ts ?? Date.now(),
+                  requestId: pending.requestId,
+                  status: "error",
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                }),
               }).catch(() => {});
             }
           }
@@ -1082,7 +1129,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       active = false;
       clearTimeout(timer);
     };
-  }, [documentId, editorCanEdit, isLocalFileDocument, persistDocumentUpdates]);
+  }, [
+    documentId,
+    editorCanEdit,
+    isLocalFileDocument,
+    persistDocumentUpdates,
+    t,
+  ]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {

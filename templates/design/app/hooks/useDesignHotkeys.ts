@@ -425,7 +425,18 @@ function handleDesignHotkey(
   }
 
   if (event.key === "Escape") return run(props.onEscape);
-  if (event.key === "Enter") return run(props.onEnter);
+  if (event.key === "Enter") {
+    // Figma: Enter drills into the selection (selects its first child /
+    // begins text editing); Shift+Enter is its sibling — select the
+    // selection's PARENT. Checked before the plain onEnter fallback so
+    // Shift+Enter doesn't just drill in again; falls back to onEnter when
+    // onSelectParent isn't wired so callers that haven't adopted it yet see
+    // unchanged behavior.
+    if (event.shiftKey && props.onSelectParent) {
+      return run(props.onSelectParent);
+    }
+    return run(props.onEnter);
+  }
   if (!primary && !event.altKey && !event.shiftKey && key === "\\") {
     return run(props.onSelectParent);
   }

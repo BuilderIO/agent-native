@@ -260,6 +260,114 @@ interface ComponentDetailsResult {
   };
 }
 
+/** Each editable row: name + current value + how it persists + its options. */
+export type PropRow = {
+  name: string;
+  value: string;
+  /** Variant/enum options when the prop is a known group. */
+  options?: string[];
+  /** Persist surface for this prop. */
+  surface: "alpineData" | "attribute";
+};
+
+/**
+ * Build the editable prop rows for a component instance from
+ * `get-component-details`'s response: Alpine `x-data` keys first (they drive
+ * the live variant/state), then observed `data-agent-native-prop-*`
+ * attributes not already covered by x-data, then any persisted variant group
+ * that has never been observed on this instance at all (seeded to its first
+ * option).
+ *
+ * Pure — exported for tests.
+ */
+export function buildComponentPropRows(data: {
+  instance?: { alpineData?: string | null } | null;
+  observedProps: Array<{ name: string; value: string }>;
+  persistedVariants: Record<string, string[]>;
+}): PropRow[] {
+  const { observedProps, persistedVariants, instance } = data;
+  const alpineData = parseAlpineDataObject(instance?.alpineData);
+
+  const rows: PropRow[] = [];
+  const seen = new Set<string>();
+
+  // 1) Alpine x-data keys come first — they drive the live variant/state.
+  if (alpineData) {
+    for (const [key, value] of Object.entries(alpineData)) {
+      rows.push({
+        name: key,
+        value,
+        options: persistedVariants[key],
+        surface: "alpineData",
+      });
+      seen.add(key);
+    }
+  }
+
+  // 2) data-agent-native-prop-* attributes not already covered by x-data.
+  for (const prop of observedProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 3) persistedVariant groups with no observed value yet (default to first).
+  // Surface is always "attribute" here, NOT "alpineData" even when this
+  // instance's x-data happens to be non-empty for other keys: x-data blocks
+  // for a real component instance are written with every prop the component
+  // declares initialized up front (e.g. `{ variant: 'solid', size: 'md' }`),
+  // so a group that never showed up in step 1 was never a x-data key on this
+  // instance in the first place — it is attribute-driven. Guessing
+  // "alpineData" from unrelated sibling keys used to route the very first
+  // edit of such a prop into a surgical/rebuild x-data write that either
+  // silently wrote a key nothing in the template reads, or hit the "can't
+  // safely edit this prop inline" bail-out when the sibling x-data content
+  // was too complex to rebuild — even though the plain attribute write would
+  // have worked fine.
+  for (const [group, options] of Object.entries(persistedVariants)) {
+    if (seen.has(group)) continue;
+    rows.push({
+      name: group,
+      value: options[0] ?? "",
+      options,
+      surface: "attribute",
+    });
+    seen.add(group);
+  }
+
+  return rows;
+}
+
+/**
+ * True when a "message" event's source window matches one of this document's
+ * own embedded design-preview iframes.
+ *
+ * `postMessage` has no origin/source check built in, so without this any
+ * window — including a spoofed one from a compromised/unrelated frame — could
+ * post `{ type: "element-select" }` at the parent and force this section to
+ * refetch. Mirrors the DOM-identity check DesignCanvas's
+ * `isTrustedCanvasBridgeMessage` and MultiScreenCanvas's cross-screen-drag
+ * handler use: trust comes from matching `iframe.contentWindow` against
+ * `event.source`, not from anything in the message payload.
+ *
+ * Exported for tests.
+ */
+export function isMessageFromOwnPreviewIframe(
+  source: MessageEventSource | null,
+): boolean {
+  if (typeof document === "undefined" || !source) return false;
+  return Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+  ).some((iframe) => iframe.contentWindow === source);
+}
+
 /**
  * Contextual COMPONENT section rendered inside the Design tab when the
  * selected element is a component instance (carries
@@ -428,10 +536,12 @@ export function ComponentSection({
 
     const handleMessage = (event: MessageEvent) => {
       if (
-        (event.data as { type?: unknown } | null)?.type === "element-select"
+        (event.data as { type?: unknown } | null)?.type !== "element-select"
       ) {
-        void refetch();
+        return;
       }
+      if (!isMessageFromOwnPreviewIframe(event.source)) return;
+      void refetch();
     };
     window.addEventListener("message", handleMessage);
     return () => {
@@ -479,55 +589,11 @@ export function ComponentSection({
   const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
-  // Each editable row: name + current value + how it persists + its options.
-  type PropRow = {
-    name: string;
-    value: string;
-    /** Variant/enum options when the prop is a known group. */
-    options?: string[];
-    /** Persist surface for this prop. */
-    surface: "alpineData" | "attribute";
-  };
-
-  const rows: PropRow[] = [];
-  const seen = new Set<string>();
-
-  // 1) Alpine x-data keys come first — they drive the live variant/state.
-  if (alpineData) {
-    for (const [key, value] of Object.entries(alpineData)) {
-      rows.push({
-        name: key,
-        value,
-        options: persistedVariants[key],
-        surface: "alpineData",
-      });
-      seen.add(key);
-    }
-  }
-
-  // 2) data-agent-native-prop-* attributes not already covered by x-data.
-  for (const prop of observedProps) {
-    if (seen.has(prop.name)) continue;
-    rows.push({
-      name: prop.name,
-      value: prop.value,
-      options: persistedVariants[prop.name],
-      surface: "attribute",
-    });
-    seen.add(prop.name);
-  }
-
-  // 3) persistedVariant groups with no observed value yet (default to first).
-  for (const [group, options] of Object.entries(persistedVariants)) {
-    if (seen.has(group)) continue;
-    rows.push({
-      name: group,
-      value: options[0] ?? "",
-      options,
-      surface: alpineData ? "alpineData" : "attribute",
-    });
-    seen.add(group);
-  }
+  const rows: PropRow[] = buildComponentPropRows({
+    instance,
+    observedProps,
+    persistedVariants,
+  });
 
   const hasRows = rows.length > 0;
 

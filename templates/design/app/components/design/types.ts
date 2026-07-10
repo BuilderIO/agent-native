@@ -1,3 +1,5 @@
+import type { ElementProvenance } from "@shared/source-mode";
+
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
   path: number[];
@@ -10,11 +12,26 @@ export interface PortableStyleSnapshot {
   nodes: PortableStyleSnapshotNode[];
 }
 
+export interface RuntimeStructureMoveRequest {
+  requestId: number;
+  subject: { selector: string; sourceId?: string | null };
+  anchor: { selector: string; sourceId?: string | null };
+  placement: "before" | "after" | "inside";
+}
+
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
   id?: string;
   sourceId?: string;
+  /**
+   * Source location reported by the canvas bridge. React development builds
+   * derive this from jsxDEV/Fiber debug frames; instrumented runtimes may emit
+   * the equivalent data-source-* attributes. This is provenance only, not a
+   * stable source identity: callers must still verify the file contents and
+   * location before any write.
+   */
+  provenance?: ElementProvenance;
   /**
    * Node-id integrity (id-on-demand): a durable candidate id the bridge minted
    * for this element because it has no stable `data-agent-native-node-id`

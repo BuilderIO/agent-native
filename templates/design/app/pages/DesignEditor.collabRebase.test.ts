@@ -4,6 +4,7 @@ import {
   resolveScreenCollabSyncTarget,
   shouldRebaseCollabDocFromStoredContent,
 } from "./design-editor/collab-sync";
+import { shouldAdoptExternalReconcileContent } from "./design-editor/editor-session";
 
 const OLD_HTML =
   '<!doctype html><html><body><div data-agent-native-node-id="an-1">old</div></body></html>';
@@ -139,5 +140,75 @@ describe("resolveScreenCollabSyncTarget (§gesture-persistence per-screen collab
         overviewDocConnected: false,
       }),
     ).toEqual({ writeLiveDoc: false, syncCollab: true });
+  });
+});
+
+describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)", () => {
+  it("always adopts when there's no established watermark yet (fresh file load)", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: null,
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("adopts when the DB content is strictly newer than the applied watermark", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.100Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not adopt strictly-older DB content", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.100Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("adopts a same-millisecond tie when the agent is NOT active — the dropped-write fix", () => {
+    // Reached only once the caller's own "already reflecting this content"
+    // checks have ruled out dbContent matching what's rendered, so a tied
+    // timestamp here always represents a genuinely different write that
+    // landed in the same millisecond as the one already applied. A strict
+    // `>` used to silently drop this.
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT adopt a same-millisecond tie while the agent is active — defers to the debounced self-echo recovery timer instead", () => {
+    // Forcing immediate adoption here too would skip
+    // staleAgentEchoPossible's 1200ms debounced recheck and reintroduce the
+    // live self-echo race that debounce exists to prevent.
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not adopt when dbUpdatedAt is missing but a watermark is already established", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: null,
+        agentActive: false,
+      }),
+    ).toBe(false);
   });
 });

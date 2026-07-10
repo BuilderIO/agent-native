@@ -13,6 +13,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     var textEditingEnabled = !readOnly && textEditingEnabledFlag;
     var designCanvasScreenId = __DESIGN_CANVAS_SCREEN_ID__ || "";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
+    var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
+    var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+    var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
     var scaleToolEnabled = false;
     var statePreviewNodeId = null;
     var editorChromeScaleX = Math.max(
@@ -120,6 +123,240 @@ export const editorChromeBridgeScript: string = `"use strict";
     function getSourceId(el) {
       if (!el || !el.getAttribute) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.getAttribute("data-loc") || el.id || "";
+    }
+    var reactDebugProvenanceCache = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
+    function reactDebugProvenance(el) {
+      var cached = reactDebugProvenanceCache?.get(el);
+      if (cached !== void 0) return cached;
+      var fiberKey = Object.keys(el).find(function(key) {
+        return key.indexOf("__reactFiber$") === 0;
+      });
+      if (!fiberKey) return void 0;
+      var fiber = el[fiberKey];
+      for (var depth = 0; fiber && depth < 12; depth += 1) {
+        var stack = String(fiber._debugStack?.stack || "");
+        var lines = stack.split("\\n");
+        for (var index = 0; index < lines.length; index += 1) {
+          var lineText = lines[index];
+          var match = lineText.match(
+            /(?:\\(|\\s)(https?:\\/\\/[^\\s)]+?):(\\d+):(\\d+)\\)?\\s*$/
+          );
+          if (!match) continue;
+          try {
+            var sourceUrl = new URL(match[1]);
+            var pathname = decodeURIComponent(sourceUrl.pathname);
+            if (pathname.indexOf("/node_modules/") >= 0) continue;
+            var sourceFile = pathname.indexOf("/@fs/") === 0 ? pathname.slice("/@fs".length) : pathname.replace(/^\\/+/, "");
+            if (!sourceFile) continue;
+            var componentMatch = lineText.match(/\\bat\\s+([^\\s(]+)\\s*\\(/);
+            var provenance = {
+              sourceFile,
+              line: parseInt(match[2], 10),
+              column: parseInt(match[3], 10),
+              component: componentMatch ? componentMatch[1] : void 0
+            };
+            reactDebugProvenanceCache?.set(el, provenance);
+            return provenance;
+          } catch (_error) {
+          }
+        }
+        fiber = fiber.return;
+      }
+      return void 0;
+    }
+    var runtimeLayerSnapshotTimer = null;
+    var runtimeLayerSnapshotMaxTimer = null;
+    var lastRuntimeLayerSnapshotHtml = "";
+    function runtimeLayerHash(value) {
+      var hash = 2166136261;
+      for (var index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(36);
+    }
+    function runtimeLayerStructuralPath(el) {
+      var parts = [];
+      var node = el;
+      while (node && node !== document.body) {
+        var tag = node.tagName.toLowerCase();
+        var parent = node.parentElement;
+        if (parent) {
+          var sameTag = Array.prototype.filter.call(
+            parent.children,
+            function(sibling) {
+              return sibling.tagName === node.tagName;
+            }
+          );
+          tag += ":nth-of-type(" + (sameTag.indexOf(node) + 1) + ")";
+        }
+        parts.unshift(tag);
+        node = parent;
+      }
+      return parts.join(" > ") || "body";
+    }
+    function ensureRuntimeLayerNodeId(el) {
+      var existing = el.getAttribute("data-agent-native-node-id")?.trim();
+      if (existing) return existing;
+      var provenance = reactDebugProvenance(el);
+      var provenanceKey = provenance ? [
+        provenance.sourceFile,
+        provenance.line,
+        provenance.column || 0,
+        provenance.component || ""
+      ].join(":") : "dom";
+      var nodeId = "runtime-" + runtimeLayerHash(
+        designCanvasScreenId + ":" + provenanceKey + ":" + runtimeLayerStructuralPath(el)
+      );
+      el.setAttribute("data-agent-native-node-id", nodeId);
+      return nodeId;
+    }
+    function isRuntimeLayerVisualNode(el) {
+      if (/^(script|style|template|noscript|link|meta|title)$/i.test(el.tagName)) {
+        return false;
+      }
+      return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
+    }
+    function serializeRuntimeLayerSnapshot() {
+      if (!document.body) return null;
+      var sourceNodes = Array.prototype.slice.call(
+        document.body.querySelectorAll("*")
+      );
+      var cloneBody = document.body.cloneNode(true);
+      var cloneNodes = Array.prototype.slice.call(
+        cloneBody.querySelectorAll("*")
+      );
+      var nodeCount = 0;
+      for (var index = 0; index < sourceNodes.length && index < cloneNodes.length; index += 1) {
+        var sourceNode = sourceNodes[index];
+        var cloneNode = cloneNodes[index];
+        if (!isRuntimeLayerVisualNode(sourceNode)) {
+          cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
+          continue;
+        }
+        cloneNode.setAttribute(
+          "data-agent-native-node-id",
+          ensureRuntimeLayerNodeId(sourceNode)
+        );
+        var provenance = reactDebugProvenance(sourceNode);
+        if (provenance) {
+          cloneNode.setAttribute("data-source-file", provenance.sourceFile);
+          cloneNode.setAttribute("data-source-line", String(provenance.line));
+          if (provenance.column) {
+            cloneNode.setAttribute(
+              "data-source-column",
+              String(provenance.column)
+            );
+          }
+          if (provenance.component) {
+            cloneNode.setAttribute("data-component-name", provenance.component);
+          }
+        }
+        nodeCount += 1;
+      }
+      cloneBody.querySelectorAll("[data-an-runtime-layer-remove]").forEach(function(node) {
+        node.remove();
+      });
+      cloneBody.querySelectorAll("script,style,template,noscript,link,meta,title").forEach(function(node) {
+        node.remove();
+      });
+      cloneBody.setAttribute(
+        "data-agent-native-node-id",
+        ensureRuntimeLayerNodeId(document.body)
+      );
+      cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
+      var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>";
+      if (html.length > 2e6) return null;
+      return { html, nodeCount };
+    }
+    function postRuntimeLayerSnapshot() {
+      if (runtimeLayerSnapshotTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotTimer);
+      }
+      if (runtimeLayerSnapshotMaxTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotMaxTimer);
+      }
+      runtimeLayerSnapshotTimer = null;
+      runtimeLayerSnapshotMaxTimer = null;
+      var snapshot = serializeRuntimeLayerSnapshot();
+      if (!snapshot || snapshot.html === lastRuntimeLayerSnapshotHtml) return;
+      lastRuntimeLayerSnapshotHtml = snapshot.html;
+      window.parent.postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot",
+          payload: snapshot
+        },
+        "*"
+      );
+    }
+    function scheduleRuntimeLayerSnapshot() {
+      if (runtimeLayerSnapshotTimer !== null) {
+        window.clearTimeout(runtimeLayerSnapshotTimer);
+      }
+      runtimeLayerSnapshotTimer = window.setTimeout(
+        postRuntimeLayerSnapshot,
+        300
+      );
+      if (runtimeLayerSnapshotMaxTimer === null) {
+        runtimeLayerSnapshotMaxTimer = window.setTimeout(
+          postRuntimeLayerSnapshot,
+          1500
+        );
+      }
+    }
+    function runtimeLayerClassSignature(value) {
+      return String(value || "").split(/\\s+/).map(function(token) {
+        var parts = token.split(":");
+        var utility = String(parts[parts.length - 1] || "").replace(/^!/, "");
+        if (/^(?:flex|inline-flex|grid|inline-grid|hidden|block|inline-block|flex-row|flex-col)$/.test(
+          utility
+        ) || /^(?:items|justify)-/.test(utility)) {
+          return utility;
+        }
+        return /(?:component|card|button|control)/.test(utility) ? "component-like" : "";
+      }).filter(Boolean).sort().join(" ");
+    }
+    function runtimeLayerStyleSignature(value) {
+      var relevant = {};
+      String(value || "").split(";").forEach(function(declaration) {
+        var separator = declaration.indexOf(":");
+        if (separator < 0) return;
+        var property = declaration.slice(0, separator).trim().toLowerCase();
+        if (!/^(?:display|flex-direction|align-items|justify-content)$/.test(
+          property
+        )) {
+          return;
+        }
+        relevant[property] = declaration.slice(separator + 1).trim();
+      });
+      return Object.keys(relevant).sort().map(function(property) {
+        return property + ":" + relevant[property];
+      }).join(";");
+    }
+    function runtimeLayerMutationIsMeaningful(mutation) {
+      var target = mutation.target;
+      if (target.nodeType === 1 && (isOverlayElement(target) || target.closest?.("[data-agent-native-edit-overlay]"))) {
+        return false;
+      }
+      if (mutation.type === "childList") {
+        var changedNodes = Array.prototype.slice.call(mutation.addedNodes).concat(Array.prototype.slice.call(mutation.removedNodes));
+        return changedNodes.some(function(node) {
+          var element = node.nodeType === 1 ? node : node.parentElement || mutation.target;
+          return !(element.nodeType === 1 && (isOverlayElement(element) || element.closest?.("[data-agent-native-edit-overlay]")));
+        });
+      }
+      if (mutation.type === "characterData") {
+        return true;
+      }
+      if (mutation.type !== "attributes") return false;
+      var name = mutation.attributeName || "";
+      if (name === "class") {
+        return runtimeLayerClassSignature(mutation.oldValue) !== runtimeLayerClassSignature(target.getAttribute("class"));
+      }
+      if (name === "style") {
+        return runtimeLayerStyleSignature(mutation.oldValue) !== runtimeLayerStyleSignature(target.getAttribute("style"));
+      }
+      return true;
     }
     function isDocumentRootElement(el) {
       return el === document.body || el === document.documentElement;
@@ -590,6 +827,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           dataSourceFile = hasColumn ? beforeLastPart.slice(0, previousColonIndex) : beforeLastPart;
           dataSourceLine = hasColumn ? previousPart : lastPart;
           if (hasColumn) dataSourceColumn = lastPart;
+        }
+      }
+      if (!dataSourceFile) {
+        var reactProvenance = reactDebugProvenance(el);
+        if (reactProvenance) {
+          dataSourceFile = reactProvenance.sourceFile;
+          dataSourceLine = String(reactProvenance.line);
+          dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
+          dataComponentName = dataComponentName || reactProvenance.component || null;
         }
       }
       if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName) {
@@ -1068,6 +1314,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var selectedEl = null;
     var hoveredEl = null;
+    var lastHoverInfoPostedEl = null;
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
     var activeMarqueeSelection = null;
@@ -2304,6 +2551,48 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
+    var overlayAnimationTrackingActive = false;
+    var overlayAnimationTrackingUntil = 0;
+    var overlayAnimationTrackingStartedAt = 0;
+    var OVERLAY_ANIMATION_TRACKING_WINDOW_MS = 1e3;
+    var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4e3;
+    function isOverlayAnimationTrackingTarget(target) {
+      if (!target) return false;
+      return target === selectedEl || target === hoveredEl;
+    }
+    function tickOverlayAnimationTracking() {
+      if (!overlayAnimationTrackingActive) return;
+      refreshOverlays();
+      var now = Date.now();
+      if (now >= overlayAnimationTrackingUntil || now - overlayAnimationTrackingStartedAt >= OVERLAY_ANIMATION_TRACKING_MAX_MS) {
+        overlayAnimationTrackingActive = false;
+        return;
+      }
+      window.requestAnimationFrame(tickOverlayAnimationTracking);
+    }
+    function startOverlayAnimationTracking() {
+      var now = Date.now();
+      overlayAnimationTrackingUntil = now + OVERLAY_ANIMATION_TRACKING_WINDOW_MS;
+      if (overlayAnimationTrackingActive) return;
+      overlayAnimationTrackingActive = true;
+      overlayAnimationTrackingStartedAt = now;
+      window.requestAnimationFrame(tickOverlayAnimationTracking);
+    }
+    function onOverlayAnimationTrackingEvent(e) {
+      if (isOverlayAnimationTrackingTarget(e.target)) {
+        startOverlayAnimationTracking();
+      }
+    }
+    document.addEventListener(
+      "transitionrun",
+      onOverlayAnimationTrackingEvent,
+      true
+    );
+    document.addEventListener(
+      "animationstart",
+      onOverlayAnimationTrackingEvent,
+      true
+    );
     function hideMeasurements() {
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
@@ -2934,6 +3223,44 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       return null;
+    }
+    function findUniqueRuntimeStructureTarget(selector, sourceId) {
+      var matches = /* @__PURE__ */ new Set();
+      if (typeof sourceId === "string" && sourceId) {
+        var attributes = [
+          "data-agent-native-node-id",
+          "data-code-layer-id",
+          "data-layer-id",
+          "data-builder-id",
+          "data-loc",
+          "id"
+        ];
+        for (var i = 0; i < attributes.length; i += 1) {
+          try {
+            var sourceMatches = document.querySelectorAll(
+              "[" + attributes[i] + '="' + escapeAttribute(sourceId) + '"]'
+            );
+            for (var j = 0; j < sourceMatches.length; j += 1) {
+              matches.add(sourceMatches[j]);
+            }
+          } catch (_err) {
+          }
+        }
+        if (matches.size > 1) return null;
+        if (matches.size === 1) {
+          var sourceMatch = Array.from(matches)[0];
+          return sourceMatch && sourceMatch !== document.body && sourceMatch !== document.documentElement && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
+        }
+      }
+      if (typeof selector !== "string" || !selector) return null;
+      try {
+        var selectorMatches = document.querySelectorAll(selector);
+        if (selectorMatches.length !== 1) return null;
+        var selectorMatch = selectorMatches[0];
+        return selectorMatch !== document.body && selectorMatch !== document.documentElement && !isOverlayElement(selectorMatch) && !isLayerInteractionBlocked(selectorMatch) ? selectorMatch : null;
+      } catch (_err) {
+        return null;
+      }
     }
     function removeRuntimeTarget(selector, selectorCandidates) {
       var target = findRuntimeTarget(selector, selectorCandidates);
@@ -3697,7 +4024,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isAbsolutePrimitiveContainer(el) {
       if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "rectangle" && primitive !== "rect") return false;
+      if (primitive !== "rectangle" && primitive !== "rect" && primitive !== "frame")
+        return false;
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
@@ -4334,8 +4662,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cs.position !== "absolute" && cs.position !== "fixed") return;
       var containerRect = container.getBoundingClientRect();
       var containerCS = window.getComputedStyle(container);
-      var newOriginX = containerRect.left + readPx(containerCS.borderLeftWidth) - container.scrollLeft;
-      var newOriginY = containerRect.top + readPx(containerCS.borderTopWidth) - container.scrollTop;
+      var boardOffsetX = designCanvasBoardSurface ? designCanvasContentOffsetX : 0;
+      var boardOffsetY = designCanvasBoardSurface ? designCanvasContentOffsetY : 0;
+      var newOriginX = containerRect.left - boardOffsetX + readPx(containerCS.borderLeftWidth) - container.scrollLeft;
+      var newOriginY = containerRect.top - boardOffsetY + readPx(containerCS.borderTopWidth) - container.scrollTop;
       var oldOriginX = -(window.scrollX || 0);
       var oldOriginY = -(window.scrollY || 0);
       var offsetParent = htmlEl.offsetParent;
@@ -4348,8 +4678,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (offsetParentIsRealContainingBlock) {
           var opRect = offsetParent.getBoundingClientRect();
           var opCS = window.getComputedStyle(offsetParent);
-          oldOriginX = opRect.left + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
-          oldOriginY = opRect.top + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
+          var oldContainingBlockOffsetX = designCanvasBoardSurface && offsetParent !== document.body ? boardOffsetX : 0;
+          var oldContainingBlockOffsetY = designCanvasBoardSurface && offsetParent !== document.body ? boardOffsetY : 0;
+          oldOriginX = opRect.left - oldContainingBlockOffsetX + readPx(opCS.borderLeftWidth) - offsetParent.scrollLeft;
+          oldOriginY = opRect.top - oldContainingBlockOffsetY + readPx(opCS.borderTopWidth) - offsetParent.scrollTop;
         }
       }
       var currentLeft = readPx(htmlEl.style.left || cs.left);
@@ -4394,7 +4726,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: target.dropMode || "flow-insert",
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
-          payload: getElementInfo(el)
+          payload: getElementInfo(el),
+          anchorPayload: getElementInfo(target.anchor)
         },
         "*"
       );
@@ -4821,6 +5154,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
+      var crossScreenDragMoveScheduled = false;
+      var crossScreenDragMovePendingEv = null;
+      function flushCrossScreenDragMove() {
+        crossScreenDragMoveScheduled = false;
+        var pendingEv = crossScreenDragMovePendingEv;
+        crossScreenDragMovePendingEv = null;
+        if (pendingEv) postCrossScreenDrag("move", dragEl, pendingEv);
+      }
+      function scheduleCrossScreenDragMove(ev) {
+        crossScreenDragMovePendingEv = {
+          clientX: ev.clientX,
+          clientY: ev.clientY
+        };
+        if (crossScreenDragMoveScheduled) return;
+        crossScreenDragMoveScheduled = true;
+        window.requestAnimationFrame(flushCrossScreenDragMove);
+      }
       function onMove(ev) {
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
@@ -4856,7 +5206,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           state.el.style.top = Math.round(state.originTop + appliedDy) + "px";
         });
         if (!duplicatedForDrag && !isGroupDrag) {
-          postCrossScreenDrag("move", dragEl, ev);
+          scheduleCrossScreenDragMove(ev);
         }
         if (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           currentAutoLayoutTarget = null;
@@ -4904,6 +5254,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onMoveKeyDown, true);
         clearActiveDragCancel(cancelMoveDrag);
+        crossScreenDragMoveScheduled = false;
+        crossScreenDragMovePendingEv = null;
       }
       function cancelMoveDrag() {
         cleanupMoveDrag();
@@ -5707,6 +6059,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return;
       }
+      if (!programmaticFlag && isTemplateCloneElement(target)) {
+        showRejectedDragBadge(
+          "Can't edit repeated items directly",
+          e.clientX,
+          e.clientY
+        );
+        window.setTimeout(hideTransformBadge, 1400);
+        var rejectedTextEditFallback = selectionTargetForHit(target);
+        if (rejectedTextEditFallback && !isLayerInteractionBlocked(rejectedTextEditFallback)) {
+          selectedEl = rejectedTextEditFallback;
+          positionOverlay(selectionOverlay, selectedEl);
+          postElementSelect(selectedEl, e);
+        }
+        return;
+      }
       selectedEl = selectionTargetForHit(target) || target;
       var programmaticTextEdit = programmaticFlag;
       var originalText = target.textContent || "";
@@ -6002,6 +6369,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             scheduleSpacingHoverClear(e);
           }
           hideMeasurements();
+          lastHoverInfoPostedEl = null;
           return;
         }
         if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
@@ -6036,11 +6404,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           hideMeasurements();
         }
-        var info = getLightElementInfo(hoveredEl);
-        window.parent.postMessage(
-          { type: "element-hover", payload: info },
-          "*"
-        );
+        if (hoveredEl !== lastHoverInfoPostedEl) {
+          lastHoverInfoPostedEl = hoveredEl;
+          var info = getLightElementInfo(hoveredEl);
+          window.parent.postMessage(
+            { type: "element-hover", payload: info },
+            "*"
+          );
+        }
       },
       true
     );
@@ -6120,6 +6491,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!textEditingEnabled && activeTextEditEl) {
           activeTextEditEl.blur();
         }
+        return;
+      }
+      if (e.data.type === "set-content-offset") {
+        var nextContentOffsetX = Number(e.data.x);
+        var nextContentOffsetY = Number(e.data.y);
+        designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX) ? nextContentOffsetX : 0;
+        designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
         return;
       }
       if (e.data.type === "begin-text-edit") {
@@ -6380,6 +6758,45 @@ export const editorChromeBridgeScript: string = `"use strict";
         applyHiddenSelectors();
         return;
       }
+      if (e.data.type === "runtime-structure-move") {
+        if (readOnly) return;
+        var runtimePlacement = String(e.data.placement || "");
+        if (runtimePlacement !== "before" && runtimePlacement !== "after" && runtimePlacement !== "inside") {
+          return;
+        }
+        var runtimeSubject = findUniqueRuntimeStructureTarget(
+          String(e.data.subjectSelector || ""),
+          typeof e.data.subjectSourceId === "string" ? e.data.subjectSourceId : ""
+        );
+        var runtimeAnchor = findUniqueRuntimeStructureTarget(
+          String(e.data.anchorSelector || ""),
+          typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : ""
+        );
+        if (!runtimeSubject || !runtimeAnchor || runtimeSubject === runtimeAnchor || runtimeSubject.contains(runtimeAnchor)) {
+          return;
+        }
+        if (runtimePlacement === "inside" && !isContainerDropTarget(runtimeAnchor) || runtimePlacement !== "inside" && !runtimeAnchor.parentElement) {
+          return;
+        }
+        var runtimeTarget = {
+          anchor: runtimeAnchor,
+          placement: runtimePlacement,
+          axis: parentFlowAxis(
+            runtimePlacement === "inside" ? runtimeAnchor : runtimeAnchor.parentElement
+          ),
+          dropMode: runtimePlacement === "inside" && isAbsolutePrimitiveContainer(runtimeAnchor) ? "absolute-container" : "flow-insert"
+        };
+        var runtimeOrigin = {
+          prevParent: runtimeSubject.parentElement,
+          prevNextSibling: runtimeSubject.nextSibling,
+          prevInlinePositionStyles: snapshotInlinePositionStyles(runtimeSubject)
+        };
+        applyRuntimeReorder(runtimeSubject, runtimeTarget);
+        selectedEl = runtimeSubject;
+        positionOverlay(selectionOverlay, selectedEl);
+        postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
+        return;
+      }
       if (e.data.type === "visual-structure-ack") {
         var move = pendingStructureMoves[e.data.requestId];
         if (!move) return;
@@ -6514,6 +6931,37 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("scroll", scheduleRefreshOverlays, true);
     window.addEventListener("resize", scheduleRefreshOverlays);
     applyEditorChromeScale();
+    if (runtimeLayerSnapshotEnabled && typeof MutationObserver !== "undefined" && document.body) {
+      var runtimeLayerObserver = new MutationObserver(function(mutations) {
+        var hasMeaningfulMutation = mutations.some(
+          runtimeLayerMutationIsMeaningful
+        );
+        if (hasMeaningfulMutation) scheduleRuntimeLayerSnapshot();
+      });
+      runtimeLayerObserver.observe(document.body, {
+        attributes: true,
+        attributeOldValue: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+        attributeFilter: [
+          "aria-label",
+          "class",
+          "data-agent-native-component",
+          "data-agent-native-layer-name",
+          "data-an-primitive",
+          "data-component-name",
+          "data-source-column",
+          "data-source-file",
+          "data-source-line",
+          "hidden",
+          "id",
+          "style",
+          "title"
+        ]
+      });
+    }
+    if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
     window.parent.postMessage(
       { type: "agent-native:editor-chrome-ready" },
       "*"

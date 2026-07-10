@@ -19,10 +19,19 @@ describe("DesignCanvas Fast Refresh boundary", () => {
     const hasModifier = (statement: ts.Statement, kind: ts.SyntaxKind) =>
       ts.canHaveModifiers(statement) &&
       Boolean(ts.getModifiers(statement)?.some((item) => item.kind === kind));
+    // Type-only declarations (interfaces, type aliases) are erased entirely
+    // during compilation — they produce zero runtime exports, so an
+    // `export interface`/`export type` can never affect the Fast Refresh
+    // component boundary this test actually guards. Only count statements
+    // that still exist at runtime after TypeScript strips types.
+    const isTypeOnlyDeclaration = (statement: ts.Statement) =>
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement);
     const exportedStatements = sourceFile.statements.filter(
       (statement) =>
-        ts.isExportDeclaration(statement) ||
-        hasModifier(statement, ts.SyntaxKind.ExportKeyword),
+        !isTypeOnlyDeclaration(statement) &&
+        (ts.isExportDeclaration(statement) ||
+          hasModifier(statement, ts.SyntaxKind.ExportKeyword)),
     );
 
     expect(exportedStatements).toHaveLength(1);

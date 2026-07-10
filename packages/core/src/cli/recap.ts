@@ -2987,10 +2987,24 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    await page.goto(captureUrl, {
+    const navigationResponse = await page.goto(captureUrl, {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
+    if (!navigationResponse) {
+      throw new Error("recap page did not return an HTTP response");
+    }
+    if (!navigationResponse.ok()) {
+      throw new Error(
+        `recap page returned HTTP ${navigationResponse.status()} while loading ${navigationResponse.url()}`,
+      );
+    }
+    const contentType = navigationResponse.headers()["content-type"] ?? "";
+    if (contentType && !/\btext\/html\b/i.test(contentType)) {
+      throw new Error(
+        `recap page returned unexpected content type ${contentType} while loading ${navigationResponse.url()}`,
+      );
+    }
     await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => {
       // The selectors below are the real readiness signal for screenshots.
       // Some recap pages keep long-lived/background requests open.

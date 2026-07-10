@@ -28,6 +28,7 @@ import * as Y from "yjs";
 // Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry.
 // ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const accessState = vi.hoisted(() => ({ sourceType: "inline" }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -83,10 +84,10 @@ vi.mock("@agent-native/core/collab", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
-  resolveAccess: vi.fn().mockResolvedValue({
+  resolveAccess: vi.fn(async () => ({
     role: "editor",
-    resource: { data: JSON.stringify({ sourceType: "inline" }) },
-  }),
+    resource: { data: JSON.stringify({ sourceType: accessState.sourceType }) },
+  })),
   accessFilter: vi.fn().mockReturnValue(undefined),
 }));
 
@@ -207,10 +208,31 @@ function baseDoc(): string {
 beforeEach(() => {
   collabDocs.docs.clear();
   designFilesStore.rows.clear();
+  accessState.sourceType = "inline";
   seedFile(baseDoc());
 });
 
 describe("apply-component-prop-edit CAS safety (false-CAS fix)", () => {
+  it("fails closed for localhost sources without touching the SQL HTML mirror", async () => {
+    accessState.sourceType = "localhost";
+    const original = currentFileRef().content;
+
+    const result = await action.run({
+      designId: DESIGN_ID,
+      nodeId: "btn-1",
+      edit: { kind: "classReplace", from: "bg-blue-500", to: "bg-red-500" },
+    } as never);
+
+    expect(result).toMatchObject({
+      sourceType: "localhost",
+      persisted: false,
+      ctaRequired: true,
+    });
+    expect(result.ctaMessage).toMatch(/dedicated consented/i);
+    expect(currentFileRef().content).toBe(original);
+    expect(collabDocs.docs.size).toBe(0);
+  });
+
   it("succeeds and preserves a sibling's concurrent edit when the action's own read observes the latest base (no clobber of a landed sibling write)", async () => {
     await seedFromText(FILE_ID, baseDoc());
 

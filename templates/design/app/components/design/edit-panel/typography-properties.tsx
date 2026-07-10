@@ -9,10 +9,10 @@ import {
   IconLayoutAlignBottom,
   IconLayoutAlignMiddle,
   IconLayoutAlignTop,
-  IconLetterCase,
   IconLetterSpacing,
   IconLineHeight,
   IconSquare,
+  IconTextSize,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -50,7 +50,9 @@ import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
   FONT_WEIGHT_OPTIONS,
-  resolveFontFamilySelectValue,
+  isKnownFontWeight,
+  resolveFixedResizeDimension,
+  resolveFontFamilyFieldValue,
   type TextResizeMode,
 } from "./typography-helpers";
 
@@ -176,24 +178,6 @@ export function TypographyProperties({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
-  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
-    ? baseFontFamilyOptions
-    : [
-        {
-          value: fontFamily,
-          label: displayFontFamilyName(styles.fontFamily || fontFamily),
-        },
-        ...baseFontFamilyOptions,
-      ];
-  const fontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontWeights.${option.key}`),
-  }));
-  const textAlign = styles.textAlign || "left";
-
   // Mixed-selection guards: a multi-selection with differing values injects
   // the MIXED_VALUE sentinel string into these computedStyles fields (see
   // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
@@ -202,10 +186,46 @@ export function TypographyProperties({
   // fabricated 0 (size), 1.2 (line-height), or blank (tracking) rather than
   // the Mixed state ScrubInput already knows how to render — same pattern as
   // the rotation field above.
+  const fontFamilyIsMixed = isMixedValue(styles.fontFamily);
   const fontWeightIsMixed = isMixedValue(styles.fontWeight);
   const fontSizeIsMixed = isMixedValue(styles.fontSize);
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
+
+  // resolveFontFamilyFieldValue returns the MIXED_VALUE sentinel unchanged
+  // when the selection differs so the Select below can render it as an
+  // explicit disabled placeholder (matching fontWeight's pattern just below)
+  // instead of a normal, clickable option that could commit the literal
+  // string "Mixed" as a font-family value.
+  const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
+  const fontFamilyOptions = fontFamilyIsMixed
+    ? baseFontFamilyOptions
+    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(styles.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ];
+  const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`editPanel.fontWeights.${option.key}`),
+  }));
+  // Non-mixed but not one of the nine standard notches (e.g. a variable-font
+  // weight like "550") needs the same synthesized-option treatment as an
+  // unknown font family — otherwise the Select's value matches no item and
+  // renders blank even though the real weight is still applied.
+  const currentFontWeight = styles.fontWeight || "400";
+  const fontWeightOptions =
+    fontWeightIsMixed || isKnownFontWeight(currentFontWeight)
+      ? baseFontWeightOptions
+      : [
+          { value: currentFontWeight, label: currentFontWeight },
+          ...baseFontWeightOptions,
+        ];
+  const textAlign = styles.textAlign || "left";
 
   // M1 · Text resizing mode (auto-width / auto-height / fixed). the design
   // editor's text nodes always expose this segment. Read authored
@@ -240,8 +260,20 @@ export function TypographyProperties({
       : !heightIsAuto && !widthIsAuto
         ? "fixed"
         : "auto-height";
-  const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
-  const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
+  // Fall back to the element's actual current on-screen size (not an
+  // arbitrary constant) when there's no real authored size yet — converting
+  // auto-width/auto-height text to "fixed" must preserve its current
+  // rendered size instead of visibly snapping it to a hardcoded default.
+  const currentWidth = resolveFixedResizeDimension(
+    styles.width,
+    widthIsAuto,
+    element.boundingRect.width,
+  );
+  const currentHeight = resolveFixedResizeDimension(
+    styles.height,
+    heightIsAuto,
+    element.boundingRect.height,
+  );
   const setResizeMode = (mode: TextResizeMode) => {
     if (mode === "auto-width") {
       onStyleChange("width", "max-content");
@@ -318,6 +350,15 @@ export function TypographyProperties({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {fontFamilyIsMixed ? (
+              <SelectItem
+                value={MIXED_VALUE}
+                disabled
+                className="!text-[11px] text-muted-foreground"
+              >
+                {MIXED_VALUE}
+              </SelectItem>
+            ) : null}
             {fontFamilyOptions.map((opt) => (
               <SelectItem
                 key={opt.value}
@@ -334,7 +375,7 @@ export function TypographyProperties({
       {/* Row 2: weight + size side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select
-          value={fontWeightIsMixed ? MIXED_VALUE : styles.fontWeight || "400"}
+          value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
           onValueChange={(v) => onStyleChange("fontWeight", v)}
         >
           <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
@@ -364,7 +405,7 @@ export function TypographyProperties({
         <ScrubInput
           label={t("editPanel.labels.size")}
           ariaLabel={t("editPanel.labels.size")}
-          icon={IconLetterCase}
+          icon={IconTextSize}
           value={
             fontSizeIsMixed
               ? 0

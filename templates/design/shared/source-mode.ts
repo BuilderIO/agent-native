@@ -97,6 +97,7 @@ export const DESIGN_BRIDGE_OPERATIONS = [
   "writeFile",
   "captureSnapshot",
   "captureState",
+  "listFiles",
 ] as const;
 
 export type DesignBridgeOperation = (typeof DESIGN_BRIDGE_OPERATIONS)[number];

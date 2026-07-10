@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import http, {
   type IncomingMessage,
   type Server,
@@ -123,6 +124,12 @@ export interface DesignConnectBridge {
    *  bridge-registration endpoints. Safe to hand to the Design browser, but
    *  never accepted by filesystem endpoints. */
   previewToken: string;
+  /** Random id minted fresh each time this bridge process boots. Also
+   *  returned by `/health`, `/live-edit-bridge`, and the "unknown bridge key"
+   *  409 from `/live-edit` — a client can compare it across those responses
+   *  to tell a restarted bridge process apart from a genuine registration
+   *  bug. See the `bridgeInstanceId` doc comment in startDesignConnectBridge. */
+  bridgeInstanceId: string;
 }
 
 export interface DesignConnectBridgeOptions {
@@ -679,11 +686,11 @@ export async function prepareDesignConnectManifest(
       reason:
         operation === "resolveNodeToFile"
           ? // resolveNodeToFile maps a runtime DOM node id (from the editor's
-            // 'select' payload) to { file, line, component } provenance.  The
-            // bridge endpoint exists; per-element provenance data must be
-            // emitted by the connected app at build time — see the provenance
-            // note in the help text below.
-            "Requires the connected app to emit data-source-file / data-source-line / data-component-name attributes (e.g. via @vitejs/plugin-react jsxDEV or a Babel source plugin)."
+            // 'select' payload) to { file, line, component } provenance.
+            // React development builds expose jsxDEV call sites through the
+            // Fiber debug stack; other runtimes/builds can emit explicit DOM
+            // provenance attributes — see the help text below.
+            "React development builds resolve jsxDEV call sites automatically; other runtimes can emit data-source-file / data-source-line / data-component-name attributes."
           : undefined,
     })),
   };
@@ -786,9 +793,11 @@ function sendBytes(
   statusCode: number,
   body: Buffer,
   headers: Headers,
+  contentLength = body.length,
 ) {
   const responseHeaders: Record<string, string> = {
     ...bridgeCorsHeaders(res),
+    "content-length": String(contentLength),
   };
   for (const name of [
     "content-type",
@@ -831,6 +840,25 @@ function constantTimeTokenMatches(
 function readHeader(req: IncomingMessage, name: string): string {
   const value = req.headers[name];
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * Preserve only the browser request metadata a local dev server needs to
+ * classify Vite source-module and stylesheet requests. Agent Native's dev
+ * gateway intentionally varies source-file handling by `Sec-Fetch-Dest`; if
+ * the bridge drops it, React Router module URLs such as `/app/root.tsx` fall
+ * through to Nitro and 404. Keep this allowlist narrow: cookies, authorization,
+ * bridge tokens, origins, and referrers must never be forwarded upstream.
+ */
+function previewProxyRequestHeaders(
+  req: IncomingMessage,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of ["accept", "sec-fetch-dest"] as const) {
+    const value = readHeader(req, name);
+    if (value) headers[name] = value;
+  }
+  return headers;
 }
 
 function resolvePreviewSnapshotUrl(
@@ -917,6 +945,7 @@ async function fetchPreviewSnapshot(
 async function fetchPreviewProxyResource(
   devServerUrl: string,
   targetUrl: string,
+  requestHeaders: Record<string, string> = {},
   redirects = 0,
 ): Promise<{
   url: string;
@@ -934,6 +963,7 @@ async function fetchPreviewProxyResource(
       method: "GET",
       redirect: "manual",
       signal: controller.signal,
+      headers: requestHeaders,
     });
     const location = response.headers.get("location");
     if (location && response.status >= 300 && response.status < 400) {
@@ -945,6 +975,7 @@ async function fetchPreviewProxyResource(
       return fetchPreviewProxyResource(
         devServerUrl,
         redirected.toString(),
+        requestHeaders,
         redirects + 1,
       );
     }
@@ -1101,6 +1132,236 @@ async function assertPathInside(
   }
 }
 
+interface SafeBridgeFileTarget {
+  absolutePath: string;
+  canonicalPath: string;
+}
+
+/**
+ * Resolve a bridge file to a stable lock key without following a leaf
+ * symlink. Missing parent directories are represented beneath their nearest
+ * existing real ancestor, so aliases through in-root directory symlinks share
+ * one mutex while first-time file creation remains supported.
+ */
+async function resolveSafeBridgeFileTarget(
+  rootPath: string,
+  targetPath: string,
+): Promise<SafeBridgeFileTarget> {
+  await assertPathInside(rootPath, targetPath);
+  const resolvedRoot = await fs.realpath(rootPath);
+  const absolutePath = path.resolve(rootPath, targetPath);
+  let existingAncestor = path.dirname(absolutePath);
+  let resolvedAncestor: string | null = null;
+  for (let depth = 0; depth < 32; depth += 1) {
+    try {
+      resolvedAncestor = await fs.realpath(existingAncestor);
+      break;
+    } catch {
+      const parent = path.dirname(existingAncestor);
+      if (parent === existingAncestor) break;
+      existingAncestor = parent;
+    }
+  }
+  if (!resolvedAncestor) {
+    throw new Error(`Cannot resolve parent directory: ${absolutePath}`);
+  }
+  // Existing regular files get their own realpath as the lock key. Besides
+  // resolving in-root directory aliases, this canonicalizes case on the
+  // default macOS filesystem so `Button.tsx` and `button.tsx` cannot acquire
+  // separate mutexes for the same inode. assertPathInside already rejected a
+  // symlink leaf before this point.
+  const canonicalPath =
+    (await fs.realpath(absolutePath).catch(() => null)) ??
+    path.resolve(
+      resolvedAncestor,
+      path.relative(existingAncestor, absolutePath),
+    );
+  if (
+    canonicalPath !== resolvedRoot &&
+    !canonicalPath.startsWith(resolvedRoot + path.sep)
+  ) {
+    throw new Error("Path traversal detected: resolved target is outside root");
+  }
+  return { absolutePath, canonicalPath };
+}
+
+const bridgeWriteLocks = new Map<string, Promise<void>>();
+
+/** Serialize read-check-write sequences for one canonical local file. */
+async function withBridgeWriteLock<T>(
+  canonicalPath: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const previous = bridgeWriteLocks.get(canonicalPath) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => gate);
+  bridgeWriteLocks.set(canonicalPath, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await work();
+  } finally {
+    release();
+    if (bridgeWriteLocks.get(canonicalPath) === queued) {
+      bridgeWriteLocks.delete(canonicalPath);
+    }
+  }
+}
+
+interface BridgeFileSnapshot {
+  content: string;
+  versionHash: string;
+  mode: number;
+}
+
+function contentVersionHash(content: string | Buffer): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/** Read an existing regular file without ever following a leaf symlink. */
+async function readBridgeFileSnapshot(
+  absolutePath: string,
+): Promise<BridgeFileSnapshot | null> {
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  let handle: FileHandle | null = null;
+  try {
+    handle = await fs.open(absolutePath, fsSync.constants.O_RDONLY | noFollow);
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      throw new Error(`Bridge target is not a regular file: ${absolutePath}`);
+    }
+    const bytes = await handle.readFile();
+    return {
+      content: bytes.toString("utf8"),
+      versionHash: contentVersionHash(bytes),
+      mode: stat.mode & 0o777,
+    };
+  } catch (error: unknown) {
+    const code =
+      error instanceof Error && "code" in error
+        ? (error as NodeJS.ErrnoException).code
+        : undefined;
+    if (code === "ENOENT") return null;
+    throw error;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+class BridgeVersionConflictError extends Error {
+  constructor(readonly currentVersionHash?: string) {
+    super("version conflict");
+  }
+}
+
+class BridgePreconditionRequiredError extends Error {
+  constructor() {
+    super("expectedVersionHash is required");
+  }
+}
+
+function assertExpectedBridgeVersion(
+  expectedVersionHash: string | undefined,
+  currentVersionHash: string | undefined,
+  requireExpectedVersionHash = false,
+): void {
+  // Preserve compatibility: callers that omit a hash retain the existing
+  // last-write-wins behavior, including creation. Compiled-source callers opt
+  // into exact compare-and-swap by sending the hash returned by read-file.
+  if (requireExpectedVersionHash && expectedVersionHash === undefined) {
+    throw new BridgePreconditionRequiredError();
+  }
+  if (
+    expectedVersionHash !== undefined &&
+    (currentVersionHash !== undefined
+      ? currentVersionHash !== expectedVersionHash
+      : requireExpectedVersionHash)
+  ) {
+    throw new BridgeVersionConflictError(currentVersionHash);
+  }
+}
+
+/**
+ * Replace a file durably without exposing a partial write: create an
+ * O_EXCL/O_NOFOLLOW temp sibling, fsync it, revalidate confinement and the
+ * expected content hash, rename atomically, then fsync the parent directory.
+ */
+async function atomicWriteBridgeFile(args: {
+  rootPath: string;
+  relPath: string;
+  lockedCanonicalPath: string;
+  content: string;
+  expectedVersionHash?: string;
+  requireExpectedVersionHash?: boolean;
+  originalMode?: number;
+}): Promise<string> {
+  const parent = path.dirname(path.resolve(args.rootPath, args.relPath));
+  await fs.mkdir(parent, { recursive: true });
+  const revalidated = await resolveSafeBridgeFileTarget(
+    args.rootPath,
+    args.relPath,
+  );
+  if (revalidated.canonicalPath !== args.lockedCanonicalPath) {
+    throw new Error("Bridge target changed while waiting for the write lock");
+  }
+
+  const basename = path.basename(revalidated.absolutePath);
+  const tempPath = path.join(
+    parent,
+    `.${basename}.agent-native-${process.pid}-${crypto.randomBytes(8).toString("hex")}.tmp`,
+  );
+  const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
+  let tempHandle: FileHandle | null = null;
+  try {
+    tempHandle = await fs.open(
+      tempPath,
+      fsSync.constants.O_CREAT |
+        fsSync.constants.O_EXCL |
+        fsSync.constants.O_WRONLY |
+        noFollow,
+      args.originalMode ?? 0o666,
+    );
+    await tempHandle.writeFile(args.content, "utf8");
+    await tempHandle.sync();
+    await tempHandle.close();
+    tempHandle = null;
+
+    // Re-check after the potentially slow temp write/fsync. This catches a
+    // parent/leaf symlink swap and an external content edit before rename.
+    const beforeRenameTarget = await resolveSafeBridgeFileTarget(
+      args.rootPath,
+      args.relPath,
+    );
+    if (beforeRenameTarget.canonicalPath !== args.lockedCanonicalPath) {
+      throw new Error("Bridge target changed during atomic write");
+    }
+    const current = await readBridgeFileSnapshot(
+      beforeRenameTarget.absolutePath,
+    );
+    assertExpectedBridgeVersion(
+      args.expectedVersionHash,
+      current?.versionHash,
+      args.requireExpectedVersionHash,
+    );
+
+    await fs.rename(tempPath, beforeRenameTarget.absolutePath);
+    const directoryHandle = await fs.open(parent, "r").catch(() => null);
+    if (directoryHandle) {
+      try {
+        await directoryHandle.sync();
+      } finally {
+        await directoryHandle.close();
+      }
+    }
+    return contentVersionHash(args.content);
+  } finally {
+    await tempHandle?.close().catch(() => undefined);
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+  }
+}
+
 /** Allowed file extensions for write/apply-edit operations. */
 const ALLOWED_WRITE_EXTENSIONS = new Set([
   ".html",
@@ -1164,21 +1425,6 @@ function assertNotBlockedSecretPath(relPath: string): void {
       `Access rejected: "${relPath}" matches a blocked secret-file pattern.`,
     );
   }
-}
-
-/**
- * Compute a cheap, stable version identifier for a file from its stat: mtime
- * plus size. Not a content hash — it is only meant to detect "did this file
- * change on disk since the caller last read it", the same tradeoff the inline
- * (SQL-backed) workspace provider's versionHash already makes. Returns
- * undefined when the file does not exist (new-file case).
- */
-async function computeVersionHash(
-  absolutePath: string,
-): Promise<string | undefined> {
-  const stat = await fs.stat(absolutePath).catch(() => null);
-  if (!stat) return undefined;
-  return `${stat.mtimeMs}-${stat.size}`;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -1516,6 +1762,18 @@ export async function startDesignConnectBridge(
   // other and boot a frame with another frame's identity. Keep keyed scripts
   // for modern clients while retaining the unkeyed slot for older clients.
   const liveEditBridgeScripts = new Map<string, string>();
+  // Identifies THIS bridge process's in-memory registry, minted fresh every
+  // time the bridge boots. `liveEditBridgeScripts` above only lives in
+  // process memory, so a bridge restart (crash, machine sleep/wake, manual
+  // restart) silently empties it: any screen that registered a bridgeKey
+  // before the restart now gets a 409 "unknown bridge key" from `/live-edit`
+  // even though nothing about that screen actually changed. Echoing this id
+  // on both the registration response and the 409 lets a client tell the two
+  // cases apart — "this exact process never saw my key" (stale/typo, id
+  // matches what it already has cached) vs. "the process restarted since I
+  // registered" (id changed, safe to transparently re-POST `/live-edit-bridge`
+  // and retry) — instead of guessing from the error text or retrying forever.
+  const bridgeInstanceId = crypto.randomBytes(16).toString("hex");
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
@@ -1574,6 +1832,7 @@ export async function startDesignConnectBridge(
           ok: true,
           source: manifest.source,
           appFingerprint: designConnectAppFingerprint(manifest),
+          bridgeInstanceId,
         });
         return;
       }
@@ -1628,6 +1887,7 @@ export async function startDesignConnectBridge(
             }
             sendJson(res, 200, {
               ok: true,
+              bridgeInstanceId,
               ...(bridgeKey ? { bridgeKey } : {}),
             });
           } catch (err: unknown) {
@@ -1668,8 +1928,17 @@ export async function startDesignConnectBridge(
               requestedBridgeKey &&
               !editorBridgeScript
             ) {
+              // Machine-readable `code` + echoed `bridgeKey`/`bridgeInstanceId`
+              // let a client distinguish "this bridge process restarted since
+              // I last registered — safe to silently re-POST
+              // /live-edit-bridge and retry" from a genuine caller bug,
+              // instead of string-matching `error` (see bridgeInstanceId's
+              // doc comment above for the full rationale).
               sendJson(res, 409, {
                 ok: false,
+                code: "unknown-bridge-key",
+                bridgeKey: requestedBridgeKey,
+                bridgeInstanceId,
                 error:
                   "The requested live-edit bridge script is not registered. Reload the Design frame to register it again.",
               });
@@ -1794,174 +2063,185 @@ export async function startDesignConnectBridge(
               return;
             }
 
-            await assertPathInside(manifest.rootPath, relPath);
             assertNotBlockedSecretPath(relPath);
-            const absolutePath = path.resolve(manifest.rootPath, relPath);
+            const initialTarget = await resolveSafeBridgeFileTarget(
+              manifest.rootPath,
+              relPath,
+            );
 
             if (pathname === "/read-file") {
               // Read-file: no extension restriction (agents need to read any
               // non-secret file), but the secret-path blocklist above still
               // applies to .env*, *.pem, *.key, id_rsa*, and anything under .git/.
-              let content: string;
-              try {
-                content = await fs.readFile(absolutePath, "utf8");
-              } catch (err: unknown) {
-                const code =
-                  err instanceof Error &&
-                  "code" in err &&
-                  (err as NodeJS.ErrnoException).code;
-                if (code === "ENOENT") {
-                  sendJson(res, 404, { ok: false, error: "file not found" });
-                } else {
-                  sendJson(res, 500, {
-                    ok: false,
-                    error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
-                  });
-                }
+              const snapshot = await readBridgeFileSnapshot(
+                initialTarget.absolutePath,
+              );
+              if (!snapshot) {
+                sendJson(res, 404, { ok: false, error: "file not found" });
                 return;
               }
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, { ok: true, content, versionHash });
+              sendJson(res, 200, {
+                ok: true,
+                content: snapshot.content,
+                versionHash: snapshot.versionHash,
+              });
               return;
             }
 
             // write-file and apply-edit only allow known text/code extensions.
             assertAllowedExtension(relPath);
 
-            // Optional optimistic-concurrency check: when the caller supplies
-            // expectedVersionHash, compare it against the file's CURRENT hash
-            // before writing. A missing file is treated as no-conflict (new
-            // file case) so first-time writes always succeed.
             const expectedVersionHash =
               typeof body["expectedVersionHash"] === "string"
                 ? body["expectedVersionHash"]
                 : undefined;
-            if (expectedVersionHash !== undefined) {
-              const currentVersionHash = await computeVersionHash(absolutePath);
-              if (
-                currentVersionHash !== undefined &&
-                currentVersionHash !== expectedVersionHash
-              ) {
-                sendJson(res, 409, {
-                  ok: false,
-                  error: "version conflict",
-                  currentVersionHash,
+            const requireExpectedVersionHash =
+              body["requireExpectedVersionHash"] === true;
+            await withBridgeWriteLock(initialTarget.canonicalPath, async () => {
+              const lockedTarget = await resolveSafeBridgeFileTarget(
+                manifest.rootPath,
+                relPath,
+              );
+              if (lockedTarget.canonicalPath !== initialTarget.canonicalPath) {
+                throw new Error(
+                  "Bridge target changed while waiting for the write lock",
+                );
+              }
+              const existing = await readBridgeFileSnapshot(
+                lockedTarget.absolutePath,
+              );
+              assertExpectedBridgeVersion(
+                expectedVersionHash,
+                existing?.versionHash,
+                requireExpectedVersionHash,
+              );
+
+              if (pathname === "/write-file") {
+                const content =
+                  typeof body["content"] === "string"
+                    ? body["content"]
+                    : undefined;
+                if (content === undefined) {
+                  sendJson(res, 400, {
+                    ok: false,
+                    error: "content is required for write-file",
+                  });
+                  return;
+                }
+                const versionHash = await atomicWriteBridgeFile({
+                  rootPath: manifest.rootPath,
+                  relPath,
+                  lockedCanonicalPath: initialTarget.canonicalPath,
+                  content,
+                  expectedVersionHash,
+                  requireExpectedVersionHash,
+                  originalMode: existing?.mode,
+                });
+                sendJson(res, 200, { ok: true, relPath, versionHash });
+                return;
+              }
+
+              // /apply-edit supports either full replace ({content}) or one
+              // exact search-and-replace. Both stay within this file's lock.
+              if (typeof body["content"] === "string") {
+                const versionHash = await atomicWriteBridgeFile({
+                  rootPath: manifest.rootPath,
+                  relPath,
+                  lockedCanonicalPath: initialTarget.canonicalPath,
+                  content: body["content"],
+                  expectedVersionHash,
+                  requireExpectedVersionHash,
+                  originalMode: existing?.mode,
+                });
+                sendJson(res, 200, {
+                  ok: true,
+                  relPath,
+                  method: "replace",
+                  versionHash,
                 });
                 return;
               }
-            }
 
-            if (pathname === "/write-file") {
-              const content =
-                typeof body["content"] === "string"
-                  ? body["content"]
+              const search =
+                typeof body["search"] === "string" ? body["search"] : undefined;
+              const replace =
+                typeof body["replace"] === "string"
+                  ? body["replace"]
                   : undefined;
-              if (content === undefined) {
+              if (search === undefined || replace === undefined) {
                 sendJson(res, 400, {
                   ok: false,
-                  error: "content is required for write-file",
+                  error:
+                    "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
                 });
                 return;
               }
-              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-              await fs.writeFile(absolutePath, content, "utf8");
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, { ok: true, relPath, versionHash });
-              return;
-            }
-
-            // /apply-edit: supports either full replace ({content}) or
-            // search-and-replace ({search, replace}).
-            if (typeof body["content"] === "string") {
-              // Full-file replace via apply-edit — same as write-file but keeps
-              // the endpoint semantically separate for callers that want to
-              // distinguish intent.
-              await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-              await fs.writeFile(
-                absolutePath,
-                body["content"] as string,
-                "utf8",
-              );
-              const versionHash = await computeVersionHash(absolutePath);
-              sendJson(res, 200, {
-                ok: true,
-                relPath,
-                method: "replace",
-                versionHash,
-              });
-              return;
-            }
-
-            const search =
-              typeof body["search"] === "string" ? body["search"] : undefined;
-            const replace =
-              typeof body["replace"] === "string" ? body["replace"] : undefined;
-            if (search === undefined || replace === undefined) {
-              sendJson(res, 400, {
-                ok: false,
-                error:
-                  "apply-edit requires either {content} for a full replace, or {search, replace} for a patch",
-              });
-              return;
-            }
-
-            let existing: string;
-            try {
-              existing = await fs.readFile(absolutePath, "utf8");
-            } catch (err: unknown) {
-              const code =
-                err instanceof Error &&
-                "code" in err &&
-                (err as NodeJS.ErrnoException).code;
-              if (code === "ENOENT") {
+              if (!existing) {
                 sendJson(res, 404, {
                   ok: false,
                   error: "file not found — use write-file to create new files",
                 });
-              } else {
-                sendJson(res, 500, {
-                  ok: false,
-                  error: `read failed: ${err instanceof Error ? err.message : String(err)}`,
-                });
+                return;
               }
-              return;
-            }
-
-            if (search.length === 0) {
-              sendJson(res, 400, {
-                ok: false,
-                error: "search string must not be empty",
+              if (search.length === 0) {
+                sendJson(res, 400, {
+                  ok: false,
+                  error: "search string must not be empty",
+                });
+                return;
+              }
+              const occurrenceCount = countOccurrences(
+                existing.content,
+                search,
+              );
+              if (occurrenceCount === 0) {
+                sendJson(res, 422, {
+                  ok: false,
+                  error: "search string not found in file",
+                });
+                return;
+              }
+              if (occurrenceCount > 1) {
+                sendJson(res, 422, {
+                  ok: false,
+                  error:
+                    "search string is ambiguous; it appears more than once in the file",
+                });
+                return;
+              }
+              const updated = existing.content.replace(search, replace);
+              const versionHash = await atomicWriteBridgeFile({
+                rootPath: manifest.rootPath,
+                relPath,
+                lockedCanonicalPath: initialTarget.canonicalPath,
+                content: updated,
+                expectedVersionHash,
+                requireExpectedVersionHash,
+                originalMode: existing.mode,
               });
-              return;
-            }
-
-            const occurrenceCount = countOccurrences(existing, search);
-            if (occurrenceCount === 0) {
-              sendJson(res, 422, {
-                ok: false,
-                error: "search string not found in file",
+              sendJson(res, 200, {
+                ok: true,
+                relPath,
+                method: "patch",
+                versionHash,
               });
-              return;
-            }
-            if (occurrenceCount > 1) {
-              sendJson(res, 422, {
-                ok: false,
-                error:
-                  "search string is ambiguous; it appears more than once in the file",
-              });
-              return;
-            }
-
-            const updated = existing.replace(search, replace);
-            await fs.writeFile(absolutePath, updated, "utf8");
-            const versionHash = await computeVersionHash(absolutePath);
-            sendJson(res, 200, {
-              ok: true,
-              relPath,
-              method: "patch",
-              versionHash,
             });
           } catch (err: unknown) {
+            if (err instanceof BridgePreconditionRequiredError) {
+              sendJson(res, 428, {
+                ok: false,
+                error: "expectedVersionHash is required",
+              });
+              return;
+            }
+            if (err instanceof BridgeVersionConflictError) {
+              sendJson(res, 409, {
+                ok: false,
+                error: "version conflict",
+                currentVersionHash: err.currentVersionHash,
+              });
+              return;
+            }
             sendJson(res, 500, {
               ok: false,
               error: err instanceof Error ? err.message : String(err),
@@ -1990,12 +2270,14 @@ export async function startDesignConnectBridge(
             const proxied = await fetchPreviewProxyResource(
               manifest.devServerUrl,
               targetUrl,
+              previewProxyRequestHeaders(req),
             );
             sendBytes(
               res,
               proxied.status >= 400 ? proxied.status : 200,
               req.method === "HEAD" ? Buffer.alloc(0) : proxied.body,
               proxied.headers,
+              proxied.body.length,
             );
           } catch (err: unknown) {
             sendJson(res, 400, {
@@ -2019,7 +2301,7 @@ export async function startDesignConnectBridge(
     });
   });
 
-  return { server, manifest, bridgeToken, previewToken };
+  return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
 }
 
 /**
@@ -2163,12 +2445,11 @@ Options:
 
 Element provenance (resolveNodeToFile):
   The design editor can map a selected DOM element back to its source file,
-  line, and React component name when the connected app emits provenance
-  attributes at build time.  Add one of the following to your app's build:
+  line, and component name using one of these provenance sources:
 
-  • @vitejs/plugin-react with jsxDEV enabled (development mode default):
-      Sets data-source-file and data-source-line on each JSX element
-      automatically when using the Babel transform.
+  • React development builds with jsxDEV enabled (the default):
+      Design reads the selected element's development-only Fiber debug stack.
+      React does not emit data-source-* DOM attributes automatically.
 
   • A Babel source plugin (e.g. babel-plugin-react-source or a custom plugin):
       Emits data-source-file="src/Button.tsx" data-source-line="12"
@@ -2177,7 +2458,8 @@ Element provenance (resolveNodeToFile):
   • data-loc="src/Button.tsx:12:4" shorthand attribute (Babel source convention):
       The bridge parses this as { sourceFile, line, column } automatically.
 
-  Without these attributes the editor still works; provenance is simply absent.
+  In production React builds and other runtimes without explicit attributes,
+  the editor still works but exact element provenance may be absent.
   Cross-origin localhost iframes cannot be read regardless of attributes (CSP).`);
 }
 

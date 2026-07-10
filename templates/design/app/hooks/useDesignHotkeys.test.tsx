@@ -191,6 +191,25 @@ describe("useDesignHotkeys — Figma selection and frame traversal", () => {
     expect(onToggleUi).not.toHaveBeenCalled();
   });
 
+  it("uses Enter to drill in and Shift+Enter as its select-parent sibling", async () => {
+    const onEnter = vi.fn();
+    const onSelectParent = vi.fn();
+    await withHotkeys({ onEnter, onSelectParent }, () => {
+      dispatchKey("Enter");
+      dispatchKey("Enter", { shiftKey: true });
+    });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+    expect(onSelectParent).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to onEnter for Shift+Enter when onSelectParent isn't wired", async () => {
+    const onEnter = vi.fn();
+    await withHotkeys({ onEnter }, () => {
+      dispatchKey("Enter", { shiftKey: true });
+    });
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+
   it("does not turn inverse/matching-selection shortcuts into Select all", async () => {
     const onSelectAll = vi.fn();
     await withHotkeys({ onSelectAll }, () => {

@@ -1228,50 +1228,33 @@ function projectionsOverlap(
  * For `origin.rotation` falsy this is identical to calling
  * `resizeFrameFromDelta` directly.
  */
-export function resizeRotatedFrameFromDelta(
+/**
+ * Shared re-anchor step used by both resizeRotatedFrameFromDelta and its
+ * snap-aware counterpart below: given the frame's ORIGIN geometry (still
+ * carrying its rotation) and a candidate RESIZED-LOCAL geometry (unrotated,
+ * already grown/shrunk along the frame's own local axes — optionally
+ * adjusted by a snap pass in between), translates the resized-local geometry
+ * so the same handle-opposite anchor point (or the frame's own center, for
+ * an alt/option "resize from center" drag) stays fixed in WORLD space once
+ * rotation is re-applied. See resizeRotatedFrameFromDelta's original inline
+ * comment (kept there) for why alt-resize anchors on the center instead of
+ * the opposite corner/edge.
+ */
+function reanchorRotatedResizeToWorld(
   origin: FrameGeometry,
   handle: ResizeHandle,
-  worldDx: number,
-  worldDy: number,
-  options: ResizeFrameOptions = {},
+  degrees: number,
+  resizedLocal: FrameGeometry,
+  options: Pick<ResizeFrameOptions, "resizeFromCenter">,
 ): FrameGeometry {
-  const degrees = origin.rotation ?? 0;
-  if (!degrees) {
-    return resizeFrameFromDelta(origin, handle, worldDx, worldDy, options);
-  }
-
   const originCenter = {
     x: origin.x + origin.width / 2,
     y: origin.y + origin.height / 2,
   };
-  // Alt/option resize (`resizeFromCenter`) already grows the frame
-  // symmetrically about its own center in LOCAL space (resizeFrameFromDelta
-  // below keeps the center fixed on both axes for that mode). To keep that
-  // center fixed in WORLD space too — matching Figma, where alt-resizing a
-  // rotated frame grows around its visual center rather than pivoting off an
-  // opposite corner — the re-anchor step below must use the center as its
-  // fixed point instead of the handle's opposite corner/edge. Using the
-  // center as the anchor is a no-op for the rotation (a point rotates around
-  // itself unchanged), so it stays put in world space by construction.
-  // Non-center (default) resizes keep anchoring on the opposite corner/edge
-  // so that world-fixed-anchor behavior is unchanged.
   const anchorLocalBefore = options.resizeFromCenter
     ? originCenter
     : getResizeAnchorPoint(origin, handle);
   const anchorWorld = rotatePoint(anchorLocalBefore, originCenter, degrees);
-
-  // Map the world-space pointer delta into the frame's own unrotated axes so
-  // dragging "outward along the handle" behaves the same regardless of how
-  // the frame is rotated.
-  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
-
-  const resizedLocal = resizeFrameFromDelta(
-    { ...origin, rotation: undefined },
-    handle,
-    localDelta.x,
-    localDelta.y,
-    options,
-  );
 
   const centerAfterLocal = {
     x: resizedLocal.x + resizedLocal.width / 2,
@@ -1295,6 +1278,124 @@ export function resizeRotatedFrameFromDelta(
     x: resizedLocal.x + translation.x,
     y: resizedLocal.y + translation.y,
     rotation: degrees,
+  };
+}
+
+export function resizeRotatedFrameFromDelta(
+  origin: FrameGeometry,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  options: ResizeFrameOptions = {},
+): FrameGeometry {
+  const degrees = origin.rotation ?? 0;
+  if (!degrees) {
+    return resizeFrameFromDelta(origin, handle, worldDx, worldDy, options);
+  }
+
+  // Map the world-space pointer delta into the frame's own unrotated axes so
+  // dragging "outward along the handle" behaves the same regardless of how
+  // the frame is rotated.
+  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
+
+  const resizedLocal = resizeFrameFromDelta(
+    { ...origin, rotation: undefined },
+    handle,
+    localDelta.x,
+    localDelta.y,
+    options,
+  );
+
+  return reanchorRotatedResizeToWorld(
+    origin,
+    handle,
+    degrees,
+    resizedLocal,
+    options,
+  );
+}
+
+/**
+ * Rotation-aware counterpart to resizeRotatedFrameFromDelta that also snaps
+ * to nearby stationary siblings, matching computeResizeSnap's contract for
+ * the unrotated group-resize path (CV-style: same threshold/guide shape).
+ *
+ * Approximation (documented, see WORK ITEM 2 in the canvas bug pass this was
+ * added for): true Figma parity would project the dragged handle's actual
+ * ROTATED world position/edge onto sibling edges. This instead snaps the
+ * frame's own unrotated LOCAL bounds — the same box resizeRotatedFrameFromDelta
+ * computes before re-anchoring — directly against stationary siblings' WORLD
+ * bounds, using the exact same computeResizeSnap machinery a non-rotated
+ * resize uses. That comparison is exact when the dragged frame's rotation is
+ * 0 (identical to the plain resize+snap path) and increasingly approximate as
+ * rotation grows, since the local box's edges diverge further from its actual
+ * rotated world edges. It still snaps to the closest sibling edge/center in
+ * the vast majority of authoring cases (small rotations, or siblings aligned
+ * near the anchor corner the resize is pivoting around) without the added
+ * complexity of full rotated-edge projection.
+ */
+export function resizeRotatedFrameFromDeltaWithSnap(
+  origin: FrameGeometry,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  stationary: FrameEntry[],
+  snapOptions: ResizeSnapOptions,
+  options: ResizeFrameOptions = {},
+): { frame: FrameGeometry; guides: AlignmentGuide[] } {
+  const degrees = origin.rotation ?? 0;
+  if (!degrees) {
+    const resizedLocal = resizeFrameFromDelta(
+      origin,
+      handle,
+      worldDx,
+      worldDy,
+      options,
+    );
+    return computeResizeSnap(resizedLocal, stationary, handle, snapOptions);
+  }
+
+  const localDelta = rotateVector({ x: worldDx, y: worldDy }, -degrees);
+
+  const resizedLocal = resizeFrameFromDelta(
+    { ...origin, rotation: undefined },
+    handle,
+    localDelta.x,
+    localDelta.y,
+    options,
+  );
+
+  // Snapping is skipped outright for a rotated frame whenever the caller's
+  // aspect-preserve flag is set (shift-held or the K scale tool):
+  // independently snapping x and y against the local-bounds approximation
+  // above would distort the locked ratio the aspect-preserving resize above
+  // just computed, and computeAspectPreservingResizeSnap's own single-locked-
+  // ratio reasoning only holds against the frame's true (rotated) shape, not
+  // this approximation. No snap beats a wrong one here.
+  if (snapOptions.preserveAspectRatio || snapOptions.bypass) {
+    return {
+      frame: reanchorRotatedResizeToWorld(
+        origin,
+        handle,
+        degrees,
+        resizedLocal,
+        options,
+      ),
+      guides: [],
+    };
+  }
+
+  const snap = computeResizeSnap(resizedLocal, stationary, handle, snapOptions);
+
+  return {
+    frame: reanchorRotatedResizeToWorld(
+      origin,
+      handle,
+      degrees,
+      snap.frame,
+      options,
+    ),
+    guides: snap.guides,
   };
 }
 

@@ -22,6 +22,7 @@ const testState = vi.hoisted(() => ({
   },
   link: null as any,
   comments: [] as Array<Record<string, unknown>>,
+  versions: [] as Array<Record<string, unknown>>,
 }));
 
 const notionMocks = vi.hoisted(() => {
@@ -106,6 +107,14 @@ vi.mock("../db/index.js", () => {
       ownerEmail: "documentSyncLinks.ownerEmail",
       syncClaimedAt: "documentSyncLinks.syncClaimedAt",
     },
+    documentVersions: {
+      id: "documentVersions.id",
+      documentId: "documentVersions.documentId",
+      ownerEmail: "documentVersions.ownerEmail",
+      title: "documentVersions.title",
+      content: "documentVersions.content",
+      createdAt: "documentVersions.createdAt",
+    },
     documentComments: {
       documentId: "documentComments.documentId",
       ownerEmail: "documentComments.ownerEmail",
@@ -143,7 +152,7 @@ vi.mock("../db/index.js", () => {
     return true;
   }
 
-  const db = {
+  const db: any = {
     select: () => ({
       from: (table: unknown) => ({
         where: async () => {
@@ -157,17 +166,23 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     insert: (table: unknown) => ({
-      values: (row: Record<string, unknown>) => ({
-        onConflictDoUpdate: async ({
-          set,
-        }: {
-          set: Record<string, unknown>;
-        }) => {
-          if (table === schema.documentSyncLinks) {
-            testState.link = { ...row, ...set };
-          }
-        },
-      }),
+      values: (row: Record<string, unknown>) => {
+        if (table === schema.documentVersions) {
+          testState.versions.push(row);
+          return Promise.resolve();
+        }
+        return {
+          onConflictDoUpdate: async ({
+            set,
+          }: {
+            set: Record<string, unknown>;
+          }) => {
+            if (table === schema.documentSyncLinks) {
+              testState.link = { ...row, ...set };
+            }
+          },
+        };
+      },
     }),
     update: (table: unknown) => ({
       set: (updates: Record<string, unknown>) => ({
@@ -213,6 +228,7 @@ vi.mock("../db/index.js", () => {
         }
       },
     }),
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
   };
 
   return { getDb: () => db, schema };
@@ -403,6 +419,7 @@ describe("getDocumentSyncStatus", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
     });
@@ -458,6 +475,7 @@ describe("pullDocumentFromNotion", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -528,6 +546,13 @@ describe("pullDocumentFromNotion", () => {
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Remote edit from Notion"),
     );
+    expect(testState.versions).toContainEqual(
+      expect.objectContaining({
+        documentId: "doc-1",
+        title: "Local title",
+        content: "Local body",
+      }),
+    );
     expect(status.hasConflict).toBe(false);
   });
 });
@@ -560,6 +585,7 @@ describe("refreshDocumentSyncStatus", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -921,6 +947,7 @@ describe("pushDocumentToNotion", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -1023,6 +1050,9 @@ describe("pushDocumentToNotion", () => {
 
     // The concurrent save must survive; normalized old content must not land.
     expect(testState.document.content).toBe("Newer local save mid-push");
+    // A lost replacement CAS must not create a history entry for a
+    // replacement that never happened.
+    expect(testState.versions).toHaveLength(0);
   });
 
   it("leaves localChanged false when Notion's post-push readback normalizes the content (n-C)", async () => {
@@ -1063,6 +1093,13 @@ describe("pushDocumentToNotion", () => {
     expect(status.localChanged).toBe(false);
     expect(testState.document.content).toBe(
       "Local edit typed just now (normalized)",
+    );
+    expect(testState.versions).toContainEqual(
+      expect.objectContaining({
+        documentId: "doc-1",
+        title: "Local title",
+        content: "Local edit typed just now",
+      }),
     );
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Local edit typed just now (normalized)"),

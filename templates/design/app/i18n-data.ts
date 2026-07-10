@@ -691,6 +691,8 @@ const enUS = {
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
+      reactSourceAnchorsLoading:
+        "React source anchors are still loading. Try again once the local app finishes rendering.",
     },
   },
   layersPanel: {
@@ -727,6 +729,15 @@ const enUS = {
     frameSelection: "Frame selection",
     flipHorizontal: "Flip horizontal",
     flipVertical: "Flip vertical",
+    dragGhostCount: "{{count}} layers",
+  },
+  designCanvas: {
+    localBridge: {
+      confirmationRetryExhausted:
+        "Live editor bridge did not confirm after several attempts.",
+      connectionNotConfirmed:
+        "The live editor bridge did not confirm the connection. Is the local dev server still running?",
+    },
   },
   multiScreenCanvas: {
     duplicate: "Duplicate",
@@ -806,6 +817,8 @@ const enUS = {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    failedToSubmitPrompt: "Failed to submit prompt",
+    skipPrompt: "Skip prompt",
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
@@ -878,6 +891,9 @@ const enUS = {
       conflict: "Conflict {{count}}",
       blocked: "Blocked {{count}}",
     },
+    queuedCommentsDiscarded:
+      "{{count}} unsent comment draft(s) were discarded when you left this view.",
+    staleAnchorDetail: "Original element no longer found on the canvas.",
   },
   home: {
     pageTitle: "Designs",
@@ -4663,6 +4679,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "图像、PDF、文本/代码",
       pickAsset: "选择资产",
       pickAssetDescription: "浏览或生成图像",
+      failedToSubmitPrompt: "提交提示失败",
+      skipPrompt: "跳过提示",
     },
     visualEditor: {
       typeAnnotation: "键入注释...",
@@ -4815,6 +4833,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Imágenes, PDF, texto/código",
       pickAsset: "Elegir activo",
       pickAssetDescription: "Explorar o generar imágenes",
+      failedToSubmitPrompt: "No se pudo enviar el prompt",
+      skipPrompt: "Omitir prompt",
     },
     visualEditor: {
       typeAnnotation: "Escriba anotación...",
@@ -4970,6 +4990,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Images, PDF, texte/code",
       pickAsset: "Choisir un actif",
       pickAssetDescription: "Parcourir ou générer des images",
+      failedToSubmitPrompt: "Échec de l'envoi du prompt",
+      skipPrompt: "Ignorer le prompt",
     },
     visualEditor: {
       typeAnnotation: "Tapez l'annotation...",
@@ -5125,6 +5147,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Bilder, PDFs, Text/Code",
       pickAsset: "Wählen Sie ein Asset aus",
       pickAssetDescription: "Durchsuchen oder generieren Sie Bilder",
+      failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
+      skipPrompt: "Prompt überspringen",
     },
     visualEditor: {
       typeAnnotation: "Anmerkung eingeben...",
@@ -5280,6 +5304,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "画像、PDF、テキスト/コード",
       pickAsset: "アセットを選択",
       pickAssetDescription: "画像の参照または生成",
+      failedToSubmitPrompt: "プロンプトの送信に失敗しました",
+      skipPrompt: "プロンプトをスキップ",
     },
     visualEditor: {
       typeAnnotation: "注釈を入力...",
@@ -5430,6 +5456,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "이미지, PDF, 텍스트/코드",
       pickAsset: "자산 선택",
       pickAssetDescription: "이미지 찾아보기 또는 생성",
+      failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다.",
+      skipPrompt: "프롬프트 건너뛰기",
     },
     visualEditor: {
       typeAnnotation: "주석 입력...",
@@ -5582,6 +5610,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "Imagens, PDFs, texto/código",
       pickAsset: "Escolher ativo",
       pickAssetDescription: "Navegue ou gere imagens",
+      failedToSubmitPrompt: "Falha ao enviar o prompt",
+      skipPrompt: "Pular prompt",
     },
     visualEditor: {
       typeAnnotation: "Digite anotação...",
@@ -5735,6 +5765,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "छवियाँ, PDFs, पाठ/कोड",
       pickAsset: "संपत्ति चुनें",
       pickAssetDescription: "छवियाँ ब्राउज़ करें या उत्पन्न करें",
+      failedToSubmitPrompt: "प्रॉम्प्ट सबमिट करने में विफल",
+      skipPrompt: "प्रॉम्प्ट छोड़ें",
     },
     visualEditor: {
       typeAnnotation: "एनोटेशन टाइप करें...",
@@ -5885,6 +5917,8 @@ const designRawLiteralOverrides = {
       uploadFileDescription: "الصور، PDFs، النص/الرمز",
       pickAsset: "اختر الأصول",
       pickAssetDescription: "تصفح أو توليد الصور",
+      failedToSubmitPrompt: "فشل إرسال المطالبة",
+      skipPrompt: "تخطي المطالبة",
     },
     visualEditor: {
       typeAnnotation: "اكتب تعليقًا توضيحيًا...",
@@ -6912,6 +6946,9 @@ const designModeFeatureOverrides = {
           detail: "可能超出此畫布編輯範圍。",
         },
       },
+      queuedCommentsDiscarded:
+        "離開此檢視時，{{count}} 則未傳送的評論草稿已被捨棄。",
+      staleAnchorDetail: "原始元素已不在畫布中。",
     },
   },
   "zh-CN": {
@@ -12220,6 +12257,248 @@ const designMotionAndBreakpointOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+// Runtime-layer identity, prompt/comment feedback, and localhost bridge copy.
+// zh-TW lives in app/i18n/zh-TW.ts with the rest of that locale's catalog.
+const designRuntimeIdentityAndBridgeOverrides = {
+  "zh-CN": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "React 源码锚点仍在加载中。请等本地应用完成渲染后再试一次。",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} 个图层" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "多次尝试后，实时编辑器桥接器仍未确认连接。",
+        connectionNotConfirmed:
+          "实时编辑器桥接器未确认连接。本地开发服务器是否仍在运行？",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "无法提交提示",
+      skipPrompt: "跳过提示",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "离开此视图时，{{count}} 个未发送的评论草稿已被丢弃。",
+      staleAnchorDetail: "在画布上已找不到原始元素。",
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "Los anclajes al código fuente de React aún se están cargando. Vuelve a intentarlo cuando la aplicación local termine de renderizarse.",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} capas" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "El puente del editor en vivo no confirmó la conexión tras varios intentos.",
+        connectionNotConfirmed:
+          "El puente del editor en vivo no confirmó la conexión. ¿Sigue ejecutándose el servidor de desarrollo local?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "No se pudo enviar el prompt",
+      skipPrompt: "Omitir prompt",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "Se descartaron {{count}} borradores de comentarios sin enviar al salir de esta vista.",
+      staleAnchorDetail:
+        "Ya no se encuentra el elemento original en el lienzo.",
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "Les ancres vers le code source React sont encore en cours de chargement. Réessayez une fois le rendu de l’application locale terminé.",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} calques" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "Le pont de l’éditeur en direct n’a pas confirmé la connexion après plusieurs tentatives.",
+        connectionNotConfirmed:
+          "Le pont de l’éditeur en direct n’a pas confirmé la connexion. Le serveur de développement local est-il toujours en cours d’exécution ?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "Impossible d’envoyer le prompt",
+      skipPrompt: "Ignorer le prompt",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "Vous avez quitté cette vue : {{count}} brouillons de commentaires non envoyés ont été supprimés.",
+      staleAnchorDetail: "L’élément d’origine est introuvable sur le canevas.",
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "Die React-Quellcodeanker werden noch geladen. Versuche es erneut, sobald die lokale App vollständig gerendert wurde.",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} Ebenen" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
+        connectionNotConfirmed:
+          "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
+      skipPrompt: "Prompt überspringen",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "Beim Verlassen dieser Ansicht wurden {{count}} nicht gesendete Kommentarentwürfe verworfen.",
+      staleAnchorDetail:
+        "Das ursprüngliche Element wurde auf der Arbeitsfläche nicht mehr gefunden.",
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "React ソースのアンカーを読み込み中です。ローカルアプリのレンダリングが完了してからもう一度お試しください。",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} 個のレイヤー" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
+        connectionNotConfirmed:
+          "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "プロンプトを送信できませんでした",
+      skipPrompt: "プロンプトをスキップ",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "このビューを離れたため、未送信のコメント下書き {{count}} 件が破棄されました。",
+      staleAnchorDetail: "元の要素がキャンバス上に見つかりません。",
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "React 소스 앵커를 아직 불러오는 중입니다. 로컬 앱의 렌더링이 끝난 후 다시 시도하세요.",
+      },
+    },
+    layersPanel: { dragGhostCount: "레이어 {{count}}개" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "여러 번 시도했지만 라이브 편집기 브리지가 연결을 확인하지 못했습니다.",
+        connectionNotConfirmed:
+          "라이브 편집기 브리지가 연결을 확인하지 못했습니다. 로컬 개발 서버가 아직 실행 중인가요?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
+      skipPrompt: "프롬프트 건너뛰기",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "이 보기를 벗어나면서 보내지 않은 댓글 초안 {{count}}개가 삭제되었습니다.",
+      staleAnchorDetail: "원래 요소를 캔버스에서 더 이상 찾을 수 없습니다.",
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "Os vínculos ao código-fonte do React ainda estão sendo carregados. Tente novamente quando o app local terminar de renderizar.",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} camadas" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "Mesmo após várias tentativas, a ponte do editor em tempo real não confirmou a conexão.",
+        connectionNotConfirmed:
+          "A ponte do editor em tempo real não confirmou a conexão. O servidor de desenvolvimento local ainda está em execução?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "Não foi possível enviar o prompt",
+      skipPrompt: "Pular prompt",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "{{count}} rascunhos de comentários não enviados foram descartados quando você saiu desta visualização.",
+      staleAnchorDetail:
+        "O elemento original não foi mais encontrado na tela de design.",
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "React सोर्स एंकर अभी लोड हो रहे हैं। लोकल ऐप की रेंडरिंग पूरी होने के बाद फिर से कोशिश करें।",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} लेयर" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
+        connectionNotConfirmed:
+          "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
+      skipPrompt: "प्रॉम्प्ट छोड़ें",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "इस व्यू से बाहर निकलने पर {{count}} नहीं भेजे गए कमेंट ड्राफ़्ट हटा दिए गए।",
+      staleAnchorDetail: "मूल एलिमेंट अब कैनवास पर नहीं मिला।",
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      toasts: {
+        reactSourceAnchorsLoading:
+          "لا تزال نقاط ارتساء مصدر React قيد التحميل. أعد المحاولة بعد اكتمال عرض التطبيق المحلي.",
+      },
+    },
+    layersPanel: { dragGhostCount: "{{count}} طبقات" },
+    designCanvas: {
+      localBridge: {
+        confirmationRetryExhausted:
+          "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
+        connectionNotConfirmed:
+          "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
+      },
+    },
+    promptDialog: {
+      failedToSubmitPrompt: "تعذر إرسال المطالبة",
+      skipPrompt: "تخطي المطالبة",
+    },
+    visualEditor: {
+      queuedCommentsDiscarded:
+        "تم تجاهل {{count}} مسودة تعليق غير مرسلة عند مغادرة هذا العرض.",
+      staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeMessages(
@@ -12261,6 +12540,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["zh-CN"],
       breakpointBarOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
+      designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -12330,6 +12610,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["es-ES"],
       breakpointBarOverrides["es-ES"],
       motionDockOverrides["es-ES"],
+      designRuntimeIdentityAndBridgeOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -12401,6 +12682,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["fr-FR"],
       breakpointBarOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
+      designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -12472,6 +12754,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["de-DE"],
       breakpointBarOverrides["de-DE"],
       motionDockOverrides["de-DE"],
+      designRuntimeIdentityAndBridgeOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -12543,6 +12826,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ja-JP"],
       breakpointBarOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
+      designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -12615,6 +12899,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ko-KR"],
       breakpointBarOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
+      designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -12685,6 +12970,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["pt-BR"],
       breakpointBarOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
+      designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -12756,6 +13042,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["hi-IN"],
       breakpointBarOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
+      designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -12827,6 +13114,7 @@ export const messagesByLocale = {
       designMotionAndBreakpointOverrides["ar-SA"],
       breakpointBarOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
+      designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

@@ -6,7 +6,7 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   Tooltip,
@@ -19,6 +19,7 @@ import {
   AutoLayoutMatrix,
   ScrubInput,
   SizingField,
+  type AutoLayoutFlow,
   type AutoLayoutMatrixValue,
   type ScrubInputChangeMeta,
 } from "../inspector";
@@ -29,7 +30,6 @@ import {
   commitElementMinMax,
   commitElementSizing,
   cssElementSize,
-  elementHasLayoutChildren,
   horizontalToJustify,
   inferElementSizing,
   isContainerElement,
@@ -40,7 +40,7 @@ import {
 } from "./element-classification";
 import {
   deriveLockedAspectSize,
-  elementIdentityKey,
+  elementStableKey,
   useAspectRatioLock,
 } from "./element-identity";
 import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
@@ -66,6 +66,38 @@ import {
   parseNumericValue,
 } from "./style-options";
 
+/**
+ * The `justifyContent` to write when the primary-axis gap-mode toggle
+ * changes. "Auto" gap mode IS `justify-content: space-between` (see
+ * `spaceBetween` on `AutoLayoutMatrixValue`); switching back to "Fixed"
+ * should restore whichever packed alignment (flex-start/center/flex-end) was
+ * in effect before "Auto" was turned on, not hard-reset to flex-start —
+ * mirrors Figma, where turning off "Space between" returns to the
+ * previously chosen start/center/end packing instead of silently
+ * re-aligning everything to the start. `lastPackedJustify` is the caller's
+ * best-known non-"space-between" `justifyContent` (see
+ * `lastPackedJustifyRef` at the call site). Exported for tests.
+ */
+export function justifyContentForGapMode(
+  gapMode: "auto" | "fixed",
+  lastPackedJustify: string,
+): string {
+  return gapMode === "auto" ? "space-between" : lastPackedJustify;
+}
+
+export function autoLayoutStylesForFlow(
+  flow: AutoLayoutFlow,
+): Record<string, string> {
+  if (flow === "normal") return { display: "block" };
+  if (flow === "vertical") {
+    return { display: "flex", flexDirection: "column", flexWrap: "nowrap" };
+  }
+  if (flow === "grid") {
+    return { display: "flex", flexDirection: "row", flexWrap: "wrap" };
+  }
+  return { display: "flex", flexDirection: "row", flexWrap: "nowrap" };
+}
+
 /** Flex container properties */
 function FlexContainerControls({
   element,
@@ -88,9 +120,27 @@ function FlexContainerControls({
   const displayMode: AutoLayoutMatrixValue["display"] = isFlex
     ? "flex"
     : "block";
-  const hasLayoutChildren = elementHasLayoutChildren(element);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  // `justifyContent` is always the main-axis property in flexbox regardless
+  // of direction, so it doubles as the "packed" (start/center/end) main-axis
+  // alignment AND the gap-mode signal ("space-between" = Auto gap, see
+  // `spaceBetween` below). Remember the last non-"space-between" value here
+  // so turning gap mode back to Fixed can restore the user's chosen packed
+  // alignment (see onGapModeChange) instead of hard-resetting to flex-start
+  // — mirrors Figma, where switching a container's primary-axis distribution
+  // away from "Space between" returns to whichever start/center/end packing
+  // was previously selected.
+  const lastPackedJustifyRef = useRef(
+    styles.justifyContent && styles.justifyContent !== "space-between"
+      ? styles.justifyContent
+      : "flex-start",
+  );
+  useEffect(() => {
+    if (styles.justifyContent && styles.justifyContent !== "space-between") {
+      lastPackedJustifyRef.current = styles.justifyContent;
+    }
+  }, [styles.justifyContent]);
   const mainGapAxis =
     flexDirection === "horizontal" ? "horizontal" : "vertical";
   // When the element is in normal flow (not flex yet), picking any flow option
@@ -146,7 +196,18 @@ function FlexContainerControls({
     wrap: styles.flexWrap === "wrap" ? "wrap" : "nowrap",
     alignment: autoLayoutAlignmentFromStyles(styles, flexDirection),
     gap: parseNumericValue(styles.gap || "0"),
+    // Multi-selections with differing gap/padding surface the MIXED_VALUE
+    // sentinel here; parseNumericValue would silently coerce it to 0 (a
+    // real-looking value that would clobber every element on edit), so flag
+    // each field so AutoLayoutMatrix renders a "Mixed" placeholder instead.
+    gapMixed: isMixedValue(styles.gap),
     padding,
+    paddingMixed: {
+      top: isMixedValue(styles.paddingTop),
+      right: isMixedValue(styles.paddingRight),
+      bottom: isMixedValue(styles.paddingBottom),
+      left: isMixedValue(styles.paddingLeft),
+    },
     paddingLinked,
     childSizing: {
       horizontal: inferElementSizing(element, "horizontal"),
@@ -173,6 +234,16 @@ function FlexContainerControls({
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        onFlowChange={(flow) => {
+          const patch = autoLayoutStylesForFlow(flow);
+          if (onStylesChange) {
+            onStylesChange(patch);
+            return;
+          }
+          Object.entries(patch).forEach(([property, value]) =>
+            onStyleChange(property, value),
+          );
+        }}
         onDisplayChange={handleDisplayChange}
         onDirectionChange={(direction) => {
           ensureFlex();
@@ -251,7 +322,7 @@ function FlexContainerControls({
           ensureFlex();
           onStyleChange(
             "justifyContent",
-            gapMode === "auto" ? "space-between" : "flex-start",
+            justifyContentForGapMode(gapMode, lastPackedJustifyRef.current),
           );
         }}
         availableChildSizing={availableSizingForElement(element)}
@@ -274,7 +345,12 @@ function FlexContainerControls({
         onChildMinMaxChange={(axis, kind, val, meta) =>
           commitElementMinMax(axis, kind, val, onStyleChange, meta)
         }
-        showChildLayoutControls={hasLayoutChildren}
+        // Empty frames/rectangles still need the complete Flow + Padding
+        // surface: users must be able to turn auto layout on before adding a
+        // first child, just as they can for an empty frame in Figma. The old
+        // child-count gate left an "Auto layout" section containing only
+        // Resizing, with no way to enable auto layout from the inspector.
+        showChildLayoutControls
       />
     </div>
   );
@@ -598,9 +674,16 @@ export function LayoutContextProperties({
           must not silently flip while the user is mid-scrub — see the
           FlexContainerControls comment) resets on selection change instead of
           leaking to the next element — same pattern as CornerRadiusControl /
-          ExportSettingsPanel. */}
+          ExportSettingsPanel. Deliberately `elementStableKey`, NOT
+          `elementIdentityKey`: the latter folds in the rounded bounding rect,
+          which changes on every resize. Resizing a frame on canvas is a very
+          common action while its Auto layout section is open, and remounting
+          on every such tick would silently reset paddingLinked back to
+          allPaddingEqual mid-session — the exact class of bug the comment
+          below (STEVE TEST BATCH 4 #4) already fixed for the *value*-driven
+          case, reintroduced here via the *key*. */}
       <FlexContainerControls
-        key={elementIdentityKey(element)}
+        key={elementStableKey(element)}
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}

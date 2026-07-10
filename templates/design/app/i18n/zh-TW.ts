@@ -665,6 +665,8 @@ const messages = {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
+      reactSourceAnchorsLoading:
+        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
     },
   },
   layersPanel: {
@@ -701,6 +703,14 @@ const messages = {
     frameSelection: "將選取範圍建立畫框",
     flipHorizontal: "水平翻轉",
     flipVertical: "垂直翻轉",
+    dragGhostCount: "{{count}} 個圖層",
+  },
+  designCanvas: {
+    localBridge: {
+      confirmationRetryExhausted: "多次嘗試後，即時編輯器橋接器仍未確認連線。",
+      connectionNotConfirmed:
+        "即時編輯器橋接器未確認連線。本機開發伺服器是否仍在執行？",
+    },
   },
   multiScreenCanvas: {
     duplicate: "複製",
@@ -756,6 +766,8 @@ const messages = {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    failedToSubmitPrompt: "無法提交提示",
+    skipPrompt: "略過提示",
     designSystem: "Design系統",
     noDesignSystem: "沒有設計系統",
     newDesignSystem: "新",
@@ -799,6 +811,9 @@ const messages = {
     nearText: "靠近「{{text}}」",
     submitShortcut: "{{mod}}+Enter 送出",
     queue: "排隊",
+    queuedCommentsDiscarded:
+      "{{count}} 個未傳送的評論草稿已在你離開此檢視時捨棄。",
+    staleAnchorDetail: "在畫布上已找不到原始元素。",
     pinStatus: {
       deterministic: {
         label: "確定性",

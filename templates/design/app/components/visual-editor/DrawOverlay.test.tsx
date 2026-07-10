@@ -327,6 +327,74 @@ describe("DrawOverlay pointer gesture robustness", () => {
     ]);
   });
 
+  it("commits a still-typed text label instead of discarding it when a new spot is clicked", async () => {
+    const onSend = vi.fn();
+    const rendered = await renderOverlay(onSend);
+    cleanup = rendered.cleanup;
+
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>('[data-testid="draw-text-mode"]')
+        ?.click();
+    });
+    await act(async () => {
+      rendered.canvas.dispatchEvent(pointerEvent("pointerdown", 20, 20));
+    });
+
+    const firstInput = rendered.container.querySelector<HTMLInputElement>(
+      'input[placeholder="visualEditor.typeAnnotationFancy"]',
+    );
+    if (!firstInput) throw new Error("First pending text input did not render");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(firstInput, "First label");
+      firstInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // Click a second spot before the first label's blur has a chance to run
+    // (mirrors a real browser, where pointerdown on the canvas fires before
+    // the outgoing input's native blur). Without committing the outgoing box
+    // first, this used to silently discard "First label".
+    await act(async () => {
+      rendered.canvas.dispatchEvent(pointerEvent("pointerdown", 120, 60));
+    });
+
+    const secondInput = rendered.container.querySelector<HTMLInputElement>(
+      'input[placeholder="visualEditor.typeAnnotationFancy"]',
+    );
+    if (!secondInput)
+      throw new Error("Second pending text input did not render");
+    expect(secondInput.value).toBe("");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(secondInput, "Second label");
+      secondInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const send = document.querySelector<HTMLButtonElement>(
+      '[data-testid="draw-send"]',
+    );
+    await act(async () => send?.click());
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: "First label",
+        position: { x: 20, y: 20 },
+      }),
+      expect.objectContaining({
+        type: "text",
+        text: "Second label",
+        position: { x: 120, y: 60 },
+      }),
+    ]);
+  });
+
   it("submits sibling comment pins when there is no local drawing", async () => {
     const onSend = vi.fn();
     const rendered = await renderOverlay(onSend, 1);

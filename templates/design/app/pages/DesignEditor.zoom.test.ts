@@ -4,6 +4,7 @@ import {
   clampOverviewDisplayZoom,
   clampZoom,
   computeFitCameraForFrames,
+  computeIframeLocalCanvasPoint,
   DEFAULT_OVERVIEW_ZOOM,
   getAllScreenFrameEntries,
   getNextZoomStepDown,
@@ -127,15 +128,29 @@ describe("getAllScreenFrameEntries", () => {
     expect(Number.isFinite(b.geometry.y)).toBe(true);
   });
 
-  it("includes the board frame when provided and not already a screen", () => {
+  it("includes actual board content bounds when provided and not already a screen", () => {
     const entries = getAllScreenFrameEntries({
       overviewScreens: [],
       canvasFrameGeometryById: {},
       boardFileId: "board-1",
-      boardFrameGeometry: { x: -1000, y: -1000, width: 2000, height: 2000 },
+      boardContentBounds: { x: 120, y: 80, width: 240, height: 160 },
     });
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.id).toBe("board-1");
+    expect(entries[0]).toEqual({
+      id: "board-1",
+      geometry: { x: 120, y: 80, width: 240, height: 160 },
+    });
+  });
+
+  it("does not include an empty board in fit or placement entries", () => {
+    expect(
+      getAllScreenFrameEntries({
+        overviewScreens: [],
+        canvasFrameGeometryById: {},
+        boardFileId: "board-1",
+        boardContentBounds: null,
+      }),
+    ).toEqual([]);
   });
 
   it("returns an empty list for no screens and no board", () => {
@@ -552,5 +567,70 @@ describe("computeFitCameraForFrames", () => {
     });
     expect(camera).not.toBeNull();
     expect(camera!.zoom).toBeLessThanOrEqual(25600);
+  });
+});
+
+describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
+  // handleIframeContextMenu opens the canvas context menu imperatively via a
+  // ref, bypassing CanvasContextMenu's own onContextMenuCapture (the only
+  // place that normally attaches canvasX/canvasY to the menu's point). This
+  // is the shared math both paths now use so "Paste here" lands under the
+  // cursor whether the right-click hit the canvas background or actual
+  // rendered screen content.
+  it("converts a viewport point to iframe-local document coordinates at 100% zoom", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 220,
+        iframeRect: { left: 50, top: 100 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 100, y: 120 });
+  });
+
+  it("divides by the zoom factor so a zoomed-out iframe still maps to the correct document point", () => {
+    // 50% zoom means 1 document px renders as 0.5 screen px, so a 100px
+    // on-screen offset from the iframe's origin is 200 document px.
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 100,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 50,
+      }),
+    ).toEqual({ x: 200, y: 100 });
+  });
+
+  it("clamps negative offsets (click above/left of the iframe origin) to zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
+  it("returns null when there is no iframe rect to measure against", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: null,
+        zoomPercent: 100,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for a non-positive zoom percent instead of dividing by zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 0, top: 0 },
+        zoomPercent: 0,
+      }),
+    ).toBeNull();
   });
 });

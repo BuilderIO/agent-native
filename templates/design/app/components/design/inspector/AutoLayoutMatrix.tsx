@@ -83,6 +83,29 @@ export interface AutoLayoutMatrixValue {
     horizontal?: boolean;
     vertical?: boolean;
   };
+  /**
+   * Set when a multi-selection has differing `gap` values across elements.
+   * Mirrors the edit-panel `MIXED_VALUE`/`isMixedValue` sentinel pattern used
+   * for other fields: rather than silently coercing an unparseable "Mixed"
+   * CSS value down to `0` (which reads as "no gap" and would clobber every
+   * selected element's real gap the moment the user touches the field), the
+   * Gap ScrubInput renders the "Mixed" placeholder instead of a numeric 0.
+   * Optional so existing single-selection callers are unaffected.
+   */
+  gapMixed?: boolean;
+  /**
+   * Per-side mixed flags for `padding`, same rationale as `gapMixed`. Each
+   * side is independent because a multi-selection can have matching top/bottom
+   * padding but differing left/right (or any other combination) — collapsing
+   * to one boolean would either over- or under-report "Mixed" for the linked
+   * 2-field view. Optional so existing single-selection callers are unaffected.
+   */
+  paddingMixed?: {
+    top?: boolean;
+    right?: boolean;
+    bottom?: boolean;
+    left?: boolean;
+  };
   childSizing: {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
@@ -205,6 +228,13 @@ export interface AutoLayoutMatrixProps {
    */
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
   /**
+   * Optional atomic Flow callback. Inspector hosts that persist code should
+   * use this to commit display + direction + wrap in one source/history step.
+   * Without it, the component falls back to the individual callbacks for
+   * backwards compatibility.
+   */
+  onFlowChange?: (flow: AutoLayoutFlow) => void;
+  /**
    * Emitted when the user picks a flow that changes the layout mode between
    * normal-flow (block) and flex. Pass this so selecting the first ("normal")
    * flow icon can turn auto layout off, and selecting a flex flow can turn it
@@ -282,6 +312,7 @@ export function AutoLayoutMatrix({
   onChildSizingChange,
   onChildMinMaxChange,
   onApplyVariable,
+  onFlowChange,
   onDisplayChange,
   onChildSizeChange,
   availableChildSizing,
@@ -300,12 +331,26 @@ export function AutoLayoutMatrix({
   // the user's intent without a silent lossy round-trip through the average.
   const horizontalPaddingValue = value.padding.left;
   const verticalPaddingValue = value.padding.top;
+  // The linked view shows one field per axis representing both sides, so it
+  // must report "Mixed" whenever *either* side of that axis differs across
+  // the selection — otherwise a selection with equal left/right but mixed
+  // top/bottom (or vice versa) would silently show a real-looking number.
+  const horizontalPaddingMixed = Boolean(
+    value.paddingMixed?.left || value.paddingMixed?.right,
+  );
+  const verticalPaddingMixed = Boolean(
+    value.paddingMixed?.top || value.paddingMixed?.bottom,
+  );
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
 
   /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
+    if (onFlowChange) {
+      onFlowChange(flow);
+      return;
+    }
     if (flow === "normal") {
       onDisplayChange?.("block");
       return;
@@ -503,6 +548,7 @@ export function AutoLayoutMatrix({
               <ControlLabel>{copy.gap}</ControlLabel>
               <GapField
                 value={value.gap}
+                mixed={value.gapMixed}
                 onGapChange={onGapChange}
                 onDistribute={onDistribute}
                 onGapModeChange={onGapModeChange}
@@ -526,6 +572,7 @@ export function AutoLayoutMatrix({
                   icon={IconPaddingHorizontal}
                   ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
                   value={horizontalPaddingValue}
+                  mixed={horizontalPaddingMixed}
                   onChange={(next, meta) =>
                     onPaddingChange(
                       {
@@ -543,6 +590,7 @@ export function AutoLayoutMatrix({
                   icon={IconPaddingVertical}
                   ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
                   value={verticalPaddingValue}
+                  mixed={verticalPaddingMixed}
                   onChange={(next, meta) =>
                     onPaddingChange(
                       {
@@ -572,6 +620,7 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingTopMini}
                     ariaLabel={copy.paddingTop}
                     value={value.padding.top}
+                    mixed={value.paddingMixed?.top}
                     onChange={(next, meta) =>
                       onPaddingChange({ ...value.padding, top: next }, meta)
                     }
@@ -581,6 +630,7 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingRightMini}
                     ariaLabel={copy.paddingRight}
                     value={value.padding.right}
+                    mixed={value.paddingMixed?.right}
                     onChange={(next, meta) =>
                       onPaddingChange({ ...value.padding, right: next }, meta)
                     }
@@ -590,6 +640,7 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingBottomMini}
                     ariaLabel={copy.paddingBottom}
                     value={value.padding.bottom}
+                    mixed={value.paddingMixed?.bottom}
                     onChange={(next, meta) =>
                       onPaddingChange({ ...value.padding, bottom: next }, meta)
                     }
@@ -599,6 +650,7 @@ export function AutoLayoutMatrix({
                     icon={IconPaddingLeftMini}
                     ariaLabel={copy.paddingLeft}
                     value={value.padding.left}
+                    mixed={value.paddingMixed?.left}
                     onChange={(next, meta) =>
                       onPaddingChange({ ...value.padding, left: next }, meta)
                     }
@@ -917,6 +969,7 @@ function FlowButton({
  */
 function GapField({
   value,
+  mixed = false,
   onGapChange,
   onDistribute,
   onGapModeChange,
@@ -926,6 +979,8 @@ function GapField({
   gapMode = "fixed",
 }: {
   value: number;
+  /** Set for a multi-selection with differing gap values — see AutoLayoutMatrixValue.gapMixed. */
+  mixed?: boolean;
   /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onGapChange. */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onDistribute?: (axis: DistributionAxis) => void;
@@ -950,6 +1005,7 @@ function GapField({
           tooltipLabel={label}
           icon={IconGap}
           value={value}
+          mixed={mixed}
           onChange={(next, meta) => onGapChange(next, meta)}
           unit="px"
           min={0}
@@ -1043,12 +1099,15 @@ function PaddingField({
   icon: Icon,
   ariaLabel,
   value,
+  mixed = false,
   onChange,
   disabled,
 }: {
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
   value: number;
+  /** Set for a multi-selection with differing padding on this side — see AutoLayoutMatrixValue.paddingMixed. */
+  mixed?: boolean;
   /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onPaddingChange. */
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   disabled: boolean;
@@ -1066,6 +1125,7 @@ function PaddingField({
         tooltipLabel={ariaLabel}
         icon={Icon}
         value={value}
+        mixed={mixed}
         onChange={(next, meta) => onChange(next, meta)}
         unit="px"
         min={0}

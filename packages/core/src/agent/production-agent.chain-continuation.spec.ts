@@ -256,25 +256,68 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
   });
 
-  it("fails LOUD when every attempt dies: successor + chunk errored, diag stage recorded — never silent", async () => {
+  it("DEFERS (never errors) the pre-inserted successor when every attempt dies — the unclaimed-run sweep gets a chance to recover it", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
     const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
     await runChain(h);
 
     // Foreground path: 2 attempts (initial + one retry).
     expect(dispatchMock).toHaveBeenCalledTimes(2);
-    // The pre-inserted successor is errored immediately (not left for the
-    // sweep) with a truthful terminal reason…
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+    // The pre-inserted successor is LEFT ALONE — still status='running',
+    // dispatch_mode='background', dispatch_payload intact — so the
+    // unclaimed-background-run sweep (agent-chat-plugin.ts) can redispatch
+    // it. It is never marked errored from this path.
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
     );
-    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-next",
-      "background_continuation_dispatch_failed",
+      expect.any(String),
     );
-    // …and the finished chunk is errored too, with the failure written as its
-    // diag stage (the only forensics channel — bg logs are unreadable).
+    // The successor's diag stage records WHY it was left for the sweep (the
+    // only forensics channel — bg logs are unreadable).
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-next",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining("chain_dispatch_deferred"),
+    );
+    // …the finished chunk DOES go terminal — its own soft-timeout budget is
+    // genuinely spent — but with the distinct, honest "deferred" reason: the
+    // TURN is not dead, only this handoff attempt was.
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+    expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-chunk0",
+      RUN_DIAG_STAGE.workerThrew,
+      expect.stringContaining("chain_dispatch_deferred"),
+    );
+    // The chunk is NOT marked as a clean continuation boundary.
+    expect(
+      h.deps.markBackgroundContinuationChunkTerminal,
+    ).not.toHaveBeenCalled();
+    // With this chunk terminal, the thread slot is free — the client's
+    // existing auto_continue re-POST (it still receives the terminal event)
+    // is a second, faster fallback alongside the sweep. See
+    // run-store.foreground-self-chain.spec.
+  });
+
+  it("still fails LOUD immediately when the pre-insert itself failed — nothing exists for a sweep to recover", async () => {
+    const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    (h.deps.insertRun as any).mockRejectedValueOnce(new Error("insert failed"));
+    await runChain(h);
+
+    // No successor row was ever created, so there is nothing to defer to a
+    // sweep — this is genuinely unrecoverable and must fail loud immediately,
+    // same as before this change.
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledTimes(1);
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
       "errored",
@@ -288,13 +331,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_failed"),
     );
-    // The chunk is NOT marked as a clean continuation boundary.
-    expect(
-      h.deps.markBackgroundContinuationChunkTerminal,
-    ).not.toHaveBeenCalled();
-    // With both rows terminal, the thread slot is free — the client's
-    // existing auto_continue re-POST (it still receives the terminal event)
-    // takes over as the fallback. See run-store.foreground-self-chain.spec.
   });
 
   it("refuses to chain when the SQL per-turn run budget is exhausted (cross-chain loop killer)", async () => {
@@ -379,7 +415,7 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
 });
 
 describe("chainServerDrivenContinuation — worker proven in background function gets the widened budget", () => {
-  it("retries up to 5 times at a 15s response timeout, using the capped backoff schedule, before failing loud", async () => {
+  it("retries up to 5 times at a 15s response timeout, using the capped backoff schedule, before deferring to the sweep", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
     const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
     await runChain(h, {
@@ -398,10 +434,12 @@ describe("chainServerDrivenContinuation — worker proven in background function
     );
     expect(sleepCalls).toEqual([500, 1000, 2000, 4000]);
     // Dispatch still targets the regular `_process-run` route (unchanged
-    // target — only the budget widened), and both rows go terminal loudly
-    // on final exhaustion, same as the foreground exhaustion path.
+    // target — only the budget widened). This is exactly the case the
+    // recovery was built for: a background-function worker with NO
+    // connected-client fallback — the pre-inserted successor is left for the
+    // sweep instead of being errored immediately.
     expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
-    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
     );
@@ -411,7 +449,7 @@ describe("chainServerDrivenContinuation — worker proven in background function
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
-      "background_continuation_dispatch_failed",
+      "background_continuation_dispatch_deferred",
     );
   });
 });
@@ -439,8 +477,20 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     // A Netlify background fn 202s on enqueue, so a failed await IS a dead
     // handoff — the claim-check shortcut is foreground-only.
     expect(readClaim).not.toHaveBeenCalled();
+    // This chunk still goes terminal loudly, but the recoverable-vs-fatal
+    // split applies uniformly regardless of dispatch target: the pre-inserted
+    // successor row exists in SQL either way, so it is left for the sweep
+    // instead of being errored immediately.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+    expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-next",
       "errored",
     );
   });

@@ -1606,6 +1606,7 @@ const LayerRow = memo(function LayerRow({
   onFlipHorizontal,
   onFlipVertical,
 }: LayerRowProps) {
+  const t = useT();
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
@@ -1747,6 +1748,27 @@ const LayerRow = memo(function LayerRow({
       "application/x-design-layer-ids",
       JSON.stringify(draggedIds),
     );
+    // Figma parity: dragging 2+ selected layers shows a small "N layers"
+    // count badge following the cursor instead of the browser's default
+    // drag image — a screenshot of just the ONE row that received this
+    // native dragstart event, even though every selected row moves together.
+    // setDragImage requires the image element to be attached to the DOM at
+    // the moment it's called, but not after — build an offscreen node here,
+    // wire it up, and detach it on the next frame. Single-layer drags are
+    // unaffected (kept exactly as before: the browser's own row snapshot).
+    if (draggedIds.length > 1) {
+      const ghost = document.createElement("div");
+      ghost.textContent = t("layersPanel.dragGhostCount", {
+        count: draggedIds.length,
+      });
+      ghost.className =
+        "fixed left-[-9999px] top-[-9999px] pointer-events-none select-none whitespace-nowrap rounded-full border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2.5 py-1 text-[11px] font-medium leading-none text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)]";
+      document.body.appendChild(ghost);
+      event.dataTransfer.setDragImage(ghost, -12, -12);
+      requestAnimationFrame(() => {
+        ghost.remove();
+      });
+    }
     // Store drag state at module level so handleDragOver can read it.
     // dataTransfer.getData() returns "" during dragover per the HTML spec.
     activeDragState = { sourceId: node.id, draggedIds };
@@ -2435,7 +2457,11 @@ function LayerGlyph({
     case "board-element":
     case "shape":
     case "rectangle":
-      return <RectangleLayerGlyph className={common} />;
+      return shapeLayerUsesLayoutGlyph(node) ? (
+        <LayoutLayerGlyph node={node} className={common} />
+      ) : (
+        <RectangleLayerGlyph className={common} />
+      );
     case "vector":
       return <VectorLayerGlyph className={common} />;
     case "line":
@@ -2460,6 +2486,21 @@ function LayerGlyph({
     default:
       return <FrameLayerGlyph className={common} />;
   }
+}
+
+/**
+ * A canvas rectangle starts as a shape, but nest-on-drop can promote it to a
+ * flex/grid container. Once promoted, show the same auto-layout glyph as a
+ * frame so the Layers tree reflects the layer's real layout behavior instead
+ * of continuing to advertise it as a leaf rectangle.
+ */
+export function shapeLayerUsesLayoutGlyph(
+  node: Pick<LayersPanelNode, "type" | "layout">,
+): boolean {
+  return (
+    ["board-element", "shape", "rectangle"].includes(node.type ?? "") &&
+    Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer)
+  );
 }
 
 function layerNodeTagName(

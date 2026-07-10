@@ -229,20 +229,28 @@ export function parseAlpineDataObject(
 
   const out: Record<string, string> = {};
   // Split on top-level commas only (no nesting / quotes inside values here).
+  // The quoted-value alternatives allow backslash-escaped quotes (`\\.`)
+  // inside the literal — without that, a value like `'it\'s ok'` truncates
+  // at the escaped quote (matching only `'it\'`), silently dropping the rest
+  // of the string. That mismatch used to slip past `canRebuildAlpineDataLosslessly`
+  // as a false positive: the truncated value round-tripped "stably" (in the
+  // sense of parse -> serialize -> parse staying self-consistent) while still
+  // being wrong relative to the original source.
   const pairRe =
-    /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('[^']*'|"[^"]*"|true|false|-?\d+(?:\.\d+)?)/g;
+    /(?:^|,)\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|true|false|-?\d+(?:\.\d+)?)/g;
   let m: RegExpExecArray | null;
   let matched = false;
   while ((m = pairRe.exec(inner)) !== null) {
     matched = true;
     const key = m[1] ?? m[2] ?? m[3];
     let raw = m[4]!;
-    // Unwrap quotes for string literals; keep booleans / numbers verbatim.
-    if (
-      (raw.startsWith("'") && raw.endsWith("'")) ||
-      (raw.startsWith('"') && raw.endsWith('"'))
-    ) {
-      raw = raw.slice(1, -1);
+    // Unwrap quotes for string literals, un-escaping backslash-escaped quotes
+    // back to their literal form (the inverse of the escaping
+    // `serializeAlpineDataObject` applies); keep booleans / numbers verbatim.
+    if (raw.startsWith("'") && raw.endsWith("'")) {
+      raw = raw.slice(1, -1).replace(/\\'/g, "'");
+    } else if (raw.startsWith('"') && raw.endsWith('"')) {
+      raw = raw.slice(1, -1).replace(/\\"/g, '"');
     }
     if (key) out[key] = raw;
   }

@@ -29,6 +29,10 @@ let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
+let unclaimedBackgroundRunRowsWithStartedAt: Array<{
+  id: string;
+  started_at: number;
+}> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 
 const mockDb = {
@@ -54,6 +58,18 @@ const mockDb = {
         /COALESCE\(heartbeat_at, started_at\)\s*>=/i.test(rawSql))
     ) {
       return { rows: claimSlotRows, rowsAffected: 0 };
+    }
+    // listUnclaimedBackgroundRunRows: SELECT id, started_at FROM agent_runs
+    // WHERE status = 'running' AND dispatch_mode = 'background' AND ... Must
+    // come before the narrower id-only variant below (both match
+    // "dispatch_mode = 'background'").
+    if (
+      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+        rawSql,
+      ) &&
+      /dispatch_mode = 'background'/i.test(rawSql)
+    ) {
+      return { rows: unclaimedBackgroundRunRowsWithStartedAt, rowsAffected: 0 };
     }
     // listUnclaimedBackgroundRunIds: SELECT id FROM agent_runs WHERE status =
     // 'running' AND dispatch_mode = 'background' AND ... Must also come before
@@ -156,7 +172,10 @@ const {
   readRunDispatchPayload,
   clearRunDispatchPayload,
   listUnclaimedBackgroundRunIds,
+  listUnclaimedBackgroundRunRows,
   countRunsForTurn,
+  UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+  shouldRedispatchUnclaimedBackgroundRun,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -177,6 +196,7 @@ describe("run store", () => {
     ledgerRows = [];
     dispatchPayloadRows = [];
     unclaimedBackgroundRunRows = [];
+    unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
@@ -861,5 +881,87 @@ describe("run store", () => {
     ];
     const ids = await listUnclaimedBackgroundRunIds();
     expect(ids).toEqual(["run-ok"]);
+  });
+
+  // ─── listUnclaimedBackgroundRunRows (sweep redispatch bound) ───────────────
+
+  it("listUnclaimedBackgroundRunRows returns each row's original started_at alongside its id", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-lost-1", started_at: 111 },
+      { id: "run-lost-2", started_at: 222 },
+    ];
+    const rows = await listUnclaimedBackgroundRunRows();
+    expect(rows).toEqual([
+      { id: "run-lost-1", startedAt: 111 },
+      { id: "run-lost-2", startedAt: 222 },
+    ]);
+
+    const select = execCalls.find((call) =>
+      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toContain("dispatch_mode = 'background'");
+    expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
+  });
+
+  it("listUnclaimedBackgroundRunRows ignores rows with a non-string/empty id defensively", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-ok", started_at: 100 },
+      // @ts-expect-error -- exercising defensive filtering of malformed rows
+      { id: null, started_at: 200 },
+    ];
+    const rows = await listUnclaimedBackgroundRunRows();
+    expect(rows).toEqual([{ id: "run-ok", startedAt: 100 }]);
+  });
+
+  it("UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS is a real bound wider than the grace window — never zero, never infinite", () => {
+    // The sweep must get more than one redispatch attempt (grace window is
+    // 25s, sweep tick is ~2min) but the bound must still be finite so a
+    // permanently-dead handoff eventually fails loud instead of retrying
+    // forever.
+    expect(UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS).toBeGreaterThan(
+      2 * 60_000,
+    );
+    expect(Number.isFinite(UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS)).toBe(
+      true,
+    );
+  });
+
+  // ─── shouldRedispatchUnclaimedBackgroundRun (bounded recovery backstop) ────
+
+  it("shouldRedispatchUnclaimedBackgroundRun allows redispatch while inside the bound", () => {
+    const now = 1_000_000;
+    const row = {
+      startedAt: now - UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS + 1,
+    };
+    expect(shouldRedispatchUnclaimedBackgroundRun(row, now)).toBe(true);
+  });
+
+  it("shouldRedispatchUnclaimedBackgroundRun falls back to the reap once the bound is exceeded — the loud backstop", () => {
+    const now = 1_000_000;
+    // Exactly at the bound: no longer "within" it (strict <).
+    const atBound = {
+      startedAt: now - UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+    };
+    expect(shouldRedispatchUnclaimedBackgroundRun(atBound, now)).toBe(false);
+
+    // Well past the bound — a genuinely dead handoff must stop being
+    // redispatched forever and go to the reap instead.
+    const wayPast = {
+      startedAt: now - UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS * 10,
+    };
+    expect(shouldRedispatchUnclaimedBackgroundRun(wayPast, now)).toBe(false);
+  });
+
+  it("shouldRedispatchUnclaimedBackgroundRun defaults `now` to the real clock", () => {
+    // A row that just started is always within the bound right now.
+    expect(
+      shouldRedispatchUnclaimedBackgroundRun({ startedAt: Date.now() }),
+    ).toBe(true);
+    // A row from a very long time ago is not.
+    expect(shouldRedispatchUnclaimedBackgroundRun({ startedAt: 0 })).toBe(
+      false,
+    );
   });
 });

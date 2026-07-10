@@ -1,13 +1,53 @@
+import { randomUUID } from "node:crypto";
+
 import {
   appStateDelete,
   appStateGet,
   appStatePut,
 } from "@agent-native/core/application-state";
-import { hasCollabState } from "@agent-native/core/collab";
+import {
+  AGENT_CLIENT_ID,
+  hasCollabState,
+  loadAwarenessRowsStrict,
+} from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
 const FLUSH_TIMEOUT_MS = 4000;
+
+function parseAwarenessState(state: string): {
+  visible?: boolean;
+  user?: { email?: unknown };
+} | null {
+  try {
+    return JSON.parse(state) as {
+      visible?: boolean;
+      user?: { email?: unknown };
+    };
+  } catch {
+    return null;
+  }
+}
+
+function awarenessSessionEmail(entry: {
+  clientId: number;
+  state: string;
+}): string | null {
+  if (entry.clientId === AGENT_CLIENT_ID) return null;
+  const state = parseAwarenessState(entry.state);
+  if (!state || state.visible === false || !state.user) return null;
+  const email = state.user.email;
+  return typeof email === "string" && email.trim() ? email.trim() : null;
+}
+
+function isActiveHumanAwareness(entry: {
+  clientId: number;
+  state: string;
+}): boolean {
+  if (entry.clientId === AGENT_CLIENT_ID) return false;
+  const state = parseAwarenessState(entry.state);
+  return !!state?.user && state.visible !== false;
+}
 
 export async function flushOpenDocumentEditorToSql(args: {
   documentId: string;
@@ -15,48 +55,108 @@ export async function flushOpenDocumentEditorToSql(args: {
 }) {
   // If a live Yjs collab session is open, the in-memory editor doc is fresher
   // than the SQL column. Ask the open editor to serialize + save, then wait
-  // for it to acknowledge by clearing the flush-request key.
+  // for an explicit request-id-matched acknowledgement.
   if (!(await hasCollabState(args.documentId))) return;
+
+  // Persisted Yjs state outlives browser tabs. Only require a handshake while
+  // at least one non-expired human awareness row says an editor is actually
+  // open; otherwise SQL is the best durable snapshot and waiting would make
+  // every previously-opened document stall for four seconds.
+  const awarenessRows = await loadAwarenessRowsStrict(args.documentId);
+  const activeHumanRows = awarenessRows.filter(isActiveHumanAwareness);
+  if (activeHumanRows.length === 0) return;
+  const activeSessionEmails = activeHumanRows
+    .map(awarenessSessionEmail)
+    .filter((email): email is string => !!email);
 
   const flushKey = `flush-request-${args.documentId}`;
   // The editor polls `flush-request-<id>` via the framework app-state route,
-  // which scopes reads to the logged-in browser user (the document owner).
-  // Writing under the caller's (external agent's) session alone can miss the
-  // human editor tab, so write under both plausible sessions and de-dupe.
+  // which scopes reads to the logged-in browser user. Target every active
+  // collaborator email plus owner/caller fallbacks so shared editors and
+  // cross-instance actions reach the tab that can serialize the live Y.Doc.
   const callerEmail = getRequestUserEmail() || undefined;
   const targetSessions = Array.from(
     new Set(
-      [args.ownerEmail ?? undefined, callerEmail].filter(
-        (s): s is string => typeof s === "string" && s.length > 0,
-      ),
+      [
+        ...activeSessionEmails,
+        args.ownerEmail ?? undefined,
+        callerEmail,
+      ].filter((s): s is string => typeof s === "string" && s.length > 0),
     ),
   );
-  if (targetSessions.length === 0) return;
+  if (targetSessions.length === 0) {
+    throw new Error("Could not identify the open document editor to flush.");
+  }
 
-  const flushValue = { id: args.documentId, ts: Date.now() };
-  await Promise.all(
+  const requestId = randomUUID();
+  const flushValue = {
+    id: args.documentId,
+    ts: Date.now(),
+    requestId,
+    status: "pending",
+  };
+  const writes = await Promise.allSettled(
     targetSessions.map((session) =>
       appStatePut(session, flushKey, flushValue, {
         requestSource: "agent",
-      }).catch(() => {}),
+      }),
     ),
   );
-
-  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_INTERVAL_MS));
-    const pending = await Promise.all(
-      targetSessions.map((session) => appStateGet(session, flushKey)),
-    );
-    if (pending.every((value) => !value)) break;
+  const writtenSessions = targetSessions.filter(
+    (_session, index) => writes[index]?.status === "fulfilled",
+  );
+  if (writtenSessions.length === 0) {
+    throw new Error("Could not ask the open document editor to save.");
   }
 
-  // Best-effort cleanup if the editor never picked it up (no tab open).
+  const deadline = Date.now() + FLUSH_TIMEOUT_MS;
+  let flushError: string | null = null;
+  let acknowledged = false;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_INTERVAL_MS));
+    const reads = await Promise.allSettled(
+      writtenSessions.map((session) => appStateGet(session, flushKey)),
+    );
+    const responses = reads.flatMap((result) =>
+      result.status === "fulfilled" && result.value ? [result.value] : [],
+    );
+    const failed = responses.find(
+      (
+        value,
+      ): value is {
+        requestId: string;
+        status: "error";
+        error?: string;
+      } => value.requestId === requestId && value.status === "error",
+    );
+    if (failed) {
+      flushError =
+        typeof failed.error === "string" && failed.error.trim()
+          ? failed.error
+          : "The live document could not be saved before syncing.";
+      break;
+    }
+    acknowledged = responses.some(
+      (value) => value.requestId === requestId && value.status === "success",
+    );
+    if (acknowledged) break;
+  }
+
+  // Best-effort cleanup after success, explicit failure, or timeout.
   await Promise.all(
-    targetSessions.map((session) =>
+    writtenSessions.map((session) =>
       appStateDelete(session, flushKey, { requestSource: "agent" }).catch(
         () => {},
       ),
     ),
   );
+
+  if (flushError) {
+    throw new Error(flushError);
+  }
+  if (!acknowledged) {
+    throw new Error(
+      "The open document editor did not finish saving before sync timed out.",
+    );
+  }
 }

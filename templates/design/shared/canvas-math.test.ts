@@ -25,6 +25,7 @@ import {
   resizeFrameFromDelta,
   resizeFrameGroupFromDelta,
   resizeRotatedFrameFromDelta,
+  resizeRotatedFrameFromDeltaWithSnap,
   rotateFrameGroupAroundCenter,
   rotatePoint,
   rotatedRectIntersects,
@@ -976,6 +977,133 @@ describe("rotation-aware resize", () => {
     expect(getRotatedFrameAABB(geometry)).toEqual(
       getRotatedFrameAABB(geometry),
     );
+  });
+});
+
+describe("resizeRotatedFrameFromDeltaWithSnap", () => {
+  const snapOptions = {
+    thresholdScreenPx: 8,
+    zoom: 100,
+  };
+
+  it("matches the unsnapped rotated resize when no sibling is close enough to snap", () => {
+    const origin = { x: 100, y: 100, width: 200, height: 150, rotation: 30 };
+    const unsnapped = resizeRotatedFrameFromDelta(origin, "se", 40, 20);
+    const { frame, guides } = resizeRotatedFrameFromDeltaWithSnap(
+      origin,
+      "se",
+      40,
+      20,
+      [{ id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } }],
+      snapOptions,
+    );
+    expect(frame.x).toBeCloseTo(unsnapped.x);
+    expect(frame.y).toBeCloseTo(unsnapped.y);
+    expect(frame.width).toBeCloseTo(unsnapped.width);
+    expect(frame.height).toBeCloseTo(unsnapped.height);
+    expect(guides).toEqual([]);
+  });
+
+  it("falls back to the plain (non-rotated) snap path when rotation is 0", () => {
+    const origin = { x: 0, y: 0, width: 100, height: 100 };
+    // A sibling positioned so its left edge sits just past the resized right
+    // edge, within the snap threshold once converted from screen px.
+    const stationary = [
+      { id: "sibling", geometry: { x: 145, y: 0, width: 50, height: 50 } },
+    ];
+    const { frame, guides } = resizeRotatedFrameFromDeltaWithSnap(
+      origin,
+      "e",
+      40,
+      0,
+      stationary,
+      snapOptions,
+    );
+    const direct = computeResizeSnap(
+      resizeFrameFromDelta(origin, "e", 40, 0),
+      stationary,
+      "e",
+      snapOptions,
+    );
+    expect(frame).toEqual(direct.frame);
+    expect(guides).toEqual(direct.guides);
+  });
+
+  it("snaps a rotated frame's unrotated local bounds against a nearby sibling edge", () => {
+    // Documented approximation (see resizeRotatedFrameFromDeltaWithSnap's own
+    // doc comment): snapping compares the frame's own unrotated LOCAL bounds
+    // against stationary siblings' world bounds directly. A sibling placed to
+    // land just past the unrotated resized-local right edge should pull the
+    // resize to snap flush against it, exactly like the non-rotated resize
+    // snap would for the same local geometry.
+    const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 15 };
+    const localDelta = { x: 44, y: 0 }; // world dx=44 at 0deg == local dx=44
+    const unsnappedLocal = resizeFrameFromDelta(
+      { ...origin, rotation: undefined },
+      "e",
+      localDelta.x,
+      localDelta.y,
+    );
+    const stationary = [
+      {
+        id: "sibling",
+        geometry: {
+          x: unsnappedLocal.x + unsnappedLocal.width + 3,
+          y: 0,
+          width: 50,
+          height: 50,
+        },
+      },
+    ];
+    const { frame, guides } = resizeRotatedFrameFromDeltaWithSnap(
+      origin,
+      "e",
+      44,
+      0,
+      stationary,
+      snapOptions,
+    );
+    expect(frame.rotation).toBe(15);
+    expect(guides.length).toBeGreaterThan(0);
+    // Snapped width should differ from (and be larger than) the unsnapped
+    // local width, since the sibling pulled the right edge further out.
+    expect(frame.width).toBeGreaterThan(unsnappedLocal.width);
+  });
+
+  it("skips snapping (but still resizes) when preserveAspectRatio is requested", () => {
+    const origin = { x: 0, y: 0, width: 200, height: 100, rotation: 20 };
+    const stationary = [
+      { id: "sibling", geometry: { x: 500, y: 0, width: 50, height: 50 } },
+    ];
+    const { frame, guides } = resizeRotatedFrameFromDeltaWithSnap(
+      origin,
+      "se",
+      40,
+      0,
+      stationary,
+      { ...snapOptions, preserveAspectRatio: true },
+      { preserveAspectRatio: true },
+    );
+    expect(guides).toEqual([]);
+    expect(frame.width / frame.height).toBeCloseTo(
+      origin.width / origin.height,
+    );
+  });
+
+  it("bypasses snapping when the meta/ctrl bypass flag is set", () => {
+    const origin = { x: 0, y: 0, width: 100, height: 100, rotation: 15 };
+    const stationary = [
+      { id: "sibling", geometry: { x: 145, y: 0, width: 50, height: 50 } },
+    ];
+    const { guides } = resizeRotatedFrameFromDeltaWithSnap(
+      origin,
+      "e",
+      44,
+      0,
+      stationary,
+      { ...snapOptions, bypass: true },
+    );
+    expect(guides).toEqual([]);
   });
 });
 

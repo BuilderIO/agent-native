@@ -159,6 +159,19 @@ const LEAF_TAGS = new Set([
  * children show the full Auto layout section the same way does.
  */
 export function isContainerElement(element: ElementInfo): boolean {
+  // T-tool primitives are divs and use `display:flex` for vertical text
+  // alignment, but they are still leaf text layers rather than auto-layout
+  // containers. Check text identity before the flex/container shortcuts so
+  // fixing empty frame controls does not expose Flow/Padding on text layers.
+  if (isTextElement(element)) return false;
+  // Canvas primitive markers are authoritative. This code-backed editor lets
+  // rectangles act as lightweight containers (nest-on-drop promotes them to
+  // auto layout), and frames are containers by definition. Other drawn
+  // shapes remain leaves even though several are represented by a plain div.
+  const primitiveKind = element.primitiveKind?.trim().toLowerCase();
+  if (primitiveKind) {
+    return ["frame", "rectangle", "rect"].includes(primitiveKind);
+  }
   if (element.isFlexContainer || element.isGridContainer) return true;
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
@@ -174,13 +187,6 @@ export function isParentFlex(element: ElementInfo): boolean {
 
 export function isParentGrid(element: ElementInfo): boolean {
   return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
-}
-
-export function elementHasLayoutChildren(element: ElementInfo): boolean {
-  if (typeof element.childElementCount === "number") {
-    return element.childElementCount > 0;
-  }
-  return Boolean(element.htmlContent?.match(/<\s*[a-zA-Z][^>]*>/));
 }
 
 export function parentFlexDirection(

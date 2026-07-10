@@ -5,7 +5,7 @@ import { roundToOneDecimal } from "./position-helpers";
 
 export function elementIdentityKey(element: ElementInfo): string {
   return [
-    element.sourceId ?? element.id ?? element.selector ?? element.tagName,
+    elementStableKey(element),
     Math.round(element.boundingRect.x),
     Math.round(element.boundingRect.y),
     Math.round(element.boundingRect.width),
@@ -18,9 +18,22 @@ export function elementIdentityKey(element: ElementInfo): string {
  * resizing (unlike elementIdentityKey, which folds in the bounding rect and
  * therefore changes on every resize — exactly what an aspect-ratio lock needs
  * to persist across). Falls back through the same id chain.
+ *
+ * Uses `||`, not `??`, between the fallback candidates: the bridge
+ * (editor-chrome.bridge.ts getElementInfo) reports `sourceId` as the empty
+ * string `""` — not `undefined` — for any element that isn't source-backed
+ * (e.g. a runtime-only DOM node in a connected localhost/fusion screen). `??`
+ * only skips a nullish left-hand side, so an empty-string `sourceId` short-
+ * circuited the whole chain and every non-source-backed element collapsed to
+ * the SAME key ("" here, and just the rounded bounding rect in
+ * elementIdentityKey). For this hook that meant locking the aspect ratio on
+ * one such element silently applied its captured ratio to every other
+ * non-source-backed element too. `||` falls through empty strings the same
+ * way the bridge itself already does (`getSourceId(el) || getSelector(el)`),
+ * reaching the real per-element `selector` instead. Exported for tests.
  */
-function elementStableKey(element: ElementInfo): string {
-  return element.sourceId ?? element.id ?? element.selector ?? element.tagName;
+export function elementStableKey(element: ElementInfo): string {
+  return element.sourceId || element.id || element.selector || element.tagName;
 }
 
 /**

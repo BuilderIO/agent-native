@@ -25,9 +25,14 @@ export function getEmbeddedIframeBackgroundColor(args: {
     : (args.embeddedFrameBackground ?? "transparent");
 }
 
-export function embeddedContentOffsetStyle(x: number, y: number): string {
+export function embeddedContentOffsetCss(x: number, y: number): string {
   if (x === 0 && y === 0) return "";
-  return `<style data-agent-native-content-offset>body > [data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}</style>`;
+  return `body > [data-agent-native-node-id]{translate:${Math.round(x)}px ${Math.round(y)}px;}`;
+}
+
+export function embeddedContentOffsetStyle(x: number, y: number): string {
+  const css = embeddedContentOffsetCss(x, y);
+  return css ? `<style data-agent-native-content-offset>${css}</style>` : "";
 }
 
 function injectEmbeddedFrameStyle(content: string, style: string): string {

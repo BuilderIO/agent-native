@@ -316,6 +316,38 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
 }
 
 /**
+ * PICK-RACE: MultiScreenCanvas's `onPick` prop is `(id: string) => void` — no
+ * modifier/event info — even though a shift-click there already toggled a
+ * full multi-id array internally (handleFrameClick's own `selectedIds`
+ * state) before calling `onPick` with just the resulting PRIMARY id. That
+ * full array only reaches DesignEditor a render later, via the
+ * `onScreenSelectionChange` effect (MultiScreenCanvas reports its
+ * `selectedIds` from a `useEffect` that commits after this synchronous
+ * `onPick` call already ran).
+ *
+ * Forcing `selectedLayerIdsState` down to `[pickedId]` in
+ * `handleOverviewScreenPick` is wrong for BOTH shift-click cases: adding a
+ * screen would drop every other already-selected screen, and removing one
+ * would replace the whole array with just the new primary — there is no way
+ * to reconstruct the correct multi-id array from a single id. So: while
+ * Shift is held, this returns the CURRENT selection unchanged instead of a
+ * wrong singleton, and lets `overviewSelectedScreenIds` (which the
+ * `selectedLayerIds` derivation already prefers whenever non-empty) be the
+ * sole source of truth once that effect settles. When Shift isn't held this
+ * is a plain single-screen pick, matching the previous unconditional
+ * behavior.
+ *
+ * Exported for unit testing.
+ */
+export function computeOverviewScreenPickSelectionIds(args: {
+  pickedId: string;
+  shiftKeyHeld: boolean;
+  currentSelectedLayerIds: string[];
+}): string[] {
+  return args.shiftKeyHeld ? args.currentSelectedLayerIds : [args.pickedId];
+}
+
+/**
  * Build the set of all node ids (both projection ids and data-agent-native-node-id
  * attribute values) that exist in the given projection. Used by handleGroupSelection
  * and handleUngroupSelection to filter selectedLayerIdsState to the active file's

@@ -356,8 +356,49 @@ ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash 
  * drops, renames, or retypes anything — and any failure here is logged and
  * swallowed so it can never fail boot.
  */
+/**
+ * Best-effort unique index guarding against the add-localhost-screens
+ * cross-request race: two concurrent calls placing the same localhost route
+ * each see "no existing design_files row" from their own snapshot and both
+ * insert a fresh row using the same deterministic filename for that route
+ * (see actions/add-localhost-screens.ts). A unique index on
+ * (design_id, filename) makes the losing insert fail instead of silently
+ * creating an overlapping duplicate screen.
+ *
+ * This intentionally does NOT live in `runDesignMigrations` above:
+ * `CREATE UNIQUE INDEX` fails outright against any database that already
+ * contains a duplicate (design_id, filename) pair — e.g. from this exact race
+ * having already fired before this fix shipped — and `runMigrations` has no
+ * way to tolerate that failure class (only lock-timeout / duplicate-column /
+ * permission errors are swallowed there). A failed migration entry blocks
+ * every later entry in the list forever: it crashes the process outright in
+ * local dev, and on serverless it silently stops applying anything past it on
+ * every cold start. So this runs as its own best-effort step instead: created
+ * when possible, safely skipped (with a warning) when legacy duplicates block
+ * it. `add-localhost-screens.ts`'s insert path tolerates either outcome — it
+ * catches a real unique-violation from this index and falls back to updating
+ * the row that won the race, and is a no-op/no-crash path when the index
+ * isn't present yet.
+ */
+async function ensureDesignFilesUniqueIndex(): Promise<void> {
+  try {
+    await getDbExec().execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_filename_unique_idx ON design_files (design_id, filename)`,
+    );
+  } catch (err) {
+    console.warn(
+      "[db] design_files_design_filename_unique_idx not created — likely " +
+        "pre-existing duplicate (design_id, filename) rows from the " +
+        "add-localhost-screens race predating this fix. New concurrent " +
+        "inserts remain best-effort until the duplicates are cleaned up:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 export default async (nitroApp: any): Promise<void> => {
   await runDesignMigrations(nitroApp);
+  await ensureDesignFilesUniqueIndex();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

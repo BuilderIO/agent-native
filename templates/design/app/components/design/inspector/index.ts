@@ -14,6 +14,7 @@ export {
 export {
   AutoLayoutMatrix,
   type AutoLayoutDirection,
+  type AutoLayoutFlow,
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixProps,
   type AutoLayoutMatrixValue,

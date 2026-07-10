@@ -158,13 +158,14 @@ to SQL. `pull-document` closes that gap with a flush handshake — if a live Yjs
 collab session exists for the document it writes a one-shot `flush-request-<id>`
 application-state key (scoped to the browser session, just like `navigate`); the
 open editor sees that key, serializes its current document to markdown through
-its own existing serializer, calls `update-document`, and deletes the key;
-`pull-document` waits for the key to clear and then returns the now-fresh row.
-When no editor is open the SQL column is authoritative and the handshake is
+its own existing serializer, calls `update-document`, and writes an explicit
+request-id-matched success/error acknowledgement. `pull-document` waits for that
+acknowledgement and fails closed if the open editor cannot save; when no active
+human editor is present, the SQL column is authoritative and the handshake is
 skipped. It is GET + read-only + public-agent exposed (`requiresAuth: true`),
-returns `{ id, title, content, format, deepLink }`, and surfaces an
-"Open document" deep link for external agents. Use `--format text` for a
-plain-text strip of the markdown.
+returns `{ id, title, content, format, deepLink }`, and surfaces an "Open
+document" deep link for external agents. Use `--format text` for a plain-text
+strip of the markdown.
 
 ### Local Source Files
 

@@ -11,7 +11,7 @@ import {
   type DesignGradientType,
   type ExportSettingsValue,
 } from "../inspector";
-import { cssColorOrFallback } from "./position-helpers";
+import { colorHasVisibleAlpha, cssColorOrFallback } from "./position-helpers";
 
 export const SOLID_FILL_ID = "solid";
 export const FILL_LAYER_PREFIX = "layer:";
@@ -113,18 +113,27 @@ export function isLayerHiddenBySize(sizeEntry: string | undefined): boolean {
  * Rewrites the background-size list so `index` is hidden/shown via the
  * zero-size marker, padding shorter lists with "auto" (the CSS default) so
  * every other layer keeps rendering at its current/default size.
+ *
+ * `restoreValue` is the size to bring back when un-hiding (`hidden: false`).
+ * Without it, re-showing always reset the layer to "auto", permanently
+ * discarding whatever custom cover/contain/percentage size the layer had
+ * before it was hidden — callers should capture the layer's own size entry
+ * before hiding it (it's about to be overwritten with the marker) and pass
+ * it back in here on the show path. Defaults to "auto" so existing callers
+ * that don't have a stashed value keep today's behavior.
  */
 export function withLayerSizeMarker(
   sizeLayers: string[],
   layerCount: number,
   index: number,
   hidden: boolean,
+  restoreValue?: string,
 ): string {
   const next = Array.from(
     { length: layerCount },
     (_, i) => sizeLayers[i] || "auto",
   );
-  next[index] = hidden ? HIDDEN_LAYER_SIZE_MARKER : "auto";
+  next[index] = hidden ? HIDDEN_LAYER_SIZE_MARKER : restoreValue || "auto";
   return joinCssLayers(next);
 }
 
@@ -197,6 +206,189 @@ export function removeFillLayerAtIndex(
   };
 }
 
+/** One image-fill layer's four index-aligned CSS values. */
+export interface ImageFillLayerStyles {
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundRepeat: string;
+  backgroundPosition: string;
+}
+
+/**
+ * Sets one image-fill layer's four index-aligned CSS values at `index`,
+ * preserving every sibling layer's own image/size/repeat/position — the
+ * image-fill analog of `removeFillLayerAtIndex`/`reorderFillLayers`. `index`
+ * may be one past the current layer count to append a new layer. Shorter
+ * parallel arrays are padded with each property's CSS default (mirrors
+ * `addFillLayerPatch`'s defaults) so sibling layers keep rendering unchanged.
+ */
+export function setImageFillLayerPatch(
+  layers: FillLayerArrays,
+  index: number,
+  imageStyles: ImageFillLayerStyles,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const layerCount = Math.max(layers.backgroundImage.length, index + 1);
+  const buildLayer = (existing: string[], fallback: string, override: string) =>
+    joinCssLayers(
+      Array.from({ length: layerCount }, (_, i) =>
+        i === index ? override : existing[i] || fallback,
+      ),
+    );
+  return {
+    backgroundImage: buildLayer(
+      layers.backgroundImage,
+      "none",
+      imageStyles.backgroundImage,
+    ),
+    backgroundSize: buildLayer(
+      layers.backgroundSize,
+      "auto",
+      imageStyles.backgroundSize,
+    ),
+    backgroundRepeat: buildLayer(
+      layers.backgroundRepeat,
+      "no-repeat",
+      imageStyles.backgroundRepeat,
+    ),
+    backgroundPosition: buildLayer(
+      layers.backgroundPosition,
+      "0% 0%",
+      imageStyles.backgroundPosition,
+    ),
+  };
+}
+
+/**
+ * Full patch-building logic behind `ColorInput`'s image-fill handler.
+ *
+ * Previously, editing the base fill row's image (via `ImageFillControls` ->
+ * `DesignColorPicker.onImageFillChange`) always replaced the *whole*
+ * `backgroundImage`/`backgroundSize`/`backgroundRepeat`/`backgroundPosition`
+ * properties with a single-layer patch (see `imageFillToBackgroundStyles`),
+ * silently discarding any other gradient/image layers already stacked below
+ * it — there was no layer-index-aware merge at all.
+ *
+ * When `layerIndex` is a real index (editing an existing layer's own image),
+ * only that layer's four values are overwritten, preserving every sibling —
+ * see `setImageFillLayerPatch`. When `layerIndex` is `null` (the base
+ * solid/text row switching its paint type to Image, with no layer selected
+ * yet), the image becomes a new layer PREPENDED above the existing layer
+ * stack — mirroring `solidToGradientPatch`'s solid -> gradient conversion —
+ * instead of clobbering the whole background stack.
+ */
+export function imageFillChangePatch(
+  layers: FillLayerArrays,
+  layerIndex: number | null,
+  imageStyles: ImageFillLayerStyles,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  if (layerIndex !== null) {
+    return setImageFillLayerPatch(layers, layerIndex, imageStyles);
+  }
+  return {
+    backgroundImage: joinCssLayers([
+      imageStyles.backgroundImage,
+      ...layers.backgroundImage,
+    ]),
+    backgroundSize: joinCssLayers([
+      imageStyles.backgroundSize,
+      ...layers.backgroundSize,
+    ]),
+    backgroundRepeat: joinCssLayers([
+      imageStyles.backgroundRepeat,
+      ...layers.backgroundRepeat,
+    ]),
+    backgroundPosition: joinCssLayers([
+      imageStyles.backgroundPosition,
+      ...layers.backgroundPosition,
+    ]),
+  };
+}
+
+/**
+ * Patch for the Fill panel's "+" (add fill) action.
+ *
+ * Figma parity: clicking "+" always adds a new fill on top of whatever is
+ * already there. The only exception is a genuinely empty fill state (no
+ * visible base solid AND no existing background layers) — there "+" just
+ * reveals the hidden base solid instead of stacking an empty default
+ * gradient on top of nothing.
+ *
+ * Previously the caller only checked whether the base solid had visible
+ * alpha, so an element with an existing gradient/image layer stack but a
+ * *hidden* base solid (e.g. right after `solidToGradientPatch` converts
+ * solid -> gradient and clears backgroundColor to "transparent") had "+"
+ * silently un-hide the base solid instead of adding a new layer — the
+ * opposite of what "+" is supposed to do, and it reintroduced the exact
+ * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
+ */
+export function addFillLayerPatch(params: {
+  backgroundColor: string | undefined;
+  backgroundLayers: string[];
+  backgroundSizeLayers: string[];
+  backgroundRepeatLayers: string[];
+  backgroundPositionLayers: string[];
+}): Record<string, string> {
+  const {
+    backgroundColor,
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+  } = params;
+
+  if (!colorHasVisibleAlpha(backgroundColor) && backgroundLayers.length === 0) {
+    return { backgroundColor: cssColorOrFallback(backgroundColor, "#ffffff") };
+  }
+
+  const nextLayer = defaultGradientLayer(
+    "linear",
+    backgroundColor || "#ffffff",
+  );
+  if (backgroundLayers.length === 0) {
+    return { backgroundImage: nextLayer };
+  }
+
+  // Prepending a layer without also prepending matching entries to the
+  // other three index-aligned parallel arrays (size/repeat/position) would
+  // shift every existing layer's index by one, silently re-pairing each of
+  // them with the *previous* layer's size/repeat/position (same class of
+  // bug `removeFillLayerAtIndex` above fixes for removal).
+  return {
+    backgroundImage: joinCssLayers([nextLayer, ...backgroundLayers]),
+    backgroundSize: joinCssLayers(["auto", ...backgroundSizeLayers]),
+    backgroundRepeat: joinCssLayers(["no-repeat", ...backgroundRepeatLayers]),
+    backgroundPosition: joinCssLayers(["0% 0%", ...backgroundPositionLayers]),
+  };
+}
+
+/**
+ * Patch for removing just the base solid/text fill row — the row shown when
+ * the base color has visible alpha, or always for a text fill. Must only
+ * clear that one property, never `backgroundImage`, so any other stacked
+ * gradient/image layers (each rendered as its own row with its own
+ * independent remove button — see `removeFillLayerAtIndex`) are left
+ * untouched. This used to also zero `backgroundImage` whenever the caller
+ * had `onStylesChange` available, silently deleting every other fill layer
+ * any time the base row's own remove button was clicked.
+ */
+export function removeBaseFillPatch(
+  fillProperty: "color" | "backgroundColor",
+): Record<string, string> {
+  return { [fillProperty]: "transparent" };
+}
+
 export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
   const match = layer.trim().match(/^(linear|radial|conic)-gradient\((.*)\)$/i);
   if (!match) return null;
@@ -247,7 +439,21 @@ function readLeadingColor(part: string): { raw: string; value: string } | null {
     return { raw: transparent[0], value: "rgba(0, 0, 0, 0)" };
   }
   const functionName = trimmed.match(/^[a-z][a-z0-9-]*\(/i);
-  if (!functionName) return null;
+  if (!functionName) {
+    // Bare CSS color keyword — e.g. `linear-gradient(red, blue)` — not just
+    // hex/rgb/hsl/function colors. Gradients written by hand or generated
+    // from named-color CSS are common, and without this branch the leading
+    // stop was silently misread as a gradient *prefix* (the first stop's
+    // color was dropped, corrupting an otherwise-valid 2-stop gradient into
+    // a broken 1-stop one with a garbage prefix). Require the matched word to
+    // actually parse as a color so direction/shape prefix keywords ("to",
+    // "circle", "closest-side", "from", "at", …) are never misclassified.
+    const word = trimmed.match(/^[a-z]+\b/i);
+    if (word && parseCssColor(word[0])) {
+      return { raw: word[0], value: word[0] };
+    }
+    return null;
+  }
   let depth = 0;
   for (let index = 0; index < trimmed.length; index += 1) {
     const char = trimmed[index];
