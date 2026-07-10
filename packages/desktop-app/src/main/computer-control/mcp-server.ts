@@ -45,6 +45,8 @@ interface RunContext {
   browserOrigin?: string;
   connector?: boolean;
   remoteBrowserRegistrations?: Map<string, BrowserTaskRegistration>;
+  remoteSequences?: Map<string, number>;
+  remoteResults?: Map<string, unknown>;
 }
 
 export interface DesktopComputerMcpRegistration {
@@ -133,6 +135,8 @@ export class DesktopComputerMcpBridge {
       permissionMode: "full-auto",
       connector: true,
       remoteBrowserRegistrations: new Map(),
+      remoteSequences: new Map(),
+      remoteResults: new Map(),
     });
     this.tokenHashesByRun.set(runId, new Set([tokenHash]));
     return { url: this.url, bearerToken };
