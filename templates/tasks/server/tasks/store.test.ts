@@ -13,6 +13,7 @@ import {
   patchTask,
   reorderTasks,
   updateTask,
+  hasCompletedTasks,
 } from "./store.js";
 
 vi.mock("../db/index.js", () => ({
@@ -67,6 +68,32 @@ describe("task store", () => {
     });
     expect(withDone).toHaveLength(1);
     expect(withDone[0]?.done).toBe(true);
+  });
+
+  it("reports whether completed tasks exist when listing incomplete only", async () => {
+    expect(await hasCompletedTasks({ ownerEmail: "alice@example.com" })).toBe(
+      false,
+    );
+
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Done task",
+      id: "t-done",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await updateTask({
+      ownerEmail: "alice@example.com",
+      id: "t-done",
+      done: true,
+      now: "2026-06-22T11:00:00.000Z",
+    });
+
+    expect(await hasCompletedTasks({ ownerEmail: "alice@example.com" })).toBe(
+      true,
+    );
+    expect(await listTasks({ ownerEmail: "alice@example.com" })).toHaveLength(
+      0,
+    );
   });
 
   it("scopes tasks to owner_email", async () => {

@@ -11,7 +11,7 @@ export { LIST_TASKS_QUERY_KEY };
 
 export type TaskWithFields = Task & { fields?: TaskFieldValue[] };
 
-type ListTasksData = { tasks: TaskWithFields[] };
+type ListTasksData = { tasks: TaskWithFields[]; hasCompletedTasks?: boolean };
 
 type ListTasksMutationContext = {
   previous: [readonly unknown[], ListTasksData | undefined][];
@@ -25,7 +25,7 @@ function patchListTasksCache(
     { queryKey: LIST_TASKS_QUERY_KEY },
     (old) => {
       if (!old?.tasks) return old;
-      return { tasks: patch(old.tasks) };
+      return { ...old, tasks: patch(old.tasks) };
     },
   );
 }
@@ -124,6 +124,7 @@ export function useTasks(opts?: {
   return {
     ...query,
     tasks: listData?.tasks ?? [],
+    hasCompletedTasks: listData?.hasCompletedTasks ?? false,
   };
 }
 

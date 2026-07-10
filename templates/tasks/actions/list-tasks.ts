@@ -2,7 +2,11 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { attachFieldsToTasks } from "../server/custom-fields/task-fields.js";
-import { listTasks, requireUserEmail } from "../server/tasks/store.js";
+import {
+  hasCompletedTasks,
+  listTasks,
+  requireUserEmail,
+} from "../server/tasks/store.js";
 import { booleanQueryParam } from "./lib/boolean-query-param.js";
 
 export default defineAction({
@@ -24,9 +28,25 @@ export default defineAction({
       ownerEmail,
       includeDone: args.includeDone,
     });
+    const hasCompleted =
+      args.includeDone === true
+        ? undefined
+        : tasks.length === 0
+          ? await hasCompletedTasks({ ownerEmail })
+          : false;
     if (args.includeFields) {
-      return { tasks: await attachFieldsToTasks(ownerEmail, tasks) };
+      return {
+        tasks: await attachFieldsToTasks(ownerEmail, tasks),
+        ...(hasCompleted !== undefined
+          ? { hasCompletedTasks: hasCompleted }
+          : {}),
+      };
     }
-    return { tasks };
+    return {
+      tasks,
+      ...(hasCompleted !== undefined
+        ? { hasCompletedTasks: hasCompleted }
+        : {}),
+    };
   },
 });

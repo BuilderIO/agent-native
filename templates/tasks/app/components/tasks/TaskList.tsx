@@ -27,6 +27,7 @@ import {
 
 interface TaskListProps {
   serverTasks: TaskWithFields[];
+  hasCompletedTasks?: boolean;
   isPending: boolean;
   includeDone: boolean;
   onIncludeDoneChange: (next: boolean) => void;
@@ -58,6 +59,7 @@ function NoTasksMessage({
 
 export function TaskList({
   serverTasks,
+  hasCompletedTasks = false,
   isPending,
   includeDone,
   onIncludeDoneChange,
@@ -81,6 +83,8 @@ export function TaskList({
     [allTasks, includeDone],
   );
   const hasTasks = allTasks.length > 0;
+  const hasHiddenCompletedTasks =
+    !includeDone && tasks.length === 0 && (hasTasks || hasCompletedTasks);
   const selection = useListSelection(tasks, "tasksSelection");
   const selectionActive = selection.state.selectionMode;
   const toolbarBusy = bulkUpdateTasks.isPending || updateTask.isPending;
@@ -221,7 +225,7 @@ export function TaskList({
                 <ListSkeletonRows />
               ) : tasks.length === 0 ? (
                 <NoTasksMessage
-                  hasHiddenCompletedTasks={hasTasks && !includeDone}
+                  hasHiddenCompletedTasks={hasHiddenCompletedTasks}
                 />
               ) : (
                 <List

@@ -14,6 +14,7 @@ import {
   deleteStoredItem,
   deleteStoredItemInTx,
   getStoredItem,
+  hasCompletedStoredItems,
   listStoredItems,
   reorderStoredItems,
   requireUserEmail,
@@ -62,6 +63,15 @@ export async function listTasks(input: {
     promotedToTask: true,
   });
   return items.map(toTask);
+}
+
+export async function hasCompletedTasks(input: {
+  ownerEmail: string;
+}): Promise<boolean> {
+  return hasCompletedStoredItems({
+    ownerEmail: input.ownerEmail,
+    promotedToTask: true,
+  });
 }
 
 export async function updateTask(input: {

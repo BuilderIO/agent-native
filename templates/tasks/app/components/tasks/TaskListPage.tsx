@@ -53,19 +53,31 @@ export function TaskListPage() {
 
   const {
     tasks: serverTasks,
+    hasCompletedTasks,
     isPending,
     isError,
     error,
   } = useTasks({
-    includeDone: true,
+    includeDone,
     includeFields: true,
   });
 
   useEffect(() => {
     if (!activeTaskId || isPending) return;
     if (serverTasks.some((task) => task.id === activeTaskId)) return;
+    if (!includeDone) {
+      setIncludeDone(true);
+      return;
+    }
     setActiveTaskId(null);
-  }, [activeTaskId, isPending, serverTasks, setActiveTaskId]);
+  }, [
+    activeTaskId,
+    includeDone,
+    isPending,
+    serverTasks,
+    setActiveTaskId,
+    setIncludeDone,
+  ]);
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-6 overflow-hidden p-4 md:p-6">
@@ -90,6 +102,7 @@ export function TaskListPage() {
       ) : (
         <TaskList
           serverTasks={serverTasks}
+          hasCompletedTasks={hasCompletedTasks}
           isPending={isPending}
           includeDone={includeDone}
           onIncludeDoneChange={setIncludeDone}

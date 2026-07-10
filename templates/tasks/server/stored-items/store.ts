@@ -78,6 +78,29 @@ export async function getStoredItem(input: {
   return row ?? null;
 }
 
+export async function hasCompletedStoredItems(input: {
+  ownerEmail: string;
+  promotedToTask: boolean;
+}): Promise<boolean> {
+  if (!input.promotedToTask) {
+    return false;
+  }
+
+  const db = getDb();
+  const [row] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, true),
+        eq(tasks.done, true),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 export async function listStoredItems(input: {
   ownerEmail: string;
   promotedToTask: boolean;
