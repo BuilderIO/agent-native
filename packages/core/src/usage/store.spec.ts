@@ -62,6 +62,7 @@ beforeEach(() => {
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     cost_cents_x100 INTEGER NOT NULL DEFAULT 0,
+    cost_source TEXT NOT NULL DEFAULT 'estimated',
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
@@ -434,6 +435,25 @@ describe("recordUsage refId + cost override", () => {
       .get() as { c: number };
     // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
+  });
+
+  it("records token counts without fabricated spend when cost is unavailable", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "deepseek-chat",
+      label: "visual-recap",
+      refId: "recap-compatible",
+      costSource: "unavailable",
+    });
+    const row = sqlite
+      .prepare(
+        "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
+      )
+      .get() as { cost: number; source: string };
+
+    expect(row).toEqual({ cost: 0, source: "unavailable" });
   });
 
   it("does not dedup rows that carry no refId", async () => {

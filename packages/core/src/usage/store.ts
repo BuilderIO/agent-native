@@ -197,6 +197,8 @@ export interface UsageRecord {
    * provider-reported dollar cost so two surfaces agree exactly.
    */
   costCentsX100?: number;
+  /** Whether cost is provider-reported, estimated, or unavailable. */
+  costSource?: UsageCostSource;
   orgId?: string;
   runId?: string;
   threadId?: string;
@@ -205,6 +207,8 @@ export interface UsageRecord {
   sourcePlatform?: string;
   sourceId?: string;
 }
+
+export type UsageCostSource = "reported" | "estimated" | "unavailable";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -221,6 +225,7 @@ async function ensureUsageTable(): Promise<void> {
           cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
           cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
           cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
+          cost_source TEXT NOT NULL DEFAULT 'estimated',
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
           app TEXT NOT NULL DEFAULT '',
@@ -240,6 +245,7 @@ async function ensureUsageTable(): Promise<void> {
       const additions: Array<[string, string]> = [
         ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
         ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
+        ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
         ["ref_id", `TEXT NOT NULL DEFAULT ''`],
@@ -379,6 +385,7 @@ export async function recordUsage(
     app,
     refId,
     costCentsX100,
+    costSource,
     orgId,
     runId,
     threadId,
@@ -410,14 +417,24 @@ export async function recordUsage(
 
   // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
   // otherwise derive it from tokens via the pricing table.
+  const resolvedCostSource =
+    costSource ?? (costCentsX100 == null ? "estimated" : "reported");
   const costX100 =
-    costCentsX100 ??
-    calculateCost(inTok, outTok, modelName, cacheReadTokens, cacheWriteTokens);
+    resolvedCostSource === "unavailable"
+      ? 0
+      : (costCentsX100 ??
+        calculateCost(
+          inTok,
+          outTok,
+          modelName,
+          cacheReadTokens,
+          cacheWriteTokens,
+        ));
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -426,6 +443,7 @@ export async function recordUsage(
       cacheReadTokens,
       cacheWriteTokens,
       costX100,
+      resolvedCostSource,
       modelName,
       resolvedLabel,
       resolvedApp,
@@ -490,6 +508,7 @@ export interface UsageRecentEntry {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cents: number;
+  costSource: UsageCostSource;
 }
 
 export interface UsageSummary {
@@ -596,7 +615,7 @@ export async function getUsageSummary(
   const recentRows = await client.execute({
     sql: `SELECT id, created_at, label, app, model,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-        cost_cents_x100
+        cost_cents_x100, cost_source
       FROM token_usage
       WHERE owner_email = ?
       ORDER BY created_at DESC
@@ -616,6 +635,7 @@ export async function getUsageSummary(
     cacheReadTokens: Number(row.cache_read_tokens ?? 0),
     cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
     cents: Number(row.cost_cents_x100 ?? 0) / 100,
+    costSource: String(row.cost_source ?? "estimated") as UsageCostSource,
   }));
 
   return {
