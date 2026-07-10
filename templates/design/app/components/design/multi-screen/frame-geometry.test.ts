@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
+  getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
@@ -29,6 +30,31 @@ describe("responsive overview group layout", () => {
     expect(fourth.y).toBeGreaterThanOrEqual(
       first.y + firstGroup.height + 28 + 56,
     );
+  });
+
+  it("culls against the complete responsive row, not only its primary frame", () => {
+    const primary = { x: 100, y: 200, width: 320, height: 200 };
+    const group = getResponsiveScreenCullGeometry(screens[0]!, primary);
+    const size = getResponsiveScreenGroupSize(screens[0]!, primary);
+
+    expect(group).toMatchObject({ x: 100, y: 200, rotation: undefined });
+    expect(group.width).toBe(size.width);
+    expect(group.height).toBe(size.height);
+    expect(group.width).toBeGreaterThan(primary.width);
+  });
+
+  it("returns a conservative AABB for a responsive row rotated around its primary", () => {
+    const group = getResponsiveScreenCullGeometry(screens[0]!, {
+      x: 100,
+      y: 200,
+      width: 320,
+      height: 200,
+      rotation: 90,
+    });
+
+    expect(group.rotation).toBeUndefined();
+    expect(group.width).toBeGreaterThanOrEqual(200);
+    expect(group.height).toBeGreaterThan(320);
   });
 
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {

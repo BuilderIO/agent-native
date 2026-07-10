@@ -297,6 +297,7 @@ import {
   getLayerSelectableBounds,
   getOutsideFrameDraftFallback,
   getPreviewDeviceFrameGeometry,
+  getResponsiveScreenCullGeometry,
   getScreenPreviewViewport,
   getSelectableBounds,
   rectContainsPoint,
@@ -7222,7 +7223,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = computeBoundedScreenCullState({
       candidates: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
-        geometry,
+        geometry: getResponsiveScreenCullGeometry(screen, geometry),
         iframeCount: 1 + (screen.breakpointWidths?.length ?? 0),
       })),
       viewport,

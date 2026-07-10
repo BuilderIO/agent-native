@@ -61,6 +61,69 @@ export function getResponsiveScreenGroupSize(
   };
 }
 
+/**
+ * Bounds used by viewport culling for a screen and every responsive preview
+ * painted to its right. Culling only the persisted primary frame can evict a
+ * breakpoint that is still visibly on-screen after the user pans right.
+ *
+ * Rotated groups pivot around the primary frame, not around the wider row.
+ * Return an unrotated AABB so the generic culler cannot rotate around the
+ * wrong center and underestimate the painted region.
+ */
+export function getResponsiveScreenCullGeometry(
+  screen: ResponsiveLayoutScreen,
+  primaryGeometry: FrameGeometry,
+): FrameGeometry {
+  const size = getResponsiveScreenGroupSize(screen, primaryGeometry);
+  const rotation = primaryGeometry.rotation ?? 0;
+  if (!rotation) {
+    return {
+      ...primaryGeometry,
+      width: size.width,
+      height: size.height,
+      rotation: undefined,
+    };
+  }
+
+  const radians = (rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const pivot = {
+    x: primaryGeometry.x + primaryGeometry.width / 2,
+    y: primaryGeometry.y + primaryGeometry.height / 2,
+  };
+  const corners = [
+    { x: primaryGeometry.x, y: primaryGeometry.y },
+    { x: primaryGeometry.x + size.width, y: primaryGeometry.y },
+    { x: primaryGeometry.x, y: primaryGeometry.y + size.height },
+    {
+      x: primaryGeometry.x + size.width,
+      y: primaryGeometry.y + size.height,
+    },
+  ].map((point) => {
+    const dx = point.x - pivot.x;
+    const dy = point.y - pivot.y;
+    return {
+      x: pivot.x + dx * cosine - dy * sine,
+      y: pivot.y + dx * sine + dy * cosine,
+    };
+  });
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    rotation: undefined,
+    z: primaryGeometry.z,
+  };
+}
+
 /** Legacy three-column lineup with each cell reserving its complete responsive
  * row. This prevents one generated variation's breakpoint frames from
  * painting over the next variation while preserving the familiar grid. */
