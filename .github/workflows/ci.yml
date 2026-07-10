@@ -446,6 +446,16 @@ jobs:
         # SQLite setup cannot call process.exit during this import-only probe.
         run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
 
+      # Exercise the two other Node serverless presets as well. These import
+      # their generated handlers, so an unresolved bare runtime dependency
+      # fails before a deployment can be published.
+      - name: Build and import Plan SSR handlers (Vercel and AWS Lambda)
+        run: |
+          NITRO_PRESET=vercel pnpm --filter plan build
+          VERCEL=true timeout 120 node scripts/ssr-boot-smoke.mjs --preset vercel plan
+          NITRO_PRESET=aws-lambda pnpm --filter plan build
+          AWS_LAMBDA_FUNCTION_NAME=ssr-smoke timeout 120 node scripts/ssr-boot-smoke.mjs --preset aws-lambda plan
+
   guards:
     name: Security guards
     runs-on: ubuntu-latest

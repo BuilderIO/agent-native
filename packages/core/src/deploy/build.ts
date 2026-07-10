@@ -2443,6 +2443,12 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
+function hasUnsupportedYjsSubpathImport(source: string): boolean {
+  return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs\/[^"']*["']/.test(
+    source,
+  );
+}
+
 function walkServerJavaScriptFiles(
   dir: string,
   onFile: (filePath: string) => void,
@@ -2468,13 +2474,24 @@ export function rewriteBareYjsImportsForServerlessOutput(
   serverDir: string,
 ): string[] {
   const bareImports: string[] = [];
+  const unsupportedSubpathImports: string[] = [];
   const bundledYjsPath = path.join(serverDir, "_libs", "yjs.mjs");
 
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    if (hasBareYjsRuntimeImport(source)) bareImports.push(filePath);
+    if (!hasBareYjsRuntimeImport(source)) return;
+    if (hasUnsupportedYjsSubpathImport(source)) {
+      unsupportedSubpathImports.push(filePath);
+      return;
+    }
+    bareImports.push(filePath);
   });
 
+  if (unsupportedSubpathImports.length > 0) {
+    throw new Error(
+      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+    );
+  }
   if (bareImports.length === 0) return [];
   if (!fs.existsSync(bundledYjsPath)) {
     throw new Error(

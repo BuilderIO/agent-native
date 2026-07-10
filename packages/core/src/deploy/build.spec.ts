@@ -45,6 +45,7 @@ describe("nitroNoExternalsForPreset", () => {
   it("bundles Yjs in Node/serverless output", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual(["yjs"]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual(["yjs"]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
   });
 
@@ -1623,6 +1624,26 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(rewritten).toContain('import("../_libs/yjs.mjs")');
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rejects unsupported Yjs subpath imports instead of rewriting their semantics", () => {
+    const cwd = setupNetlifyOutput();
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.writeFileSync(
+      collabChunk,
+      'import * as Y from "yjs/src/index.js";\nexport { Y };\n',
+    );
+
+    expect(() => rewriteBareYjsImportsForServerlessOutput(serverDir)).toThrow(
+      /unsupported yjs subpath imports/,
+    );
   });
 
   it("fails deploy output that would publish without client assets in dist", () => {
