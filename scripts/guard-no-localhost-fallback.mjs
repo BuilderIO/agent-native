@@ -110,6 +110,8 @@ const ALLOWED_PATH_PREDICATES = [
   (rel) => rel === "packages/core/src/server/auth.ts",
   // Dev-only framework code.
   (rel) => /^packages\/core\/src\/dev/.test(rel),
+  // The reusable implementation needs the literal to detect it.
+  (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
   // Tests.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),

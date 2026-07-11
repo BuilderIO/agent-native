@@ -4,6 +4,10 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Each test runs real migrations against a fresh SQLite file; under full
+// workspace concurrency that setup can exceed the 5s default timeout.
+vi.setConfig({ testTimeout: 30_000 });
+
 const ownerEmail = "owner+approval-fencing@example.test";
 const orgId = "org_approval_fencing";
 
