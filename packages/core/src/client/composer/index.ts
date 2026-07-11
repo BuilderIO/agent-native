@@ -36,6 +36,7 @@ export {
 } from "./RealtimeVoiceMode.js";
 export {
   createRealtimeVoiceSession,
+  createRealtimeVoiceSessionWithCapability,
   executeRealtimeVoiceTool,
   extractRealtimeVoiceFunctionCalls,
   readRealtimeVoiceContext,
@@ -46,6 +47,7 @@ export {
   useRealtimeVoiceModeOptional,
   type RealtimeVoiceModeApi,
   type RealtimeVoiceModeProviderProps,
+  type RealtimeVoiceSessionAnswer,
   type RealtimeVoiceToolResult,
 } from "./useRealtimeVoiceMode.js";
 export {
