@@ -26,6 +26,8 @@ Written 2026-07-11 at commit `f43d34ca24` by the `improve-animations` audit (4 p
 
 ## Feel-check results (2026-07-11, browser-verified)
 
+A second pass verified the design editor (plan 009): PanelSection grid-rows collapse eases and retargets mid-animation, **no popover clipping** (the color-model mini-menu nests inside a portaled popover, so the section's `overflow-hidden` never applies), layers-panel tooltips animate on `delayed-open` under the shared provider, zero console errors. Remaining unverified by browser: mail swipe (needs Gmail + touch device), content sidebar resize (browser-testing content is off-limits in this workspace), clips overlays (GPU-safe by construction, grep-verified).
+
 A live browser pass (slides + analytics; mail inconclusive — needs Gmail OAuth) verified the button press, ease-out exits, the slides toggle/toolbar-menu fixes, and analytics hover fades, and caught two bugs that were then fixed and re-verified live:
 
 - **`origin-[--radix-…]` compiled to an empty CSS rule** (Tailwind v4 removed the bare-custom-property bracket sugar) — this predated the plans (dropdown/hover-card origins never worked) and the plans propagated it. Fixed to `origin-[var(--radix-…)]` across 7 toolkit primitives + PastedTextChip + FeedbackButton; live computed transform-origin now edge-aware.
