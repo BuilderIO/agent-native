@@ -504,7 +504,11 @@ import {
   viewportSizeFromFrameGeometry,
 } from "./design-editor/data-operations";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
-import { queryUniqueSelector } from "./design-editor/dom-utils";
+import {
+  escapeHtmlAttributeValue,
+  escapeHtmlText,
+  queryUniqueSelector,
+} from "./design-editor/dom-utils";
 import {
   createEditorSaveOperationSource,
   LOCAL_EDIT_ORIGIN,
@@ -1583,14 +1587,6 @@ function designStatePreviewHtml(
     findStatePreviewHtml(row.captureData) ??
     findStatePreviewHtml(row.fixtureData)
   );
-}
-
-function escapeHtmlAttributeValue(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 const ABS_POSITION_PROPS = [

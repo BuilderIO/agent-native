@@ -133,6 +133,7 @@ import type { ResourceAccess } from "@/lib/resource-access";
 
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
+import { SidebarLoadError } from "./SidebarLoadError";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 
@@ -1117,28 +1118,24 @@ type SqlDashboardListItem = {
 async function fetchSqlDashboards(
   t: (key: string) => string,
 ): Promise<SqlDashboardListItem[]> {
-  try {
-    const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
-    return (Array.isArray(rows) ? rows : [])
-      .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
-      .map((d: any) => ({
-        id: d.id,
-        name:
-          typeof d.name === "string" && d.name.trim().length > 0
-            ? d.name
-            : t("sidebar.untitledDashboard"),
-        visibility:
-          d.visibility === "org" || d.visibility === "public"
-            ? (d.visibility as Visibility)
-            : ("private" as Visibility),
-        parentId:
-          typeof d.parentId === "string" && d.parentId.trim().length > 0
-            ? d.parentId
-            : undefined,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : [])
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : t("sidebar.untitledDashboard"),
+      visibility:
+        d.visibility === "org" || d.visibility === "public"
+          ? (d.visibility as Visibility)
+          : ("private" as Visibility),
+      parentId:
+        typeof d.parentId === "string" && d.parentId.trim().length > 0
+          ? d.parentId
+          : undefined,
+    }));
 }
 
 async function fetchSidebarAnalyses(
@@ -1152,31 +1149,27 @@ async function fetchSidebarAnalyses(
     hiddenAt: string | null;
   }[]
 > {
-  try {
-    const rows = await callAction(
-      "list-analyses",
-      {
-        ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
-      } as Record<string, unknown>,
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : [])
-      .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
-      .map((a: any) => ({
-        id: a.id,
-        name:
-          typeof a.name === "string" && a.name.trim().length > 0
-            ? a.name
-            : t("sidebar.untitledAnalysis"),
-        visibility:
-          a.visibility === "org" || a.visibility === "public"
-            ? a.visibility
-            : ("private" as Visibility),
-        hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction(
+    "list-analyses",
+    {
+      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
+    } as Record<string, unknown>,
+    { method: "GET" },
+  );
+  return (Array.isArray(rows) ? rows : [])
+    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        typeof a.name === "string" && a.name.trim().length > 0
+          ? a.name
+          : t("sidebar.untitledAnalysis"),
+      visibility:
+        a.visibility === "org" || a.visibility === "public"
+          ? a.visibility
+          : ("private" as Visibility),
+      hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
+    }));
 }
 
 type PrefetchedSqlDashboard = {
@@ -1769,15 +1762,24 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   dashboardsSyncRef.current = dashboardsSync;
   analysesSyncRef.current = analysesSync;
 
-  const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
-    useQuery({
+  const {
+    data: sqlDashboards = [],
+    isLoading: sqlDashboardsLoading,
+    isError: sqlDashboardsError,
+    refetch: refetchSqlDashboards,
+  } = useQuery({
       queryKey: ["sql-dashboards-sidebar", dashboardsSync],
       queryFn: () => fetchSqlDashboards(t),
       staleTime: 30_000,
       placeholderData: (prev) => prev,
     });
 
-  const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
+  const {
+    data: analysesList = [],
+    isLoading: analysesLoading,
+    isError: analysesError,
+    refetch: refetchAnalyses,
+  } = useQuery({
     queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
     queryFn: () => fetchSidebarAnalyses(t, analysisHiddenFilter),
     staleTime: 30_000,
@@ -2806,6 +2808,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
+                        {sqlDashboardsError &&
+                          sqlDashboards.length === 0 && (
+                            <SidebarLoadError
+                              message={t("sidebar.dashboardsLoadFailed")}
+                              retryLabel={t("sidebar.retry")}
+                              onRetry={() => void refetchSqlDashboards()}
+                            />
+                          )}
                         <NewDashboardDialog />
                       </div>
                     </SortableContext>
@@ -2941,11 +2951,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
-                        {!analysesLoading && sortedAnalyses.length === 0 && (
+                        {analysesError && sortedAnalyses.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.analysesLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchAnalyses()}
+                          />
+                        )}
+                        {!analysesLoading &&
+                          !analysesError &&
+                          sortedAnalyses.length === 0 && (
                           <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
                             {t("sidebar.noAnalysesYet")}
                           </p>
-                        )}
+                          )}
                         <NewAnalysisDialog />
                       </div>
                     </SortableContext>

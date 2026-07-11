@@ -12,6 +12,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import { pathToFileURL } from "node:url";
 
 import {
   attachGatewaySocketErrorSink,
@@ -1288,8 +1289,54 @@ function workspaceAppsPayload(): string {
   );
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Keep browser-visible gateway URLs on the origin advertised to child apps.
+ *
+ * The gateway listens on a loopback address, so browsers can reach the same
+ * process through either `localhost` or `127.0.0.1`. Serving app HTML on one
+ * alias while injecting the other into `VITE_WORKSPACE_GATEWAY_URL` turns
+ * otherwise same-gateway requests into CORS requests. Redirect only equivalent
+ * loopback aliases on the same port; external/proxied hosts are left untouched.
+ */
+export function canonicalLoopbackRedirect(
+  requestHost: string | undefined,
+  requestTarget: string | undefined,
+  canonicalGatewayUrl: string,
+): string | undefined {
+  if (!requestHost || !requestTarget?.startsWith("/")) return undefined;
+
+  try {
+    const canonical = new URL(canonicalGatewayUrl);
+    const requested = new URL(`${canonical.protocol}//${requestHost}`);
+    if (
+      !LOOPBACK_HOSTNAMES.has(canonical.hostname) ||
+      !LOOPBACK_HOSTNAMES.has(requested.hostname) ||
+      canonical.port !== requested.port ||
+      canonical.hostname === requested.hostname
+    ) {
+      return undefined;
+    }
+    return `${canonical.origin}${requestTarget}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function createGateway(): http.Server {
   const server = http.createServer((req, res) => {
+    const canonicalRedirect = canonicalLoopbackRedirect(
+      firstHeaderValue(req.headers.host),
+      req.url,
+      gatewayUrl,
+    );
+    if (canonicalRedirect) {
+      res.writeHead(307, { location: canonicalRedirect });
+      res.end();
+      return;
+    }
+
     const parsedUrl = new URL(req.url || "/", "http://templates.local");
     const pathname = parsedUrl.pathname;
 
@@ -1486,7 +1533,8 @@ function shutdown(code = 0): void {
   }, 1_000).unref();
 }
 
-if (dryRun) {
+async function main(): Promise<void> {
+  if (dryRun) {
   console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
   console.log(
     `[dev-lazy] Mode: ${
@@ -1508,52 +1556,52 @@ if (dryRun) {
     console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
     console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
   }
-  process.exit(0);
-}
+    return;
+  }
 
-if (includeElectron) {
-  ensureElectronBinary();
-}
+  if (includeElectron) {
+    ensureElectronBinary();
+  }
 
-if (shouldKill) {
+  if (shouldKill) {
   const ports = [
     requestedGatewayPort,
     ...(includeElectron ? [FRAME_PORT] : []),
     ...apps.map((app) => app.port),
   ];
-  for (const port of ports) killPort(port);
-}
+    for (const port of ports) killPort(port);
+  }
 
-console.log("[dev-lazy] Prebuilding workspace packages...");
-execSync("node scripts/prebuild-workspace-packages.ts dev", {
-  stdio: "inherit",
-});
+  console.log("[dev-lazy] Prebuilding workspace packages...");
+  execSync("node scripts/prebuild-workspace-packages.ts dev", {
+    stdio: "inherit",
+  });
 
-if (usePollingFileWatcher) {
+  if (usePollingFileWatcher) {
   console.log(
     `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
   );
-}
+  }
 
-const coreWatchCompiler = "tsc";
-startBackgroundProcess("core", "pnpm", [
+  const coreWatchCompiler = "tsc";
+  startBackgroundProcess("core", "pnpm", [
   "--filter",
   "@agent-native/core",
   "exec",
   coreWatchCompiler,
   "--watch",
   "--preserveWatchOutput",
-]);
+  ]);
 
-const server = createGateway();
-gatewayServer = server;
+  const server = createGateway();
+  gatewayServer = server;
 
-if (templateIdleMs > 0) {
+  if (templateIdleMs > 0) {
   const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
   evictSweep.unref();
-}
+  }
 
-function listen(port: number, attempts = 20): void {
+  function listen(port: number, attempts = 20): void {
   server.once("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE" && attempts > 0) {
       listen(port + 1, attempts - 1);
@@ -1646,10 +1694,22 @@ function listen(port: number, attempts = 20): void {
 
     openBrowser(`${gatewayUrl}/${defaultApp}`);
   });
+  }
+
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(sig, () => shutdown(sig === "SIGINT" ? 0 : 1));
+  }
+
+  listen(requestedGatewayPort);
 }
 
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.once(sig, () => shutdown(sig === "SIGINT" ? 0 : 1));
-}
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
-listen(requestedGatewayPort);
+if (isDirectRun) {
+  void main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

@@ -135,7 +135,6 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
-  getCurrentTurnEventsForThread,
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
@@ -150,7 +149,6 @@ import {
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
-  classifyToolCallJournal,
   findCompletedJournalEntry,
   type ToolCallJournal,
 } from "./tool-call-journal.js";
