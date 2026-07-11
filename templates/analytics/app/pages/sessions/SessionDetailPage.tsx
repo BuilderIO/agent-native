@@ -9,6 +9,11 @@ import {
 } from "@agent-native/core/client";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "@shared/session-replay-diagnostics";
+import {
   IconArrowLeft,
   IconCheck,
   IconChevronRight,
@@ -174,9 +179,6 @@ const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const SUPPRESS_OVERLAYS_CSS = [
   "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
 ];
-const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
-const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
-
 const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
   console: [],
   network: [],
@@ -237,17 +239,15 @@ const INCREMENTAL_SOURCE = {
 } as const;
 
 const MOUSE_INTERACTION = {
+  MouseUp: 0,
+  MouseDown: 1,
   Click: 2,
+  ContextMenu: 3,
   DblClick: 4,
   Focus: 5,
+  TouchStart: 7,
+  TouchEnd: 9,
 } as const;
-
-const INTERACTION_SOURCES = new Set<number>([
-  INCREMENTAL_SOURCE.MouseInteraction,
-  INCREMENTAL_SOURCE.Scroll,
-  INCREMENTAL_SOURCE.Input,
-  INCREMENTAL_SOURCE.TouchMove,
-]);
 
 export default function SessionDetailPage() {
   const t = useT();
@@ -1925,6 +1925,23 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
           ["Y", event.data?.y],
         ]),
       });
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
+      event.data?.source === INCREMENTAL_SOURCE.Scroll
+    ) {
+      markers.push({
+        id: `scroll-${timestamp}-${markers.length}`,
+        timestamp,
+        offsetMs: Math.max(0, timestamp - startedAt),
+        kind: "custom",
+        label: "Scroll",
+        detail: pointerDetail(event.data),
+        fields: markerFields([
+          ["Element id", event.data?.id],
+          ["X", event.data?.x],
+          ["Y", event.data?.y],
+        ]),
+      });
     } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
       const marker = customReplayMarker(
         event,
@@ -1973,7 +1990,34 @@ function customReplayMarker(
   }
 
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
-    return null;
+    const status = Number(payload.status ?? 0);
+    if (
+      payload.ok !== false &&
+      (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
+    ) {
+      return null;
+    }
+    const method =
+      typeof payload.method === "string" ? payload.method : undefined;
+    const url = typeof payload.url === "string" ? payload.url : undefined;
+    const error =
+      typeof payload.error === "string" ? payload.error : undefined;
+    return {
+      id: `network-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "custom",
+      label: "Network error",
+      detail: [method, url].filter(Boolean).join(" ") || error,
+      severity: "error",
+      fields: markerFields([
+        ["Method", method],
+        ["URL", url],
+        ["Status", Number.isFinite(status) ? status : undefined],
+        ["Error", error],
+        ["Duration", payload.durationMs],
+      ]),
+    };
   }
 
   return {
@@ -1986,7 +2030,7 @@ function customReplayMarker(
   };
 }
 
-function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
+export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
   const startedAt = replayStartedAt(events);
   const interactions: number[] = [];
   let lastTimestamp = startedAt;
@@ -1994,13 +2038,7 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     const timestamp = Number(event.timestamp ?? 0);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     lastTimestamp = Math.max(lastTimestamp, timestamp);
-    if (event.type === RRWEB_EVENT_TYPE.Meta) {
-      interactions.push(timestamp);
-    } else if (
-      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-      typeof event.data?.source === "number" &&
-      INTERACTION_SOURCES.has(event.data.source)
-    ) {
+    if (isReplayActivityEvent(event)) {
       interactions.push(timestamp);
     }
   }
@@ -2023,6 +2061,33 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     );
   }
   return ranges;
+}
+
+function isReplayActivityEvent(event: AnyReplayEvent): boolean {
+  if (event.type === RRWEB_EVENT_TYPE.Meta) return true;
+  if (event.type !== RRWEB_EVENT_TYPE.IncrementalSnapshot) return false;
+
+  const source = event.data?.source;
+  if (
+    source === INCREMENTAL_SOURCE.Input ||
+    source === INCREMENTAL_SOURCE.Scroll ||
+    source === INCREMENTAL_SOURCE.TouchMove
+  ) {
+    return true;
+  }
+  if (source !== INCREMENTAL_SOURCE.MouseInteraction) return false;
+
+  const interactionType = event.data?.type;
+  return (
+    interactionType === MOUSE_INTERACTION.MouseUp ||
+    interactionType === MOUSE_INTERACTION.MouseDown ||
+    interactionType === MOUSE_INTERACTION.Click ||
+    interactionType === MOUSE_INTERACTION.ContextMenu ||
+    interactionType === MOUSE_INTERACTION.DblClick ||
+    interactionType === MOUSE_INTERACTION.Focus ||
+    interactionType === MOUSE_INTERACTION.TouchStart ||
+    interactionType === MOUSE_INTERACTION.TouchEnd
+  );
 }
 
 function pushIdleRange(
@@ -2135,10 +2200,14 @@ export function filterReplayMarkers(
 }
 
 function replayStartedAt(events: AnyReplayEvent[]): number {
-  const first = events.find((event) =>
-    Number.isFinite(Number(event.timestamp)),
-  );
-  return Number(first?.timestamp ?? 0);
+  let startedAt = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    const timestamp = Number(event.timestamp);
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      startedAt = Math.min(startedAt, timestamp);
+    }
+  }
+  return Number.isFinite(startedAt) ? startedAt : 0;
 }
 
 function replayDuration(events: AnyReplayEvent[]): number {

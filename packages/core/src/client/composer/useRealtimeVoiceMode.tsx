@@ -322,7 +322,8 @@ export function createRealtimeVoiceGreetingEvent(): Record<string, unknown> {
     type: "response.create",
     response: {
       output_modalities: ["audio"],
-      instructions: 'Say exactly: "How can I help you?" Do not add anything else.',
+      instructions:
+        'Say exactly: "How can I help you?" Do not add anything else.',
       max_output_tokens: 12,
     },
   };
@@ -965,6 +966,8 @@ function useRealtimeVoiceModeController(
     (event: RealtimeServerEvent) => {
       transcriptSequencer.handle(event);
       if (event.type === "session.created") {
+        cancelConnectionTimeoutRef.current?.();
+        cancelConnectionTimeoutRef.current = null;
         const session = event.session;
         if (session && typeof session === "object") {
           const id = (session as { id?: unknown }).id;
@@ -1088,11 +1091,6 @@ function useRealtimeVoiceModeController(
     abortRef.current = abortController;
     const isCurrentAttempt = () =>
       abortRef.current === abortController && !abortController.signal.aborted;
-    const markTransportReady = () => {
-      if (!isCurrentAttempt()) return;
-      cancelConnectionTimeoutRef.current?.();
-      cancelConnectionTimeoutRef.current = null;
-    };
     cancelConnectionTimeoutRef.current = createRealtimeVoiceConnectionTimeout(
       () => {
         if (!isCurrentAttempt()) return;
@@ -1130,7 +1128,6 @@ function useRealtimeVoiceModeController(
 
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
-      channel.onopen = markTransportReady;
       channel.onmessage = (messageEvent) => {
         if (!isCurrentAttempt()) return;
         try {
@@ -1148,7 +1145,6 @@ function useRealtimeVoiceModeController(
       };
       peer.onconnectionstatechange = () => {
         if (!isCurrentAttempt()) return;
-        if (peer.connectionState === "connected") markTransportReady();
         if (peer.connectionState === "failed") {
           fail(
             copy?.errors.connectionFailed ??
