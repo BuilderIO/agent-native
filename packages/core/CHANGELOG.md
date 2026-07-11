@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.94.3
+
+### Patch Changes
+
+- 48d8471: Keep Slack agent task cards active through deferred cross-agent work, show durable progress, and deliver the true final result instead of treating interim artifacts as complete.
+- 48d8471: Keep completed realtime voice turns in their originating chat, restore that chat safely when voice ends, and expose live audio activity to the voice dock.
+- 48d8471: Accept canonical Content document links returned by successful read-only actions as A2A artifact proof while continuing to reject mismatched or unproven URLs.
+
 ## 0.94.2
 
 ### Patch Changes
