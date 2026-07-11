@@ -1,4 +1,5 @@
 import { AgentActionStopError, defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { runQuery } from "../server/lib/bigquery";
@@ -57,10 +58,15 @@ export default defineAction({
   }),
   readOnly: true,
   toolCallable: true,
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     try {
-      return await runQuery(args.sql);
+      return await runQuery(args.sql, { signal: context?.signal });
     } catch (err) {
+      // A run cancellation is terminal for this invocation. Returning it as a
+      // recoverable SQL error would invite the agent to retry work after the
+      // parent run has already ended.
+      if (context?.signal?.aborted) throw err;
+
       const msg = err instanceof Error ? err.message : String(err);
       if (
         /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured/i.test(msg) ||

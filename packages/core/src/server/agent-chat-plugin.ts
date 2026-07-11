@@ -54,11 +54,16 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import type {
+  AgentEngine,
+  EngineMessage,
+  EngineTool,
+} from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
   getActiveRunForThreadAsync,
   abortRunDurably,
   subscribeToRun,
@@ -2941,6 +2946,22 @@ export function runA2AAgentLoop(
 }
 
 /**
+ * Keep delegated A2A turns on the same compact initial tool surface as
+ * interactive chat. `tool-search` remains in the initial set, while the
+ * complete registry is supplied separately so the run loop can load a matched
+ * schema after a tool-search result.
+ */
+export function createA2AEngineToolSurface(
+  availableTools: EngineTool[],
+  initialToolNames?: string[],
+): { tools: EngineTool[]; availableTools: EngineTool[] } {
+  return {
+    tools: filterInitialEngineTools(availableTools, initialToolNames),
+    availableTools,
+  };
+}
+
+/**
  * Verbose framework sections returned by the `get-framework-context` tool.
  * Keyed by topic so the agent can request specific sections.
  * Not template-specific — lives outside buildFrameworkPrompts().
@@ -5077,7 +5098,10 @@ export function createAgentChatPlugin(
                 },
           );
 
-          const a2aTools = actionsToEngineTools(a2aActions);
+          const a2aToolSurface = createA2AEngineToolSurface(
+            actionsToEngineTools(a2aActions),
+            options?.initialToolNames,
+          );
 
           // Precise current time rides the user message (not the cached
           // system-prompt prefix) — same pattern as the interactive handler.
@@ -5098,7 +5122,7 @@ export function createAgentChatPlugin(
           const controller = new AbortController();
 
           console.log(
-            `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
+            `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
           await runA2AAgentLoop(
@@ -5106,7 +5130,8 @@ export function createAgentChatPlugin(
               engine: a2aEngine,
               model,
               systemPrompt,
-              tools: a2aTools,
+              tools: a2aToolSurface.tools,
+              availableTools: a2aToolSurface.availableTools,
               messages: a2aMessages,
               actions: a2aActions,
               send: (event) => {
