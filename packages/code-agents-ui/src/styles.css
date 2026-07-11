@@ -1922,10 +1922,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid hsl(var(--border, 0 0% 24%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
   border-radius: calc(var(--radius, 0.5rem) - 2px);
-  background: hsl(var(--card, 0 0% 15%));
-  color: hsl(var(--foreground, 0 0% 90%) / 0.86);
+  background: hsl(var(--card, 0 0% 100%));
+  color: hsl(var(--foreground, 0 0% 10%) / 0.86);
   padding: 0 9px;
   font: inherit;
   font-size: 12px;
@@ -1941,9 +1941,9 @@
 
 .desktop-select-trigger:hover,
 .desktop-select-trigger[data-state="open"] {
-  border-color: hsl(var(--border, 0 0% 24%));
+  border-color: hsl(var(--border, 0 0% 90%));
   background: hsl(var(--accent, 0 0% 18%));
-  color: hsl(var(--foreground, 0 0% 90%));
+  color: hsl(var(--foreground, 0 0% 10%));
 }
 
 .desktop-select-trigger:focus-visible {
@@ -1965,13 +1965,13 @@
   min-width: 184px;
   max-width: 260px;
   overflow: hidden;
-  border: 1px solid hsl(var(--border, 0 0% 24%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
   background: hsl(var(--popover, 0 0% 15%));
   color: hsl(var(--popover-foreground, 0 0% 90%));
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+    inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
   /* shadcn-style enter/exit animations */
   transform-origin: var(--radix-select-content-transform-origin);
   animation-duration: 140ms;
@@ -2013,7 +2013,7 @@
   gap: 3px;
   border-radius: calc(var(--radius, 0.5rem) - 3px);
   padding: 8px 9px 8px 30px;
-  color: hsl(var(--foreground, 0 0% 90%) / 0.88);
+  color: hsl(var(--foreground, 0 0% 10%) / 0.88);
   outline: none;
   transition:
     background 80ms ease,
@@ -2022,7 +2022,7 @@
 
 .desktop-select-item[data-highlighted] {
   background: hsl(var(--accent, 0 0% 18%));
-  color: hsl(var(--foreground, 0 0% 90%));
+  color: hsl(var(--foreground, 0 0% 10%));
 }
 
 .desktop-select-item[data-disabled] {
@@ -2038,7 +2038,7 @@
   width: 14px;
   height: 14px;
   place-items: center;
-  color: hsl(var(--foreground, 0 0% 90%));
+  color: hsl(var(--foreground, 0 0% 10%));
 }
 
 .desktop-select-item__label {
@@ -2062,14 +2062,14 @@
   z-index: 300;
   min-width: 210px;
   overflow: hidden;
-  border: 1px solid hsl(var(--border, 0 0% 24%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
   background: hsl(var(--popover, 0 0% 15%));
   color: hsl(var(--popover-foreground, 0 0% 90%));
   padding: 5px;
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+    inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
   /* shadcn-style enter/exit animations via Radix data-state */
   transform-origin: var(--radix-dropdown-menu-content-transform-origin);
   animation-duration: 140ms;
@@ -2124,7 +2124,7 @@
   align-items: center;
   border-radius: calc(var(--radius, 0.5rem) - 3px);
   padding: 7px 9px;
-  color: hsl(var(--foreground, 0 0% 90%) / 0.88);
+  color: hsl(var(--foreground, 0 0% 10%) / 0.88);
   font-size: 12px;
   outline: none;
   user-select: none;
@@ -2158,7 +2158,7 @@
 
 .desktop-dropdown-item[data-highlighted] {
   background: hsl(var(--accent, 0 0% 18%));
-  color: hsl(var(--foreground, 0 0% 90%));
+  color: hsl(var(--foreground, 0 0% 10%));
 }
 
 .desktop-dropdown-item[data-disabled] {
@@ -2169,7 +2169,7 @@
 .desktop-dropdown-separator {
   height: 1px;
   margin: 5px 4px;
-  background: hsl(var(--border, 0 0% 24%));
+  background: hsl(var(--border, 0 0% 90%));
 }
 
 .code-agents-permission--compact .code-agents-mode-select {

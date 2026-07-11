@@ -1246,3 +1246,63 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
     );
   });
 });
+
+describe("MultiTabAssistantChat page overlay", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:page-overlay-test",
+      JSON.stringify(["thread-1"]),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("marks the page overlay only after the thread scrolls", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="page-overlay-test"
+          renderOverlay={() => (
+            <div className="agent-chat-scroll" data-testid="chat-scroll" />
+          )}
+        />,
+      );
+    });
+
+    const scrollTarget = container.querySelector<HTMLElement>(
+      '[data-testid="chat-scroll"]',
+    );
+    expect(scrollTarget).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-page-chat-scrolled]"),
+    ).toBeNull();
+
+    await act(async () => {
+      if (!scrollTarget) return;
+      scrollTarget.scrollTop = 24;
+      scrollTarget.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(
+      container.querySelector("[data-agent-page-chat-scrolled]"),
+    ).not.toBeNull();
+  });
+});
