@@ -135,7 +135,14 @@ function shouldSkipFile(name) {
 
 function shouldSkipRelativePath(relativePath) {
   const segments = relativePath.split("/");
-  if (segments.some((segment) => excludedDirNames.has(segment))) return true;
+  if (
+    segments.some(
+      (segment) =>
+        excludedDirNames.has(segment) || isCorpusOutputDirName(segment),
+    )
+  ) {
+    return true;
+  }
   const name = segments[segments.length - 1];
   return shouldSkipFile(name);
 }
@@ -200,7 +207,12 @@ function listFilesystemFiles(absRoot, relRoot) {
     const abs = join(absRoot, entry.name);
     const rel = `${relRoot}/${entry.name}`.split("\\").join("/");
     if (entry.isDirectory()) {
-      if (excludedDirNames.has(entry.name)) continue;
+      if (
+        excludedDirNames.has(entry.name) ||
+        isCorpusOutputDirName(entry.name)
+      ) {
+        continue;
+      }
       files.push(...listFilesystemFiles(abs, rel));
     } else if (entry.isFile()) {
       files.push(rel);
