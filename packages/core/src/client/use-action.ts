@@ -217,6 +217,8 @@ export interface ActionFetchOptions {
   keepalive?: boolean;
   /** Pre-serialized mutation body used by the keepalive budget coordinator. */
   serializedBody?: string;
+  /** Omit the tab echo-suppression tag for imperative callers. */
+  includeRequestSource?: boolean;
 }
 
 /**
@@ -265,9 +267,14 @@ async function actionFetch<T>(
     // safe to expose: CORS allows it (see action-routes.ts) and it carries
     // no auth weight — it only narrows the caller tag.
     "X-Agent-Native-Frontend": "1",
-    // The server copies this onto the emitted action sync event. useDbSync can
-    // then ignore the echo in this tab while other tabs still refresh.
-    "X-Request-Source": getBrowserTabId(),
+    ...(options?.includeRequestSource !== false
+      ? {
+          // The server copies this onto the emitted action sync event.
+          // useDbSync can then ignore the echo in this tab while other tabs
+          // still refresh.
+          "X-Request-Source": getBrowserTabId(),
+        }
+      : {}),
   };
   const tz = resolveUserTimezone();
   if (tz) headers["x-user-timezone"] = tz;
@@ -430,6 +437,7 @@ export function callAction<
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
+    includeRequestSource: false,
   });
 }
 
