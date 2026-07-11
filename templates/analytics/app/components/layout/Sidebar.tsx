@@ -1295,7 +1295,7 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection() {
+function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1439,8 +1439,9 @@ function AnalyticsChatsSection() {
       {visibleThreads.map((thread) => {
         const title = threadTitle(thread, t("chat.untitledChat"));
         const isActive =
-          thread.id === activeThreadId ||
-          thread.id === persistedAnalyticsThreadId();
+          isAskRoute &&
+          (thread.id === activeThreadId ||
+            thread.id === persistedAnalyticsThreadId());
         const isRenaming = thread.id === renamingThreadId;
         return (
           <div
@@ -2544,14 +2545,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask section */}
               <div className="group/section min-w-0 space-y-1">
-                <div
-                  className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
-                    isAskRoute
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
+                <div className="flex w-full min-w-0 items-center rounded-lg text-muted-foreground transition-all hover:bg-sidebar-accent/50 hover:text-primary">
                   <Link
                     to="/ask"
                     onClick={(event) => {
@@ -2592,7 +2586,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection />}
+                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
               </div>
 
               {/* Sessions link */}

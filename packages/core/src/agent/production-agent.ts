@@ -1762,6 +1762,12 @@ export type AgentLoopFinalResponseGuardResult =
   | {
       retryMessage: string;
       fallbackMessage?: string;
+      /**
+       * Number of rejected text-only answers the model may correct before the
+       * fallback is emitted. Defaults to one and is capped to keep a broken
+       * guard/model combination from looping indefinitely.
+       */
+      maxRetries?: number;
     };
 
 export type AgentLoopFinalResponseGuard = (
@@ -3641,7 +3647,11 @@ export async function runAgentLoop(opts: {
           typeof guard === "string" ? guard : guard.retryMessage;
         const fallbackMessage =
           typeof guard === "string" ? guard : guard.fallbackMessage;
-        if (finalGuardRetries < 1) {
+        const maxGuardRetries =
+          typeof guard === "string"
+            ? 1
+            : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
+        if (finalGuardRetries < maxGuardRetries) {
           finalGuardRetries += 1;
           send({ type: "clear" });
           messages.push({
@@ -6160,21 +6170,81 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
     // settings read).
     workerStep("model_start");
+    const storedModel =
+      requestModel == null && configuredModel == null
+        ? await getStoredModelForEngine(engine, { appId: options.appId })
+        : undefined;
     const modelCandidate =
-      requestModel ??
-      configuredModel ??
-      (await getStoredModelForEngine(engine, { appId: options.appId })) ??
-      engine.defaultModel;
+      requestModel ?? configuredModel ?? storedModel ?? engine.defaultModel;
     // DIAGNOSTIC-ONLY: stored-model resolution finished.
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
+    let effectiveModel = model;
+    let modelSelectionSource:
+      | "request"
+      | "configured"
+      | "stored"
+      | "default"
+      | "experiment" = requestModel
+      ? "request"
+      : configuredModel
+        ? "configured"
+        : storedModel
+          ? "stored"
+          : "default";
+    let experimentAssignments: Array<{
+      experimentId: string;
+      variantId: string;
+    }> = [];
+
+    // Database-backed experiments remain available to app operators. A
+    // platform-wide hosted rollout is layered in only when no explicit or
+    // persisted model selection exists, and only on the cross-provider Builder
+    // engine. This preserves the model picker's user intent.
+    try {
+      if (ownerEmail) {
+        const { resolveActiveExperimentConfig } =
+          await import("../observability/experiments.js");
+        const expConfig = await resolveActiveExperimentConfig(ownerEmail);
+        if (expConfig) {
+          experimentAssignments = expConfig.assignments;
+          if (typeof expConfig.configs.model === "string") {
+            effectiveModel = normalizeModelForEngine(
+              engine,
+              expConfig.configs.model,
+            );
+            modelSelectionSource = "experiment";
+          }
+        }
+
+        if (modelSelectionSource === "default") {
+          const { resolveHostedDefaultModelExperiment } =
+            await import("../observability/hosted-model-experiment.js");
+          const hostedExperiment = resolveHostedDefaultModelExperiment({
+            userId: ownerEmail,
+            engineName: engine.name,
+            isDefaultModelSelection: true,
+            supportedModels: engine.supportedModels,
+          });
+          if (hostedExperiment) {
+            effectiveModel = hostedExperiment.model;
+            experimentAssignments.push(hostedExperiment.assignment);
+            modelSelectionSource = "experiment";
+          }
+        }
+      }
+    } catch {
+      // Experiments are best-effort. Model resolution must keep working if the
+      // observability tables are unavailable during startup or migration.
+    }
+
     const reasoningEffort = resolveAgentRequestReasoningEffort({
-      model,
+      model: effectiveModel,
       requestEffort,
       configuredEffort: options.reasoningEffort,
     });
 
-    options.onEngineResolved?.(engine, model);
+    options.onEngineResolved?.(engine, effectiveModel);
 
     // One-line per-turn resolution log so it's obvious in dev which engine
     // is actually handling the request. `requestEngine` is what the client
@@ -6182,7 +6252,7 @@ export function createProductionAgentHandler(
     // Divergence between them is the usual cause of "status says builder but
     // no [builder-engine] log lines appear" confusion.
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource}`,
     );
 
     if (
@@ -7487,25 +7557,6 @@ export function createProductionAgentHandler(
           }
         }
 
-        // Apply experiment variant overrides (A/B testing)
-        let effectiveModel = model;
-        try {
-          const { resolveActiveExperimentConfig } =
-            await import("../observability/experiments.js");
-          if (!ownerEmail) {
-            // Without an authenticated owner we can't resolve user-scoped experiments.
-            throw new Error("no authenticated user");
-          }
-          const expConfig = await resolveActiveExperimentConfig(ownerEmail);
-          if (expConfig) {
-            if (typeof expConfig.configs.model === "string") {
-              effectiveModel = expConfig.configs.model;
-            }
-          }
-        } catch {
-          // Experiments module unavailable — use default model
-        }
-
         // TODO(processor-seam): thread `processors` from ProductionAgentOptions
         // through to runAgentLoop here once the handler exposes a way to
         // configure them (e.g. a `processors` field on ProductionAgentOptions
@@ -7592,6 +7643,14 @@ export function createProductionAgentHandler(
               threadId: threadId ?? null,
               userId: ownerEmail,
               config: obsConfig,
+              metadata: {
+                modelSelectionSource,
+                ...(experimentAssignments.length > 0
+                  ? { experimentAssignments }
+                  : {}),
+              },
+              experimentAssignments,
+              modelSelectionSource,
               classifyError: () => {
                 if (
                   agentLoopOpts.signal.aborted &&

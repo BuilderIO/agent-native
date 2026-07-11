@@ -55,7 +55,61 @@ function latestUserText(
   return "";
 }
 
-function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
+function configuredDataSourceLabels(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): string[] {
+  const labels = new Set<string>();
+  for (const result of toolResults ?? []) {
+    const normalizedName = String(result.name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+    if (normalizedName !== "data-source-status" || result.isError) continue;
+
+    let parsed: Record<string, unknown>;
+    try {
+      const value = JSON.parse(String(result.content ?? ""));
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      parsed = value as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const compactSources = Array.isArray(parsed.configuredDataSources)
+      ? parsed.configuredDataSources
+      : [];
+    for (const source of compactSources) {
+      if (!source || typeof source !== "object" || Array.isArray(source)) {
+        continue;
+      }
+      const record = source as Record<string, unknown>;
+      const label = record.label ?? record.provider;
+      if (typeof label === "string" && label.trim()) labels.add(label.trim());
+    }
+
+    // Backward compatibility for runs against deployments that predate the
+    // compact configuredDataSources summary.
+    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
+    for (const provider of providers) {
+      if (
+        !provider ||
+        typeof provider !== "object" ||
+        Array.isArray(provider)
+      ) {
+        continue;
+      }
+      const record = provider as Record<string, unknown>;
+      if (record.configured !== true) continue;
+      const label = record.label ?? record.provider;
+      if (typeof label === "string" && label.trim()) labels.add(label.trim());
+    }
+  }
+  return [...labels];
+}
+
+export function realDataFinalGuard(
+  context: AgentLoopFinalResponseGuardContext,
+) {
   if ((context as { executionMode?: string }).executionMode === "plan") {
     return null;
   }
@@ -125,11 +179,22 @@ function realDataFinalGuard(context: AgentLoopFinalResponseGuardContext) {
     };
   }
 
+  const configuredSources = configuredDataSourceLabels(context.toolResults);
+  const configuredSourceGuidance = configuredSources.length
+    ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
+    : "";
   return {
     retryMessage:
-      "This looks like an analytics result request, but no real source query ran. If you are making data claims, run one relevant data-source action or connected provider MCP tool now and answer from that result. If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
-    fallbackMessage:
-      "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+      "This looks like an analytics result request, but no real source query ran. If you are making data claims, run one relevant data-source action or connected provider MCP tool now and answer from that result." +
+      configuredSourceGuidance +
+      " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
+    fallbackMessage: configuredSources.length
+      ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
+      : "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+    // Some models use separate turns for status, schema discovery, and the
+    // actual query. One corrective turn was enough for Sonnet but caused Luna
+    // to hit the fallback before it reached the query.
+    maxRetries: 2,
   };
 }
 

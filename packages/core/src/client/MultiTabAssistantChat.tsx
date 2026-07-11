@@ -1105,7 +1105,27 @@ export function MultiTabAssistantChat({
   );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPageOverlayScrolled(false);
+  }, [activeThreadId]);
+
+  const handlePageOverlayScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        !renderOverlay ||
+        !(target instanceof HTMLElement) ||
+        !target.closest(".agent-chat-scroll")
+      ) {
+        return;
+      }
+      setPageOverlayScrolled(target.scrollTop > 1);
+    },
+    [renderOverlay],
+  );
 
   // ─── Model state ─────────────────────────────────────────────────────────
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
@@ -2653,7 +2673,13 @@ export function MultiTabAssistantChat({
           : null}
 
       {/* Chat content with optional overlay */}
-      <div className="relative flex-1 flex flex-col min-h-0">
+      <div
+        className="relative flex-1 flex flex-col min-h-0"
+        data-agent-page-chat-scrolled={
+          renderOverlay && pageOverlayScrolled ? "" : undefined
+        }
+        onScrollCapture={renderOverlay ? handlePageOverlayScroll : undefined}
+      >
         {renderOverlay ? renderOverlay(headerProps) : null}
 
         {/* History popover — rendered inside relative container so positioning works */}

@@ -1,32 +1,39 @@
-@import "../../core/src/styles/agent-conversation.css";
+@import "@agent-native/core/styles/agent-conversation.css";
 
-/* ─── Agent-Native Code shadcn/template alignment ─────────────── */
+/* ─── Agent-Native Code shadcn/template alignment ───────────────
+   Light is the default palette (matches the scaffolded template's
+   `:root` tokens in packages/core/src/templates/default/app/global.css).
+   Dark applies when the document root has the `.dark` class (set by the
+   desktop shell's OS-theme listener), or — before that listener runs, or
+   for hosts that never add the class — when the OS prefers dark and the
+   root has no explicit `.light`/`.dark` class, mirroring the pattern used
+   in agent-conversation.css. */
 .code-agents-surface {
-  --background: 0 0% 13%;
-  --foreground: 0 0% 90%;
-  --card: 0 0% 15%;
-  --card-foreground: 0 0% 90%;
-  --popover: 0 0% 15%;
-  --popover-foreground: 0 0% 90%;
-  --primary: 0 0% 75%;
-  --primary-foreground: 0 0% 10%;
-  --secondary: 0 0% 18%;
-  --secondary-foreground: 0 0% 90%;
-  --muted: 0 0% 16%;
-  --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 18%;
-  --accent-foreground: 0 0% 90%;
-  --destructive: 0 63% 51%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 24%;
-  --input: 0 0% 24%;
-  --ring: 0 0% 60%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 10%;
-  --sidebar-foreground: 0 0% 60%;
-  --sidebar-accent: 0 0% 16%;
-  --sidebar-accent-foreground: 0 0% 90%;
-  --sidebar-border: 0 0% 20%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
   --ease: 120ms cubic-bezier(0.16, 1, 0.3, 1);
   --code-agents-chat-max: 700px;
   --code-agents-rail-gutter: 8px;
@@ -54,6 +61,60 @@
     "Segoe UI",
     sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.dark .code-agents-surface {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 63% 51%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-surface {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 0 0% 10%;
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 63% 51%;
+    --border: 0 0% 24%;
+    --input: 0 0% 24%;
+    --ring: 0 0% 60%;
+    --sidebar-background: 0 0% 10%;
+    --sidebar-foreground: 0 0% 60%;
+    --sidebar-accent: 0 0% 16%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 20%;
+  }
 }
 
 .code-agents-rail {
@@ -917,9 +978,19 @@
   border: 1px solid hsl(45 90% 50% / 0.24);
   border-radius: var(--radius);
   background: hsl(45 90% 50% / 0.08);
-  color: hsl(45 92% 82%);
+  color: hsl(38 80% 32%);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.dark .code-agents-mobile-message {
+  color: hsl(45 92% 82%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-mobile-message {
+    color: hsl(45 92% 82%);
+  }
 }
 
 .code-agents-mobile-actions {
@@ -1188,8 +1259,28 @@
   background: hsl(var(--muted) / 0.55);
 }
 
+/* These are rendered via React portals (Radix Popover/Tooltip mount to
+   `document.body`), so they can't inherit the `.code-agents-surface` token
+   scope through the DOM and need their own light/dark copy of the same
+   tokens. */
 [data-agent-native-tooltip="true"],
 [data-agent-native-composer-popover="true"] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --border: 0 0% 90%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --radius: 0.5rem;
+}
+
+.dark [data-agent-native-tooltip="true"],
+.dark [data-agent-native-composer-popover="true"] {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --popover: 0 0% 15%;
@@ -1201,7 +1292,23 @@
   --border: 0 0% 24%;
   --primary: 0 0% 75%;
   --primary-foreground: 0 0% 10%;
-  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-agent-native-tooltip="true"],
+  :root:not(.light) [data-agent-native-composer-popover="true"] {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 90%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 90%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 90%;
+    --border: 0 0% 24%;
+    --primary: 0 0% 75%;
+    --primary-foreground: 0 0% 10%;
+  }
 }
 
 [data-agent-native-tooltip="true"] {
@@ -1213,7 +1320,17 @@
   color: hsl(var(--popover-foreground));
   padding: 4px 7px;
   font-size: 11px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+}
+
+.dark [data-agent-native-tooltip="true"] {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-agent-native-tooltip="true"] {
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  }
 }
 
 [data-agent-native-composer-popover="true"] {
@@ -1235,8 +1352,22 @@
   font-size: 13px;
   line-height: 1.35;
   box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 hsl(var(--foreground) / 0.04);
+}
+
+.dark [data-agent-native-composer-popover="true"] {
+  box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 hsl(var(--foreground) / 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) [data-agent-native-composer-popover="true"] {
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 hsl(var(--foreground) / 0.04);
+  }
 }
 
 [data-agent-native-composer-popover="true"] button {
@@ -1425,16 +1556,19 @@
   opacity: 0.64;
 }
 
+/* Radix Select portals its content to `document.body`, so — like the
+   tooltip/composer-popover block above — it needs its own light/dark
+   token copy instead of inheriting from `.code-agents-surface`. */
 .code-agents-select-content {
-  --background: 0 0% 13%;
-  --foreground: 0 0% 90%;
-  --popover: 0 0% 15%;
-  --popover-foreground: 0 0% 90%;
-  --muted: 0 0% 16%;
-  --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 18%;
-  --accent-foreground: 0 0% 90%;
-  --border: 0 0% 24%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --border: 0 0% 90%;
   --radius: 0.5rem;
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) + 1px);
@@ -1448,7 +1582,35 @@
     "Segoe UI",
     sans-serif;
   font-size: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.16);
+}
+
+.dark .code-agents-select-content {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --border: 0 0% 24%;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-select-content {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 90%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 90%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 90%;
+    --border: 0 0% 24%;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  }
 }
 
 .code-agents-select-content .desktop-select-item {
@@ -1575,7 +1737,25 @@
   border-color: hsl(45 90% 50% / 0.26);
   border-radius: var(--radius);
   background: hsl(45 90% 50% / 0.08);
+  color: hsl(38 80% 32%);
+}
+
+.dark .code-agents-callout,
+.dark .code-agents-callout--degraded,
+.dark .code-agents-callout--unauthorized,
+.dark .code-agents-credential-callout,
+.dark .code-agents-approval-callout {
   color: hsl(45 92% 82%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-callout,
+  :root:not(.light) .code-agents-callout--degraded,
+  :root:not(.light) .code-agents-callout--unauthorized,
+  :root:not(.light) .code-agents-credential-callout,
+  :root:not(.light) .code-agents-approval-callout {
+    color: hsl(45 92% 82%);
+  }
 }
 
 .code-agents-callout > div,

@@ -100,6 +100,11 @@ function emitLlmGenerationTrackingEvent(args: {
   successfulTools: number;
   failedTools: number;
   createdAt: number;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
 }): void {
   const provider = llmProviderFromEngine(args.engineName, args.model);
   const costUsd = costUsdFromCenticents(args.costCentsX100);
@@ -126,6 +131,7 @@ function emitLlmGenerationTrackingEvent(args: {
     tool_calls: args.toolCalls,
     successful_tools: args.successfulTools,
     failed_tools: args.failedTools,
+    model_selection_source: args.modelSelectionSource,
     created_at: new Date(args.createdAt).toISOString(),
     created_at_ms: args.createdAt,
     $ai_trace_id: args.runId,
@@ -145,6 +151,19 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_request_count: 1,
     $ai_total_cost_usd: costUsd,
   };
+  if (args.experimentAssignments?.length) {
+    properties.experiment_ids = args.experimentAssignments
+      .map((assignment) => assignment.experimentId)
+      .join(",");
+    properties.experiment_variants = args.experimentAssignments
+      .map((assignment) => assignment.variantId)
+      .join(",");
+    if (args.experimentAssignments.length === 1) {
+      properties.experiment_id = args.experimentAssignments[0].experimentId;
+      properties.experiment_variant =
+        args.experimentAssignments[0].variantId;
+    }
+  }
   if (error) properties.error_message = error;
 
   for (const key of Object.keys(properties)) {
@@ -245,6 +264,12 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  metadata?: Record<string, unknown> | null;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
   classifyError?: (error: unknown) =>
     | {
         status?: "success" | "error";
@@ -268,6 +293,15 @@ export async function instrumentAgentLoop(opts: {
     "agent.thread_id": threadId ?? undefined,
     "agent.user_id": userId ?? undefined,
     "agent.model": loopOpts.model,
+    "agent.model_selection_source": opts.modelSelectionSource,
+    "agent.experiment_id":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].experimentId
+        : undefined,
+    "agent.experiment_variant":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].variantId
+        : undefined,
   });
 
   const spans: TraceSpan[] = [];
@@ -424,7 +458,7 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
-  let runMetadata: Record<string, unknown> | null = null;
+  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
     usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
   } catch (err: any) {
@@ -434,7 +468,11 @@ export async function instrumentAgentLoop(opts: {
       classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
         : classification.errorMessage;
-    runMetadata = classification?.metadata ?? null;
+    const errorMetadata = classification?.metadata ?? null;
+    runMetadata =
+      runMetadata || errorMetadata
+        ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
+        : null;
     throw err;
   } finally {
     const runEnd = Date.now();
@@ -501,6 +539,8 @@ export async function instrumentAgentLoop(opts: {
         successfulTools,
         failedTools,
         createdAt: runStart,
+        experimentAssignments: opts.experimentAssignments,
+        modelSelectionSource: opts.modelSelectionSource,
       });
     }
 
