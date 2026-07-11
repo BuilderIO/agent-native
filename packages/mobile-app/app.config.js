@@ -1,14 +1,10 @@
-import type { ConfigContext, ExpoConfig } from "expo/config";
-import { type ConfigPlugin, withEntitlementsPlist } from "expo/config-plugins";
-
-import appJson from "./app.json";
+const { withEntitlementsPlist } = require("expo/config-plugins");
+const appJson = require("./app.json");
 
 const DISABLE_REMOTE_PUSH =
   process.env.AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH === "1";
 
-function withoutRemotePushPlugin(
-  plugins: ExpoConfig["plugins"],
-): ExpoConfig["plugins"] {
+function withoutRemotePushPlugin(plugins) {
   if (!DISABLE_REMOTE_PUSH || !Array.isArray(plugins)) return plugins;
   return plugins.filter((plugin) => {
     const name = Array.isArray(plugin) ? plugin[0] : plugin;
@@ -16,18 +12,15 @@ function withoutRemotePushPlugin(
   });
 }
 
-const withInstallPreviewNoPush: ConfigPlugin = (config) =>
+const withInstallPreviewNoPush = (config) =>
   withEntitlementsPlist(config, (entitlementsConfig) => {
     delete entitlementsConfig.modResults["aps-environment"];
     return entitlementsConfig;
   });
-const withInstallPreviewNoPushPlugin =
-  withInstallPreviewNoPush as unknown as NonNullable<
-    ExpoConfig["plugins"]
-  >[number];
+const withInstallPreviewNoPushPlugin = withInstallPreviewNoPush;
 
-export default ({ config }: ConfigContext): ExpoConfig => {
-  const base = appJson.expo as ExpoConfig;
+module.exports = ({ config }) => {
+  const base = appJson.expo;
   const plugins = withoutRemotePushPlugin(base.plugins);
 
   return {
