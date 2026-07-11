@@ -79,6 +79,14 @@ action before requesting microphone permission.
   the app the user is actually speaking to. Realtime tool manifests are capped,
   so prioritize `navigate`, `set-url-path`, `set-search-params`, and
   `view-screen` before packing large template registries.
+- Keep `tool-search` in the initial Realtime manifest. A successful specific
+  search may expand the live session with matching action schemas, but the
+  server must derive those schemas from its own registry, bind authorization
+  to the authenticated voice session, and continue execution through
+  `executeAgentToolCall`. Treat `session.update.tools` as a full replacement:
+  preserve the pinned navigation/discovery tools, evict lower-priority entries
+  within the manifest cap, and wait for `session.updated` before asking the
+  model to continue with a newly discovered tool.
 - Do not persist audio or interim transcript deltas. Append completed user and
   assistant utterances as ordinary text messages to the exact chat thread
   captured when the session starts. Input transcription completes
