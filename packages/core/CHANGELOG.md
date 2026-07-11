@@ -1,5 +1,29 @@
 # @agent-native/core
 
+## 0.98.1
+
+### Patch Changes
+
+- ee7b5b3: Keep assistant chat's duplicate-message recovery installed when assistant-ui swaps the underlying thread runtime during reconnects or thread changes.
+- ee7b5b3: Use the browser's preferred language for more accurate realtime voice transcripts.
+- ee7b5b3: Prevent chat and realtime voice from starting before AI provider readiness is known, and reliably surface setup when no provider is connected.
+- ee7b5b3: Update the session replay recorder to the latest stable rrweb release for more faithful browser capture.
+- ee7b5b3: Skip degenerate hand-drawn frame paths that can overflow the browser call stack while a visual block is still measuring.
+- ee7b5b3: Type nullable organization parameters in integration scope, budget, and workspace MCP queries so PostgreSQL can reliably prepare them.
+- ee7b5b3: Prevent sync-driven request storms by preserving in-flight reads, filtering same-tab action echoes, targeting action-query invalidation, refreshing shared run state from change events, and backing idle Dispatch monitoring away from fixed polling.
+- ee7b5b3: Reduce the width and height of centered full-page chat composers for a more compact starting state.
+- ee7b5b3: Use dated changelog filenames when a hand-written entry omits its release date.
+- ee7b5b3: Polish realtime voice settings, keep them open while using nested pickers, and add live microphone selection.
+- ee7b5b3: Show the full Builder model catalog in the app default model setting instead of filtering suggestions to the current model.
+- ee7b5b3: Support app-scoped encryption keys so multi-app development environments can safely read each app's encrypted data.
+- ee7b5b3: Keep full-page chat open when a user navigates to Settings.
+- ee7b5b3: Keep API key settings compact and move unconfigured providers and custom credentials behind a single New menu.
+- ee7b5b3: Ignore expected browser autoplay-policy rejections emitted by recorded media during session replay playback.
+- ee7b5b3: Let realtime voice discover and load app tools on demand while preserving guarded action execution.
+- ee7b5b3: Prevent the agent prompt composer from crashing when a destroyed editor reconnects after remount or browser history restoration.
+- ee7b5b3: Keep realtime voice waveforms visible between turns, show a clear connection spinner, complete the spoken ready greeting, prioritize navigation tools, flatten the orb into a translucent surface, preserve chronological voice transcripts, improve transcription language accuracy, keep popovers and the voice dock clear of the agent panel, and add in-call language, intelligence, and voice controls.
+- ee7b5b3: Simplify the chat model picker to Claude, OpenAI, Gemini, and OpenRouter, with OpenRouter listed last.
+
 ## 0.98.0
 
 ### Minor Changes
