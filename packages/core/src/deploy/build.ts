@@ -992,6 +992,20 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return normalized && normalized !== "*" && normalized !== "cookie" && normalized !== "authorization";
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
+
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
   // Netlify function responses are dynamic by default and can otherwise show
@@ -1086,6 +1100,13 @@ function requestWithPathname(request, pathname) {
   if (url.pathname === pathname) return request;
   url.pathname = pathname;
   return new Request(url, request);
+}
+
+function requestForAnonymousSsr(request) {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  return new Request(request, { headers });
 }
 
 function isStaticAppShellRequest(request) {
@@ -1206,7 +1227,7 @@ ${
     ) {
       return new Response(null, { status: 404 });
     }
-    const request = requestWithPathname(event.req, p);
+    const request = requestForAnonymousSsr(requestWithPathname(event.req, p));
     const anonymousContext = { userEmail: undefined, orgId: undefined };
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");

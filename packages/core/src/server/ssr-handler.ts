@@ -98,6 +98,13 @@ function requestWithPathname(
   return new Request(url, init);
 }
 
+function requestForAnonymousSsr(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  return new Request(request, { headers });
+}
+
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
   if (path === basePath || path.startsWith(`${basePath}/`)) return path;
@@ -233,6 +240,27 @@ function applyDefaultSsrCacheHeader(
 ) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
+  // A public shell must never set a viewer cookie or vary by credentials.
+  // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return (
+          normalized &&
+          normalized !== "*" &&
+          normalized !== "cookie" &&
+          normalized !== "authorization"
+        );
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
+
   // Netlify Functions/proxies are not cached by default. Set all three cache
   // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
   // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
@@ -361,7 +389,9 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      const request = requestWithPathname(event.req as Request, p, basePath);
+      const request = requestForAnonymousSsr(
+        requestWithPathname(event.req as Request, p, basePath),
+      );
       // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
       // request's session/cookies here, and pin an explicitly anonymous request
       // context. That keeps the SSR HTML/.data identical for every visitor so it

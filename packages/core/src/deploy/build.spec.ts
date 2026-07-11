@@ -113,8 +113,16 @@ export function createRequestHandler() {
         headers: {
           "cache-control": "private, no-store",
           "content-type": "text/html; charset=utf-8",
+          "set-cookie": "viewer=private; Path=/",
+          "vary": "Cookie, Accept-Encoding, Authorization",
         },
       });
+    }
+    if (url.pathname === "/request-headers") {
+      return new Response(
+        '<html><body>' + (request.headers.get("cookie") || "no-cookie") + ':' + (request.headers.get("authorization") || "no-auth") + '</body></html>',
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      );
     }
     return new Response(
       '<html><head></head><body><a href="/next">next</a><form action="/api/search"></form><style>.hero{background:url("/hero.png")}</style>' +
@@ -137,6 +145,20 @@ describe("generateWorkerEntry", () => {
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("pins generated React Router SSR to an anonymous request context", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      'import { runWithRequestContext } from "@agent-native/core/server/edge";',
+    );
+    expect(source).toContain(
+      "const anonymousContext = { userEmail: undefined, orgId: undefined };",
+    );
+    expect(source).toContain(
+      "runWithRequestContext(anonymousContext, () => rrHandler(request))",
+    );
   });
 
   it("pre-marks generated plugin slots before running async plugins", () => {
@@ -326,6 +348,26 @@ export default (event) =>
       {},
     );
 
+    expectDefaultWorkerSsrCacheHeaders(response);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("vary")).toBe("Accept-Encoding");
+  });
+
+  it("strips credential headers before generated worker SSR", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/request-headers", {
+        headers: {
+          cookie: "an_session=active",
+          authorization: "Bearer private-token",
+        },
+      }),
+      {},
+      {},
+    );
+
+    expect(await response.text()).toContain("no-cookie:no-auth");
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
