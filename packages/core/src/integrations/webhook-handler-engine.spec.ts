@@ -43,25 +43,43 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
-vi.mock("../agent/production-agent.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../agent/production-agent.js")
-  >("../agent/production-agent.js");
-  return {
-    getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-    getOwnerApiKey: getOwnerApiKeyMock,
-    engineToProvider: (engineName: string) =>
-      engineName.startsWith("ai-sdk:")
-        ? engineName.slice("ai-sdk:".length)
-        : engineName,
-    actionsToEngineTools: actionsToEngineToolsMock,
-    runAgentLoop: runAgentLoopMock,
-    // Real filtering logic — several tests below assert on which tool names
-    // reach the first engine request, so this must behave like production
-    // rather than a stub.
-    filterInitialEngineTools: actual.filterInitialEngineTools,
-  };
-});
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) and conflict with the narrower engine
+// mock below. This only needs to prove webhook-handler.ts WIRES the filter
+// with the right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
+vi.mock("../agent/production-agent.js", () => ({
+  getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
+  getOwnerApiKey: getOwnerApiKeyMock,
+  engineToProvider: (engineName: string) =>
+    engineName.startsWith("ai-sdk:")
+      ? engineName.slice("ai-sdk:".length)
+      : engineName,
+  actionsToEngineTools: actionsToEngineToolsMock,
+  runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
+}));
 
 vi.mock("../agent/engine/index.js", () => ({
   getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
@@ -1565,13 +1583,17 @@ describe("integration webhook handler engine resolution", () => {
 
   it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const actual = await vi.importActual<
-      typeof import("../agent/production-agent.js")
-    >("../agent/production-agent.js");
-    // Only this test needs the real action->tool conversion — every other
-    // test in this file relies on the `[]` stub set in `beforeEach` and
-    // doesn't inspect `tools`/`availableTools`.
-    actionsToEngineToolsMock.mockImplementation(actual.actionsToEngineTools);
+    // Only this test needs a real-shaped action->tool conversion — every
+    // other test in this file relies on the `[]` stub set in `beforeEach`
+    // and doesn't inspect `tools`/`availableTools`.
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
 
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({ type: "text", text: "ok" });

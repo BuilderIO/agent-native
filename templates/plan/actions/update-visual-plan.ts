@@ -49,6 +49,8 @@ import {
   sectionInputSchema,
 } from "../server/plans.js";
 import {
+  agentPlanContentPatchesSchema,
+  agentPlanContentSchema,
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
