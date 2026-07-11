@@ -7081,13 +7081,13 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
-  const codex = getLocalCodexCliAvailability();
+  const codex = getLocalCodexCliStatus();
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
-    ...(codex.available ? [codex.label] : []),
+    ...(codex.authenticated ? [codex.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -7116,8 +7116,7 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
   if (process.env.OPENAI_API_KEY) return true;
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return Boolean(
-    (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) ||
-    AppStore.getCodeAgentProviderSettingsStatus().configured,
+    process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
   );
 }
 
@@ -7203,37 +7202,6 @@ function getLocalCodexCliStatus(): {
   };
 }
 
-function getLocalCodexCliAvailability(): {
-  available: boolean;
-  authenticated: boolean;
-  label: string;
-  version?: string;
-  error?: string;
-} {
-  const versionResult = spawnSync("codex", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error || versionResult.status !== 0) {
-    return {
-      available: false,
-      authenticated: false,
-      label: "Codex CLI",
-      error:
-        (versionResult.error as NodeJS.ErrnoException | undefined)?.code ===
-        "ENOENT"
-          ? "Codex CLI was not found."
-          : versionResult.error?.message || "Codex CLI is unavailable.",
-    };
-  }
-  return {
-    available: true,
-    authenticated: false,
-    label: "Codex CLI",
-    version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
-  };
-}
-
 function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
   return withLocalCodexProviderStatus(
     AppStore.getCodeAgentProviderSettingsStatus(),
@@ -7243,16 +7211,17 @@ function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
 function withLocalCodexProviderStatus(
   settings: CodeAgentProviderSettings,
 ): CodeAgentProviderSettings {
-  const codex = getLocalCodexCliAvailability();
+  const codex = getLocalCodexCliStatus();
   if (!codex.available) return settings;
   const provider = {
     id: "codex" as const,
     label: "Codex CLI",
-    configured: codex.available,
+    configured: codex.authenticated,
     configuredKeys: [] as CodeAgentProviderCredentialKey[],
     missingKeys: [] as CodeAgentProviderCredentialKey[],
     savedKeys: [] as CodeAgentProviderCredentialKey[],
-    source: codex.available ? ("local-codex" as const) : undefined,
+    source: codex.authenticated ? ("local-codex" as const) : undefined,
+    error: codex.error,
   };
   const providers = [
     provider,
@@ -7343,7 +7312,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
-    const codex = getLocalCodexCliAvailability();
+    const codex = getLocalCodexCliStatus();
     const apiProviderConfigured =
       Boolean(providerStatusById(settings, "anthropic")?.configured) ||
       Boolean(providerStatusById(settings, "openai")?.configured) ||
@@ -7377,7 +7346,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
           label: "Codex CLI default",
           description:
             "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
-          configured: codex.available,
+          configured: codex.authenticated,
         });
       }
       pushCodeAgentModelOptions(models, {
@@ -7412,7 +7381,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
             engine: "builder",
             model: BUILDER_MODEL_CONFIG.defaultModel,
           }
-        : codex.available && !apiProviderConfigured
+        : codex.authenticated && !apiProviderConfigured
           ? {
               engine: CODEX_CLI_ENGINE_NAME,
               model: CODEX_CLI_DEFAULT_MODEL,

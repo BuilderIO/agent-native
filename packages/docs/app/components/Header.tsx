@@ -172,22 +172,30 @@ export default function Header() {
               alt=""
               className="block h-6 w-6 min-[380px]:hidden dark:hidden"
               aria-hidden="true"
+              fetchPriority="low"
+              decoding="async"
             />
             <img
               src="/agent-native-icon-dark.svg"
               alt=""
               className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
               aria-hidden="true"
+              fetchPriority="low"
+              decoding="async"
             />
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+              fetchPriority="low"
+              decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
+              fetchPriority="low"
+              decoding="async"
             />
           </Link>
 

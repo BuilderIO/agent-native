@@ -120,4 +120,42 @@ describe("desktop passive-access regressions", () => {
     );
     expect(agent).toContain("hideCredentialMessages={hasCredentialHistory}");
   });
+
+  it("does not treat unreadable saved provider blobs as a runtime provider", () => {
+    const main = source("./index.ts");
+    const runtimeCheck = between(
+      main,
+      "function hasRuntimeNonCodexCodeAgentLlmProvider()",
+      "function normalizeCodeAgentRequestedEngine(",
+    );
+
+    expect(runtimeCheck).not.toContain(
+      "AppStore.getCodeAgentProviderSettingsStatus()",
+    );
+    expect(main).toContain("applyCodeAgentProviderCredentialsToEnv()");
+    expect(main).toContain("applyResult.failedKeys.length > 0");
+  });
+
+  it("only marks the local Codex provider configured after authentication", () => {
+    const main = source("./index.ts");
+    const providerStatus = between(
+      main,
+      "function withLocalCodexProviderStatus(",
+      "function updateCodeAgentProviderSettings(",
+    );
+    const modelList = between(
+      main,
+      "function getCodeAgentModelList(",
+      "function getCodeAgentHostMetadata(",
+    );
+
+    expect(providerStatus).toContain("configured: codex.authenticated");
+    expect(providerStatus).toContain(
+      'source: codex.authenticated ? ("local-codex" as const) : undefined',
+    );
+    expect(modelList).toContain("configured: codex.authenticated");
+    expect(modelList).toContain(
+      "codex.authenticated && !apiProviderConfigured",
+    );
+  });
 });
