@@ -219,15 +219,6 @@ export default function Header() {
             >
               {t("header.templates")}
             </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              {t("header.skills")}
-            </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
               target="_blank"
@@ -323,16 +314,6 @@ export default function Header() {
               onClick={closeMobileMenu}
             >
               {t("header.templates")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
