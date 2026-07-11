@@ -27,6 +27,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -211,6 +212,15 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const sessionBypass =
+    location.pathname === "/" ||
+    location.pathname === "/plans" ||
+    location.pathname.startsWith("/plans/") ||
+    location.pathname === "/recaps" ||
+    location.pathname.startsWith("/recaps/") ||
+    location.pathname === "/local-plans" ||
+    location.pathname.startsWith("/local-plans/");
   return (
     // Pass the plan-specific styled Toaster via `toaster` so only one sonner
     // instance renders (avoids the duplicate that would appear if AppProviders'
@@ -218,6 +228,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        sessionBypass={sessionBypass}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >

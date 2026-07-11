@@ -392,6 +392,8 @@ Anteriormente, essa era uma postura de "avisar e aceitar" - defina o segredo que
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **não** é definido, a menos que sua organização realmente compartilhe chaves de espaço de trabalho — consulte [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] Em implantações multilocatários, **os usuários trazem seu próprio `ANTHROPIC_API_KEY`** — a estrutura se recusa a voltar para o ambiente de nível de implantação var
 
+Execute `agent-native doctor` (`pnpm doctor` em um app gerado pelo scaffold) para verificar automaticamente os itens de esquema, credenciais e variáveis de ambiente desta checklist — cada descoberta indica o guard, o arquivo e a linha. Consulte a documentação do [Doctor](/docs/doctor).
+
 ---
 
 As seções abaixo abordam sinalizadores de ambiente de nicho que você só alcança em implantações específicas. A maioria dos aplicativos nunca toca neles.

@@ -200,7 +200,7 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ch.startMs);
             }}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-0.5 bg-white/80 hover:h-4 hover:w-1 transition-all"
+            className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80 transition-[transform,opacity] duration-150 ease-out hover:scale-x-[2] hover:scale-y-125 motion-reduce:transition-none motion-reduce:hover:scale-100"
             style={{
               left: (ch.startMs / Math.max(1, durationMs)) * 100 + "%",
             }}
@@ -247,8 +247,10 @@ export function Scrubber(props: ScrubberProps) {
         {/* Thumb */}
         <div
           className={cn(
-            "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-3 rounded-full bg-white shadow transition-transform",
-            dragging ? "scale-125" : "scale-0 group-hover/bar:scale-100",
+            "absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-[transform,opacity] duration-150 ease-out motion-reduce:scale-100 motion-reduce:transition-none",
+            dragging
+              ? "scale-125 opacity-100"
+              : "scale-95 group-hover/bar:scale-100 group-hover/bar:opacity-100",
           )}
           style={{ left: pct + "%" }}
         />

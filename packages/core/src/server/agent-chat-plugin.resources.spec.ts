@@ -381,6 +381,54 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).not.toContain("Use `docs-search` to read a skill");
   });
 
+  it("indexes instruction files instead of inlining their markdown in compact mode", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain(
+      '<instruction-resources scope="workspace-instruction">',
+    );
+    expect(prompt).toContain("`instructions/guardrails.md`");
+    expect(prompt).not.toContain("Protect customer data.");
+    expect(prompt).not.toContain("Narrow workspace guardrails.");
+    expect(prompt).not.toContain("Prefer concise local overrides.");
+  });
+
+  it("keeps aggregate compact startup resources within a fixed budget", async () => {
+    const skills = Object.fromEntries(
+      Array.from({ length: 80 }, (_, index) => [
+        `skill-${index}`,
+        {
+          meta: {
+            name: `skill-${index}`,
+            description: `Runtime workflow ${index} ${"detail ".repeat(40)}`,
+            scope: "both",
+          },
+          content: `# Skill ${index}`,
+          dir: `.agents/skills/skill-${index}`,
+          extraFiles: [],
+        },
+      ]),
+    );
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: `# Workspace\n${"workspace ".repeat(2_000)}`,
+      agentsMd: `# Template\n${"template ".repeat(2_000)}`,
+      skills,
+    });
+    mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
+      if (path === "AGENTS.md" || path === "LEARNINGS.md") {
+        return { content: `# ${path}\n${"instruction ".repeat(2_000)}` };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt.length).toBeLessThan(49_000);
+    expect(prompt).toContain("<context-budget-note>");
+    expect(prompt).toContain("docs-search");
+    expect(prompt).toContain("tool-search");
+  });
+
   it("excludes scope: dev skills from the compact skills summary", async () => {
     mocks.loadAgentsBundle.mockResolvedValueOnce({
       workspaceAgentsMd: "",

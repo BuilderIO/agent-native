@@ -173,15 +173,27 @@ describe("runDoctor (CLI)", () => {
     expect(out.join("\n")).toMatch(/no-drizzle-push/);
   });
 
-  it("--json emits { ok, findings, guardsRun } shape", async () => {
+  it("--json emits { ok, findings, guardsRun, strict } shape", async () => {
     const root = makeTempAppRoot(VIOLATION_FILES);
-    const { io, err } = captureIo();
+    const { io, out } = captureIo();
     const code = await runDoctor(["--cwd", root, "--json"], io);
     expect(code).toBe(1);
-    const parsed = JSON.parse(err.join(""));
+    const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(false);
     expect(Array.isArray(parsed.findings)).toBe(true);
     expect(Array.isArray(parsed.guardsRun)).toBe(true);
+    expect(parsed.strict).toBe(false);
+  });
+
+  it("--json delivers the report via stdout (io.log), never stderr, even with findings present (regression: report used to route to io.err when findings existed, silently breaking `doctor --json > report.json` CI capture)", async () => {
+    const root = makeTempAppRoot(VIOLATION_FILES);
+    const { io, out, err } = captureIo();
+    const code = await runDoctor(["--cwd", root, "--json"], io);
+    expect(code).toBe(1);
+    expect(err.join("\n")).toBe("");
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.findings.length).toBeGreaterThan(0);
   });
 
   it("--only filters which guards run end-to-end via the CLI", async () => {

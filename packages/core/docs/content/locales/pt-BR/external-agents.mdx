@@ -136,7 +136,7 @@ instantâneo até que você o atualize/revise novamente, então verifique novame
 alterações nos metadados da ferramenta ou do aplicativo MCP. Se você ainda tiver conectores por aplicativo antigos
 ativado junto com Dispatch, atualize ou reconecte cada conector obsoleto; atualizando
 O Dispatch não reescreve o calendário/correio/etc em cache de ChatGPT ou Claude.
-instantâneos. Os escopos `mcp:read` / `mcp:write` / `mcp:apps` são os mesmos
+instantâneos. Os escopos `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` são os mesmos
 descritos abaixo em
 [OAuth remoto padrão do MCP](#standard-oauth).
 
@@ -284,13 +284,14 @@ O fluxo OAuth é código de autorização + PKCE com rotação de token de atual
 
 Os escopos atuais são:
 
-| Escopo      | Permite                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------- |
-| `mcp:read`  | MCP somente leitura actions e descoberta comum de ferramentas/recursos                      |
-| `mcp:write` | mutação de actions e da meta-ferramenta `ask-agent`                                         |
-| `mcp:apps`  | Listagem/leitura de recursos de aplicativos MCP e renderização UI in-line quando compatível |
+| Escopo           | Permite                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `mcp:read`       | MCP somente leitura actions e descoberta comum de ferramentas/recursos                      |
+| `mcp:write`      | mutação de actions e da meta-ferramenta `ask-agent`                                         |
+| `mcp:apps`       | Listagem/leitura de recursos de aplicativos MCP e renderização UI in-line quando compatível |
+| `offline_access` | Acesso ao token de atualização para manter o host conectado                                 |
 
-Quando o cliente não solicita nenhum escopo explícito, o aplicativo concede todos os três para que o conector se comporte como o fluxo do Connect autorizado pelo navegador. Mantenha a página Connect do token de portador e o substituto `npx @agent-native/core@latest connect --token <token>` para desenvolvedores locais, hosts substitutos e clientes onde você precisa de um bloco de configuração pronto para colar.
+Quando o cliente não solicita nenhum escopo explícito, o aplicativo concede todos os quatro para que o conector se comporte como o fluxo do Connect autorizado pelo navegador e possa atualizar o acesso sem outro login. Mantenha a página Connect do token de portador e o substituto `npx @agent-native/core@latest connect --token <token>` para desenvolvedores locais, hosts substitutos e clientes onde você precisa de um bloco de configuração pronto para colar.
 
 ## Níveis de catálogo {#catalog-tiers}
 

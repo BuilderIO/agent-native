@@ -2992,7 +2992,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps"',
+      'scope="mcp:read mcp:write mcp:apps offline_access"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).

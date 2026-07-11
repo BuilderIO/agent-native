@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -18,6 +19,16 @@ export interface DispatchMcpAppAccessSettings {
   selectedAppIds: string[];
   updatedAt?: string;
   updatedBy?: string;
+}
+
+class McpAppAccessError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "McpAppAccessError";
+    this.statusCode = statusCode;
+  }
 }
 
 interface AccessScope {
@@ -45,10 +56,11 @@ export function normalizeMcpAppAccessSettings(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const mode = record.mode === "selected-apps" ? "selected-apps" : "all-apps";
+  const mode = record.mode === "all-apps" ? "all-apps" : "selected-apps";
   return {
     mode,
-    selectedAppIds: uniqueAppIds(record.selectedAppIds),
+    selectedAppIds:
+      raw == null ? ["dispatch"] : uniqueAppIds(record.selectedAppIds),
     updatedAt:
       typeof record.updatedAt === "string" ? record.updatedAt : undefined,
     updatedBy:
@@ -62,6 +74,28 @@ function currentAccessScope(): AccessScope {
   const orgId = getRequestOrgId();
   if (orgId) return { kind: "org", id: orgId, actor };
   return { kind: "user", id: actor, actor };
+}
+
+async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
+  if (scope.kind === "user") return;
+
+  let role: unknown = null;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [scope.id, scope.actor.toLowerCase()],
+    });
+    role = rows[0]?.role;
+  } catch {
+    // Fail closed when org membership cannot be verified.
+  }
+
+  if (role !== "owner" && role !== "admin") {
+    throw new McpAppAccessError(
+      "Only organization owners and admins can change Dispatch MCP app access.",
+      403,
+    );
+  }
 }
 
 export async function getDispatchMcpAppAccessSettings(): Promise<DispatchMcpAppAccessSettings> {
@@ -78,6 +112,7 @@ export async function setDispatchMcpAppAccessSettings(input: {
   selectedAppIds?: string[];
 }): Promise<DispatchMcpAppAccessSettings> {
   const scope = currentAccessScope();
+  await assertCanManageMcpAppAccess(scope);
   const next: DispatchMcpAppAccessSettings = {
     mode: input.mode,
     selectedAppIds: uniqueAppIds(input.selectedAppIds),

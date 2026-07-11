@@ -9,6 +9,7 @@ import {
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
 import {
+  analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE,
 } from "./agent-chat";
@@ -35,6 +36,16 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("run one bounded aggregate");
     expect(guidance).toContain("Once it returns a valid result");
     expect(guidance).toContain("does not waive the real-data requirement");
+  });
+
+  it("routes data-dictionary lookup on demand with compact guidance", () => {
+    const context = analyticsDataDictionaryRoutingContext();
+
+    expect(context).toContain("available on demand");
+    expect(context).toContain("`list-data-dictionary`");
+    expect(context).toContain("focused `search` or `department` filter");
+    expect(context).toContain("approved entries as canonical");
+    expect(context.length).toBeLessThan(1_000);
   });
 
   it("marks substantive data-analysis tools as Act-only without changing lightweight planning tools", () => {

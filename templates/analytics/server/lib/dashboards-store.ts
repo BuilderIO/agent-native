@@ -168,6 +168,19 @@ export class DashboardConflictError extends Error {
   }
 }
 
+/**
+ * Thrown when a fenced `upsertAnalysis` write (an `expectedUpdatedAt` was
+ * supplied) loses its compare-and-swap because another writer changed the
+ * row first. Callers should re-read the analysis and re-apply their mutation
+ * against the fresh record — see `upsertAnalysisWithRetry`.
+ */
+export class AnalysisConflictError extends Error {
+  constructor(id: string) {
+    super(`Analysis "${id}" changed between read and write.`);
+    this.name = "AnalysisConflictError";
+  }
+}
+
 function changeScope(
   ownerEmail: string,
   orgId: string | null,
@@ -1247,6 +1260,21 @@ async function snapshotAnalysisRevision(
   await pruneAnalysisRevisions(db, analysis.id);
 }
 
+/**
+ * Upsert an analysis. On create, caller becomes owner and visibility defaults
+ * to `private`. On update, `assertAccess` requires `editor`.
+ *
+ * `expectedUpdatedAt` fences the update against concurrent writers: pass the
+ * `updatedAt` observed by an earlier `getAnalysis` call and the UPDATE only
+ * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * in between, the fenced UPDATE affects zero rows and this throws
+ * `AnalysisConflictError` instead of silently clobbering their write. Omit it
+ * (the default) to keep the prior unconditional last-write-wins behavior,
+ * which existing callers (legacy migration, revision restore, and
+ * `save-analysis`'s create/re-run path) still rely on. See
+ * `upsertAnalysisWithRetry` for the read-modify-write pattern that recomputes
+ * the patch from fresh state on a lost race.
+ */
 export async function upsertAnalysis(
   id: string,
   body: {
@@ -1259,8 +1287,17 @@ export async function upsertAnalysis(
     resultData?: Record<string, unknown> | null;
   },
   ctx: AccessCtx,
+  expectedUpdatedAt?: string,
 ): Promise<AnalysisRecord> {
   const existing = await getAnalysis(id, ctx);
+  if (!existing && expectedUpdatedAt !== undefined) {
+    // A fence was supplied against a specific prior version, but the row is
+    // gone (deleted, or a legacy key that failed to migrate) by the time we
+    // looked. Treat this as a conflict rather than silently creating a fresh
+    // row — the caller's mutation was computed against state that no longer
+    // exists.
+    throw new AnalysisConflictError(id);
+  }
   const db = getDb() as any;
   if (existing) {
     await assertAccess("analysis", id, "editor", {
@@ -1305,11 +1342,36 @@ export async function upsertAnalysis(
         JSON.stringify(existing.dataSources) ||
       next.resultMarkdown !== existing.resultMarkdown ||
       JSON.stringify(next.resultData) !== JSON.stringify(existing.resultData);
-    if (changed) await snapshotAnalysisRevision(db, existing, ctx);
-    await db
-      .update(schema.analyses)
-      .set(patch)
-      .where(eq(schema.analyses.id, id));
+    if (expectedUpdatedAt !== undefined) {
+      // Fenced write. Snapshot the revision only after we know this exact
+      // write actually landed — otherwise a lost race would record a
+      // revision for a save that never happened.
+      const updateResult = await db
+        .update(schema.analyses)
+        .set(patch)
+        .where(
+          and(
+            eq(schema.analyses.id, id),
+            eq(schema.analyses.updatedAt, expectedUpdatedAt),
+          ),
+        );
+      const affected = affectedRowCount(updateResult);
+      if (affected === undefined) {
+        throw new Error(
+          "The database driver did not report an affected-row count for the fenced analysis update.",
+        );
+      }
+      if (affected === 0) {
+        throw new AnalysisConflictError(id);
+      }
+      if (changed) await snapshotAnalysisRevision(db, existing, ctx);
+    } else {
+      if (changed) await snapshotAnalysisRevision(db, existing, ctx);
+      await db
+        .update(schema.analyses)
+        .set(patch)
+        .where(eq(schema.analyses.id, id));
+    }
   } else {
     await db.insert(schema.analyses).values({
       id,
@@ -1335,6 +1397,81 @@ export async function upsertAnalysis(
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
   return rowToAnalysis(row);
+}
+
+/** Max attempts (first try + retries) for `upsertAnalysisWithRetry`. */
+export const ANALYSIS_SAVE_MAX_ATTEMPTS = 3;
+
+/**
+ * Read-modify-write helper for action call sites that fetch an analysis,
+ * mutate its fields in memory, then save it back. Fences every save with the
+ * `updatedAt` of the record `mutate` was given, so a concurrent writer (e.g.
+ * `save-analysis` re-running with fresh results while someone renames it)
+ * never gets silently clobbered.
+ *
+ * `mutate` is invoked with the freshest `AnalysisRecord` on every attempt —
+ * re-fetched from `getAnalysis` each time — and must recompute the body patch
+ * to save FROM THAT RECORD, not from a closure over an earlier read; only
+ * then does a retry actually merge both writers' changes instead of
+ * re-deriving the same stale result. `mutate` may throw a non-conflict error
+ * (e.g. validation) to abort immediately without retrying.
+ *
+ * On a lost race, this re-reads and re-invokes `mutate` up to `maxAttempts`
+ * times before failing loud with a clear error so callers never silently
+ * drop a write or loop forever.
+ */
+export async function upsertAnalysisWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  mutate: (
+    existing: AnalysisRecord,
+  ) =>
+    | {
+        name?: string;
+        description?: string;
+        question?: string;
+        instructions?: string;
+        dataSources?: string[];
+        resultMarkdown?: string;
+        resultData?: Record<string, unknown> | null;
+      }
+    | Promise<{
+        name?: string;
+        description?: string;
+        question?: string;
+        instructions?: string;
+        dataSources?: string[];
+        resultMarkdown?: string;
+        resultData?: Record<string, unknown> | null;
+      }>,
+  maxAttempts: number = ANALYSIS_SAVE_MAX_ATTEMPTS,
+): Promise<AnalysisRecord> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const existing = await getAnalysis(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `analysis "${id}" not found (or you don't have access).`,
+      );
+    }
+    const body = await mutate(existing);
+    try {
+      return await upsertAnalysis(id, body, ctx, existing.updatedAt);
+    } catch (err) {
+      if (err instanceof AnalysisConflictError) {
+        lastConflict = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  const finalError = new Error(
+    `Could not save analysis "${id}" after ${maxAttempts} attempt(s); it kept changing concurrently. Re-read the analysis and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
 }
 
 export async function listAnalysisRevisions(

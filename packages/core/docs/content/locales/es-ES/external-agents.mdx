@@ -136,7 +136,7 @@ instantánea hasta que la actualices/revises nuevamente, así que vuelve a escan
 o de la aplicación MCP. Si todavía tienes conectores antiguos por aplicación
 habilitado junto con Dispatch, actualiza o vuelve a conectar cada conector obsoleto; actualizando
 Dispatch no reescribe el calendario/correo/etc. almacenados en caché de ChatGPT o Claude.
-instantáneas. Los ámbitos `mcp:read` / `mcp:write` / `mcp:apps` son los mismos
+instantáneas. Los ámbitos `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` son los mismos
 que se explican más abajo en
 [OAuth remoto estándar de MCP](#standard-oauth).
 
@@ -284,13 +284,14 @@ El flujo OAuth es código de autorización + PKCE con rotación de token de actu
 
 Los alcances actuales son:
 
-| Alcance     | Permite                                                                                            |
-| ----------- | -------------------------------------------------------------------------------------------------- |
-| `mcp:read`  | MCP actions de solo lectura y descubrimiento de herramientas/recursos ordinarios                   |
-| `mcp:write` | mutando actions y la metaherramienta `ask-agent`                                                   |
-| `mcp:apps`  | Lista/lectura de recursos de aplicaciones MCP y representación en línea de UI donde sea compatible |
+| Alcance          | Permite                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------- |
+| `mcp:read`       | MCP actions de solo lectura y descubrimiento de herramientas/recursos ordinarios                   |
+| `mcp:write`      | mutando actions y la metaherramienta `ask-agent`                                                   |
+| `mcp:apps`       | Lista/lectura de recursos de aplicaciones MCP y representación en línea de UI donde sea compatible |
+| `offline_access` | Acceso al token de actualización para que el host permanezca conectado                             |
 
-Cuando el cliente no solicita ningún alcance explícito, la aplicación concede los tres para que el conector se comporte como el flujo de Connect autorizado por el navegador. Mantenga la página de conexión del token de portador y el respaldo `npx @agent-native/core@latest connect --token <token>` para desarrolladores locales, hosts de respaldo y clientes donde necesite un bloque de configuración listo para pegar.
+Cuando el cliente no solicita ningún alcance explícito, la aplicación concede los cuatro para que el conector se comporte como el flujo de Connect autorizado por el navegador y pueda actualizar el acceso sin otro inicio de sesión. Mantenga la página de conexión del token de portador y el respaldo `npx @agent-native/core@latest connect --token <token>` para desarrolladores locales, hosts de respaldo y clientes donde necesite un bloque de configuración listo para pegar.
 
 ## Niveles del catálogo {#catalog-tiers}
 

@@ -1512,6 +1512,7 @@ const frFR = {
     sharingPrivacy: "Partage et confidentialité",
     trackingAnalytics: "Suivi et analytics",
     auditLog: "Journal d'audit",
+    doctorCodeChecks: "Doctor (vérifications du code)",
     observability: "Observabilité",
     observationalMemory: "Mémoire observationnelle",
     ciEvalGate: "Gate d'évals CI",

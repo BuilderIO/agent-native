@@ -82,7 +82,10 @@ export function DailyProgress({
   }, [activeChart]);
 
   const netCalories = totalCalories - totalBurnedCalories;
-  const percentage = Math.min(100, (netCalories / goalCalories) * 100);
+  const percentage = Math.max(
+    0,
+    Math.min(100, (netCalories / goalCalories) * 100),
+  );
   const remaining = Math.max(0, goalCalories - netCalories);
   const isOver = netCalories > goalCalories;
 
@@ -187,10 +190,12 @@ export function DailyProgress({
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
                 className={cn(
-                  "h-full transition-all duration-500 ease-out rounded-full",
+                  "h-full origin-left rounded-full transition-[transform,background-color] duration-200 ease-out motion-reduce:transition-none rtl:origin-right",
                   isOver ? "bg-red-400" : "bg-foreground",
                 )}
-                style={{ width: `${Math.min(percentage, 100)}%` }}
+                style={{
+                  transform: `scaleX(${percentage / 100})`,
+                }}
               />
             </div>
           </div>

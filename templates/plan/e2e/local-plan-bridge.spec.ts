@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { test, expect, type Page } from "@playwright/test";
 
-import { startLocalPlanBridge } from "../../../packages/core/src/cli/plan-local.js";
+import { startLocalPlanBridge } from "@agent-native/core/testing";
 
 async function getAvailablePort(): Promise<number> {
   const server = http.createServer();

@@ -1505,6 +1505,7 @@ const koKR = {
     sharingPrivacy: "공유 및 개인정보",
     trackingAnalytics: "추적 및 분석",
     auditLog: "감사 로그",
+    doctorCodeChecks: "Doctor (코드 검사)",
     observability: "관측성",
     observationalMemory: "관측 메모리",
     ciEvalGate: "CI 평가 게이트",

@@ -10,7 +10,12 @@ import {
 
 export { MCP_OAUTH_ACCESS_TOKEN_TTL, MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS };
 
-export const MCP_OAUTH_SCOPES = ["mcp:read", "mcp:write", "mcp:apps"] as const;
+export const MCP_OAUTH_SCOPES = [
+  "mcp:read",
+  "mcp:write",
+  "mcp:apps",
+  "offline_access",
+] as const;
 
 export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
 

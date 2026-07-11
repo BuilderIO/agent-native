@@ -681,6 +681,7 @@ export async function approveRequest(requestId: string) {
     .where(
       and(
         eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
         eq(schema.dispatchApprovalRequests.status, "applying"),
       ),
     )
@@ -714,6 +715,7 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
     .where(
       and(
         eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
         eq(schema.dispatchApprovalRequests.status, "pending"),
       ),
     )

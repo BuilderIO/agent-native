@@ -223,6 +223,13 @@ import {
   ensureRequestRunContext,
 } from "./request-context.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
+import {
+  handleSharedThreadRequest,
+  type SharedThreadRouteDependencies,
+} from "./agent-chat/shared-thread.js";
+
+export { handleSharedThreadRequest };
+export type { SharedThreadRouteDependencies };
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -236,293 +243,9 @@ async function lazyFs(): Promise<typeof import("fs")> {
 }
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
-const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
+const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 6_000;
+const COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS = 48_000;
 const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
-
-function sanitizeSharedThread(thread: ChatThread): {
-  id: string;
-  title: string;
-  preview: string;
-  messageCount: number;
-  createdAt: number;
-  updatedAt: number;
-  scope: { type: string; label?: string } | null;
-  messages: Array<{
-    id?: string;
-    role: "user" | "assistant" | "system";
-    text: string;
-    createdAt?: string | number;
-  }>;
-} {
-  let repo: any = {};
-  try {
-    repo = normalizeThreadRepository(JSON.parse(thread.threadData));
-  } catch {
-    repo = {};
-  }
-  const messages = Array.isArray(repo.messages)
-    ? repo.messages
-        .map((entry: unknown) => sanitizeSharedMessage(entry))
-        .filter(
-          (
-            entry: unknown,
-          ): entry is NonNullable<ReturnType<typeof sanitizeSharedMessage>> =>
-            entry != null,
-        )
-    : [];
-  return {
-    id: thread.id,
-    title: thread.title,
-    preview: thread.preview,
-    messageCount: thread.messageCount,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-    scope: thread.scope
-      ? {
-          type: thread.scope.type,
-          ...(thread.scope.label ? { label: thread.scope.label } : {}),
-        }
-      : null,
-    messages,
-  };
-}
-
-type SanitizedSharedThread = ReturnType<typeof sanitizeSharedThread>;
-
-export interface SharedThreadRouteDependencies {
-  getThreadByShareToken: (token: string) => Promise<ChatThread | null>;
-  listRunsForThread: (
-    threadId: string,
-    options?: { limit?: number },
-  ) => Promise<AgentRunSummary[]>;
-}
-
-function escapeSharedThreadHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function wantsSharedThreadHtml(event: H3Event): boolean {
-  const accept = getHeader(event, "accept")?.toLowerCase() ?? "";
-  return accept.includes("text/html") && !accept.includes("application/json");
-}
-
-function formatSharedThreadTime(value: string | number | null | undefined) {
-  if (value == null) return "";
-  const date =
-    typeof value === "number"
-      ? new Date(value)
-      : Number.isFinite(Number(value))
-        ? new Date(Number(value))
-        : new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
-}
-
-function renderSharedThreadHtml(
-  thread: SanitizedSharedThread,
-  runs: AgentRunSummary[],
-): string {
-  const title = thread.title || "Shared agent session";
-  const messages = thread.messages
-    .map((message) => {
-      const time = formatSharedThreadTime(message.createdAt);
-      return `<article class="message ${escapeSharedThreadHtml(message.role)}">
-        <div class="meta">
-          <span>${escapeSharedThreadHtml(message.role)}</span>
-          ${time ? `<time>${escapeSharedThreadHtml(time)}</time>` : ""}
-        </div>
-        <pre>${escapeSharedThreadHtml(message.text)}</pre>
-      </article>`;
-    })
-    .join("");
-  const runsHtml = runs.length
-    ? `<section class="runs" aria-label="Recent runs">
-        <h2>Recent runs</h2>
-        <ol>${runs
-          .map((run) => {
-            const started = formatSharedThreadTime(run.startedAt);
-            const completed = formatSharedThreadTime(run.completedAt);
-            const detail = [
-              started ? `started ${started}` : "",
-              completed ? `completed ${completed}` : "",
-              run.errorCode ? `error ${run.errorCode}` : "",
-              run.abortReason ? `aborted ${run.abortReason}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return `<li><strong>${escapeSharedThreadHtml(run.status)}</strong>${detail ? `<span>${escapeSharedThreadHtml(detail)}</span>` : ""}</li>`;
-          })
-          .join("")}</ol>
-      </section>`
-    : "";
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <meta name="referrer" content="no-referrer" />
-  <title>${escapeSharedThreadHtml(title)}</title>
-  <style>
-    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f5; color: #1d1d1b; }
-    * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { width: min(920px, calc(100vw - 32px)); margin: 0 auto; padding: 44px 0 64px; }
-    header { border-bottom: 1px solid rgba(0,0,0,.12); padding-bottom: 24px; margin-bottom: 28px; }
-    .eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #676760; }
-    h1 { margin: 0; font-size: 42px; line-height: 1.08; letter-spacing: 0; }
-    .summary { margin: 14px 0 0; color: #5c5c55; line-height: 1.6; max-width: 760px; }
-    .message { border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: rgba(255,255,255,.72); margin: 14px 0; padding: 16px; }
-    .message.assistant { border-left: 4px solid #2563eb; }
-    .message.user { border-left: 4px solid #0f766e; }
-    .message.system { border-left: 4px solid #737373; }
-    .meta { display: flex; gap: 12px; justify-content: space-between; color: #676760; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    pre { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
-    .empty, .runs { margin-top: 28px; color: #676760; }
-    .runs h2 { font-size: 16px; margin: 0 0 12px; }
-    .runs ol { margin: 0; padding-left: 20px; }
-    .runs li { margin: 8px 0; }
-    .runs span { color: #676760; margin-left: 8px; }
-    @media (prefers-color-scheme: dark) {
-      :root { background: #11110f; color: #f5f5ef; }
-      header, .message { border-color: rgba(255,255,255,.15); }
-      .message { background: rgba(255,255,255,.06); }
-      .summary, .eyebrow, .meta, .empty, .runs, .runs span { color: #b9b9ad; }
-    }
-    @media (max-width: 640px) {
-      h1 { font-size: 32px; }
-      main { width: min(100vw - 24px, 920px); padding-top: 32px; }
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <p class="eyebrow">Read-only shared agent session</p>
-      <h1>${escapeSharedThreadHtml(title)}</h1>
-      <p class="summary">${escapeSharedThreadHtml(thread.preview || `${thread.messageCount} message${thread.messageCount === 1 ? "" : "s"}`)}</p>
-    </header>
-    ${messages || '<p class="empty">No transcript messages were shared.</p>'}
-    ${runsHtml}
-  </main>
-</body>
-</html>`;
-}
-
-function renderSharedThreadErrorHtml(status: number, message: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>${status} ${escapeSharedThreadHtml(message)}</title><style>body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f7f5;color:#1d1d1b}main{max-width:720px;margin:0 auto;padding:64px 24px}p{color:#676760;line-height:1.6}@media(prefers-color-scheme:dark){body{background:#11110f;color:#f5f5ef}p{color:#b9b9ad}}</style></head><body><main><h1>${status}</h1><p>${escapeSharedThreadHtml(message)}</p></main></body></html>`;
-}
-
-function sharedThreadError(event: H3Event, status: number, message: string) {
-  setResponseStatus(event, status);
-  setResponseHeader(event, "Cache-Control", "private, no-store");
-  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
-  if (wantsSharedThreadHtml(event)) {
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return renderSharedThreadErrorHtml(status, message);
-  }
-  return { error: message };
-}
-
-export async function handleSharedThreadRequest(
-  event: H3Event,
-  deps: SharedThreadRouteDependencies,
-) {
-  const method = getMethod(event);
-  if (method !== "GET") {
-    return sharedThreadError(event, 405, "Method not allowed");
-  }
-
-  const token = parseSharedThreadToken(event);
-  if (!token) {
-    return sharedThreadError(event, 400, "Share token is required");
-  }
-
-  const thread = await deps.getThreadByShareToken(token);
-  if (!thread) {
-    return sharedThreadError(event, 404, "Shared thread not found");
-  }
-
-  const runs = await deps.listRunsForThread(thread.id, { limit: 10 });
-  const payload = {
-    thread: sanitizeSharedThread(thread),
-    runs,
-  };
-  setResponseHeader(event, "Cache-Control", "private, no-store");
-  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
-  if (wantsSharedThreadHtml(event)) {
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return renderSharedThreadHtml(payload.thread, runs);
-  }
-  setResponseHeader(event, "Content-Type", "application/json");
-  return payload;
-}
-
-function sanitizeSharedMessage(entry: unknown): {
-  id?: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  createdAt?: string | number;
-} | null {
-  if (!entry || typeof entry !== "object") return null;
-  const raw = entry as Record<string, unknown>;
-  const message =
-    raw.message && typeof raw.message === "object"
-      ? (raw.message as Record<string, unknown>)
-      : raw;
-  const role = message.role;
-  if (role !== "user" && role !== "assistant" && role !== "system") {
-    return null;
-  }
-  const text = sharedTextFromContent(message.content).trim();
-  if (!text) return null;
-  const id = typeof message.id === "string" ? message.id : undefined;
-  const createdAt =
-    typeof message.createdAt === "string" ||
-    typeof message.createdAt === "number"
-      ? message.createdAt
-      : undefined;
-  return {
-    ...(id ? { id } : {}),
-    role,
-    text,
-    ...(createdAt !== undefined ? { createdAt } : {}),
-  };
-}
-
-function sharedTextFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    const r = part as Record<string, unknown>;
-    if (r.type !== "text") continue;
-    if (typeof r.text === "string") parts.push(r.text);
-  }
-  return parts.join("");
-}
-
-function parseSharedThreadToken(event: H3Event): string | null {
-  const candidates = [event.path, event.node?.req?.url].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
-  for (const candidate of candidates) {
-    const path = candidate.split("?")[0];
-    const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
-    const sharedIndex = parts.lastIndexOf("shared");
-    if (sharedIndex >= 0 && parts[sharedIndex + 1]) {
-      return decodeURIComponent(parts[sharedIndex + 1]);
-    }
-    if (parts[0]) return decodeURIComponent(parts[0]);
-  }
-  return null;
-}
 
 function compactPromptLine(value: string, maxChars: number): string {
   const line = value.replace(/\s+/g, " ").trim();
@@ -530,6 +253,10 @@ function compactPromptLine(value: string, maxChars: number): string {
   return `${line.slice(0, maxChars - 1)}…`;
 }
 const SHARED_RESOURCE_INDEX_LIMIT = 40;
+const PROMPT_SKILL_SUMMARY_LIMIT = 40;
+const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
+const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
+const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 
 function normalizeResourcePathForPrompt(path: string): string {
   return path.replace(/^\/+/, "").trim();
@@ -600,6 +327,30 @@ function promptResourceBlock(input: {
     ? ` path="${escapeXmlAttribute(normalizedPath)}"`
     : "";
   return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
+}
+
+function selectPromptSectionsWithinBudget(
+  sections: string[],
+  maxChars: number,
+): string[] {
+  const omissionNote = `<context-budget-note>Some startup context sections were omitted to keep the first model request responsive. Use \`resources\` with \`action: "list"\` or \`"read"\`, \`docs-search\`, and \`tool-search\` to retrieve relevant depth on demand.</context-budget-note>`;
+  const contentBudget = Math.max(0, maxChars - omissionNote.length - 2);
+  const selected: string[] = [];
+  let used = 0;
+  let omitted = 0;
+
+  for (const section of sections) {
+    const separatorChars = selected.length > 0 ? 2 : 0;
+    if (used + separatorChars + section.length <= contentBudget) {
+      selected.push(section);
+      used += separatorChars + section.length;
+    } else {
+      omitted++;
+    }
+  }
+
+  if (omitted > 0) selected.push(omissionNote);
+  return selected;
 }
 
 function isAutoLoadedInstructionPath(path: string): boolean {
@@ -681,15 +432,43 @@ async function loadInstructionResourcesForPrompt(
   owner: string,
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
+  summaryOnly = false,
 ): Promise<string[]> {
   try {
     const resources = await resourceList(owner, "instructions/");
-    const blocks: string[] = [];
     const sorted = resources
       .filter((resource) => isAutoLoadedInstructionPath(resource.path))
       .sort((a, b) => a.path.localeCompare(b.path));
-    for (const resource of sorted) {
-      const full = await resourceGet(resource.id).catch(() => null);
+
+    if (summaryOnly) {
+      if (sorted.length === 0) return [];
+      const resourceScope = scope.startsWith("workspace")
+        ? "workspace"
+        : scope.startsWith("personal")
+          ? "personal"
+          : "shared";
+      const listed = sorted.slice(0, PROMPT_INSTRUCTION_SUMMARY_LIMIT);
+      const lines = listed.map(
+        (resource) =>
+          `- \`${resource.path}\` - ${resourceToolHint("read", `\`path: "${resource.path}"\` and \`scope: "${resourceScope}"\` when it applies`)}`,
+      );
+      if (sorted.length > listed.length) {
+        lines.push(
+          `- ...${sorted.length - listed.length} more instruction files. ${resourceToolHint("list", `\`scope: "${resourceScope}"\` and \`prefix: "instructions/"\``)}`,
+        );
+      }
+      return [
+        `<instruction-resources scope="${escapeXmlAttribute(scope)}">\nDetailed instruction files are loaded on demand so the first model request stays compact. Read a relevant file before following its workflow.\n\n${lines.join("\n")}\n</instruction-resources>`,
+      ];
+    }
+
+    const fullResources = await Promise.all(
+      sorted.map((resource) => resourceGet(resource.id).catch(() => null)),
+    );
+    const blocks: string[] = [];
+    for (let index = 0; index < sorted.length; index++) {
+      const resource = sorted[index]!;
+      const full = fullResources[index];
       if (!full?.content?.trim()) continue;
       const block = promptResourceBlock({
         name: resource.path,
@@ -742,10 +521,16 @@ async function loadResourceSkillsPromptBlock(
       if (ownerOrder !== 0) return ownerOrder;
       return a.path.localeCompare(b.path);
     });
+    const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
+    const loaded = await Promise.all(
+      skillCandidates.map(async (resource) => ({
+        resource,
+        full: await resourceGet(resource.id).catch(() => null),
+      })),
+    );
     const seen = new Set<string>();
     const lines: string[] = [];
-    for (const resource of sorted) {
-      const full = await resourceGet(resource.id).catch(() => null);
+    for (const { resource, full } of loaded) {
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
@@ -754,15 +539,27 @@ async function loadResourceSkillsPromptBlock(
       if (!name || seen.has(name)) continue;
       seen.add(name);
       const scope = resourceScopeForOwner(resource.owner, owner);
-      const description = meta.description || "(no description)";
+      const description = compactPromptLine(
+        meta.description || "(no description)",
+        PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
+      );
       lines.push(
         `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
           "read",
           `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
         )}`,
       );
+      if (lines.length >= PROMPT_SKILL_SUMMARY_LIMIT) break;
     }
     if (lines.length === 0) return null;
+    if (
+      sorted.length > skillCandidates.length ||
+      loaded.length > PROMPT_SKILL_SUMMARY_LIMIT
+    ) {
+      lines.push(
+        `- ...more skills omitted from the startup summary. ${resourceToolHint("list", '`prefix: "skills/"` to inspect the full catalog')}`,
+      );
+    }
     return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
   } catch {
     return null;
@@ -785,8 +582,12 @@ async function loadResourceIndexForPrompt(
 
     const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
     const lines: string[] = [];
-    for (const resource of listed) {
-      const full = await resourceGet(resource.id).catch(() => null);
+    const fullResources = await Promise.all(
+      listed.map((resource) => resourceGet(resource.id).catch(() => null)),
+    );
+    for (let index = 0; index < listed.length; index++) {
+      const resource = listed[index]!;
+      const full = fullResources[index];
       const summary = full?.content
         ? getResourceSummaryFromContent(full.content)
         : null;
@@ -2765,7 +2566,10 @@ export interface AgentChatPluginOptions {
    * and tool surface. Use this for domain-focused apps where broad workspace
    * inventory is mostly latency/noise unless the user explicitly references it.
    *
-   * `leanPrompt: true` implies this.
+   * `leanPrompt: true` and the default `lazyContext` mode imply this because
+   * those catalogs are already discoverable through resources, docs-search,
+   * tool-search, and the compact resource indexes. Set `false` explicitly only
+   * when a workspace-wide inventory is central to the app's first-turn job.
    */
   skipFilesContext?: boolean;
   /**
@@ -2774,10 +2578,9 @@ export interface AgentChatPluginOptions {
    * remains searchable, and matching schemas from `tool-search` results are
    * loaded into the next model request. Use this for domain-focused apps that
    * have a few common actions and many rare framework utilities. Common
-   * provider/corpus/code-execution tools are promoted automatically when present
-   * in the current app/mode registry, so broad integration guidance stays
-   * immediately callable without overloading apps that do not expose those
-   * tools.
+   * discovery and resource-reading tools are promoted automatically when
+   * present. Provider, MCP, extension, and code-execution schemas stay behind
+   * tool-search unless the app explicitly includes them in this list.
    */
   initialToolNames?: string[];
   /**
@@ -2975,6 +2778,13 @@ export function createA2AEngineToolSurface(
     tools: filterInitialEngineTools(availableTools, initialToolNames),
     availableTools,
   };
+}
+
+function resolveInitialToolNames(
+  templateActions: Record<string, ActionEntry>,
+  configured?: string[],
+): string[] {
+  return configured ?? Object.keys(templateActions);
 }
 
 /**
@@ -3374,6 +3184,7 @@ export const _agentChatPromptSectionsForTests = (() => {
     frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
     buildFrameworkPrompts,
     generateActionsPrompt,
+    resolveInitialToolNames,
     createDataWidgetActionEntries,
   };
 })();
@@ -3456,12 +3267,18 @@ export async function loadResourcesForPrompt(
       const skillsBlock = generateSkillsPromptBlock(bundle);
       if (skillsBlock) sections.push(skillsBlock);
     } else if (runtimeSkills.length > 0) {
-      const lines = runtimeSkills.map((s) => {
+      const listedSkills = runtimeSkills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+      const lines = listedSkills.map((s) => {
         const description = s.meta.description?.trim()
-          ? ` - ${ensureSentence(s.meta.description)}`
+          ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
           : "";
         return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`;
       });
+      if (runtimeSkills.length > listedSkills.length) {
+        lines.push(
+          `- ...${runtimeSkills.length - listedSkills.length} more codebase skills. Use \`docs-search --query "<topic>"\` to discover the relevant one.`,
+        );
+      }
       sections.push(
         `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills.\n\n${lines.join("\n")}\n</skills-summary>`,
       );
@@ -3482,6 +3299,7 @@ export async function loadResourcesForPrompt(
       WORKSPACE_OWNER,
       "workspace-instruction",
       promptResourceMaxChars,
+      compact,
     )),
   );
 
@@ -3503,6 +3321,7 @@ export async function loadResourcesForPrompt(
         ? "shared-instruction"
         : "app-default-instruction",
       promptResourceMaxChars,
+      compact,
     )),
   );
 
@@ -3520,6 +3339,7 @@ export async function loadResourcesForPrompt(
         organizationOwner,
         "shared-instruction",
         promptResourceMaxChars,
+        compact,
       )),
     );
   }
@@ -3538,6 +3358,7 @@ export async function loadResourcesForPrompt(
         owner,
         "personal-instruction",
         promptResourceMaxChars,
+        compact,
       )),
     );
   }
@@ -3628,9 +3449,15 @@ export async function loadResourcesForPrompt(
   }
 
   if (sections.length === 0) return "";
+  const selectedSections = compact
+    ? selectPromptSectionsWithinBudget(
+        sections,
+        COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
+      )
+    : sections;
   return (
     "\n\nThe following resources contain template-specific instructions and user context. Use the information in them to help the user.\n\n" +
-    sections.join("\n\n")
+    selectedSections.join("\n\n")
   );
 }
 
@@ -3669,10 +3496,16 @@ async function buildSchemaBlock(
 function generateActionsPrompt(
   registry: Record<string, ActionEntry>,
   mode: "cli" | "tool" = "tool",
+  initialToolNames?: string[],
 ): string {
   if (!registry || Object.keys(registry).length === 0) return "";
 
-  const actionEntries = Object.entries(registry);
+  const allActionEntries = Object.entries(registry);
+  const initialNames = initialToolNames ? new Set(initialToolNames) : undefined;
+  const actionEntries = initialNames
+    ? allActionEntries.filter(([name]) => initialNames.has(name))
+    : allActionEntries;
+  const omittedActionCount = allActionEntries.length - actionEntries.length;
   const nativeWidgetNote = (entry: ActionEntry) =>
     entry.chatUI && typeof entry.chatUI.renderer === "string"
       ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
@@ -3691,7 +3524,11 @@ function generateActionsPrompt(
 
 **Use these actions directly as tool calls.** They handle database access, validation, and business logic internally. The native tool schemas contain the full parameter details.
 
-${summaryLines.join("\n")}`;
+${summaryLines.join("\n")}${
+      omittedActionCount > 0
+        ? `\n\n${omittedActionCount} less-common app action${omittedActionCount === 1 ? " is" : "s are"} available on demand. Use \`tool-search\` with a specific capability query to load the matching schemas when needed.`
+        : ""
+    }`;
   }
 
   const lines = actionEntries.map(([name, entry]) => {
@@ -4323,8 +4160,9 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
-      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
+      const skipFilesContext =
+        leanPrompt || (options?.skipFilesContext ?? lazyContext);
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
         options?.appId,
@@ -4505,6 +4343,14 @@ export function createAgentChatPlugin(
       // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
       // actions reachable from the frontend / HTTP.
       const templateScripts = filterAgentTools(templateScriptsAll);
+      // Compact is the safe default for every app, including generated and
+      // third-party apps that have not curated a starter list yet. Keep the
+      // app's own action surface immediately callable; framework, provider,
+      // and MCP tools remain discoverable through tool-search.
+      const effectiveInitialToolNames = resolveInitialToolNames(
+        templateScripts,
+        options?.initialToolNames,
+      );
       const discoveredActions = filterAgentTools(discoveredActionsAll);
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
@@ -5116,7 +4962,7 @@ export function createAgentChatPlugin(
 
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
-            options?.initialToolNames,
+            effectiveInitialToolNames,
           );
 
           // Precise current time rides the user message (not the cached
@@ -5242,7 +5088,11 @@ export function createAgentChatPlugin(
             : {}),
       });
       const prodActionsPrompt =
-        generateActionsPrompt(templateScripts, "tool") + corpusToolsPrompt;
+        generateActionsPrompt(
+          templateScripts,
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        ) + corpusToolsPrompt;
       const devActionsPrompt =
         generateActionsPrompt(
           { ...discoveredActions, ...templateScripts },
@@ -6223,7 +6073,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           };
         },
         skipFilesContext,
-        initialToolNames: options?.initialToolNames,
+        initialToolNames: effectiveInitialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -6271,7 +6121,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
-              initialToolNames: options?.initialToolNames,
+              initialToolNames: effectiveInitialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -6430,7 +6280,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return options?.prepareRequest?.(details);
           },
           skipFilesContext,
-          initialToolNames: options?.initialToolNames,
+          initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();

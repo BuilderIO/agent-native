@@ -1508,6 +1508,7 @@ const ptBR = {
     sharingPrivacy: "Compartilhamento e privacidade",
     trackingAnalytics: "Tracking e analytics",
     auditLog: "Log de auditoria",
+    doctorCodeChecks: "Doctor (verificações de código)",
     observability: "Observabilidade",
     observationalMemory: "Memória observacional",
     ciEvalGate: "Gate de evals no CI",

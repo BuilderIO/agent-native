@@ -203,7 +203,7 @@ function ToolbarPopover({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed rounded-lg border border-border bg-popover shadow-xl z-[200] max-h-[80vh] overflow-y-auto"
+      className="fixed rounded-lg border border-border bg-popover shadow-xl z-[200] max-h-[80vh] overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150 origin-top-left"
       style={{ top: rect.bottom + 4, left, width: Math.min(width, vw - 16) }}
     >
       {children}

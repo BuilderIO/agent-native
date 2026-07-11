@@ -104,7 +104,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
           disabled={disabled || transcribing}
           aria-label={label}
           aria-pressed={recording}
-          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
+          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
             recording
               ? "text-[#00B5FF] bg-[#00B5FF]/10 hover:bg-[#00B5FF]/20"
               : "text-muted-foreground hover:text-foreground hover:bg-accent/50"

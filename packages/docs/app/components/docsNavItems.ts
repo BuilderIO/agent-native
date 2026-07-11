@@ -118,6 +118,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "tracking",
       },
       { id: "audit-log", labelKey: "auditLog", slug: "audit-log" },
+      {
+        id: "doctor",
+        labelKey: "doctorCodeChecks",
+        slug: "doctor",
+      },
       { id: "observability", labelKey: "observability", slug: "observability" },
       {
         id: "observational-memory",

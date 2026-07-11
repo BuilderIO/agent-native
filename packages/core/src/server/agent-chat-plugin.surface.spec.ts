@@ -279,6 +279,47 @@ describe("prompt content invariants", () => {
 });
 
 describe("available action prompt rendering", () => {
+  const actions = {
+    common: {
+      tool: {
+        description: "Common action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+    rare: {
+      tool: {
+        description: "Rare action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+  } as never;
+
+  it("defaults unconfigured apps to their own template actions", () => {
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions),
+    ).toEqual(["common", "rare"]);
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions, [
+        "common",
+      ]),
+    ).toEqual(["common"]);
+  });
+
+  it("summarizes only starter actions and points to tool-search for the rest", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      actions,
+      "tool",
+      ["common"],
+    );
+
+    expect(prompt).toContain("`common`");
+    expect(prompt).not.toContain("`rare`");
+    expect(prompt).toContain("1 less-common app action is available on demand");
+    expect(prompt).toContain("`tool-search`");
+  });
+
   it("labels actions that render native chat widgets", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       {

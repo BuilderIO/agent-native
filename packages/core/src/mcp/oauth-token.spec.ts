@@ -60,6 +60,9 @@ describe("normalizeOAuthScope", () => {
       "mcp:read mcp:write",
     );
     expect(normalizeOAuthScope("mcp:apps")).toBe("mcp:apps");
+    expect(normalizeOAuthScope("mcp:read offline_access")).toBe(
+      "mcp:read offline_access",
+    );
   });
 
   it("drops unknown scopes but keeps recognised ones", () => {
@@ -71,7 +74,7 @@ describe("normalizeOAuthScope", () => {
     expect(normalizeOAuthScope("admin:* mcp:admin")).toBeNull();
   });
 
-  it("default scope contains exactly the three known scopes", () => {
+  it("default scope includes MCP permissions and durable refresh access", () => {
     expect(MCP_OAUTH_DEFAULT_SCOPE.split(" ").sort()).toEqual(
       [...MCP_OAUTH_SCOPES].sort(),
     );

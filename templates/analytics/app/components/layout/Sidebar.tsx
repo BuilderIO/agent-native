@@ -277,7 +277,7 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
               <IconFilter className="h-3.5 w-3.5" />
@@ -638,7 +638,7 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
+                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
                 <span className="block truncate">{name}</span>
               </Link>
@@ -916,7 +916,7 @@ function SortableDashboardItem({
               <div
                 key={sv.id}
                 className={cn(
-                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-all",
+                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-[opacity,color,background-color]",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
@@ -975,7 +975,7 @@ function SortableDashboardItem({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <PopoverTrigger asChild>
-                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0">
+                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-[opacity,color,background-color] shrink-0">
                               <IconTrash className="h-2.5 w-2.5" />
                             </button>
                           </PopoverTrigger>
@@ -1507,7 +1507,7 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
                           <button
                             type="button"
                             aria-label={t("chat.optionsFor", { title })}
-                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-all hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
+                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-[opacity,color,background-color] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
                           >
                             <IconDots className="h-3 w-3" />
                           </button>
@@ -2388,6 +2388,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       },
     },
     {
+      icon: IconChartBar,
+      label: t("navigation.dashboards"),
+      href: "/dashboards",
+      active: isAdhocActive,
+    },
+    {
+      icon: IconReportAnalytics,
+      label: t("navigation.analyses"),
+      href: "/analyses",
+      active: location.pathname.startsWith("/analyses"),
+    },
+    {
       icon: IconPlayerPlay,
       label: t("navigation.sessions"),
       href: "/sessions",
@@ -2420,18 +2432,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       label: t("navigation.dataDictionary"),
       href: "/data-dictionary",
       active: location.pathname.startsWith("/data-dictionary"),
-    },
-    {
-      icon: IconChartBar,
-      label: t("navigation.dashboards"),
-      href: "/dashboards",
-      active: isAdhocActive,
-    },
-    {
-      icon: IconReportAnalytics,
-      label: t("navigation.analyses"),
-      href: "/analyses",
-      active: location.pathname.startsWith("/analyses"),
     },
     {
       icon: IconSettings,
@@ -2544,10 +2544,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-1 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     isAskRoute
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2600,7 +2600,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/sessions"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/sessions")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2614,7 +2614,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/monitoring"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/monitoring")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2628,7 +2628,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 <Link
                   to="/agents?view=dashboards"
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                    "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                     location.pathname.startsWith("/agents")
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2643,7 +2643,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/data-sources"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname === "/data-sources"
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2657,7 +2657,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/data-dictionary")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2668,10 +2668,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </Link>
 
               {/* Dashboards section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     isAdhocActive
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2814,10 +2814,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
 
               {/* Analyses section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-3 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     location.pathname.startsWith("/analyses")
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2964,7 +2964,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={item.href}
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                         isActive
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2999,7 +2999,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               )
                             }
                             aria-label={t("sidebar.search")}
-                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                           >
                             <IconSearch className="h-4 w-4" />
                           </button>

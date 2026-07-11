@@ -136,7 +136,7 @@ OAuth 代币。 ChatGPT可以保留已审查或已发布的连接器工具
 工具或 MCP 应用元数据更改。如果您仍然有旧的每应用连接器
 与调度、刷新或重新连接每个过时的连接器一起启用；正在更新
 Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
-快照。`mcp:read` / `mcp:write` / `mcp:apps` 范围与下文
+快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 范围与下文
 [标准远程 MCP OAuth](#standard-oauth) 中介绍的相同。
 
 Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遥控器
@@ -283,13 +283,14 @@ OAuth 流程是授权代码 + PKCE 和刷新令牌轮换。访问令牌是受众
 
 当前范围是：
 
-| 范围        | 允许                                             |
-| ----------- | ------------------------------------------------ |
-| `mcp:read`  | 只读MCP actions和普通工具/资源发现               |
-| `mcp:write` | 变异 actions 和 `ask-agent` 元工具               |
-| `mcp:apps`  | MCP Apps 资源列表/读取和内联 UI 渲染（如果支持） |
+| 范围             | 允许                                             |
+| ---------------- | ------------------------------------------------ |
+| `mcp:read`       | 只读MCP actions和普通工具/资源发现               |
+| `mcp:write`      | 变异 actions 和 `ask-agent` 元工具               |
+| `mcp:apps`       | MCP Apps 资源列表/读取和内联 UI 渲染（如果支持） |
+| `offline_access` | 刷新令牌访问权限，使主机保持连接                 |
 
-当客户端请求没有明确的范围时，应用程序会授予所有三个范围，因此连接器的行为类似于浏览器授权的连接流。为本地开发人员、后备主机和需要准备粘贴配置块的客户端保留不记名令牌连接页面和 `npx @agent-native/core@latest connect --token <token>` 后备。
+当客户端请求没有明确的范围时，应用程序会授予所有四个范围，因此连接器的行为类似于浏览器授权的连接流，并且可以在无需再次登录的情况下刷新访问权限。为本地开发人员、后备主机和需要准备粘贴配置块的客户端保留不记名令牌连接页面和 `npx @agent-native/core@latest connect --token <token>` 后备。
 
 ## 目录层 {#catalog-tiers}
 

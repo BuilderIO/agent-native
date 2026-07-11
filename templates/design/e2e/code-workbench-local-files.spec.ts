@@ -9,7 +9,7 @@ import {
   prepareDesignConnectManifest,
   startDesignConnectBridge,
   type DesignConnectBridge,
-} from "../../../packages/core/src/cli/design-connect";
+} from "@agent-native/core/testing";
 import { appPath } from "./helpers";
 
 let baseURL = "http://127.0.0.1:9333";

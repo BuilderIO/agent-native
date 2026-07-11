@@ -2379,6 +2379,9 @@ function localPlanBridgeWarnings(input: {
     const bridgeUrl = new URL(input.bridgeUrl);
     if (appUrl.protocol === "https:" && bridgeUrl.protocol === "http:") {
       warnings.push(
+        `Chrome/Edge will ask for Local Network access so ${appUrl.hostname} can read this loopback bridge. Allow it; if you denied it, re-enable Local Network access in the ${appUrl.hostname} site settings, then retry.`,
+      );
+      warnings.push(
         "Safari may block the hosted HTTPS Plan UI from reading the HTTP localhost bridge. Use Chrome/Chromium/Edge, or pass --app-url http://localhost:8096 when running a local Plan app.",
       );
     }
@@ -2926,6 +2929,7 @@ async function runServe(args: Record<string, string | boolean>): Promise<void> {
         appUrl: bridge.result.appUrl,
         bridgeUrl: bridge.result.bridgeUrl,
       }),
+      "Keep this bridge command running while the Plan page is open; stopping it makes this URL unreachable.",
       "Press Ctrl+C to stop.",
     ]
       .filter(Boolean)
@@ -3067,8 +3071,12 @@ Common flow:
 against that local-only source. The hosted app fetches the MDX from localhost in
 the browser; it does not write plan content to the hosted database. The served
 URL is written to \`.plan-url\` by default; pass \`--url-file\` to choose a
-different local-only file. On macOS, \`--open\` prefers Chromium browsers because
-Safari may block the hosted HTTPS page from reading the HTTP localhost bridge.
+different local-only file. On macOS, \`--open\` prefers Chromium browsers.
+Chrome/Edge will ask for Local Network access to read the loopback bridge; if
+you deny it, re-enable Local Network access in the plan.agent-native.com site
+settings and retry. Keep the bridge command running while the page is open.
+Safari may block the hosted HTTPS page from reading the HTTP localhost bridge;
+use a Chromium browser or a local Plan app via \`--app-url http://localhost:8096\`.
 Use \`plan local verify\` for headless bridge/CORS diagnostics that exit cleanly.
 Use \`plan local preview\` for a local Plan dev server route. \`preview --out\` is
 a legacy/debug escape hatch that writes a standalone static HTML file.

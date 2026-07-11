@@ -567,7 +567,7 @@ function ExtensionSortMenu({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
               aria-label={copy.sortOptions}
             >
               <IconFilter className="h-3.5 w-3.5" />
@@ -870,7 +870,7 @@ export function ExtensionsSidebarSection() {
       <div className="relative min-w-0 py-1">
         <div
           className={cn(
-            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-all hover:text-primary",
+            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-[opacity,color,background-color] hover:text-primary",
             location.pathname.startsWith("/extensions")
               ? "text-sidebar-accent-foreground"
               : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -940,7 +940,7 @@ export function ExtensionsSidebarSection() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="pointer-events-none inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-all hover:bg-accent hover:text-accent-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/extensions-section:pointer-events-auto group-hover/extensions-section:opacity-100 group-focus-within/extensions-section:pointer-events-auto group-focus-within/extensions-section:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+                  className="pointer-events-none inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/extensions-section:pointer-events-auto group-hover/extensions-section:opacity-100 group-focus-within/extensions-section:pointer-events-auto group-focus-within/extensions-section:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
                   aria-label={copy.newExtension}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
@@ -1054,7 +1054,7 @@ export function ExtensionsSidebarSection() {
                             setDraggingId(null);
                             setDragOverId(null);
                           }}
-                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
                           aria-label={copy.reorder(extension.name)}
                         >
                           <IconGripVertical className="h-3 w-3" />

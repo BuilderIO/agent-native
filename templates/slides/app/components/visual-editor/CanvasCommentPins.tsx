@@ -271,8 +271,9 @@ export function CanvasCommentPins({
       console.error("[CanvasCommentPins] failed to send to agent:", err);
     }
     updatePin(pin.id, { submitted: true });
-    // Auto-clear after a short delay so the user sees the pin "fly away"
-    setTimeout(() => removePin(pin.id), 1500);
+    // Keep the acknowledgement visible just long enough to register, without
+    // making a routine submit feel delayed.
+    setTimeout(() => removePin(pin.id), 220);
   };
 
   if (!active && pins.length === 0) return null;
@@ -313,7 +314,7 @@ export function CanvasCommentPins({
             className={cn(
               "fixed z-[55]",
               pin.submitted &&
-                "transition-all duration-1000 opacity-0 -translate-y-4",
+                "-translate-y-2 opacity-0 transition-[transform,opacity] duration-200 ease-out motion-reduce:translate-y-0 motion-reduce:duration-150",
             )}
             style={{ left, top }}
           >

@@ -18,6 +18,7 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -1073,6 +1074,7 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
+const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
@@ -1330,21 +1332,32 @@ function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
-function truncateTextAttachment(text: string, attachmentName?: string): string {
-  if (text.length <= MAX_TEXT_ATTACHMENT_CHARS) return text;
+function truncateTextAttachment(
+  text: string,
+  attachmentName?: string,
+  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
+): string {
+  if (text.length <= maxChars) return text;
 
-  const omitted = text.length - MAX_TEXT_ATTACHMENT_CHARS;
+  const omitted = text.length - maxChars;
   const readHint = attachmentName
     ? ` Use the \`read-attachment\` tool with name="${escapeAttachmentAttribute(attachmentName)}" to read the rest.`
     : "";
-  return `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_TEXT_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
+  if (maxChars === 0) {
+    return `[Attachment content omitted from the initial request; ${omitted.toLocaleString()} characters available.${readHint}]`;
+  }
+  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
 }
 
-function formatTextAttachment(att: AgentChatAttachment): string | null {
+function formatTextAttachment(
+  att: AgentChatAttachment,
+  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
+): string | null {
   if (typeof att.text !== "string" || att.text.length === 0) return null;
   const text = truncateTextAttachment(
     unwrapTextAttachmentEnvelope(att.text),
     att.name,
+    maxChars,
   );
 
   const attrs = [
@@ -1378,6 +1391,7 @@ export function buildUserContentWithAttachments(opts: {
 }): EngineContentPart[] {
   const userContent: EngineContentPart[] = [];
   const textAttachments: string[] = [];
+  let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
     const uploadedUrl = (att as any).url as string | undefined;
@@ -1441,9 +1455,21 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
-    const textAttachment = formatTextAttachment(att);
+    const rawTextAttachment =
+      typeof att.text === "string"
+        ? unwrapTextAttachmentEnvelope(att.text)
+        : "";
+    const attachmentCharBudget = Math.min(
+      MAX_TEXT_ATTACHMENT_CHARS,
+      remainingTextAttachmentChars,
+    );
+    const textAttachment = formatTextAttachment(att, attachmentCharBudget);
     if (textAttachment) {
       textAttachments.push(textAttachment);
+      remainingTextAttachmentChars -= Math.min(
+        rawTextAttachment.length,
+        attachmentCharBudget,
+      );
     }
   }
 
@@ -2384,64 +2410,42 @@ export function filterInitialEngineTools(
   const names = new Set(initialToolNames);
   names.add(TOOL_SEARCH_ACTION_NAME);
   for (const tool of tools) {
-    if (isDefaultLeanInitialToolName(tool.name)) {
+    if (isDefaultInitialToolName(tool.name)) {
       names.add(tool.name);
     }
   }
   return tools.filter((tool) => names.has(tool.name));
 }
 
-const DEFAULT_LEAN_INITIAL_TOOL_NAMES = new Set([
-  // Broad provider/API/corpus primitives should be callable as soon as the
-  // prompt teaches them; waiting for a discovery round-trip caused prod runs to
-  // waste turns on provider work that was described but not loaded.
-  "data-source-status",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
-  "provider-corpus-job",
-  "provider-corpus-jobs",
-  "query-staged-dataset",
-  "list-staged-datasets",
-  "delete-staged-dataset",
-  "run-code",
-  "get-code-execution",
-  "list-extensions",
-  "get-extension",
-  "update-extension",
-  "list-extension-history",
-  "get-extension-history-version",
-  // Common first-class integration shortcuts. These are included only when the
-  // current app/mode registry actually exposes them.
-  "bigquery",
-  "search-bigquery-schema",
-  "bigquery-table-info",
-  "ga4",
-  "amplitude",
-  "prometheus",
-  "grafana",
-  "sentry",
-  "stripe",
-  "account-deep-dive",
-  "slack-messages",
-  "hubspot-deals",
-  "hubspot-records",
-  "hubspot-pipelines",
-  "hubspot-metrics",
-  "gong-calls",
-  "github-repo-files",
-  "jira",
-  "jira-search",
-  "gcloud",
-  "notion-search",
-  "pylon-search",
+export function buildFirstRequestPayloadDetail(input: {
+  isFirstRequest: boolean;
+  systemPrompt: string;
+  messages: EngineMessage[];
+  tools: EngineTool[];
+  availableToolCount: number;
+}): string {
+  if (!input.isFirstRequest) return "";
+  return (
+    ` first_request_system_chars=${input.systemPrompt.length}` +
+    ` first_request_message_chars=${JSON.stringify(input.messages).length}` +
+    ` first_request_tool_count=${input.tools.length}` +
+    ` first_request_tool_chars=${JSON.stringify(input.tools).length}` +
+    ` first_request_available_tool_count=${input.availableToolCount}`
+  );
+}
+
+const DEFAULT_INITIAL_TOOL_NAMES = new Set([
+  // Keep only the small discovery/runtime surface universal. App actions are
+  // supplied by the plugin's effective starter list, while provider, MCP,
+  // extension, and other uncommon schemas stay reachable through tool-search.
+  "resources",
+  "docs-search",
+  "get-framework-context",
+  "read-attachment",
 ]);
 
-function isDefaultLeanInitialToolName(name: string): boolean {
-  if (DEFAULT_LEAN_INITIAL_TOOL_NAMES.has(name)) return true;
-  return (
-    name.startsWith("provider-api-") || name.startsWith("provider-corpus-")
-  );
+function isDefaultInitialToolName(name: string): boolean {
+  return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
 function extractToolSearchResultNames(value: unknown): string[] {
@@ -6691,6 +6695,13 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
+    const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
+      isFirstRequest: history.length === 0,
+      systemPrompt: requestSystemPrompt,
+      messages,
+      tools: requestTools,
+      availableToolCount: availableRequestTools.length,
+    });
 
     // Atomically claim the run slot for this thread. The claim checks SQL for
     // a live (non-stale) running row so two near-simultaneous POSTs on
@@ -7264,7 +7275,8 @@ export function createProductionAgentHandler(
         .map(([k, v]) => `${k}=${v}`)
         .join(" ") +
       ` total=${Date.now() - setupT0}` +
-      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "");
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
+      firstRequestPayloadDetail;
 
     startRun(
       runId,
@@ -7565,6 +7577,12 @@ export function createProductionAgentHandler(
         // `processors` opt + ProcessorChain/TripWire) is the deliverable and is
         // already callable directly by sub-agents, A2A, MCP, and tests; this is
         // only the HTTP-handler convenience plumbing.
+        const userVisibleSentimentInput =
+          typeof displayMessage === "string" && displayMessage.trim().length > 0
+            ? displayMessage
+            : typeof message === "string" && message.trim().length > 0
+              ? message
+              : undefined;
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
@@ -7652,6 +7670,14 @@ export function createProductionAgentHandler(
               },
               experimentAssignments,
               modelSelectionSource,
+              sentimentInput: shouldInferSentimentForTurn({
+                internalContinuation: Boolean(internalContinuation),
+                isBackgroundWorker,
+                backgroundContinuationCount,
+                hasUserText: Boolean(userVisibleSentimentInput),
+              })
+                ? userVisibleSentimentInput
+                : undefined,
               classifyError: () => {
                 if (
                   agentLoopOpts.signal.aborted &&

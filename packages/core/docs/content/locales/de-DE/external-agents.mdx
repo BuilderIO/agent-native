@@ -136,7 +136,7 @@ Snapshot, bis Sie ihn erneut aktualisieren/überprüfen, also scannen Sie den Co
 Tool- oder MCP-App-Metadatenänderungen. Wenn Sie noch alte Pro-App-Konnektoren haben
 neben Dispatch aktiviert, jeden veralteten Connector aktualisieren oder erneut verbinden; Aktualisierung
 Dispatch schreibt den zwischengespeicherten Kalender/Mail/usw. von ChatGPT oder Claude nicht neu.
-Schnappschüsse. Die Bereiche `mcp:read` / `mcp:write` / `mcp:apps` sind
+Schnappschüsse. Die Bereiche `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` sind
 dieselben, die unten unter [Standard-OAuth für Remote-MCP](#standard-oauth)
 beschrieben werden.
 
@@ -284,13 +284,14 @@ Der OAuth-Fluss besteht aus Autorisierungscode + PKCE mit Aktualisierungstokenro
 
 Aktuelle Bereiche sind:
 
-| Geltungsbereich | Erlaubt                                                                             |
-| --------------- | ----------------------------------------------------------------------------------- |
-| `mcp:read`      | schreibgeschützt MCP actions und normale Tool-/Ressourcenerkennung                  |
-| `mcp:write`     | Mutation von actions und dem Meta-Tool `ask-agent`                                  |
-| `mcp:apps`      | MCP Auflisten/Lesen von Apps-Ressourcen und Inline-UI-Rendering, sofern unterstützt |
+| Geltungsbereich  | Erlaubt                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| `mcp:read`       | schreibgeschützt MCP actions und normale Tool-/Ressourcenerkennung                  |
+| `mcp:write`      | Mutation von actions und dem Meta-Tool `ask-agent`                                  |
+| `mcp:apps`       | MCP Auflisten/Lesen von Apps-Ressourcen und Inline-UI-Rendering, sofern unterstützt |
+| `offline_access` | Aktualisierungstokenzugriff, damit der Host verbunden bleibt                        |
 
-Wenn der Client keinen expliziten Bereich anfordert, gewährt die App alle drei, sodass sich der Connector wie der vom Browser autorisierte Connect-Flow verhält. Behalten Sie die Bearer-Token-Connect-Seite und den `npx @agent-native/core@latest connect --token <token>`-Fallback für lokale Entwickler, Fallback-Hosts und Clients bei, bei denen Sie einen sofort einfügbaren Konfigurationsblock benötigen.
+Wenn der Client keinen expliziten Bereich anfordert, gewährt die App alle vier, sodass sich der Connector wie der vom Browser autorisierte Connect-Flow verhält und den Zugriff ohne erneute Anmeldung aktualisieren kann. Behalten Sie die Bearer-Token-Connect-Seite und den `npx @agent-native/core@latest connect --token <token>`-Fallback für lokale Entwickler, Fallback-Hosts und Clients bei, bei denen Sie einen sofort einfügbaren Konfigurationsblock benötigen.
 
 ## Katalogstufen {#catalog-tiers}
 

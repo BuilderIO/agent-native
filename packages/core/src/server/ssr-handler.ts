@@ -106,7 +106,7 @@ function prefixMountedPath(path: string, basePath: string): string {
 
 function prefixMountedHtml(html: string, basePath: string): string {
   if (!basePath) return html;
-  return html
+  const prefixedHtml = html
     .replace(
       /\b(href|src|action|formaction|poster)=(["'])(\/(?!\/)[^"']*)\2/g,
       (_match, attr: string, quote: string, path: string) =>
@@ -116,6 +116,20 @@ function prefixMountedHtml(html: string, basePath: string): string {
       const q = quote || "";
       return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
     });
+
+  // React Router serializes the server-side basename into its hydration
+  // context. The request above is deliberately rendered mount-relative, so
+  // that value is normally "/" even though the browser URL is mounted at a
+  // workspace prefix such as "/analytics". If the client hydrates that
+  // context unchanged, the mounted pathname no longer matches the route tree:
+  // index redirects can stall and child pages can fall through to the 404.
+  // Keep the serialized router state consistent with the URLs we just
+  // prefixed. Template entry clients also set this defensively for older
+  // responses, but the initial hydration state must be correct at the source.
+  return prefixedHtml.replace(
+    /(window\.__reactRouterContext\s*=\s*\{\s*"basename"\s*:\s*)"(?:\\.|[^"\\])*"/,
+    `$1${JSON.stringify(basePath)}`,
+  );
 }
 
 function injectHeadScript(html: string, script: string | null): string {

@@ -78,10 +78,6 @@ function DispatchMcpAccessPanel() {
   const mcpUrl = dispatchMcpUrl();
 
   function persist(next: McpAccessState) {
-    if (next.mode === "selected-apps" && next.selectedAppIds.length === 0) {
-      toast.error(t("dispatch.pages.selectAppForMcp"));
-      return;
-    }
     setOptimistic(next);
     saveAccess.mutate(next);
   }

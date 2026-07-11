@@ -153,7 +153,7 @@ export default function IndexPage() {
         </div>
 
         {/* Daily Summary Hero */}
-        <section className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <section>
           {isLoading ? (
             <Skeleton className="h-[280px] w-full rounded-2xl" />
           ) : (
@@ -171,7 +171,7 @@ export default function IndexPage() {
         {/* Triple Column Layout */}
         <div className="macros-entry-grid">
           {/* Meals */}
-          <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+          <section className="space-y-4">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {t("meals.title")}
@@ -232,7 +232,7 @@ export default function IndexPage() {
           </section>
 
           {/* Exercises */}
-          <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
+          <section className="space-y-4">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {t("exercise.title")}
@@ -291,7 +291,7 @@ export default function IndexPage() {
           </section>
 
           {/* Weight */}
-          <section className="macros-weight-section animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
+          <section className="macros-weight-section">
             <WeightTracker currentDate={date} />
           </section>
         </div>

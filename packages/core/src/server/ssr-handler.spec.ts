@@ -687,6 +687,25 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('src="/docs/app.js"');
   });
 
+  it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
+    process.env.APP_BASE_PATH = "/analytics";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        '<html><body><script>window.__reactRouterContext = {"basename":"/","future":{},"ssr":true};</script></body></html>',
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/analytics"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      'window.__reactRouterContext = {"basename":"/analytics"',
+    );
+    expect(html).not.toContain('window.__reactRouterContext = {"basename":"/"');
+  });
+
   it("injects runtime browser Sentry config into SSR HTML", async () => {
     process.env.SENTRY_DSN = "https://public@example/4511270423822336";
     process.env.SENTRY_ENVIRONMENT = "production";

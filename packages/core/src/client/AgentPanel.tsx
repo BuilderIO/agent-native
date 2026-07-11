@@ -365,12 +365,12 @@ function ChatLoadingSkeleton({
               )}
             >
               <div className="px-3 pt-3">
-                <div className="h-5 w-3/5 rounded bg-muted animate-pulse" />
+                <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
               </div>
               <div className="mt-auto flex items-center gap-2 px-3 py-2">
-                <div className="h-5 w-5 rounded bg-muted animate-pulse" />
-                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse" />
-                <div className="h-7 w-7 rounded-md bg-muted animate-pulse" />
+                <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
               </div>
             </div>
           </div>
@@ -383,7 +383,7 @@ function ChatLoadingSkeleton({
       {renderHeader ? renderHeader(stubProps) : null}
       {/* Composer-shaped placeholder keeps layout stable during chunk load */}
       <div className="mt-auto shrink-0 border-t border-border p-3">
-        <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+        <div className="h-16 rounded-xl bg-muted/40 animate-pulse motion-reduce:animate-none" />
       </div>
     </div>
   );

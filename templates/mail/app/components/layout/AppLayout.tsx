@@ -1571,7 +1571,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                   });
                                 }}
                                 className={cn(
-                                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-all",
+                                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
                                   isActive ? "opacity-100" : "opacity-30",
                                 )}
                               >
@@ -2005,116 +2005,125 @@ function StandardLayout({ children }: AppLayoutProps) {
         </header>
       )}
 
-      {sidebarOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl">
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="space-y-0.5">
-                {[
-                  { id: "inbox", label: t("mail.views.inbox"), href: "/inbox" },
-                  {
-                    id: "unread",
-                    label: t("mail.views.unread"),
-                    href: "/unread",
-                  },
-                  {
-                    id: "starred",
-                    label: t("mail.views.starred"),
-                    href: "/starred",
-                  },
-                  {
-                    id: "snoozed",
-                    label: t("mail.views.snoozed"),
-                    href: "/snoozed",
-                  },
-                  { id: "sent", label: t("mail.views.sent"), href: "/sent" },
-                  {
-                    id: "draft-queue",
-                    label: t("mail.views.draftQueue"),
-                    href: "/draft-queue",
-                  },
-                  {
-                    id: "scheduled",
-                    label: t("mail.views.scheduled"),
-                    href: "/scheduled",
-                  },
-                  {
-                    id: "drafts",
-                    label: t("mail.views.drafts"),
-                    href: "/drafts",
-                  },
-                  {
-                    id: "archive",
-                    label: t("mail.views.archive"),
-                    href: "/archive",
-                  },
-                  { id: "trash", label: t("mail.views.trash"), href: "/trash" },
-                ].map((item) => (
-                  <Link
-                    key={item.id}
-                    to={item.href}
-                    onClick={() => setSidebarOpen(false)}
-                    className={cn(
-                      "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                      view === item.id
-                        ? "bg-accent/60 text-foreground font-medium"
-                        : "text-foreground/70 hover:bg-accent/30",
-                    )}
-                  >
-                    <span>{item.label}</span>
-                    {item.id === "draft-queue" && queuedDrafts.count > 0 && (
-                      <span className="text-[12px] text-amber-300 tabular-nums">
-                        {queuedDrafts.count}
-                      </span>
-                    )}
-                  </Link>
-                ))}
-              </div>
+      <>
+        <div
+          aria-hidden="true"
+          className={cn(
+            "fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)] transition-opacity duration-200 ease-out motion-reduce:transition-none",
+            sidebarOpen ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+          onClick={() => setSidebarOpen(false)}
+        />
+        <div
+          aria-hidden={!sidebarOpen}
+          inert={!sidebarOpen}
+          className={cn(
+            "fixed start-0 top-0 bottom-0 z-40 flex w-64 flex-col overflow-hidden bg-[var(--mail-drawer-surface)] backdrop-blur-2xl transition-transform duration-200 ease-out motion-reduce:transition-none",
+            sidebarOpen
+              ? "translate-x-0"
+              : "pointer-events-none -translate-x-full rtl:translate-x-full",
+          )}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="space-y-0.5">
+              {[
+                { id: "inbox", label: t("mail.views.inbox"), href: "/inbox" },
+                {
+                  id: "unread",
+                  label: t("mail.views.unread"),
+                  href: "/unread",
+                },
+                {
+                  id: "starred",
+                  label: t("mail.views.starred"),
+                  href: "/starred",
+                },
+                {
+                  id: "snoozed",
+                  label: t("mail.views.snoozed"),
+                  href: "/snoozed",
+                },
+                { id: "sent", label: t("mail.views.sent"), href: "/sent" },
+                {
+                  id: "draft-queue",
+                  label: t("mail.views.draftQueue"),
+                  href: "/draft-queue",
+                },
+                {
+                  id: "scheduled",
+                  label: t("mail.views.scheduled"),
+                  href: "/scheduled",
+                },
+                {
+                  id: "drafts",
+                  label: t("mail.views.drafts"),
+                  href: "/drafts",
+                },
+                {
+                  id: "archive",
+                  label: t("mail.views.archive"),
+                  href: "/archive",
+                },
+                { id: "trash", label: t("mail.views.trash"), href: "/trash" },
+              ].map((item) => (
+                <Link
+                  key={item.id}
+                  to={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={cn(
+                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                    view === item.id
+                      ? "bg-accent/60 text-foreground font-medium"
+                      : "text-foreground/70 hover:bg-accent/30",
+                  )}
+                >
+                  <span>{item.label}</span>
+                  {item.id === "draft-queue" && queuedDrafts.count > 0 && (
+                    <span className="text-[12px] text-amber-300 tabular-nums">
+                      {queuedDrafts.count}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <div className="px-2 py-1">
+              <ExtensionsSidebarSection />
             </div>
 
-            <div className="shrink-0">
-              <div className="px-2 py-1">
-                <ExtensionsSidebarSection />
-              </div>
+            <div className="px-3 py-2">
+              <OrgSwitcher />
+            </div>
 
-              <div className="px-3 py-2">
-                <OrgSwitcher />
-              </div>
-
-              <div className="flex items-center gap-1 px-2 py-2">
-                <DevDatabaseLink />
-                <FeedbackButton className="min-w-0 flex-1" />
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to="/settings"
-                        onClick={() => setSidebarOpen(false)}
-                        aria-label={t("mail.toolbar.settings")}
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                          location.pathname === "/settings" &&
-                            "bg-accent/60 text-foreground",
-                        )}
-                      >
-                        <IconSettings className="h-4 w-4" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("mail.toolbar.settings")}
-                    </TooltipContent>
-                  </Tooltip>
-                  <ThemeToggle className="h-8 w-8 shrink-0" />
-                </div>
+            <div className="flex items-center gap-1 px-2 py-2">
+              <DevDatabaseLink />
+              <FeedbackButton className="min-w-0 flex-1" />
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      to="/settings"
+                      onClick={() => setSidebarOpen(false)}
+                      aria-label={t("mail.toolbar.settings")}
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                        location.pathname === "/settings" &&
+                          "bg-accent/60 text-foreground",
+                      )}
+                    >
+                      <IconSettings className="h-4 w-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
+                </Tooltip>
+                <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
           </div>
-        </>
-      )}
+        </div>
+      </>
 
       <InvitationBanner />
 

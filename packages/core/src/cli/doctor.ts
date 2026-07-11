@@ -264,7 +264,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
     [
       "Usage:",
       "  agent-native doctor                        Scan app source for security-critical guard violations",
-      "  agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun }",
+      "  agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun, strict }",
       "  agent-native doctor --only <guard,guard>   Run only the named guard(s)",
       "  agent-native doctor --strict                Escalate findings to a hard failure when used by `agent-native build --strict`",
       "  agent-native doctor --cwd <dir>             Run against a project root other than the current directory",
@@ -328,8 +328,14 @@ export async function runDoctor(
   const report = runDoctorScan({ root, only: opts.only });
 
   if (opts.json) {
-    const sink = report.ok ? io.log : io.err;
-    sink(JSON.stringify({ ...report, strict: Boolean(opts.strict) }, null, 2));
+    // The machine-readable report always goes to stdout (io.log), whether
+    // or not findings are present, so `agent-native doctor --json >
+    // report.json` in CI always captures the report. Only the usage/
+    // execution error payloads above (bad --cwd, unknown --only) go to
+    // stderr — those are diagnostics for exit code 2, not the report.
+    io.log(
+      JSON.stringify({ ...report, strict: Boolean(opts.strict) }, null, 2),
+    );
   } else {
     io.log(formatDoctorHuman(report, root));
     if (!report.ok) {

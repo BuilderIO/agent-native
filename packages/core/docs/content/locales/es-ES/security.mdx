@@ -390,6 +390,8 @@ Esta era anteriormente una postura de "advertir y aceptar": establezca el secret
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **no** está configurado a menos que su organización realmente comparta claves de espacio de trabajo; consulte [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] En implementaciones multiinquilino, **los usuarios traen su propio `ANTHROPIC_API_KEY`**: el marco se niega a recurrir a la var de entorno de nivel de implementación
 
+Ejecuta `agent-native doctor` (`pnpm doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
+
 ---
 
 Las secciones siguientes cubren indicadores de entornos especializados que solo utiliza en implementaciones específicas. La mayoría de las aplicaciones nunca los tocan.

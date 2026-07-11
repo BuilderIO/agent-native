@@ -1483,6 +1483,7 @@ const messages = {
     sharingPrivacy: "共用與隱私",
     trackingAnalytics: "跟蹤與分析",
     auditLog: "審計記錄",
+    doctorCodeChecks: "Doctor（程式碼檢查）",
     observability: "可觀測性",
     observationalMemory: "觀測記憶",
     ciEvalGate: "CI 評測門禁",

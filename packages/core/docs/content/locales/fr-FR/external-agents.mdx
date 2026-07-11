@@ -136,7 +136,7 @@ instantané jusqu'à ce que vous l'actualisiez/le révisiez à nouveau, donc ana
 ou de l'application MCP. Si vous disposez encore d'anciens connecteurs par application
 activé avec Dispatch, actualisez ou reconnectez chaque connecteur obsolète ; mise à jour
 Dispatch ne réécrit pas le calendrier/courrier/etc mis en cache de ChatGPT ou Claude.
-instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` sont les mêmes
+instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` sont les mêmes
 que celles décrites plus bas dans
 [OAuth MCP distant standard](#standard-oauth).
 
@@ -284,13 +284,14 @@ Le flux OAuth est le code d'autorisation + PKCE avec rotation du jeton d'actuali
 
 Les champs d'application actuels sont les suivants :
 
-| Portée      | Autorise                                                                                      |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| `mcp:read`  | MCP actions en lecture seule et découverte d'outils/ressources ordinaires                     |
-| `mcp:write` | mutation de actions et du méta-outil `ask-agent`                                              |
-| `mcp:apps`  | Liste/lecture des ressources des applications MCP et rendu UI en ligne lorsque pris en charge |
+| Portée           | Autorise                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `mcp:read`       | MCP actions en lecture seule et découverte d'outils/ressources ordinaires                     |
+| `mcp:write`      | mutation de actions et du méta-outil `ask-agent`                                              |
+| `mcp:apps`       | Liste/lecture des ressources des applications MCP et rendu UI en ligne lorsque pris en charge |
+| `offline_access` | Accès au jeton d'actualisation afin que l'hôte reste connecté                                 |
 
-Lorsque le client ne demande aucune portée explicite, l'application accorde les trois afin que le connecteur se comporte comme le flux Connect autorisé par le navigateur. Conservez la page de connexion du jeton de porteur et la solution de secours `npx @agent-native/core@latest connect --token <token>` pour les développeurs locaux, les hôtes de secours et les clients pour lesquels vous avez besoin d'un bloc de configuration prêt à coller.
+Lorsque le client ne demande aucune portée explicite, l'application accorde les quatre afin que le connecteur se comporte comme le flux Connect autorisé par le navigateur et puisse actualiser l'accès sans nouvelle connexion. Conservez la page de connexion du jeton de porteur et la solution de secours `npx @agent-native/core@latest connect --token <token>` pour les développeurs locaux, les hôtes de secours et les clients pour lesquels vous avez besoin d'un bloc de configuration prêt à coller.
 
 ## Niveaux du catalogue {#catalog-tiers}
 

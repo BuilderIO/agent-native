@@ -734,7 +734,7 @@ export default function Index() {
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button

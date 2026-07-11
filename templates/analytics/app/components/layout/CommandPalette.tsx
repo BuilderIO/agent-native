@@ -310,6 +310,7 @@ export function CommandPalette() {
     <>
       <CommandDialog
         open={open}
+        motion="instant"
         onOpenChange={(next) => {
           setOpen(next);
           if (!next) setSearchQuery("");

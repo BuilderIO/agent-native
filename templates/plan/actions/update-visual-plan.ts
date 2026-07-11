@@ -774,13 +774,14 @@ export default defineAction({
       });
     }
 
-    // The local better-sqlite3 driver rejects async transaction callbacks
-    // ("Transaction function cannot return a promise"), so the multi-statement
-    // write runs sequentially rather than inside `db.transaction`. The leading
-    // optimistic-lock UPDATE still guards concurrent writes; the libsql (prod)
-    // driver executes these awaits identically. (A driver-aware atomic helper is
-    // the proper long-term fix.)
-    await (async (tx: typeof db) => {
+    // Async transactions are safe on every driver here: better-sqlite3's
+    // normally-sync-only transaction() is patched to support async callbacks
+    // in packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
+    // wired into createGetDb for local sqlite urls), matching libsql/Postgres.
+    // See restore-plan-version.ts for the same pattern. The leading
+    // optimistic-lock UPDATE still guards concurrent writes; a thrown error
+    // (e.g. the zero-rows-affected conflict below) rolls back the whole block.
+    await db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
       //
@@ -959,7 +960,7 @@ export default defineAction({
         createdBy: onlyReviewerCommentWork ? "human" : "agent",
         createdAt: now,
       });
-    })(db);
+    });
 
     // Make an agent content edit visible on the plan-presence doc: light the AI
     // avatar in the header PresenceBar and glow the patched block(s) for ~6s.

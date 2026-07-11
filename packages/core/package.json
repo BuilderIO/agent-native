@@ -184,6 +184,10 @@
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
     "./a2a": "./dist/a2a/index.js",

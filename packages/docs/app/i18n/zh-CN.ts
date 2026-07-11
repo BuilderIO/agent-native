@@ -1485,6 +1485,7 @@ const zhCN = {
     sharingPrivacy: "共享与隐私",
     trackingAnalytics: "跟踪与分析",
     auditLog: "审计日志",
+    doctorCodeChecks: "Doctor（代码检查）",
     observability: "可观测性",
     observationalMemory: "观测记忆",
     ciEvalGate: "CI 评测门禁",

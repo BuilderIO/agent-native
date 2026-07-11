@@ -1860,53 +1860,35 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query — anonymous
-    // visitors get the loginHtml, and once they sign in the loginHtml's
-    // post-login reload re-hits this same URL with a session cookie set,
-    // so we 302 them to the original page.
-    //
-    // `return` is validated by parsing it against a sentinel base origin
-    // and checking the resolved origin still matches. This rejects every
-    // open-redirect shape — `//evil.com/...` (network-path reference),
-    // `/\evil.com/...` (WHATWG URL parser normalises `\` to `/` in HTTP
-    // URLs, so a naive prefix check on `//` misses this), absolute URLs
-    // like `https://evil.com`, and `data:` / `javascript:` schemes. The
-    // reconstructed path comes from the parsed segments so any leftover
-    // quirks get normalised. Control chars (incl. CR/LF for header
-    // injection) are rejected up front.
-    //
+    // (share links, embeds) here with a `?return=<path>` query. The cached
+    // login document validates that return path in the browser and redirects
+    // there after sign-in or when its client-side session check finds an
+    // existing session.
     if (p === "/_agent-native/sign-in") {
-      const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
-      const safeReturn = safeReturnPath(
-        new URLSearchParams(queryStr).get("return"),
-      );
-      const session = await getSession(event);
-      if (session) {
-        return new Response("", {
-          status: 302,
-          headers: { Location: safeReturn },
-        });
-      }
-      return loginHtmlResponse(loginHtml, event);
-    }
-
-    // Auth entry pages are framework-owned pages, not app routes. When a user
-    // already has a session, redirect them back to the mounted app instead of
-    // letting React Router try to render /login.
-    if (p === "/login" || p === "/signup") {
-      const session = await getSession(event);
-      if (session) {
+      // Preserve the zero-setup localhost experience without putting a
+      // session lookup back on the cacheable app-shell URL. The client gate
+      // reaches this explicit entrypoint after discovering there is no
+      // session; only a fresh local development DB can take this redirect.
+      if (getMethod(event) === "GET") {
         const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
         const safeReturn = safeReturnPath(
           new URLSearchParams(queryStr).get("return"),
         );
-        return new Response("", {
-          status: 302,
-          headers: {
-            Location: safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
-          },
-        });
+        const autoSession = await maybeAutoCreateDevSession(
+          event,
+          safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
+        );
+        if (autoSession) return autoSession;
       }
+      return loginHtmlResponse(loginHtml, event);
+    }
+
+    // Auth entry pages are framework-owned pages, not app routes. Always serve
+    // the same public, cacheable login document here. Its client-side session
+    // check redirects signed-in visitors to the validated return path. Keeping
+    // session-dependent decisions out of this server response prevents the CDN
+    // from caching two different representations for the same URL.
+    if (p === "/login" || p === "/signup") {
       return loginHtmlResponse(loginHtml, event);
     }
 
@@ -1950,6 +1932,21 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Normal app documents and React Router page-data requests are an
+    // impersonal SSR shell. `createH3SSRHandler` renders both under an
+    // explicitly anonymous request context and gives them one shared public
+    // cache policy, so the auth guard must not vary either response by cookie.
+    // `AppProviders` resolves the browser session and gates private UI after
+    // hydration. APIs and framework routes remain protected below.
+    const isAppPageRequest =
+      p !== "/api" &&
+      !p.startsWith("/api/") &&
+      p !== "/_agent-native" &&
+      !p.startsWith("/_agent-native/") &&
+      (isHtmlDocumentRequest(event, p) ||
+        (isReadMethod(event) && p.endsWith(".data")));
+    if (isAppPageRequest) return;
+
     const session = await getSession(event);
     if (session) return;
 
@@ -1958,22 +1955,8 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
-    if (!isHtmlDocumentRequest(event, p)) {
-      setResponseStatus(event, 401);
-      return { error: "Unauthorized" };
-    }
-
-    // Local-dev convenience: on the first page GET of a freshly-scaffolded
-    // app, transparently create + sign in `dev@local.test` instead of
-    // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
-    // DB, so production and any app that has ever had a real signup are
-    // unaffected. See maybeAutoCreateDevSession for full conditions.
-    if (getMethod(event) === "GET") {
-      const autoSession = await maybeAutoCreateDevSession(event, url);
-      if (autoSession) return autoSession;
-    }
-
-    return loginHtmlResponse(loginHtml, event);
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   };
 }
 
