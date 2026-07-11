@@ -15,12 +15,29 @@ import {
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
+  isComposerEditorUsable,
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
+  it("rejects a truthy editor after BFCache/remount destruction", () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+
+    expect(isComposerEditorUsable(editor)).toBe(true);
+    editor.destroy();
+    expect(editor).toBeTruthy();
+    expect(editor.isDestroyed).toBe(true);
+    expect(isComposerEditorUsable(editor)).toBe(false);
+    expect(() => {
+      if (isComposerEditorUsable(editor)) editor.commands.clearContent();
+    }).not.toThrow();
+  });
+
   it("offers explicit reasoning levels without legacy Auto", () => {
     expect(getComposerReasoningEffortOptions("auto")).toEqual([
       "low",
