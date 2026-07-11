@@ -1502,6 +1502,7 @@ const enUS = {
     sharingPrivacy: "Sharing & Privacy",
     trackingAnalytics: "Tracking & Analytics",
     auditLog: "Audit Log",
+    doctorCodeChecks: "Doctor (Code Checks)",
     observability: "Observability",
     observationalMemory: "Observational Memory",
     ciEvalGate: "CI Eval Gate",

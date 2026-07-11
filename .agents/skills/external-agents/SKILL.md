@@ -84,7 +84,8 @@ https://<your-app>.agent-native.com/_agent-native/mcp
 ```
 
 Claude / Claude Desktop: add a custom connector with the URL, click Connect,
-then sign in and approve `mcp:read`, `mcp:write`, and `mcp:apps`. Claude Code:
+then sign in and approve `mcp:read`, `mcp:write`, `mcp:apps`, and
+`offline_access`. Claude Code:
 add the same remote HTTP URL, restart if needed, run `/mcp`, and choose
 Authenticate. ChatGPT: create a custom MCP connector/app, paste the same URL,
 choose OAuth, scan/discover tools, then sign in and approve scopes. Each host

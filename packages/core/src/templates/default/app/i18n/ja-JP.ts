@@ -370,6 +370,12 @@ const messages = {
     contentLabel: "コンテンツ",
     previewTitle: "拡張機能のプレビュー",
     previewEmpty: "ここにプレビューが表示されます",
+    loadError: "拡張機能を読み込めませんでした。",
+    widgetsLoadError: "ウィジェットを読み込めませんでした。",
+    widgetAreasLoadError: "ウィジェット領域を読み込めませんでした。",
+    historyLoadError: "拡張機能の履歴を読み込めませんでした。",
+    versionLoadError: "この拡張機能のバージョンを読み込めませんでした。",
+    retry: "再試行",
   },
   org: {
     createTitle: "組織を作成する",

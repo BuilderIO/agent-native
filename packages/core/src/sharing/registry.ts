@@ -61,6 +61,13 @@ export interface ShareableResourceRegistration {
    * this so public visibility remains viewer-only. Use narrowly for local or
    * otherwise constrained resources where the resource owner intentionally wants
    * unauthenticated link holders to do more than view.
+   *
+   * When this is a function, it may read arbitrary fields on the resource row
+   * (not just the ownership/visibility columns). Because of that,
+   * `resolveAccess`/`assertAccess`'s opt-in `{ skipResourceBody: true }`
+   * projected load (see `access.ts`) is automatically ignored for this
+   * registration and always loads the full row instead — a fixed role string
+   * has no such requirement and is compatible with the projection.
    */
   publicAccessRole?:
     | "viewer"

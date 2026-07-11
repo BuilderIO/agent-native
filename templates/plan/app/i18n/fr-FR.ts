@@ -502,6 +502,16 @@ const messages = {
       message: 'Le dossier du plan local "{{slug}}" n\'a pas pu être lu.',
       title: "Plan local introuvable",
     },
+    localPlanConnection: {
+      promptTitle: "Se connecter à ce plan local",
+      promptMessage:
+        "Ce plan reste sur votre ordinateur. Plan a besoin de l’autorisation du navigateur pour le lire depuis le pont local.",
+      deniedTitle: "L’accès au réseau local est bloqué",
+      deniedMessage:
+        "Ouvrez les paramètres du site de Plan dans votre navigateur, autorisez l’accès au réseau local, puis vérifiez à nouveau.",
+      connect: "Se connecter au plan local",
+      checkAgain: "Vérifier à nouveau",
+    },
     loggedOut: {
       copied: "Copié",
       copy: "Copie",

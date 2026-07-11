@@ -1,66 +1,12 @@
 import type { AgentLoopUsage } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
+import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizeTrackingSlug(value: string | undefined): string | undefined {
-  const raw = value?.trim().toLowerCase();
-  if (!raw) return undefined;
-  return raw
-    .replace(/^@agent-native\//, "")
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function appSlugFromUrl(value: string | undefined): string | undefined {
-  if (!value?.trim()) return undefined;
-  try {
-    const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
-      ? value
-      : `https://${value}`;
-    const hostname = new URL(raw).hostname.toLowerCase();
-    if (hostname.endsWith(".agent-native.com")) {
-      return normalizeTrackingSlug(
-        hostname.slice(0, -".agent-native.com".length),
-      );
-    }
-    return normalizeTrackingSlug(hostname.split(".")[0]);
-  } catch {
-    return undefined;
-  }
-}
-
-function trackingIdentityProperties(): Record<string, string> {
-  const packageApp = normalizeTrackingSlug(process.env.npm_package_name);
-  const urlApp =
-    appSlugFromUrl(process.env.APP_URL) ||
-    appSlugFromUrl(process.env.BETTER_AUTH_URL) ||
-    appSlugFromUrl(process.env.URL) ||
-    appSlugFromUrl(process.env.DEPLOY_URL) ||
-    appSlugFromUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
-    appSlugFromUrl(process.env.VERCEL_URL);
-  const app =
-    normalizeTrackingSlug(process.env.AGENT_NATIVE_APP) ||
-    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_APP) ||
-    urlApp ||
-    packageApp ||
-    normalizeTrackingSlug(process.env.APP_NAME);
-  const template =
-    normalizeTrackingSlug(process.env.AGENT_NATIVE_TEMPLATE) ||
-    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_TEMPLATE) ||
-    normalizeTrackingSlug(process.env.APP_TEMPLATE) ||
-    normalizeTrackingSlug(process.env.VITE_APP_TEMPLATE) ||
-    app;
-
-  return {
-    ...(app ? { app, agent_native_app: app } : {}),
-    ...(template ? { template, agent_native_template: template } : {}),
-  };
 }
 
 function llmProviderFromEngine(
@@ -219,17 +165,19 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
+  let stored: Partial<ObservabilityConfig> | null = null;
   try {
     const { getSetting } = await import("../settings/store.js");
-    const stored = await getSetting("observability-config");
-    if (stored) {
-      return {
-        ...DEFAULT_OBSERVABILITY_CONFIG,
-        ...stored,
-      } as ObservabilityConfig;
-    }
+    stored = (await getSetting(
+      "observability-config",
+    )) as Partial<ObservabilityConfig> | null;
   } catch {}
-  return DEFAULT_OBSERVABILITY_CONFIG;
+  const { resolveInferredSentimentConfig } = await import("./sentiment.js");
+  return {
+    ...DEFAULT_OBSERVABILITY_CONFIG,
+    ...(stored ?? {}),
+    ...resolveInferredSentimentConfig(stored),
+  };
 }
 
 export async function instrumentAgentLoop(opts: {
@@ -269,6 +217,8 @@ export async function instrumentAgentLoop(opts: {
     variantId: string;
   }>;
   modelSelectionSource?: string;
+  /** Raw user-authored message before prompt/context enrichment. */
+  sentimentInput?: string;
   classifyError?: (error: unknown) =>
     | {
         status?: "success" | "error";
@@ -281,6 +231,17 @@ export async function instrumentAgentLoop(opts: {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
   const runStart = Date.now();
   const parentSpanId = spanId();
+  const precedingResponsePromise =
+    config.inferredSentimentEnabled && opts.sentimentInput && threadId && userId
+      ? import("./store.js")
+          .then(({ getLatestTraceSummaryForThread }) =>
+            getLatestTraceSummaryForThread(threadId, {
+              userId,
+              excludeRunId: runId,
+            }),
+          )
+          .catch(() => null)
+      : Promise.resolve(null);
 
   // Optional OpenTelemetry root span for this run. No-ops unless a host has
   // installed `@opentelemetry/api` and registered a provider. The promise is
@@ -624,6 +585,31 @@ export async function instrumentAgentLoop(opts: {
       });
     } catch {
       // OTel export must never break the run.
+    }
+  }
+
+  // Classify only after the main loop has finished so the tiny managed Luna
+  // request cannot contend with the user's response for a gateway slot. This
+  // short, awaited tail keeps serverless runtimes alive long enough to emit the
+  // event, while the response content has already streamed to the client.
+  if (usage && opts.sentimentInput) {
+    try {
+      const precedingResponse = await precedingResponsePromise;
+      if (precedingResponse) {
+        const { inferAndTrackSentiment } = await import("./sentiment.js");
+        await inferAndTrackSentiment({
+          classifierModel: config.inferredSentimentModel,
+          precedingResponseModel: precedingResponse.model,
+          text: opts.sentimentInput,
+          precedingRunId: precedingResponse.runId,
+          classificationTriggerRunId: runId,
+          threadId,
+          userId,
+          sampleRate: config.inferredSentimentSampleRate,
+        });
+      }
+    } catch {
+      // Optional inference must never alter the result of the main run.
     }
   }
 

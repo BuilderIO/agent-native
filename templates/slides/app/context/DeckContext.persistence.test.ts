@@ -53,7 +53,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(DeckProvider, null, children);
 }
 
-function setupFetch(options?: { hangPut?: boolean }) {
+function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
   let resolveCreate: (response: Response) => void = () => {};
   let accessibleDeck: Deck | null = null;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
@@ -93,6 +93,11 @@ function setupFetch(options?: { hangPut?: boolean }) {
     }
 
     if (href.includes("/_agent-native/actions/list-decks")) {
+      if (options?.failDeckList) {
+        return Promise.resolve(
+          new Response("Gateway timeout", { status: 504 }),
+        );
+      }
       const decks = accessibleDeck ? [accessibleDeck] : [];
       return Promise.resolve(
         new Response(JSON.stringify({ count: decks.length, decks }), {
@@ -160,6 +165,16 @@ describe("DeckContext deck creation persistence", () => {
     vi.unstubAllGlobals();
     MockEventSource.lastInstance = null;
     MockEventSource.instances = [];
+  });
+
+  it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
+    setupFetch({ failDeckList: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.decks).toEqual([]);
+    expect(result.current.loadError).toBe(true);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {

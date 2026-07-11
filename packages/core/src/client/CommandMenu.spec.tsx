@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommandMenu,
+  openAgentSettings,
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
@@ -68,6 +69,33 @@ describe("CommandMenu docs group", () => {
       input!.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
+
+  it("opens chat surfaces before requesting settings on the next task", () => {
+    let scheduledFrame: FrameRequestCallback | undefined;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        scheduledFrame = callback;
+        return 1;
+      }),
+    );
+    const events: string[] = [];
+    const onSettings = (event: Event) =>
+      events.push(
+        `settings:${(event as CustomEvent<{ section?: string }>).detail?.section}`,
+      );
+    const onOpen = () => events.push("open");
+    window.addEventListener("agent-panel:open-settings", onSettings);
+    window.addEventListener("agent-panel:open", onOpen);
+
+    openAgentSettings("voice");
+
+    expect(events).toEqual(["open"]);
+    scheduledFrame?.(0);
+    expect(events).toEqual(["open", "settings:voice"]);
+    window.removeEventListener("agent-panel:open-settings", onSettings);
+    window.removeEventListener("agent-panel:open", onOpen);
+  });
 
   it("filters app docs entries through the shared search field", () => {
     renderMenu();

@@ -19,6 +19,28 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "matching Origin and forwarded Host behind a dev proxy",
+      headers: {
+        host: "127.0.0.1:8088",
+        origin: "http://127.0.0.1:8080",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+        "sec-fetch-site": "same-origin",
+      },
+      expected: true,
+    },
+    {
+      name: "cross-site fetch metadata despite a matching forwarded Host",
+      headers: {
+        host: "internal.example:3000",
+        origin: "https://app.example.com",
+        "x-forwarded-host": "app.example.com",
+        "x-forwarded-proto": "https",
+        "sec-fetch-site": "cross-site",
+      },
+      expected: false,
+    },
+    {
       name: "mismatched web origin",
       headers: { host: "app.example.com", origin: "https://evil.example.com" },
       expected: false,

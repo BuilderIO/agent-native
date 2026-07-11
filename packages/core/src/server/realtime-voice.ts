@@ -34,6 +34,9 @@ export const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 export const REALTIME_VOICE_MAX_SDP_BYTES = 64 * 1024;
 export const REALTIME_VOICE_MAX_TOOL_BODY_BYTES = 64 * 1024;
 export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
+export const REALTIME_VOICE_MAX_TOOLS = 32;
+export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
+export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
@@ -42,7 +45,6 @@ const DEFAULT_INSTRUCTIONS =
   "You are the live voice interface for this Agent Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
-const MAX_TOOL_SCHEMA_CHARS = 64 * 1024;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
 const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
@@ -181,7 +183,13 @@ function normalizeToolSchema(
 ): Record<string, unknown> | null {
   try {
     const serialized = JSON.stringify(inputSchema);
-    if (!serialized || serialized.length > MAX_TOOL_SCHEMA_CHARS) return null;
+    if (
+      !serialized ||
+      Buffer.byteLength(serialized, "utf8") >
+        REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES
+    ) {
+      return null;
+    }
     const parsed = JSON.parse(serialized) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
@@ -211,6 +219,28 @@ function buildRealtimeTools(
     });
   }
   return tools;
+}
+
+function packRealtimeTools(
+  session: Record<string, unknown>,
+  eligibleTools: RealtimeFunctionTool[],
+): RealtimeFunctionTool[] {
+  const packed: RealtimeFunctionTool[] = [];
+  for (const tool of eligibleTools.slice(0, REALTIME_VOICE_MAX_TOOLS)) {
+    const candidate = [...packed, tool];
+    const candidateSession = {
+      ...session,
+      tools: candidate,
+      tool_choice: "auto",
+    };
+    if (
+      Buffer.byteLength(JSON.stringify(candidateSession), "utf8") <=
+      REALTIME_VOICE_MAX_SESSION_BYTES
+    ) {
+      packed.push(tool);
+    }
+  }
+  return packed;
 }
 
 function declaredBodyBytes(event: H3Event): number | undefined {
@@ -364,7 +394,7 @@ function createSessionHandler(
         }
 
         const instructions = await buildInstructions(auth, options);
-        const session = {
+        const sessionBase = {
           type: "realtime",
           model: configuredIdentifier(options.model, DEFAULT_MODEL),
           instructions,
@@ -383,7 +413,10 @@ function createSessionHandler(
               voice: configuredIdentifier(options.voice, DEFAULT_VOICE),
             },
           },
-          tools,
+        };
+        const session = {
+          ...sessionBase,
+          tools: packRealtimeTools(sessionBase, tools),
           tool_choice: "auto",
         };
 
@@ -632,7 +665,9 @@ export function mountRealtimeVoiceRoutes(
   }
 
   const tools = buildRealtimeTools(actions);
-  const allowedToolNames = new Set(tools.map((tool) => tool.name));
+  const allowedToolNames = new Set(
+    tools.slice(0, REALTIME_VOICE_MAX_TOOLS).map((tool) => tool.name),
+  );
   const app = getH3App(nitroApp);
   app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
   app.use(

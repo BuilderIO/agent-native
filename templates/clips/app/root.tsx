@@ -324,6 +324,10 @@ function isStandalonePublicPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     path === "/download" ||
+    path === "/bug-report" ||
+    path.startsWith("/bug-report/") ||
+    path === "/r" ||
+    path.startsWith("/r/") ||
     path.startsWith("/share/") ||
     path.startsWith("/embed/") ||
     path.startsWith("/invite/")

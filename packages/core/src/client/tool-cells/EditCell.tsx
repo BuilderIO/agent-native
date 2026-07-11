@@ -17,6 +17,7 @@ import {
 } from "@tabler/icons-react";
 import { memo, useMemo, useState } from "react";
 
+import { AnimatedCollapse } from "../chat/tool-call-display.js";
 import { cn } from "../utils.js";
 
 export interface EditCellMeta {
@@ -279,22 +280,24 @@ export function EditCell({ meta, isRunning }: EditCellProps) {
       </button>
 
       {/* Diff body */}
-      {expanded && hasDiff && (
-        <div className="border-t border-border/40 bg-background">
-          <DiffView lines={diff} maxLines={maxCollapsed} />
-          {hiddenLines > 0 && (
-            <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
-              <button
-                type="button"
-                className="cursor-pointer underline hover:text-foreground"
-                onClick={() => setShowAll(true)}
-              >
-                Show {hiddenLines} more lines
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <AnimatedCollapse open={expanded && hasDiff}>
+        {hasDiff && (
+          <div className="border-t border-border/40 bg-background">
+            <DiffView lines={diff} maxLines={maxCollapsed} />
+            {hiddenLines > 0 && (
+              <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
+                <button
+                  type="button"
+                  className="cursor-pointer underline hover:text-foreground"
+                  onClick={() => setShowAll(true)}
+                >
+                  Show {hiddenLines} more lines
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </AnimatedCollapse>
     </div>
   );
 }

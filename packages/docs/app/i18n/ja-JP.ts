@@ -1509,6 +1509,7 @@ const jaJP = {
     sharingPrivacy: "共有とプライバシー",
     trackingAnalytics: "トラッキングと分析",
     auditLog: "監査ログ",
+    doctorCodeChecks: "Doctor (コードチェック)",
     observability: "可観測性",
     observationalMemory: "観測メモリ",
     ciEvalGate: "CI 評価ゲート",

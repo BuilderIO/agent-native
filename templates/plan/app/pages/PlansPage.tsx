@@ -272,15 +272,19 @@ import {
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
   fetchLocalPlanBridgeBundle,
+  localNetworkAccessPermissionState,
   localPlanBridgeQueryKey,
   localPlanBridgeRetryDelay,
   localPlanRoutePath,
   localPlanRouteUrl,
   mergeLocalBridgeComments,
   shouldRetryLocalPlanBridgeBundle,
+  shouldShowLocalPlanLoadError,
   shouldShowPlanLoadError,
   updateLocalPlanBridgeComments,
+  LocalPlanBridgePermissionError,
   type LocalPlanBundle,
+  type LocalNetworkAccessPermissionState,
   type PlanBundleWithHtml,
   type PlanCommentItem,
 } from "@/lib/plan-local-bridge";
@@ -2028,12 +2032,39 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     ? routeSearchParams.get("path")
     : null;
   const routeSelectedId = params.id;
+  const [localNetworkPermission, setLocalNetworkPermission] =
+    useState<LocalNetworkAccessPermissionState>(
+      localPlanBridgeUrl ? "checking" : "unsupported",
+    );
+  const [localBridgeConnectionRequested, setLocalBridgeConnectionRequested] =
+    useState(false);
+  const checkLocalNetworkPermission = useCallback(async () => {
+    if (!localPlanBridgeUrl) {
+      setLocalNetworkPermission("unsupported");
+      return;
+    }
+    setLocalNetworkPermission("checking");
+    setLocalBridgeConnectionRequested(false);
+    const state = await localNetworkAccessPermissionState();
+    setLocalNetworkPermission(state);
+  }, [localPlanBridgeUrl]);
+  useEffect(() => {
+    void checkLocalNetworkPermission();
+  }, [checkLocalNetworkPermission]);
+  const localBridgeFetchEnabled = Boolean(
+    localPlanMode &&
+    localPlanSlug &&
+    localPlanBridgeUrl &&
+    (localNetworkPermission === "granted" ||
+      localNetworkPermission === "unsupported" ||
+      localBridgeConnectionRequested),
+  );
   const localPlanBridgeQuery = useQuery<LocalPlanBundle>({
     queryKey: localPlanBridgeQueryKey(
       localPlanSlug ?? "",
       localPlanBridgeUrl ?? "",
     ),
-    enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+    enabled: localBridgeFetchEnabled,
     refetchOnWindowFocus: false,
     retry: shouldRetryLocalPlanBridgeBundle,
     retryDelay: localPlanBridgeRetryDelay,
@@ -2068,6 +2099,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const localPlanError = localPlanBridgeUrl
     ? localPlanBridgeQuery.error
     : localPlanQuery.error;
+  useEffect(() => {
+    if (!(localPlanError instanceof LocalPlanBridgePermissionError)) return;
+    setLocalNetworkPermission(localPlanError.permissionState);
+    setLocalBridgeConnectionRequested(false);
+  }, [localPlanError]);
   const localPlanLoading = localPlanBridgeUrl
     ? localPlanBridgeQuery.isLoading
     : localPlanQuery.isLoading;
@@ -2225,13 +2261,30 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     accessStatusPaused: planAccessStatusQuery.isPaused,
     accessDenied: Boolean(planAccessStatus && !planAccessStatus.hasAccess),
   });
-  const showLocalPlanLoadError = Boolean(
+  const showLocalPlanLoadError = shouldShowLocalPlanLoadError({
+    localPlanMode,
+    hasBundle: Boolean(bundle),
+    hasBridgeUrl: Boolean(localPlanBridgeUrl),
+    bridgeFetchEnabled: localBridgeFetchEnabled,
+    error: localPlanError,
+    loading: localPlanLoading,
+    fetching: localPlanFetching,
+    permissionState: localNetworkPermission,
+  });
+  const showLocalPlanConnection = Boolean(
     localPlanMode &&
+    localPlanBridgeUrl &&
     !bundle &&
-    (Boolean(localPlanError) || (!localPlanLoading && !localPlanFetching)),
+    !localBridgeConnectionRequested &&
+    (localNetworkPermission === "prompt" ||
+      localNetworkPermission === "denied"),
   );
   const showInitialPlanSkeleton = Boolean(
-    selectedId && !bundle && !showPlanLoadError && !showLocalPlanLoadError,
+    selectedId &&
+    !bundle &&
+    !showPlanLoadError &&
+    !showLocalPlanLoadError &&
+    !showLocalPlanConnection,
   );
   const requestPlanAccessMutation = useRequestPlanAccess();
   const [accessRequestSentPlanId, setAccessRequestSentPlanId] = useState<
@@ -4844,6 +4897,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
+              isError={plansQuery.isError}
+              onRetry={() => void plansQuery.refetch()}
               viewerEmail={session?.email ?? null}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
@@ -4856,6 +4911,14 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                 )
               }
               onSignIn={() => openSignIn()}
+            />
+          ) : showLocalPlanConnection ? (
+            <LocalPlanConnection
+              permissionState={
+                localNetworkPermission === "denied" ? "denied" : "prompt"
+              }
+              onConnect={() => setLocalBridgeConnectionRequested(true)}
+              onRetry={() => void checkLocalNetworkPermission()}
             />
           ) : showLocalPlanLoadError ? (
             <LocalPlanLoadError
@@ -6663,6 +6726,66 @@ function LocalPlanLoadError({
   );
 }
 
+function LocalPlanConnection({
+  permissionState,
+  onConnect,
+  onRetry,
+}: {
+  permissionState: "prompt" | "denied";
+  onConnect: () => void;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  const denied = permissionState === "denied";
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-12">
+      <div className="w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <IconLink className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              {t(
+                denied
+                  ? "plansPage.localPlanConnection.deniedTitle"
+                  : "plansPage.localPlanConnection.promptTitle",
+              )}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t(
+                denied
+                  ? "plansPage.localPlanConnection.deniedMessage"
+                  : "plansPage.localPlanConnection.promptMessage",
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={denied ? "outline" : "default"}
+            onClick={denied ? onRetry : onConnect}
+          >
+            {denied ? <IconRefresh /> : <IconLink />}
+            {t(
+              denied
+                ? "plansPage.localPlanConnection.checkAgain"
+                : "plansPage.localPlanConnection.connect",
+            )}
+          </Button>
+          <Button asChild type="button" variant="ghost">
+            <Link to="/plans">
+              <IconArrowLeft className="rtl:-scale-x-100" />
+              {t("plansPage.overview.title")}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlanLoadError({
   error,
   planId,
@@ -7374,6 +7497,8 @@ type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 function PlansOverview({
   plans,
   isLoading,
+  isError,
+  onRetry,
   viewerEmail,
   onCreate,
   canCreate,
@@ -7384,6 +7509,8 @@ function PlansOverview({
 }: {
   plans: PlanSummary[];
   isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
   viewerEmail?: string | null;
   onCreate: () => void;
   canCreate: boolean;
@@ -7399,6 +7526,27 @@ function PlansOverview({
 
   if (isLoading) {
     return <PlansOverviewSkeleton />;
+  }
+  if (isError) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/20 p-6">
+        <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          <IconAlertTriangle className="size-7 text-destructive/70" />
+          <div>
+            <h1 className="font-medium">
+              {t("plansPage.loadError.didNotLoadTitle")}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("plansPage.loadError.genericMessage")}
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={onRetry}>
+            <IconRefresh className="size-4" />
+            {t("plansPage.loadError.retry")}
+          </Button>
+        </div>
+      </div>
+    );
   }
   if (plans.length === 0) {
     return <EmptyPlan onCreate={onCreate} canCreate={canCreate} />;

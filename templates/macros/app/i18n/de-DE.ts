@@ -59,6 +59,8 @@ const messages = {
     optional: "Optional",
     saveChanges: "Anderungen speichern",
     saving: "Speichern...",
+    loadFailed: "Diese Daten konnten nicht geladen werden",
+    retry: "Erneut versuchen",
   },
   seo: {
     homeTitle:

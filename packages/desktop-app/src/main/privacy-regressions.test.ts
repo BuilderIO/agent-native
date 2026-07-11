@@ -16,9 +16,10 @@ function between(value: string, start: string, end: string): string {
 
 describe("desktop passive-access regressions", () => {
   it("keeps remote status read-only", () => {
-    const main = source("./index.ts");
+    // The Agent-Native Code IPC handlers live in ./ipc/code-agents.ts.
+    const codeAgentsIpc = source("./ipc/code-agents.ts");
     const handler = between(
-      main,
+      codeAgentsIpc,
       "IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS",
       "IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED",
     );
@@ -34,8 +35,10 @@ describe("desktop passive-access regressions", () => {
       "function normalizeContentFilesGrant(",
       "function loadContentFilesStore(",
     );
+    // The Content-files IPC handlers live in ./ipc/content-files.ts.
+    const contentFilesIpc = source("./ipc/content-files.ts");
     const handler = between(
-      main,
+      contentFilesIpc,
       "IPC.CONTENT_FILES_GET_FOLDER",
       "IPC.CONTENT_FILES_CHOOSE_FOLDER",
     );

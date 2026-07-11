@@ -1,5 +1,10 @@
 import { appBasePath, useActionQuery, useT } from "@agent-native/core/client";
-import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconChartLine,
+  IconDownload,
+  IconUsers,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/library/page-header";
@@ -50,10 +55,10 @@ interface InsightsResponse {
 export function InsightsHub() {
   const t = useT();
   const [days, setDays] = useState("30");
-  const { data, isLoading } = useActionQuery<InsightsResponse>(
-    "get-organization-insights",
-    { days: Number(days) } as any,
-  );
+  const { data, isLoading, isError, isFetching, refetch } =
+    useActionQuery<InsightsResponse>("get-organization-insights", {
+      days: Number(days),
+    } as any);
 
   const totals = data?.totals ?? {
     views: 0,
@@ -99,99 +104,118 @@ export function InsightsHub() {
           {t("insightsHub.description", { days })}
         </p>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard
-            label={t("insightsHub.views")}
-            value={totals.views}
-            loading={isLoading}
-          />
-          <StatCard
-            label={t("insightsHub.reactions")}
-            value={totals.reactions}
-            loading={isLoading}
-          />
-          <StatCard
-            label={t("insightsHub.comments")}
-            value={totals.comments}
-            loading={isLoading}
-          />
-          <StatCard
-            label={t("insightsHub.recordings")}
-            value={totals.recordings}
-            loading={isLoading}
-          />
-        </div>
+        {isError ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/30 px-6 py-16 text-center">
+            <IconAlertTriangle className="size-9 text-destructive" />
+            <p className="text-sm font-medium">
+              {t("libraryGrid.loadFailedTitle")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {t("libraryGrid.retry")}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard
+                label={t("insightsHub.views")}
+                value={totals.views}
+                loading={isLoading}
+              />
+              <StatCard
+                label={t("insightsHub.reactions")}
+                value={totals.reactions}
+                loading={isLoading}
+              />
+              <StatCard
+                label={t("insightsHub.comments")}
+                value={totals.comments}
+                loading={isLoading}
+              />
+              <StatCard
+                label={t("insightsHub.recordings")}
+                value={totals.recordings}
+                loading={isLoading}
+              />
+            </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <IconChartLine className="size-4 text-primary" />
-              {t("insightsHub.engagementTrend")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <EngagementChart data={data?.trend ?? []} />
-            )}
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IconChartLine className="size-4 text-primary" />
+                  {t("insightsHub.engagementTrend")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <Skeleton className="h-64 w-full" />
+                ) : (
+                  <EngagementChart data={data?.trend ?? []} />
+                )}
+              </CardContent>
+            </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {t("insightsHub.topVideos")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="views">
-                <TabsList>
-                  <TabsTrigger value="views">
-                    {t("insightsHub.views")}
-                  </TabsTrigger>
-                  <TabsTrigger value="reactions">
-                    {t("insightsHub.reactions")}
-                  </TabsTrigger>
-                  <TabsTrigger value="comments">
-                    {t("insightsHub.comments")}
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="views" className="pt-3">
-                  <TopVideosTable
-                    rows={data?.topVideos.byViews ?? []}
-                    metricLabel={t("insightsHub.views")}
-                  />
-                </TabsContent>
-                <TabsContent value="reactions" className="pt-3">
-                  <TopVideosTable
-                    rows={data?.topVideos.byReactions ?? []}
-                    metricLabel={t("insightsHub.reactions")}
-                  />
-                </TabsContent>
-                <TabsContent value="comments" className="pt-3">
-                  <TopVideosTable
-                    rows={data?.topVideos.byComments ?? []}
-                    metricLabel={t("insightsHub.comments")}
-                  />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {t("insightsHub.topVideos")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="views">
+                    <TabsList>
+                      <TabsTrigger value="views">
+                        {t("insightsHub.views")}
+                      </TabsTrigger>
+                      <TabsTrigger value="reactions">
+                        {t("insightsHub.reactions")}
+                      </TabsTrigger>
+                      <TabsTrigger value="comments">
+                        {t("insightsHub.comments")}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="views" className="pt-3">
+                      <TopVideosTable
+                        rows={data?.topVideos.byViews ?? []}
+                        metricLabel={t("insightsHub.views")}
+                      />
+                    </TabsContent>
+                    <TabsContent value="reactions" className="pt-3">
+                      <TopVideosTable
+                        rows={data?.topVideos.byReactions ?? []}
+                        metricLabel={t("insightsHub.reactions")}
+                      />
+                    </TabsContent>
+                    <TabsContent value="comments" className="pt-3">
+                      <TopVideosTable
+                        rows={data?.topVideos.byComments ?? []}
+                        metricLabel={t("insightsHub.comments")}
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <IconUsers className="size-4 text-primary" />
-                {t("insightsHub.topCreators")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TopCreatorsTable rows={data?.topCreators ?? []} />
-            </CardContent>
-          </Card>
-        </div>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IconUsers className="size-4 text-primary" />
+                    {t("insightsHub.topCreators")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TopCreatorsTable rows={data?.topCreators ?? []} />
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

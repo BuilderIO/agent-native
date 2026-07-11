@@ -17,9 +17,9 @@ details live in `.agents/skills/`.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
 - Catalog-first: before querying, consult known data sources (data-source
-  status) and the injected `<data-dictionary>` to learn what exists and which
-  table/columns/join paths to use. Don't fan out blind queries when the catalog
-  already answers where a fact lives.
+  status) and call `list-data-dictionary` with a focused search to learn what
+  exists and which table/columns/join paths to use. Don't fan out blind queries
+  when the catalog already answers where a fact lives.
 - Simple time-bounded metric fast path: when the data dictionary or a known
   canonical source already identifies the metric, run one bounded aggregate.
   Once that query returns a valid result, answer immediately with the source,
@@ -83,6 +83,9 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- Agent Native observability is the exception: its panels belong in the
+  canonical Agent Native dashboard (`agent-native-templates-first-party`). Do
+  not create, publish, or install a separate observability dashboard template.
 - Agent LLM observability is collected through the same first-party tracking
   API as product analytics. Core emits PostHog-compatible `$ai_generation`
   events when emitting apps are configured with `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`
@@ -295,9 +298,19 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
-- The LLM observability dashboard template is `agent-observability-llm`. Install
-  it when the user wants model cost, token volume, latency, error rate, or top
-  expensive agent-run visibility from first-party `$ai_generation` events.
+- Keep model cost, token volume, latency, error rate, explicit thumbs feedback,
+  optional inferred message sentiment, sentiment by main model, and expensive
+  agent-run panels in the canonical Agent Native dashboard
+  (`agent-native-templates-first-party`). Generation metrics use first-party
+  `$ai_generation` events; feedback panels use content-free `$ai_feedback`
+  events with `sentiment` (`positive` or `negative`) and model in `$ai_model` or
+  `model`. Treat these as explicit user ratings, never as inferred message
+  sentiment. Inferred panels separately use `$ai_sentiment` events with
+  `method = 'llm'`, `sentiment` (`positive`, `neutral`, or `negative`), the
+  attributed main model in `$ai_model` or `model`, and the classifier in
+  `classifier_model`. Never group the by-main-model panel on
+  `classifier_model`, and never split these panels into a separately installable
+  observability template.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already

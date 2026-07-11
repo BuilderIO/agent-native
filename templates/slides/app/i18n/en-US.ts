@@ -329,6 +329,8 @@ const messages = {
     hideResolved: "Hide resolved",
     showResolved: "Show {{count}} resolved",
     noCommentsYet: "No comments yet",
+    loadFailed: "Couldn't load comments",
+    retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
   },
@@ -545,6 +547,10 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    loadFailed: "Couldn't load your content",
+    loadFailedDescription:
+      "Your saved content is still available. Check the connection and try again.",
+    retry: "Retry",
     decksTitle: "Decks",
     newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",

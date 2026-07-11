@@ -468,6 +468,16 @@ const messages = {
       message: "无法读取本地计划文件夹“{{slug}}”。",
       title: "未找到本地计划",
     },
+    localPlanConnection: {
+      promptTitle: "连接到此本地计划",
+      promptMessage:
+        "此计划保留在你的电脑上。Plan 需要浏览器权限才能通过本地桥接读取它。",
+      deniedTitle: "本地网络访问已被阻止",
+      deniedMessage:
+        "打开浏览器中 Plan 的网站设置，允许访问本地网络，然后再次检查。",
+      connect: "连接到本地计划",
+      checkAgain: "再次检查",
+    },
     loggedOut: {
       copied: "已复制",
       copy: "复制",

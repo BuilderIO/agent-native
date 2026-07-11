@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -47,12 +47,13 @@ export default defineAction({
     if (!name) throw new Error("name is required");
 
     const ctx = resolveScope();
-    const dashboard = await getDashboard(args.id, ctx);
-    if (!dashboard) throw new Error("Dashboard not found");
-
-    const config = { ...dashboard.config, name };
-    const updated = await upsertDashboard(args.id, dashboard.kind, config, ctx);
-    await syncToCollab(args.id, config);
+    // Recomputed on every retry attempt from the freshest dashboard config, so
+    // a concurrent panel edit (mutate-dashboard/update-dashboard) racing this
+    // rename is never silently overwritten by a stale config snapshot.
+    const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
+      return { kind: existing.kind, body: { ...existing.config, name } };
+    });
+    await syncToCollab(args.id, updated.config);
     return { id: updated.id, name: updated.title };
   },
 });

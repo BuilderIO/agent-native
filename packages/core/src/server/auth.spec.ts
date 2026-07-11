@@ -6,8 +6,8 @@ import {
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
 } from "../shared/cache-control.js";
 
-// The login page is the public homepage of every app and is CDN-cached on the
-// same long-fresh / long-SWR policy as the rest of the server shell. Its HTML
+// The explicit login page is CDN-cached on the same long-fresh / long-SWR
+// policy as the rest of the server shell. Its HTML
 // is intentionally env-INDEPENDENT — it always renders the configured sign-in
 // method (e.g. a Google-only app always renders a working Google button), and
 // per-user / per-config state is resolved client-side after load. So a cached
@@ -550,7 +550,7 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      const result = await guard(createMockEvent({ path: "/demo" }));
+      const result = await guard(createMockEvent({ path: "/demo/login" }));
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(200);
       expectLoginHtmlCacheHeaders(result as Response);
@@ -576,7 +576,7 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      const result = await guard(createMockEvent({ path: "/starter" }));
+      const result = await guard(createMockEvent({ path: "/login" }));
       expect(result).toBeInstanceOf(Response);
 
       const html = await (result as Response).text();
@@ -631,12 +631,9 @@ describe("server/auth", () => {
         guard(createMockEvent({ path: "/portal/pricing" })),
       ).resolves.toBeUndefined();
 
-      const adminResult = await guard(
-        createMockEvent({ path: "/portal/admin/users" }),
-      );
-      expect(adminResult).toBeInstanceOf(Response);
-      expect((adminResult as Response).status).toBe(200);
-      expectLoginHtmlCacheHeaders(adminResult as Response);
+      await expect(
+        guard(createMockEvent({ path: "/portal/admin/users" })),
+      ).resolves.toBeUndefined();
 
       const adminDataResult = await guard(
         createMockEvent({
@@ -644,7 +641,7 @@ describe("server/auth", () => {
           headers: { accept: "text/x-script" },
         }),
       );
-      expect(adminDataResult).toEqual({ error: "Unauthorized" });
+      expect(adminDataResult).toBeUndefined();
 
       const apiResult = await guard(
         createMockEvent({ path: "/portal/api/private" }),
@@ -680,12 +677,9 @@ describe("server/auth", () => {
         guard(createMockEvent({ path: "/docs/share/report" })),
       ).resolves.toBeUndefined();
 
-      const privateResult = await guard(
-        createMockEvent({ path: "/docs/admin" }),
-      );
-      expect(privateResult).toBeInstanceOf(Response);
-      expect((privateResult as Response).status).toBe(200);
-      expectLoginHtmlCacheHeaders(privateResult as Response);
+      await expect(
+        guard(createMockEvent({ path: "/docs/admin" })),
+      ).resolves.toBeUndefined();
     });
 
     it("relays root workspace OAuth callbacks to the app from state", async () => {
@@ -1059,7 +1053,11 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      for (const path of ["/dispatch/login", "/dispatch/signup"]) {
+      for (const path of [
+        "/dispatch/login",
+        "/dispatch/signup",
+        "/dispatch/_agent-native/sign-in?return=%2Fdispatch%2Foverview",
+      ]) {
         const result = await guard(createMockEvent({ path }));
 
         expect(result).toBeInstanceOf(Response);
@@ -1068,7 +1066,7 @@ describe("server/auth", () => {
       }
     });
 
-    it("serves uncached first-party branded auth when the default guard handles a built-in host", async () => {
+    it("passes normal app documents through as the uniform SSR shell without resolving a session", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -1102,19 +1100,10 @@ describe("server/auth", () => {
         }),
       );
 
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(200);
-      expectLoginHtmlCacheHeaders(result as Response);
-      expect((result as Response).headers.get("X-Robots-Tag")).toBe(
-        "noindex, nofollow",
-      );
-      const html = await (result as Response).text();
-      expect(html).toContain("Agent-Native Dispatch");
-      expect(html).toContain('class="marketing-panel"');
-      expect(html).toContain("__anRedirectIfAlreadySignedIn");
+      expect(result).toBeUndefined();
     });
 
-    it("keeps React Router data requests protected instead of serving cached login HTML", async () => {
+    it("passes React Router page-data requests through as uniform SSR shell data", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -1137,11 +1126,11 @@ describe("server/auth", () => {
       });
       const result = await guard(event);
 
-      expect(result).toEqual({ error: "Unauthorized" });
-      expect(event.res.status).toBe(401);
+      expect(result).toBeUndefined();
+      expect(event.res.status).toBe(200);
     });
 
-    it("redirects mounted login and signup pages when a session already exists", async () => {
+    it("serves the same cached auth document when a session already exists", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       delete process.env.ACCESS_TOKEN;
@@ -1163,8 +1152,9 @@ describe("server/auth", () => {
         const result = await guard(createMockEvent({ path }));
 
         expect(result).toBeInstanceOf(Response);
-        expect((result as Response).status).toBe(302);
-        expect((result as Response).headers.get("location")).toBe("/dispatch");
+        expect((result as Response).status).toBe(200);
+        expectLoginHtmlCacheHeaders(result as Response);
+        expect(await (result as Response).text()).toContain("QA login");
       }
 
       const recapResult = await guard(
@@ -1173,10 +1163,8 @@ describe("server/auth", () => {
         }),
       );
       expect(recapResult).toBeInstanceOf(Response);
-      expect((recapResult as Response).status).toBe(302);
-      expect((recapResult as Response).headers.get("location")).toBe(
-        "/dispatch/recaps/recap_123",
-      );
+      expect((recapResult as Response).status).toBe(200);
+      expect(await (recapResult as Response).text()).toContain("QA login");
 
       const unsafeResult = await guard(
         createMockEvent({
@@ -1184,10 +1172,8 @@ describe("server/auth", () => {
         }),
       );
       expect(unsafeResult).toBeInstanceOf(Response);
-      expect((unsafeResult as Response).status).toBe(302);
-      expect((unsafeResult as Response).headers.get("location")).toBe(
-        "/dispatch",
-      );
+      expect((unsafeResult as Response).status).toBe(200);
+      expect(await (unsafeResult as Response).text()).toContain("QA login");
     });
 
     it("quietly falls back when auto dev account signup loses a duplicate-user race", async () => {
@@ -1258,7 +1244,7 @@ describe("server/auth", () => {
       expect(guard).toBeTypeOf("function");
 
       const event = createMockEvent({
-        path: "/dispatch/overview",
+        path: "/dispatch/_agent-native/sign-in?return=%2Fdispatch%2Foverview",
         headers: { "sec-fetch-dest": "document" },
       });
       const socket = { remoteAddress: "127.0.0.1" };
@@ -1346,7 +1332,7 @@ describe("server/auth", () => {
 
       const createLoopbackEvent = () => {
         const event = createMockEvent({
-          path: "/dispatch/overview",
+          path: "/dispatch/_agent-native/sign-in?return=%2Fdispatch%2Foverview",
           headers: { "sec-fetch-dest": "document" },
         });
         const socket = { remoteAddress: "127.0.0.1" };

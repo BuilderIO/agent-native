@@ -12,6 +12,12 @@ function isLoopbackHost(host: string): boolean {
  * back to `Sec-Fetch-Site` so Safari's fetch-spec behavior still works.
  */
 export function isSameOriginRequest(event: H3Event): boolean {
+  // Fetch metadata is browser-controlled and describes the relationship
+  // before a reverse proxy rewrites Host (dev-lazy maps :8080 to :8088).
+  // Reject an explicit cross-site signal before consulting forgeable headers.
+  const fetchSite = getRequestHeader(event, "sec-fetch-site");
+  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
+
   const host = getRequestHeader(event, "host");
   const origin = getRequestHeader(event, "origin");
   if (origin && host) {
@@ -55,8 +61,6 @@ export function isSameOriginRequest(event: H3Event): boolean {
       return false;
     }
   }
-  const fetchSite = getRequestHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
   // No Origin and no Sec-Fetch-Site: likely a non-browser client (curl,
   // server-side) — safe to allow, CSRF requires a browser with ambient cookies.
   return true;

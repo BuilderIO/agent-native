@@ -390,6 +390,8 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` は、組織が実際にワークスペースキーを共有しない限り**設定されません** — [Cross-User Tooling Secrets](#tooling-secrets) を参照
 - [ ] マルチテナント展開では、**ユーザーは独自の `ANTHROPIC_API_KEY`** を使用します。フレームワークは展開レベルの環境変数へのフォールバックを拒否します。
 
+`agent-native doctor`(スキャフォールドされたアプリでは `pnpm doctor`)を実行すると、このチェックリストのスキーマ・認証情報・環境変数の項目を自動的にチェックできます — 各所見は guard、ファイル、行を示します。詳細は [Doctor](/docs/doctor) のドキュメントを参照してください。
+
 ---
 
 以下のセクションでは、特定の展開でのみ利用できるニッチな環境フラグについて説明します。ほとんどのアプリはそれらに触れることはありません。

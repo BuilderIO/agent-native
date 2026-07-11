@@ -1,7 +1,6 @@
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
-  getRequestRunContext,
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
@@ -11,7 +10,6 @@ import {
   applyAnalyticsPlanModePolicy,
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
-import { renderDataDictionary } from "../lib/data-dictionary-context";
 import {
   failedDataQueryAttemptMessage,
   hasExplicitPartialDisclosure,
@@ -26,12 +24,6 @@ import {
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
 } from "../lib/real-data-actions";
-import {
-  listScopedSettingRecords,
-  resolveSettingsScope,
-} from "../lib/scoped-settings";
-
-const DATA_DICT_PREFIX = "data-dict-";
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
@@ -44,6 +36,12 @@ export function analyticsSourceGuidanceOpening(): string {
     SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
     "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. "
   );
+}
+
+export function analyticsDataDictionaryRoutingContext(): string {
+  return `<data-dictionary-routing>
+Data-dictionary definitions are available on demand instead of being embedded in every chat request. Before writing SQL or making a metric-definition claim, call \`list-data-dictionary\` with a focused \`search\` or \`department\` filter. If the user asks what definitions exist and no useful filter is available, call it without filters. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. If no matching definition exists, inspect the configured source schema or ask the user instead of guessing.
+</data-dictionary-routing>`;
 }
 
 export {
@@ -231,10 +229,10 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  extraContext: async (event) => {
-    // Always inject source guidance, even if the data-dictionary lookup throws.
-    // The generic template can ship provider actions without every deployment
-    // having credentials or workspace-specific schemas configured.
+  extraContext: async () => {
+    // Always inject compact source-routing guidance. Dictionary definitions
+    // stay behind list-data-dictionary so prompt assembly does not read and
+    // render every organization metric before the model request starts.
     const sourceGuidance =
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboards, analyses, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'create a new analysis', 'add a chart for...'). Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
@@ -268,33 +266,7 @@ export default createAgentChatPlugin({
       "Do not also create a same-named dashboard or saved analysis unless the user explicitly asked for multiple artifacts; saved analyses appear in the sidebar and should not be used for throwaway notes or scratch summaries.\n" +
       "</analytics-artifact-guidance>";
 
-    // In the durable background-function worker, skip the data-dictionary read
-    // + render. That settings read + synchronous render is the heaviest, most
-    // hang-prone part of worker setup on a cold bg-fn instance, and it runs
-    // EAGERLY while the system prompt is built (before any pre-send timeout can
-    // arm), so a stall here is what kept the analytics worker from ever claiming
-    // its run. The agent can still pull dictionary entries on demand via
-    // `list-data-dictionary` / `search-bigquery-schema`; the static guidance is
-    // what it needs to know they exist. Foreground requests keep the full dict.
-    if (getRequestRunContext()?.isBackgroundWorker) {
-      return `${sourceGuidance}\n\n${artifactGuidance}`;
-    }
-
-    try {
-      const scope = await resolveSettingsScope(event);
-      const all = await listScopedSettingRecords(scope, DATA_DICT_PREFIX);
-      const entries = Object.values(all) as Array<Record<string, unknown>>;
-      const dict = renderDataDictionary(entries);
-      return dict
-        ? `${sourceGuidance}\n\n${artifactGuidance}\n\n${dict}`
-        : `${sourceGuidance}\n\n${artifactGuidance}`;
-    } catch (err) {
-      console.warn(
-        "[analytics] data dictionary context failed:",
-        err instanceof Error ? err.message : err,
-      );
-      return `${sourceGuidance}\n\n${artifactGuidance}`;
-    }
+    return `${sourceGuidance}\n\n${artifactGuidance}\n\n${analyticsDataDictionaryRoutingContext()}`;
   },
   mentionProviders: {
     dashboards: {

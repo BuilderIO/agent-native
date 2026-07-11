@@ -57,6 +57,8 @@ const messages = {
     optional: "可选",
     saveChanges: "保存更改",
     saving: "正在保存...",
+    loadFailed: "无法加载这些数据",
+    retry: "重试",
   },
   seo: {
     homeTitle: "Agent-Native Macros - 开源 AI 卡路里和宏量营养追踪器",

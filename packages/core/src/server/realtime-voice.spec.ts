@@ -24,12 +24,14 @@ vi.mock("./auth.js", () => ({
 
 const resolveSecret = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const gatewayBaseUrl = vi.hoisted(() => ({
+  value: "https://api.builder.io/agent-native/gateway/v1",
+}));
 vi.mock("./credential-provider.js", () => ({
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
   resolveBuilderCredentials: (...args: unknown[]) =>
     resolveBuilderCredentials(...args),
-  getBuilderGatewayBaseUrl: () =>
-    "https://api.builder.io/agent-native/gateway/v1",
+  getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
 vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
@@ -57,7 +59,10 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_MAX_SDP_BYTES,
+  REALTIME_VOICE_MAX_SESSION_BYTES,
+  REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES,
   REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+  REALTIME_VOICE_MAX_TOOLS,
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   realtimeVoiceSafetyIdentifier,
@@ -148,6 +153,7 @@ function toolEvent(body: unknown, headers: Record<string, string> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  gatewayBaseUrl.value = "https://api.builder.io/agent-native/gateway/v1";
   getSession.mockResolvedValue({
     email: "person@example.com",
     orgId: "org-session",
@@ -242,6 +248,114 @@ describe("mountRealtimeVoiceRoutes", () => {
 });
 
 describe("realtime voice session route", () => {
+  it("caps tools to the Builder realtime gateway contract", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue(
+      Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `tool_${index}`,
+        description: `Tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(request.session.tools[0].name).toBe("tool_0");
+    expect(request.session.tools.at(-1).name).toBe("tool_31");
+  });
+
+  it("packs tools within the Builder realtime session byte budget", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: `large_tool_${index}`,
+        description: `Large tool ${index}`,
+        inputSchema: {
+          type: "object",
+          description: "x".repeat(25_000),
+        },
+      })),
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const requestBody = String(init.body);
+    const request = JSON.parse(requestBody);
+    expect(request.session.tools).toHaveLength(2);
+    expect(
+      Buffer.byteLength(JSON.stringify(request.session), "utf8"),
+    ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
+  });
+
+  it("rejects tool schemas over the UTF-8 byte limit", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue([
+      {
+        name: "oversized_multibyte_tool",
+        description: "Too large in UTF-8",
+        inputSchema: {
+          type: "object",
+          description: "🧪".repeat(
+            Math.ceil(REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES / 4),
+          ),
+        },
+      },
+      {
+        name: "small_tool",
+        description: "Fits",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(
+      request.session.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["small_tool"]);
+  });
+
   it("caps raw SDP before reading it", async () => {
     const { handlers } = mount();
     const event = sessionEvent("ignored", {
@@ -435,6 +549,59 @@ describe("realtime voice session route", () => {
         tool_choice: "auto",
       },
     });
+  });
+
+  it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "bpk-private-test",
+      publicKey: "space-public-test",
+      userId: "builder-user-test",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      host: "127.0.0.1:8088",
+      origin: "http://127.0.0.1:8080",
+      "x-forwarded-host": "127.0.0.1:8080",
+      "x-forwarded-proto": "http",
+      "sec-fetch-site": "same-origin",
+    });
+
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event)).toBe(
+      "v=0\r\ns=builder\r\n",
+    );
+    expect(event.statusCode).toBe(201);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("honors a local Builder gateway base URL", async () => {
+    gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "bpk-private-test",
+      publicKey: "space-public-test",
+      userId: "builder-user-test",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 200,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount();
+
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8181/agent-native/gateway/v1/realtime/calls?apiKey=space-public-test",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });
 

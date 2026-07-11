@@ -307,6 +307,25 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /**
+   * Optional alternate Standard Schema (Zod, Valibot, ArkType) used ONLY to
+   * build the tool definition advertised to the model — the JSON Schema that
+   * lands in the Claude `tools` array (and MCP/A2A tool listings, which read
+   * the same `tool.parameters`). Runtime validation always runs against
+   * `schema` above via the normal `wrapWithValidation` path; setting this
+   * never weakens validation and never changes `run()`'s argument type.
+   *
+   * Use this when the full input schema is much richer than what the model
+   * needs to see up front — the canonical example is a deep discriminated
+   * union of block/shape types where a per-call catalog lookup tool (e.g.
+   * `get-plan-blocks`) already teaches the full field shapes. Advertise a
+   * compact version (e.g. an enum of valid `type` values plus a note to call
+   * the lookup tool) instead of embedding every variant's fields in every
+   * request. Invalid calls still get the full, actionable validation error
+   * (missing/invalid fields, received args) from `schema` — this only trims
+   * what is proactively shown, not what is accepted or checked.
+   */
+  agentInputSchema?: StandardSchemaV1;
   /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
    *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
    *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte
@@ -437,6 +456,10 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Advertised-only schema override — not used in this overload (no runtime
+   *  schema to advertise a compact alternative for). See the schema overload
+   *  above. */
+  agentInputSchema?: never;
   /** Optional Standard Schema-compatible schema the action's RETURN value is
    *  validated against AFTER `run()` resolves. See the schema overload above.
    *  When omitted, behavior is byte-for-byte unchanged. */
@@ -630,6 +653,25 @@ export function defineAction(options: any) {
       type: "object" as const,
       properties: options.parameters,
     };
+  }
+
+  // `agentInputSchema` swaps in a compact JSON Schema for the ADVERTISED tool
+  // definition only (what the model/MCP/A2A tool listings see). It never
+  // touches validation below — `wrapWithValidation` is always called with
+  // `options.schema`, the full schema, as the source of truth for what's
+  // accepted. Passing the same (compact) `toolParameters` into it only
+  // affects the top-level "Expected: { ... }" hint text and gateway string
+  // coercion, both of which only look at top-level property names/types —
+  // unaffected by trimming a nested union, so this stays safe either way.
+  if (
+    hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+  ) {
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema,
+      options.description,
+    );
   }
 
   // Wrap run() with INPUT validation when schema is provided.

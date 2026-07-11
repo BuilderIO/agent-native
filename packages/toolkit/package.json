@@ -134,7 +134,8 @@
   "scripts": {
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.15",
@@ -183,7 +184,8 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript-7": "catalog:"
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.0.0",

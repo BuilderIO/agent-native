@@ -58,6 +58,8 @@ const messages = {
     optional: "اختياري",
     saveChanges: "حفظ التغييرات",
     saving: "جار الحفظ...",
+    loadFailed: "تعذر تحميل هذه البيانات",
+    retry: "إعادة المحاولة",
   },
   seo: {
     homeTitle:

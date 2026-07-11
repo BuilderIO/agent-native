@@ -391,6 +391,12 @@ const messages = {
     contentLabel: "المحتوى",
     previewTitle: "معاينة الامتداد",
     previewEmpty: "ستظهر المعاينة هنا",
+    loadError: "تعذر تحميل الإضافات.",
+    widgetsLoadError: "تعذر تحميل الأدوات.",
+    widgetAreasLoadError: "تعذر تحميل مناطق الأدوات.",
+    historyLoadError: "تعذر تحميل سجل الإضافة.",
+    versionLoadError: "تعذر تحميل إصدار الإضافة هذا.",
+    retry: "إعادة المحاولة",
   },
   org: {
     createTitle: "قم بإنشاء مؤسستك",

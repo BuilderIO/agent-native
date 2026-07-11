@@ -4,9 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRealtimeVoiceSession,
+  createRealtimeVoiceConnectionTimeout,
+  endRealtimeVoiceBeforeNavigation,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
+  isRealtimeVoiceAbortError,
+  listenForRealtimeVoicePageHide,
+  REALTIME_VOICE_AUDIO_CONSTRAINTS,
   shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
 
@@ -15,6 +20,77 @@ afterEach(() => {
 });
 
 describe("Realtime voice client transport", () => {
+  it("prefers the browser and OS default microphone without requiring it", () => {
+    expect(REALTIME_VOICE_AUDIO_CONSTRAINTS).toEqual(
+      expect.objectContaining({
+        deviceId: { ideal: "default" },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }),
+    );
+  });
+
+  it("times out a connection attempt and supports idempotent cancellation", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const cancelFirst = createRealtimeVoiceConnectionTimeout(onTimeout, 1_000);
+
+    cancelFirst();
+    cancelFirst();
+    vi.advanceTimersByTime(1_000);
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    const cancelSecond = createRealtimeVoiceConnectionTimeout(onTimeout, 1_000);
+
+    vi.advanceTimersByTime(999);
+    expect(onTimeout).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onTimeout).toHaveBeenCalledOnce();
+
+    cancelSecond();
+    vi.useRealTimers();
+  });
+
+  it("recognizes abort-like DOM errors without relying on Error identity", () => {
+    expect(
+      isRealtimeVoiceAbortError(
+        new DOMException("The operation was aborted", "AbortError"),
+      ),
+    ).toBe(true);
+    expect(isRealtimeVoiceAbortError({ name: "AbortError" })).toBe(true);
+    expect(isRealtimeVoiceAbortError(new Error("signal was aborted"))).toBe(
+      false,
+    );
+  });
+
+  it("ends voice synchronously before a hard settings navigation", () => {
+    vi.useFakeTimers();
+    const calls: string[] = [];
+
+    endRealtimeVoiceBeforeNavigation(
+      () => calls.push("end"),
+      () => calls.push("navigate"),
+    );
+
+    expect(calls).toEqual(["end"]);
+    vi.runAllTimers();
+    expect(calls).toEqual(["end", "navigate"]);
+    vi.useRealTimers();
+  });
+
+  it("cleans up realtime transport when the page is hidden", () => {
+    const cleanup = vi.fn();
+    const stopListening = listenForRealtimeVoicePageHide(cleanup);
+
+    window.dispatchEvent(new Event("pagehide"));
+    expect(cleanup).toHaveBeenCalledOnce();
+
+    stopListening();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it("creates a same-origin SDP session without exposing a provider key", async () => {
     const fetchMock = vi.fn(
       async () =>

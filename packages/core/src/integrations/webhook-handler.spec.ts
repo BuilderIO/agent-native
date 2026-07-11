@@ -25,13 +25,19 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
-vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: vi.fn(() => []),
-  engineToProvider: vi.fn((engineName: string) => engineName),
-  getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-  getOwnerApiKey: getOwnerApiKeyMock,
-  runAgentLoop: vi.fn(),
-}));
+vi.mock("../agent/production-agent.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../agent/production-agent.js")
+  >("../agent/production-agent.js");
+  return {
+    actionsToEngineTools: vi.fn(() => []),
+    engineToProvider: vi.fn((engineName: string) => engineName),
+    getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
+    getOwnerApiKey: getOwnerApiKeyMock,
+    runAgentLoop: vi.fn(),
+    filterInitialEngineTools: actual.filterInitialEngineTools,
+  };
+});
 
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:

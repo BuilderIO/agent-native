@@ -390,6 +390,8 @@ Il s'agissait auparavant d'une position « avertir et accepter » : définiss
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` n'est **pas** défini, sauf si votre organisation partage réellement des clés d'espace de travail – voir [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] Dans les déploiements multi-locataires, **les utilisateurs apportent leur propre `ANTHROPIC_API_KEY`** — le framework refuse de recourir à la variable d'environnement au niveau du déploiement
 
+Exécutez `agent-native doctor` (`pnpm doctor` dans une application générée) pour vérifier automatiquement les éléments de schéma, d'identifiants et de variables d'environnement de cette liste de contrôle — chaque résultat indique le guard, le fichier et la ligne. Consultez la documentation [Doctor](/docs/doctor).
+
 ---
 
 Les sections ci-dessous couvrent les indicateurs d'environnement de niche que vous n'utilisez que dans des déploiements spécifiques. La plupart des applications n'y touchent jamais.

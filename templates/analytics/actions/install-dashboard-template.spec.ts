@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
-  upsertDashboard: vi.fn(async (id: string, _kind: string, config: any) => ({
+  upsertDashboard: vi.fn(async (id: string, kind: string, config: any) => ({
     id,
+    kind,
     title: typeof config?.name === "string" ? config.name : id,
+    config,
     archivedAt: null,
   })),
+  upsertDashboardWithRetry: vi.fn(),
   getDashboardCatalogEntry: vi.fn(),
   cloneDashboardConfig: vi.fn(),
   listDashboardCatalog: vi.fn(async () => []),
@@ -53,6 +56,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
+  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
 }));
 
 vi.mock("../server/lib/dashboard-catalog", () => ({
@@ -67,6 +71,36 @@ const { default: installDashboardTemplate } =
   await import("./install-dashboard-template");
 
 const ENTRY = { id: "skills-cli-funnel", name: "Skills CLI Funnel" };
+
+/**
+ * Default passthrough: re-read via the mocked `getDashboard`, run the
+ * action's merge callback once against it, then forward to the mocked
+ * `upsertDashboard` (preserving every existing `.mock.calls` assertion
+ * below). Individual tests override this with `mockImplementationOnce` to
+ * simulate a lost race and prove the merge recomputes from fresh state on
+ * retry.
+ */
+function defaultUpsertDashboardWithRetry(
+  id: string,
+  ctx: unknown,
+  mutate: (existing: any) =>
+    | Promise<{ kind: string; body: unknown }>
+    | {
+        kind: string;
+        body: unknown;
+      },
+) {
+  return (async () => {
+    const existing = await mocks.getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    const { kind, body } = await mutate(existing);
+    return mocks.upsertDashboard(id, kind, body, ctx);
+  })();
+}
 
 function panel(id: string) {
   return {
@@ -83,6 +117,10 @@ describe("install-dashboard-template mergePanels", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
+    mocks.upsertDashboardWithRetry.mockReset();
+    mocks.upsertDashboardWithRetry.mockImplementation(
+      defaultUpsertDashboardWithRetry,
+    );
     mocks.getDashboardCatalogEntry.mockReset();
     mocks.cloneDashboardConfig.mockReset();
     mocks.listDashboardCatalog.mockClear();
@@ -265,6 +303,59 @@ describe("install-dashboard-template mergePanels", () => {
       }),
     ).rejects.toThrow(/not found/i);
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("recomputes the merge against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
+    // Simulates two interleaved writers racing on the same dashboard: this
+    // mergePanels call wants to add template panel "p3", but its first
+    // fenced write is lost because a concurrent writer already saved a
+    // different panel ("writer-a") in between. A correct retry re-reads that
+    // winning save and re-merges "p3" on top of it, so both panels land
+    // instead of the second writer clobbering the first's insert.
+    const beforeConcurrentWrite = {
+      kind: "sql",
+      title: "My Dashboard",
+      config: { name: "My Dashboard", panels: [panel("p1")] },
+    };
+    const afterConcurrentWrite = {
+      kind: "sql",
+      title: "My Dashboard",
+      config: {
+        name: "My Dashboard",
+        panels: [panel("p1"), panel("writer-a")],
+      },
+    };
+
+    mocks.getDashboard.mockResolvedValue(beforeConcurrentWrite);
+    mocks.cloneDashboardConfig.mockReturnValue({
+      name: "Skills CLI Funnel",
+      panels: [panel("p1"), panel("p3")],
+    });
+
+    let mutateCallCount = 0;
+    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+      async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        mutateCallCount += 1;
+        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        mutateCallCount += 1;
+        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        return mocks.upsertDashboard(id, kind, body, ctx);
+      },
+    );
+
+    const result: any = await installDashboardTemplate.run({
+      templateId: "skills-cli-funnel",
+      dashboardId: "my-dashboard",
+      mergePanels: true,
+    });
+
+    expect(mutateCallCount).toBe(2);
+    expect(result.addedPanelIds).toEqual(["p3"]);
+    expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<{ id: string }>;
+    };
+    expect(saved.panels.map((p) => p.id)).toEqual(["p1", "writer-a", "p3"]);
   });
 
   it("leaves normal install (no mergePanels) untouched", async () => {

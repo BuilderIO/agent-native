@@ -18,6 +18,7 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -49,13 +50,6 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
-import { applyContextDirectives } from "./context-xray/apply-directives.js";
-import { loadContextDirectives } from "./context-xray/directives-store.js";
-import {
-  buildManifest,
-  writeContextManifest,
-} from "./context-xray/manifest.js";
-import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -66,6 +60,8 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
+import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -84,6 +80,7 @@ import {
   resolveMaxOutputTokensForEngine,
 } from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
+import { loadPriorTurnToolCallJournal } from "./engine/tool-call-journal-seed.js";
 import {
   backfillEngineMessagesToolResults,
   stringifyToolUseInputForGateway,
@@ -133,7 +130,6 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
-  getCurrentTurnEventsForThread,
   insertRun,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
@@ -147,11 +143,7 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
-import {
-  classifyToolCallJournal,
-  findCompletedJournalEntry,
-  type ToolCallJournal,
-} from "./tool-call-journal.js";
+import { findCompletedJournalEntry } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -1073,6 +1065,7 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
+const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
@@ -1330,21 +1323,32 @@ function unwrapTextAttachmentEnvelope(text: string): string {
   return match ? match[1] : text;
 }
 
-function truncateTextAttachment(text: string, attachmentName?: string): string {
-  if (text.length <= MAX_TEXT_ATTACHMENT_CHARS) return text;
+function truncateTextAttachment(
+  text: string,
+  attachmentName?: string,
+  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
+): string {
+  if (text.length <= maxChars) return text;
 
-  const omitted = text.length - MAX_TEXT_ATTACHMENT_CHARS;
+  const omitted = text.length - maxChars;
   const readHint = attachmentName
     ? ` Use the \`read-attachment\` tool with name="${escapeAttachmentAttribute(attachmentName)}" to read the rest.`
     : "";
-  return `${text.slice(0, MAX_TEXT_ATTACHMENT_CHARS)}\n\n[Attachment truncated after ${MAX_TEXT_ATTACHMENT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
+  if (maxChars === 0) {
+    return `[Attachment content omitted from the initial request; ${omitted.toLocaleString()} characters available.${readHint}]`;
+  }
+  return `${text.slice(0, maxChars)}\n\n[Attachment truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted.${readHint}]`;
 }
 
-function formatTextAttachment(att: AgentChatAttachment): string | null {
+function formatTextAttachment(
+  att: AgentChatAttachment,
+  maxChars = MAX_TEXT_ATTACHMENT_CHARS,
+): string | null {
   if (typeof att.text !== "string" || att.text.length === 0) return null;
   const text = truncateTextAttachment(
     unwrapTextAttachmentEnvelope(att.text),
     att.name,
+    maxChars,
   );
 
   const attrs = [
@@ -1378,6 +1382,7 @@ export function buildUserContentWithAttachments(opts: {
 }): EngineContentPart[] {
   const userContent: EngineContentPart[] = [];
   const textAttachments: string[] = [];
+  let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
     const uploadedUrl = (att as any).url as string | undefined;
@@ -1441,9 +1446,21 @@ export function buildUserContentWithAttachments(opts: {
       continue;
     }
 
-    const textAttachment = formatTextAttachment(att);
+    const rawTextAttachment =
+      typeof att.text === "string"
+        ? unwrapTextAttachmentEnvelope(att.text)
+        : "";
+    const attachmentCharBudget = Math.min(
+      MAX_TEXT_ATTACHMENT_CHARS,
+      remainingTextAttachmentChars,
+    );
+    const textAttachment = formatTextAttachment(att, attachmentCharBudget);
     if (textAttachment) {
       textAttachments.push(textAttachment);
+      remainingTextAttachmentChars -= Math.min(
+        rawTextAttachment.length,
+        attachmentCharBudget,
+      );
     }
   }
 
@@ -2384,64 +2401,42 @@ export function filterInitialEngineTools(
   const names = new Set(initialToolNames);
   names.add(TOOL_SEARCH_ACTION_NAME);
   for (const tool of tools) {
-    if (isDefaultLeanInitialToolName(tool.name)) {
+    if (isDefaultInitialToolName(tool.name)) {
       names.add(tool.name);
     }
   }
   return tools.filter((tool) => names.has(tool.name));
 }
 
-const DEFAULT_LEAN_INITIAL_TOOL_NAMES = new Set([
-  // Broad provider/API/corpus primitives should be callable as soon as the
-  // prompt teaches them; waiting for a discovery round-trip caused prod runs to
-  // waste turns on provider work that was described but not loaded.
-  "data-source-status",
-  "provider-api-catalog",
-  "provider-api-docs",
-  "provider-api-request",
-  "provider-corpus-job",
-  "provider-corpus-jobs",
-  "query-staged-dataset",
-  "list-staged-datasets",
-  "delete-staged-dataset",
-  "run-code",
-  "get-code-execution",
-  "list-extensions",
-  "get-extension",
-  "update-extension",
-  "list-extension-history",
-  "get-extension-history-version",
-  // Common first-class integration shortcuts. These are included only when the
-  // current app/mode registry actually exposes them.
-  "bigquery",
-  "search-bigquery-schema",
-  "bigquery-table-info",
-  "ga4",
-  "amplitude",
-  "prometheus",
-  "grafana",
-  "sentry",
-  "stripe",
-  "account-deep-dive",
-  "slack-messages",
-  "hubspot-deals",
-  "hubspot-records",
-  "hubspot-pipelines",
-  "hubspot-metrics",
-  "gong-calls",
-  "github-repo-files",
-  "jira",
-  "jira-search",
-  "gcloud",
-  "notion-search",
-  "pylon-search",
+export function buildFirstRequestPayloadDetail(input: {
+  isFirstRequest: boolean;
+  systemPrompt: string;
+  messages: EngineMessage[];
+  tools: EngineTool[];
+  availableToolCount: number;
+}): string {
+  if (!input.isFirstRequest) return "";
+  return (
+    ` first_request_system_chars=${input.systemPrompt.length}` +
+    ` first_request_message_chars=${JSON.stringify(input.messages).length}` +
+    ` first_request_tool_count=${input.tools.length}` +
+    ` first_request_tool_chars=${JSON.stringify(input.tools).length}` +
+    ` first_request_available_tool_count=${input.availableToolCount}`
+  );
+}
+
+const DEFAULT_INITIAL_TOOL_NAMES = new Set([
+  // Keep only the small discovery/runtime surface universal. App actions are
+  // supplied by the plugin's effective starter list, while provider, MCP,
+  // extension, and other uncommon schemas stay reachable through tool-search.
+  "resources",
+  "docs-search",
+  "get-framework-context",
+  "read-attachment",
 ]);
 
-function isDefaultLeanInitialToolName(name: string): boolean {
-  if (DEFAULT_LEAN_INITIAL_TOOL_NAMES.has(name)) return true;
-  return (
-    name.startsWith("provider-api-") || name.startsWith("provider-corpus-")
-  );
+function isDefaultInitialToolName(name: string): boolean {
+  return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
 function extractToolSearchResultNames(value: unknown): string[] {
@@ -3000,48 +2995,19 @@ export async function runAgentLoop(opts: {
   );
   const repeatedToolErrors = new Map<string, number>();
 
-  // Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
-  // ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
-  // run chunks of this logical turn. A write tool whose exact call already
-  // completed in an earlier interrupted chunk must not re-fire its side effect;
-  // when matched, runToolCall returns the journaled result instead of executing.
-  // Loaded eagerly (not lazily mid-loop) so the current chunk's own
-  // asynchronously-persisted tool_done events can never leak in and make a
-  // same-chunk call wrongly short-circuit. Best-effort: any ledger failure
-  // leaves the journal empty and all calls run normally. Fresh first-turn calls
-  // see an empty journal and are unaffected.
-  let toolCallJournal: ToolCallJournal | null = null;
+  // Tool-call journal hard-block (resume safety). See
+  // `loadPriorTurnToolCallJournal` for the full rationale — snapshotted ONCE
+  // here, before any tool runs in this chunk, and its prior-chunk tool
+  // calls/results are folded into `toolCallHistory` / `toolResultHistory` so
+  // final response guards see evidence from earlier chunks of this turn.
   const consumedJournalKeys = new Set<string>();
-  if (opts.threadId) {
-    try {
-      const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
-      if (priorEvents.length > 0) {
-        // A logical turn can span multiple background continuation runs. Final
-        // response guards must see successful reads from earlier chunks, not
-        // only tools executed after the latest handoff. Otherwise a guard can
-        // reject a grounded answer (or a successfully-created artifact) after
-        // the evidence-producing query completed in a predecessor run.
-        for (const event of priorEvents) {
-          if (event.type === "tool_start") {
-            toolCallHistory.push({
-              name: event.tool,
-              input: event.input,
-            });
-          } else if (event.type === "tool_done") {
-            toolResultHistory.push({
-              name: event.tool,
-              content: event.result,
-              isError: event.isError === true,
-            });
-          }
-        }
-        toolCallJournal = classifyToolCallJournal(priorEvents);
-      }
-    } catch {
-      // Journal is a hardening layer, never a gate — a failed ledger read just
-      // means no hard-block this turn.
-    }
-  }
+  const {
+    toolCallJournal,
+    priorToolCalls: journaledPriorToolCalls,
+    priorToolResults: journaledPriorToolResults,
+  } = await loadPriorTurnToolCallJournal(opts.threadId);
+  toolCallHistory.push(...journaledPriorToolCalls);
+  toolResultHistory.push(...journaledPriorToolResults);
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
@@ -3090,40 +3056,13 @@ export async function runAgentLoop(opts: {
     let contextMessages = messages;
 
     if (opts.threadId) {
-      try {
-        const directives = await loadContextDirectives(opts.threadId, {
-          ownerEmail: opts.ownerEmail ?? null,
-        });
-        const protectedSegmentIds = computeProtectedSegmentIds(messages);
-        const { messages: transformedMessages, appliedStatus } =
-          applyContextDirectives(messages, directives, {
-            protectedSegmentIds,
-          });
-        const manifest = await buildManifest({
-          threadId: opts.threadId,
-          ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          model,
-          rawMessages: messages,
-          sentMessages: transformedMessages,
-          appliedStatus,
-          directives,
-          protectedSegmentIds,
-          source: "structured",
-          enforceable: true,
-        });
-        contextMessages = transformedMessages;
-        void writeContextManifest(opts.threadId, manifest).catch((err) => {
-          console.warn(
-            "[context-xray] failed to write manifest:",
-            err instanceof Error ? err.message : String(err),
-          );
-        });
-      } catch (err) {
-        console.warn(
-          "[context-xray] context transform skipped:",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages,
+      });
 
       // Observational Memory (consumer): for long threads that have already been
       // compacted, fold the reflections+observations in as a leading context
@@ -5476,7 +5415,6 @@ export async function chainServerDrivenContinuation(opts: {
       opts.workerProvenInBackgroundFunction === true,
   });
   const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
-  const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
@@ -5551,104 +5489,29 @@ export async function chainServerDrivenContinuation(opts: {
           ...continuationBody,
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
         };
-    let dispatched = false;
-    let lastDispatchErr: unknown;
-    // Proactive nested-chain safety margin — see `MAX_NESTED_SELF_DISPATCH_DEPTH`.
-    // Skip the nested dispatch attempt entirely once this segment's hop count
-    // reaches the cap; a nested attempt at this depth is expected to trip
-    // Netlify's loop protection, so there is nothing to gain by trying it and
-    // burning this worker's remaining wall clock on a doomed call. Falls
-    // straight into the same deferred-recovery path below as an exhausted
-    // retry budget.
-    const nestedDepthExceeded =
-      opts.backgroundContinuationCount >= MAX_NESTED_SELF_DISPATCH_DEPTH;
-    if (nestedDepthExceeded) {
-      lastDispatchErr = new Error(
-        `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${opts.backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${MAX_NESTED_SELF_DISPATCH_DEPTH}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
-      );
-    }
-    for (
-      let attempt = 0;
-      !nestedDepthExceeded && attempt < maxDispatchAttempts && !dispatched;
-      attempt++
-    ) {
-      try {
-        if (attempt > 0) {
-          // Uncapped budgets (durable-background and true-foreground) keep
-          // the original `500 * 2 ** attempt` schedule unchanged. The capped
-          // budget (proven-in-background-function) instead uses a schedule
-          // starting at 500ms and doubling per gap, capped at
-          // `backoffCapMs` — see `resolveContinuationDispatchBudget` for why
-          // this stays well inside the worker's remaining wall clock even
-          // with 5 attempts.
-          const backoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
-            ? Math.min(500 * 2 ** (attempt - 1), dispatchBudget.backoffCapMs)
-            : 500 * 2 ** attempt;
-          await d.sleep(backoffMs);
-          // Keep the pre-inserted successor row visibly alive while we
-          // retry: the awaited attempts + backoff can outlast
-          // UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and without a fresh
-          // heartbeat the unclaimed-run reaper / sweep could error a handoff
-          // we are still delivering.
-          if (nextRowInserted) {
-            await d.updateRunHeartbeat(nextRunId).catch(() => {});
-          }
-        }
-        await d.fireInternalDispatch({
-          event: opts.event,
-          // Durable chain: same path resolution as the initial dispatch —
-          // on hosted Netlify the background function's DEFAULT url (no
-          // custom config.path; async via background:true; never shadowed
-          // because /.netlify/* is excluded from the /* catch-all) so each
-          // chunk keeps the 15-min budget; off-Netlify the in-process
-          // framework route. Foreground self-chain: always the framework
-          // `_process-run` route on the regular function (see the fn doc).
-          path: continuationDispatchPath,
-          taskId: nextRunId,
-          body: dispatchBody,
-          awaitResponse: true,
-          responseTimeoutMs: dispatchResponseTimeoutMs,
-        });
-        dispatched = true;
-      } catch (dispatchErr) {
-        lastDispatchErr = dispatchErr;
-        // Regular-function targets (foreground self-chain) respond only
-        // after the successor chunk FINISHES, so an await timeout is not
-        // proof of a dead handoff. The successor's ATOMIC CLAIM is: a row
-        // that left `dispatch_mode='background'` (claimed) or is already
-        // terminal proves the handoff landed — stop retrying. A duplicate
-        // delivery would lose the claim and no-op anyway; skipping it saves
-        // wall-clock this close to the invocation deadline.
-        if (!opts.chainViaDurableBackground && nextRowInserted) {
-          const claim = await d
-            .readBackgroundRunClaim(nextRunId)
-            .catch(() => null);
-          if (
-            claim &&
-            ((claim.dispatchMode && claim.dispatchMode !== "background") ||
-              (claim.status && claim.status !== "running"))
-          ) {
-            dispatched = true;
-            break;
-          }
-        }
-        console.error(
-          `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
-          dispatchErr instanceof Error ? dispatchErr.message : dispatchErr,
-        );
-        // Netlify loop protection (see `isLoopProtectionDispatchError`) is a
-        // property of this same live, nested call chain — retrying the exact
-        // same nested self-dispatch within the next few seconds will not
-        // change that, so further attempts are a guaranteed-doomed use of
-        // this worker's remaining wall clock. Stop immediately (instead of
-        // burning the full `maxDispatchAttempts` budget) and fall into the
-        // same deferred-recovery path below, which hands the successor to the
-        // sweep — a genuinely different, non-nested invocation.
-        if (isLoopProtectionDispatchError(dispatchErr)) {
-          break;
-        }
-      }
-    }
+    // Attempts to deliver the dispatch, retrying with backoff up to the
+    // resolved budget. See `attemptContinuationDispatch` for the full
+    // per-attempt rationale (nested-depth cap, claim-check on failure,
+    // Netlify loop-protection short-circuit) — moved verbatim, unchanged.
+    const { dispatched, lastDispatchErr, nestedDepthExceeded } =
+      await attemptContinuationDispatch({
+        event: opts.event,
+        chainViaDurableBackground: opts.chainViaDurableBackground,
+        backgroundContinuationCount: opts.backgroundContinuationCount,
+        nextRunId,
+        nextRowInserted,
+        continuationDispatchPath,
+        dispatchBody,
+        dispatchBudget,
+        isLoopProtectionDispatchError,
+        maxNestedSelfDispatchDepth: MAX_NESTED_SELF_DISPATCH_DEPTH,
+        deps: {
+          sleep: d.sleep,
+          updateRunHeartbeat: d.updateRunHeartbeat,
+          fireInternalDispatch: d.fireInternalDispatch,
+          readBackgroundRunClaim: d.readBackgroundRunClaim,
+        },
+      });
     if (!dispatched) {
       if (nextRowInserted) {
         // Classify WHY this handoff is being deferred — distinct, greppable
@@ -6691,6 +6554,13 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
+    const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
+      isFirstRequest: history.length === 0,
+      systemPrompt: requestSystemPrompt,
+      messages,
+      tools: requestTools,
+      availableToolCount: availableRequestTools.length,
+    });
 
     // Atomically claim the run slot for this thread. The claim checks SQL for
     // a live (non-stale) running row so two near-simultaneous POSTs on
@@ -7264,7 +7134,8 @@ export function createProductionAgentHandler(
         .map(([k, v]) => `${k}=${v}`)
         .join(" ") +
       ` total=${Date.now() - setupT0}` +
-      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "");
+      (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
+      firstRequestPayloadDetail;
 
     startRun(
       runId,
@@ -7565,6 +7436,12 @@ export function createProductionAgentHandler(
         // `processors` opt + ProcessorChain/TripWire) is the deliverable and is
         // already callable directly by sub-agents, A2A, MCP, and tests; this is
         // only the HTTP-handler convenience plumbing.
+        const userVisibleSentimentInput =
+          typeof displayMessage === "string" && displayMessage.trim().length > 0
+            ? displayMessage
+            : typeof message === "string" && message.trim().length > 0
+              ? message
+              : undefined;
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
@@ -7652,6 +7529,14 @@ export function createProductionAgentHandler(
               },
               experimentAssignments,
               modelSelectionSource,
+              sentimentInput: shouldInferSentimentForTurn({
+                internalContinuation: Boolean(internalContinuation),
+                isBackgroundWorker,
+                backgroundContinuationCount,
+                hasUserText: Boolean(userVisibleSentimentInput),
+              })
+                ? userVisibleSentimentInput
+                : undefined,
               classifyError: () => {
                 if (
                   agentLoopOpts.signal.aborted &&

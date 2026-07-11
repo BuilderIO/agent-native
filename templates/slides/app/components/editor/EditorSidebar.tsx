@@ -215,7 +215,7 @@ function SortableSlideThumb({
         aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
         data-slide-thumbnail-id={slide.id}
-        className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-all duration-150 ${
+        className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-[background-color,box-shadow] duration-150 ${
           isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
         } focus:outline-none`}
       >

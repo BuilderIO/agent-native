@@ -3,6 +3,7 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
@@ -10,6 +11,7 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import {
   createThread,
   getThread,
@@ -46,6 +48,13 @@ export interface GoogleDocsPollerOptions {
   systemPrompt: string;
   /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
+  /**
+   * Tool names to expose on the FIRST engine request. See
+   * `WebhookHandlerOptions.initialToolNames` (`webhook-handler.ts`) — same
+   * semantics, shared `actions` source from `createIntegrationsPlugin`. Omit
+   * to keep the full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
   /** Model to use */
   model: string;
   /** Anthropic API key */
@@ -466,7 +475,18 @@ async function processComment(
   ];
 
   const engine = createAnthropicEngine({ apiKey: options.apiKey });
-  const tools = actionsToEngineTools(options.actions);
+  // Attach tool-search on a shallow copy so framework additions merged in by
+  // `createIntegrationsPlugin` (integration memory, `call-agent`) can be
+  // deferred behind it without mutating the plugin's long-lived registry.
+  // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
+  // after a tool-search call, so anything filtered out of the initial
+  // `tools` list stays reachable.
+  const runnableActions = attachToolSearch({ ...options.actions });
+  const availableTools = actionsToEngineTools(runnableActions);
+  const tools = filterInitialEngineTools(
+    availableTools,
+    options.initialToolNames,
+  );
   const runId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const capturedThreadId = threadId;
   const orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? undefined;
@@ -483,8 +503,9 @@ async function processComment(
             model: options.model,
             systemPrompt: options.systemPrompt,
             tools,
+            availableTools,
             messages,
-            actions: options.actions,
+            actions: runnableActions,
             send,
             signal,
           }),

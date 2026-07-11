@@ -1,6 +1,7 @@
 import {
   AppProviders,
   appPath,
+  callAction,
   createAgentNativeQueryClient,
   getLocaleInitScript,
   getThemeInitScript,
@@ -8,7 +9,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -105,6 +106,16 @@ function DbSyncBridge() {
   return null;
 }
 
+function DemoDashboardInstaller() {
+  useEffect(() => {
+    void callAction("ensure-demo-dashboards", {}).catch((err) => {
+      console.warn("[analytics] demo dashboard install failed", err);
+    });
+  }, []);
+
+  return null;
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
@@ -147,6 +158,7 @@ export default function Root() {
         <Toaster />
         <Sonner position="bottom-left" />
         <AuthProvider>
+          <DemoDashboardInstaller />
           <ProviderCorpusJobNotifier />
           <CommandPalette />
           <AppLayout>

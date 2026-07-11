@@ -432,6 +432,16 @@ const messages = {
       title: "지역 계획을 찾을 수 없습니다.",
       message: '로컬 계획 폴더 "{{slug}}"을(를) 읽을 수 없습니다.',
     },
+    localPlanConnection: {
+      promptTitle: "이 로컬 계획에 연결",
+      promptMessage:
+        "이 계획은 컴퓨터에 그대로 보관됩니다. 로컬 브리지에서 읽으려면 Plan에 브라우저 권한이 필요합니다.",
+      deniedTitle: "로컬 네트워크 접근이 차단되었습니다",
+      deniedMessage:
+        "브라우저에서 Plan의 사이트 설정을 열고 로컬 네트워크 접근을 허용한 다음 다시 확인하세요.",
+      connect: "로컬 계획에 연결",
+      checkAgain: "다시 확인",
+    },
     overview: {
       title: "计划",
       documentCount_other: "{{count}} 个文档",

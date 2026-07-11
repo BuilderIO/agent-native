@@ -1502,6 +1502,7 @@ const hiIN = {
     sharingPrivacy: "Sharing और privacy",
     trackingAnalytics: "Tracking और analytics",
     auditLog: "Audit log",
+    doctorCodeChecks: "Doctor (कोड जांच)",
     observability: "अवलोकनीयता",
     observationalMemory: "Observational memory",
     ciEvalGate: "CI eval gate",

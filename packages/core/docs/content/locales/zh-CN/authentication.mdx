@@ -381,7 +381,7 @@ function MyComponent() {
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-当匿名查看者点击此 URL 时，将提供框架的登录页面。成功登录（任何流程 - 令牌、电子邮件/密码或 谷歌OAuth）后，查看者将 302 转至 `return`。
+当匿名查看者点击此 URL 时，将提供框架的登录页面。成功登录（任何流程 - 令牌、电子邮件/密码或 谷歌OAuth）后，浏览器会返回 `return`。
 
 `return` 参数被验证为**同源路径**。网络路径引用 (`//evil.com/...`)、绝对 URL、`data:` / `javascript:` 方案和嵌入式控制字符都回退到 `/`。验证的路径是从 URL 解析器重建的，而不是从输入中回显。
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### 已添加书签的私有路径
 
-当匿名用户直接导航到 `/dashboard` 等私有路径时，框架已经在该 URL 处提供登录页面 - 成功登录后，页面重新加载并且用户登陆 `/dashboard`。无需特殊处理；这适用于令牌、电子邮件/密码、**和** 谷歌OAuth。
+普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/_agent-native/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
 
 ### 幕后花絮：谷歌OAuth
 

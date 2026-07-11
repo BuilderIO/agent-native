@@ -18,7 +18,12 @@ import {
   getDashboardCatalogEntry,
   listDashboardCatalog,
 } from "../server/lib/dashboard-catalog";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboard,
+  upsertDashboardWithRetry,
+  type DashboardRecord,
+} from "../server/lib/dashboards-store";
 
 async function syncToCollab(
   dashboardId: string,
@@ -145,6 +150,17 @@ export default defineAction({
     // in ONE atomic save instead of looping update-dashboard (which times out
     // on the ~40s hosted run budget). Non-destructive: existing panels and
     // their order are preserved; only template panels with a new id are added.
+    //
+    // This is a genuine read-modify-write of an EXISTING dashboard (an agent
+    // merging a template while a human drags a panel, or two merge calls
+    // racing), so the save is fenced through `upsertDashboardWithRetry`.
+    // `computeMerge` is invoked with the freshest `DashboardRecord` on every
+    // attempt and recomputes `existingIds`/`appended`/`mergedConfig` from
+    // THAT record's config — never from a closure over the earlier `target`
+    // read — so a lost race re-merges against whatever the concurrent writer
+    // actually saved instead of clobbering it. `seedConfig`/`seedPanels` are
+    // the template's own panels and don't depend on dashboard state, so they
+    // are computed once outside the retry loop.
     if (args.mergePanels) {
       const targetId = args.dashboardId?.trim();
       if (!targetId) {
@@ -152,22 +168,13 @@ export default defineAction({
           "mergePanels=true requires dashboardId (the existing dashboard to append the template's panels to).",
         );
       }
+
       const target = await getDashboard(targetId, ctx);
       if (!target) {
         throw new Error(
           `Dashboard "${targetId}" not found (or you don't have access). mergePanels appends to an existing dashboard — install the template normally first, or omit mergePanels to create a new copy.`,
         );
       }
-
-      const targetConfig = target.config as Record<string, unknown>;
-      const existingPanels = Array.isArray(targetConfig.panels)
-        ? (targetConfig.panels as Array<Record<string, unknown>>)
-        : [];
-      const existingIds = new Set(
-        existingPanels
-          .map((panel) => (typeof panel?.id === "string" ? panel.id : null))
-          .filter((id): id is string => !!id),
-      );
 
       const seedConfig = cloneDashboardConfig(entry) as unknown as Record<
         string,
@@ -177,49 +184,78 @@ export default defineAction({
         ? (seedConfig.panels as unknown as Array<Record<string, unknown>>)
         : [];
 
-      const addedPanelIds: string[] = [];
-      const skippedExistingIds: string[] = [];
-      const appended: Array<Record<string, unknown>> = [];
-      for (const panel of seedPanels) {
-        const id = typeof panel?.id === "string" ? panel.id : null;
-        if (id && existingIds.has(id)) {
-          skippedExistingIds.push(id);
-          continue;
-        }
-        appended.push(panel);
-        if (id) {
-          addedPanelIds.push(id);
-          existingIds.add(id);
-        }
-      }
-
-      let mergedConfig: Record<string, unknown> = {
-        ...targetConfig,
-        panels: [...existingPanels, ...appended],
-      };
-      const filterMerge = mergeMissingFilters(mergedConfig, seedConfig);
-      mergedConfig = filterMerge.config;
-      const panelCount = (mergedConfig.panels as unknown[]).length;
-
-      if (appended.length > 0 || filterMerge.addedFilterIds.length > 0) {
-        const saved = await upsertDashboard(
-          targetId,
-          target.kind,
-          mergedConfig,
-          ctx,
+      function computeMerge(existing: Pick<DashboardRecord, "config">) {
+        const targetConfig = existing.config as Record<string, unknown>;
+        const existingPanels = Array.isArray(targetConfig.panels)
+          ? (targetConfig.panels as Array<Record<string, unknown>>)
+          : [];
+        const existingIds = new Set(
+          existingPanels
+            .map((panel) => (typeof panel?.id === "string" ? panel.id : null))
+            .filter((id): id is string => !!id),
         );
-        await syncToCollab(targetId, mergedConfig);
-        targetConfig.name = saved.title;
+
+        const addedPanelIds: string[] = [];
+        const skippedExistingIds: string[] = [];
+        const appended: Array<Record<string, unknown>> = [];
+        for (const panel of seedPanels) {
+          const id = typeof panel?.id === "string" ? panel.id : null;
+          if (id && existingIds.has(id)) {
+            skippedExistingIds.push(id);
+            continue;
+          }
+          appended.push(panel);
+          if (id) {
+            addedPanelIds.push(id);
+            existingIds.add(id);
+          }
+        }
+
+        let mergedConfig: Record<string, unknown> = {
+          ...targetConfig,
+          panels: [...existingPanels, ...appended],
+        };
+        const filterMerge = mergeMissingFilters(mergedConfig, seedConfig);
+        mergedConfig = filterMerge.config;
+
+        return {
+          mergedConfig,
+          addedPanelIds,
+          skippedExistingIds,
+          appended,
+          filterMerge,
+        };
       }
+
+      let computed = computeMerge(target);
+      let savedTitle = target.title;
+
+      if (
+        computed.appended.length > 0 ||
+        computed.filterMerge.addedFilterIds.length > 0
+      ) {
+        const saved = await upsertDashboardWithRetry(
+          targetId,
+          ctx,
+          (existing) => {
+            computed = computeMerge(existing);
+            return { kind: existing.kind, body: computed.mergedConfig };
+          },
+        );
+        await syncToCollab(targetId, saved.config as Record<string, unknown>);
+        savedTitle = saved.title;
+      }
+
+      const panelCount = (computed.mergedConfig.panels as unknown[]).length;
 
       return {
         templateId: entry.id,
         templateName: entry.name,
         dashboardId: targetId,
-        name: target.title,
+        name: savedTitle,
         merged: true,
-        addedPanelIds,
-        skippedExistingIds,
+        addedPanelIds: computed.addedPanelIds,
+        skippedExistingIds: computed.skippedExistingIds,
         panelCount,
         urlPath: `/dashboards/${targetId}`,
         deepLink: buildDeepLink({
@@ -228,9 +264,9 @@ export default defineAction({
           params: { dashboardId: targetId },
         }),
         message:
-          appended.length > 0
-            ? `Added ${addedPanelIds.length} panel(s) from "${entry.name}" to "${target.title}"; ${skippedExistingIds.length} already present. Dashboard now has ${panelCount} panel(s).`
-            : `No new panels to add from "${entry.name}" — all ${skippedExistingIds.length} template panel id(s) already present. Dashboard has ${panelCount} panel(s).`,
+          computed.appended.length > 0
+            ? `Added ${computed.addedPanelIds.length} panel(s) from "${entry.name}" to "${savedTitle}"; ${computed.skippedExistingIds.length} already present. Dashboard now has ${panelCount} panel(s).`
+            : `No new panels to add from "${entry.name}" — all ${computed.skippedExistingIds.length} template panel id(s) already present. Dashboard has ${panelCount} panel(s).`,
       };
     }
 

@@ -65,9 +65,8 @@ describe("secrets storage bootstrap", () => {
     vi.doUnmock("../db/client.js");
   });
 
-  it("retries table bootstrap after a transient failure", async () => {
+  it("reads on the hot path without schema probes or DDL", async () => {
     const execute = vi.fn(async () => ({ rows: [] as unknown[] }));
-    execute.mockRejectedValueOnce(new Error("transient DDL failure"));
 
     vi.doMock("../db/client.js", () => ({
       getDialect: () => "sqlite",
@@ -82,15 +81,62 @@ describe("secrets storage bootstrap", () => {
       scopeId: "steve@example.test",
     };
 
-    await expect(readAppSecret(ref)).rejects.toThrow("transient DDL failure");
     await expect(readAppSecret(ref)).resolves.toBeNull();
 
-    expect(String(execute.mock.calls[0]?.[0])).toContain(
-      "CREATE TABLE IF NOT EXISTS app_secrets",
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      sql: expect.stringMatching(/^SELECT encrypted_value, updated_at/),
+    });
+  });
+
+  it("bootstraps and retries once when the app_secrets table is missing", async () => {
+    const execute = vi.fn(async (input: string | { sql: string }) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      if (sql.trim().startsWith("SELECT") && execute.mock.calls.length === 1) {
+        throw Object.assign(new Error("no such table: app_secrets"), {
+          code: "SQLITE_ERROR",
+        });
+      }
+      return { rows: [] as unknown[] };
+    });
+
+    vi.doMock("../db/client.js", () => ({
+      getDialect: () => "sqlite",
+      getDbExec: () => ({ execute }),
+      isPostgres: () => false,
+    }));
+
+    const { readAppSecret } = await import("./storage.js");
+    await expect(readAppSecret(userRef)).resolves.toBeNull();
+
+    const allSql = execute.mock.calls.map(([input]) =>
+      typeof input === "string" ? input : input.sql,
     );
-    expect(String(execute.mock.calls[1]?.[0])).toContain(
-      "CREATE TABLE IF NOT EXISTS app_secrets",
+    expect(allSql[0]).toMatch(/^SELECT encrypted_value, updated_at/);
+    expect(allSql).toContainEqual(
+      expect.stringContaining("CREATE TABLE IF NOT EXISTS app_secrets"),
     );
+    expect(allSql.at(-1)).toMatch(/^SELECT encrypted_value, updated_at/);
+  });
+
+  it("does not bootstrap for unrelated database failures", async () => {
+    const execute = vi.fn(async () => {
+      throw Object.assign(new Error("connection timed out"), {
+        code: "ETIMEDOUT",
+      });
+    });
+
+    vi.doMock("../db/client.js", () => ({
+      getDialect: () => "sqlite",
+      getDbExec: () => ({ execute }),
+      isPostgres: () => false,
+    }));
+
+    const { readAppSecret } = await import("./storage.js");
+    await expect(readAppSecret(userRef)).rejects.toThrow(
+      "connection timed out",
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("rewrites INTEGER to BIGINT for Postgres so millisecond timestamps fit", async () => {
@@ -102,8 +148,8 @@ describe("secrets storage bootstrap", () => {
       isPostgres: () => true,
     }));
 
-    const { readAppSecret } = await import("./storage.js");
-    await readAppSecret(userRef);
+    const { writeAppSecret } = await import("./storage.js");
+    await writeAppSecret({ ...userRef, value: "example-secret" });
 
     // On Postgres ensureTable now probes information_schema first (no lock) and
     // only issues DDL for what is missing. With an empty fake DB every probe
@@ -142,8 +188,8 @@ describe("secrets storage bootstrap", () => {
       isPostgres: () => true,
     }));
 
-    const { readAppSecret } = await import("./storage.js");
-    await readAppSecret(userRef);
+    const { writeAppSecret } = await import("./storage.js");
+    await writeAppSecret({ ...userRef, value: "example-secret" });
 
     const allSql = execute.mock.calls.map((c) => {
       const input = c[0] as string | { sql: string };
@@ -185,6 +231,36 @@ describe("secrets storage CRUD (real sqlite)", () => {
     expect(read!.value).toBe("sk-live-abc12345");
     expect(read!.last4).toBe("••••2345");
     expect(read!.updatedAt).toBeGreaterThan(0);
+  });
+
+  it("reads several scoped secrets in one projected query", async () => {
+    await mod.writeAppSecret({ ...userRef, value: "openai-example" });
+    await mod.writeAppSecret({
+      ...userRef,
+      key: "BUILDER_PRIVATE_KEY",
+      value: "builder-private-example",
+    });
+    await mod.writeAppSecret({
+      ...userRef,
+      scopeId: "bob@example.test",
+      value: "other-user-example",
+    });
+
+    const secrets = await mod.readAppSecrets({
+      keys: ["OPENAI_API_KEY", "BUILDER_PRIVATE_KEY", "MISSING_KEY"],
+      scope: "user",
+      scopeId: userRef.scopeId,
+    });
+
+    expect([...secrets.keys()].sort()).toEqual([
+      "BUILDER_PRIVATE_KEY",
+      "OPENAI_API_KEY",
+    ]);
+    expect(secrets.get("OPENAI_API_KEY")?.value).toBe("openai-example");
+    expect(secrets.get("BUILDER_PRIVATE_KEY")?.value).toBe(
+      "builder-private-example",
+    );
+    expect(secrets.has("MISSING_KEY")).toBe(false);
   });
 
   it("rejects writes missing any required field without persisting", async () => {

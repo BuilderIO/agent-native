@@ -600,5 +600,57 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toBe("Base prompt.");
     expect(options.ownerEmail).toBe("owner+qa@example.com");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    // No app `actions` were configured on this plugin instance, so the
+    // "keep on the first request" list is empty — everything merged into
+    // `options.actions` (integration memory, call-agent) is deferred behind
+    // the tool-search entry `handleWebhook` attaches. See
+    // `initialToolNames` on `WebhookHandlerOptions`.
+    expect(options.initialToolNames).toEqual([]);
+  });
+
+  it("passes the app's own action names as initialToolNames so framework additions defer behind tool-search", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      actions: {
+        "template-action": {
+          tool: { description: "App action", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(options.initialToolNames).toEqual(["template-action"]);
+    // The framework additions are still present in the executable registry
+    // (so a tool-search-discovered call can still run) — just excluded from
+    // the "reveal up front" list checked above.
+    expect(Object.keys(options.actions)).toEqual(
+      expect.arrayContaining(["call-agent", "template-action"]),
+    );
   });
 });

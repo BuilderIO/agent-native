@@ -369,6 +369,12 @@ const messages = {
     contentLabel: "Content",
     previewTitle: "Extension preview",
     previewEmpty: "Preview will appear here",
+    loadError: "Couldn't load extensions.",
+    widgetsLoadError: "Couldn't load widgets.",
+    widgetAreasLoadError: "Couldn't load widget areas.",
+    historyLoadError: "Couldn't load extension history.",
+    versionLoadError: "Couldn't load this extension version.",
+    retry: "Retry",
   },
   org: {
     createTitle: "Create your organization",

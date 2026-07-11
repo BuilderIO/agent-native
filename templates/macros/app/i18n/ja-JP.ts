@@ -59,6 +59,8 @@ const messages = {
     optional: "任意",
     saveChanges: "変更を保存",
     saving: "保存中...",
+    loadFailed: "このデータを読み込めませんでした",
+    retry: "再試行",
   },
   seo: {
     homeTitle: "Agent-Native Macros - オープンソース AI カロリー・マクロ記録",

@@ -66,3 +66,4 @@ export {
   markDefaultPluginProvided,
   type H3AppShim,
 } from "./framework-request-handler.js";
+export { runWithRequestContext } from "./request-context.js";

@@ -181,6 +181,70 @@
         "3106"
       ],
       "port": 3106
+    },
+    {
+      "name": "slides-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/slides-feelcheck.sqlite",
+        "PORT=3206",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3206"
+      ],
+      "port": 3206
+    },
+    {
+      "name": "analytics-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/analytics-feelcheck.sqlite",
+        "PORT=3205",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/analytics",
+        "dev",
+        "--port",
+        "3205"
+      ],
+      "port": 3205
+    },
+    {
+      "name": "mail-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/mail-feelcheck.sqlite",
+        "PORT=3204",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/mail",
+        "dev",
+        "--port",
+        "3204"
+      ],
+      "port": 3204
+    },
+    {
+      "name": "design-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/design-feelcheck.sqlite",
+        "PORT=3207",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "3207"
+      ],
+      "port": 3207
     }
   ]
 }

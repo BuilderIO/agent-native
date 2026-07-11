@@ -1,14 +1,22 @@
 import { readBody } from "@agent-native/core/server";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
-import { getDb, schema } from "../../../db/index.js";
+import updateSlideCommentAction from "../../../../actions/update-slide-comment.js";
 
+/**
+ * PATCH /api/comments/:id
+ * Update a slide comment (resolve, reopen, edit content). Delegates to the
+ * update-slide-comment action so the human UI and the agent share one
+ * implementation and one permission rule.
+ */
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  if (!id) return { error: "id required" };
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "id required" };
+  }
 
   const body = await readBody(event);
   const { resolved, content } = body as {
@@ -22,65 +30,21 @@ export default defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    async () => {
-      const db = getDb();
-      const [comment] = await db
-        .select({
-          deckId: schema.slideComments.deckId,
-          threadId: schema.slideComments.threadId,
-          authorEmail: schema.slideComments.authorEmail,
-        })
-        .from(schema.slideComments)
-        .where(eq(schema.slideComments.id, id))
-        .limit(1);
-
-      if (!comment) {
-        setResponseStatus(event, 404);
-        return { error: "Comment not found" };
-      }
-
-      try {
-        if (resolved === true || comment.authorEmail !== session.email) {
-          await assertAccess("deck", comment.deckId, "editor");
-        } else {
-          await assertAccess("deck", comment.deckId, "viewer");
-        }
-      } catch (err) {
-        if (err instanceof ForbiddenError) {
-          setResponseStatus(event, 404);
-          return { error: "Comment not found" };
-        }
-        throw err;
-      }
-
-      const updatedAt = new Date().toISOString();
-
-      if (resolved === true) {
-        // Resolve the entire thread, but only within the authorized deck.
-        await db
-          .update(schema.slideComments)
-          .set({ resolved: true, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.deckId, comment.deckId),
-              eq(schema.slideComments.threadId, comment.threadId),
-            ),
-          );
-      } else if (content !== undefined) {
-        await db
-          .update(schema.slideComments)
-          .set({ content, updatedAt })
-          .where(
-            and(
-              eq(schema.slideComments.id, id),
-              eq(schema.slideComments.deckId, comment.deckId),
-            ),
-          );
-      }
-
-      return { ok: true };
-    },
-  );
+  try {
+    return await runWithRequestContext(
+      { userEmail: session.email, orgId: session.orgId },
+      () => updateSlideCommentAction.run({ id, resolved, content }),
+    );
+  } catch (err) {
+    // Not-found and forbidden both surface as 404 so callers can't probe for
+    // the existence of comments on decks they can't access. Any other error
+    // (e.g. a DB failure) propagates as a real 500.
+    const isNotFound =
+      err instanceof Error && err.message.startsWith("Comment not found");
+    if (err instanceof ForbiddenError || isNotFound) {
+      setResponseStatus(event, 404);
+      return { error: "Comment not found" };
+    }
+    throw err;
+  }
 });

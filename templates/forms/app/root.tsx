@@ -254,19 +254,45 @@ function FormsCommandMenu({
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
+    <>
+      <DbSyncSetup />
+      <NavigationStateSync />
+      <UrlStateSync />
+      <OpenLinkInterceptor />
+      <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <Outlet />
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isPublicPath =
+    location.pathname === "/f" || location.pathname.startsWith("/f/");
+
+  if (isPublicPath) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  return (
     <AppToolkitProvider>
       <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <DbSyncSetup />
-        <NavigationStateSync />
-        <UrlStateSync />
-        <OpenLinkInterceptor />
-        <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-        <Outlet />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

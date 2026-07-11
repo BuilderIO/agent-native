@@ -164,7 +164,7 @@ export function LinkHoverPreview({
         left: Math.max(16, hoveredLink.rect.left),
         zIndex: 50,
       }}
-      className="w-72 rounded-lg border bg-popover text-popover-foreground shadow-md overflow-hidden animate-in fade-in-0 zoom-in-95"
+      className="w-72 rounded-lg border bg-popover text-popover-foreground shadow-md overflow-hidden animate-in fade-in-0 zoom-in-95 origin-top-left"
     >
       {editing ? (
         <div className="flex items-center gap-1 p-1.5">

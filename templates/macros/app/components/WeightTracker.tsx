@@ -16,6 +16,7 @@ import {
 import { formatLocalDate } from "@/lib/utils";
 
 import { AddWeightDialog } from "./AddWeightDialog";
+import { QueryErrorState } from "./QueryErrorState";
 import { WeightCard } from "./WeightCard";
 
 interface WeightTrackerProps {
@@ -36,9 +37,10 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
     onError: () => toast.error(t("weight.deleteFailed")),
   });
 
-  const { data: rawWeights, isLoading } = useActionQuery("list-weights", {
+  const weightsQuery = useActionQuery("list-weights", {
     date: dateStr,
   });
+  const { data: rawWeights, isLoading } = weightsQuery;
   const serverWeights = Array.isArray(rawWeights) ? rawWeights : [];
   const { rows: weights, hasOptimisticRows } = useOptimisticLogRows(
     "weight",
@@ -72,6 +74,8 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
       <div className="space-y-2">
         {isLoading && !hasOptimisticRows ? (
           <Skeleton className="h-16 w-full rounded-xl" />
+        ) : weightsQuery.isError ? (
+          <QueryErrorState onRetry={() => void weightsQuery.refetch()} />
         ) : !todayWeight ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30 py-12 text-center">
             <div className="p-3 rounded-full bg-blue-500/10 mb-3">

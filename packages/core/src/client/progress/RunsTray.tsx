@@ -249,7 +249,11 @@ export function RunsTray({
               >
                 <TriggerIcon
                   size={triggerVariant === "pill" ? 14 : 18}
-                  className={cn(triggerTone, activeCount > 0 && "animate-spin")}
+                  className={cn(
+                    triggerTone,
+                    activeCount > 0 &&
+                      "animate-spin motion-reduce:animate-none",
+                  )}
                   aria-hidden
                 />
                 {triggerVariant === "pill" ? (
@@ -559,14 +563,17 @@ function RunRow({
           {run.percent != null ? (
             <div
               className={cn(
-                "h-full transition-all",
+                "h-full origin-left transition-transform duration-200 ease-[var(--ease-collapse)]",
                 run.status === "failed"
                   ? "bg-destructive"
                   : run.status === "cancelled"
                     ? "bg-muted-foreground/50"
                     : "bg-primary",
               )}
-              style={{ width: `${run.percent}%` }}
+              style={{
+                transform: `scaleX(${run.percent / 100})`,
+                width: "100%",
+              }}
             />
           ) : (
             <div className="h-full w-1/3 animate-pulse bg-primary/60" />

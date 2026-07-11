@@ -23,7 +23,10 @@ import type {
   ActionEntry,
   AgentLoopFinalResponseGuard,
 } from "../agent/production-agent.js";
-import { actionsToEngineTools } from "../agent/production-agent.js";
+import {
+  actionsToEngineTools,
+  filterInitialEngineTools,
+} from "../agent/production-agent.js";
 import {
   runAgentLoop,
   appendAgentLoopContinuation,
@@ -43,6 +46,7 @@ import {
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
 import {
@@ -1600,6 +1604,16 @@ export interface AgentTeamRunConfig {
   actions: Record<string, ActionEntry>;
   engine: AgentEngine;
   model: string;
+  /**
+   * Tool names to expose on the FIRST engine request for this sub-agent
+   * chunk. See `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) —
+   * same semantics: when provided, every other action in `actions` is
+   * deferred behind an attached `tool-search` entry instead of being
+   * serialized on every chunk; `runAgentLoop`'s mid-run tool expansion still
+   * lets the model discover and call them after a search. Omit to keep the
+   * full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
 }
 
 export interface ProcessAgentTeamRunOptions {
@@ -1710,11 +1724,19 @@ export async function processAgentTeamRun(
         ];
       }
 
+      const initialToolNames = config.initialToolNames;
+      // Only attach tool-search (and pay its schema cost) when the caller
+      // actually supplied an initial subset to filter down to — otherwise
+      // this is byte-for-byte the prior unfiltered behavior.
+      const baseActions = initialToolNames
+        ? attachToolSearch({ ...config.actions })
+        : config.actions;
       const messageAwareActions = createMessageAwareActions(
         opts.taskId,
-        config.actions,
+        baseActions,
       );
-      const tools = actionsToEngineTools(messageAwareActions);
+      const availableTools = actionsToEngineTools(messageAwareActions);
+      const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
       // the durable assistant message folds across chunks.
@@ -1815,6 +1837,7 @@ export async function processAgentTeamRun(
                     model: config.model,
                     systemPrompt,
                     tools,
+                    availableTools,
                     messages,
                     actions: messageAwareActions,
                     send: wrappedSend,

@@ -52,7 +52,14 @@ export default defineEventHandler(async (event) => {
       }
 
       try {
-        if (resolved === true || comment.authorEmail !== session.email) {
+        // Resolving or reopening changes state for the whole thread (every
+        // author's comments), not just the caller's own row, so it always
+        // requires editor access — matching the update-comment action.
+        if (
+          resolved === true ||
+          resolved === false ||
+          comment.authorEmail !== session.email
+        ) {
           await assertAccess("document", comment.documentId, "editor");
         } else {
           await assertAccess("document", comment.documentId, "viewer");
@@ -65,37 +72,30 @@ export default defineEventHandler(async (event) => {
         throw err;
       }
 
-      const updates: Partial<typeof schema.documentComments.$inferInsert> = {
-        updatedAt: new Date().toISOString(),
-      };
+      const updatedAt = new Date().toISOString();
 
-      if (content !== undefined) {
-        updates.content = content;
-      }
-      if (resolved !== undefined) {
-        // When resolving, update all comments in the thread.
-        if (resolved) {
-          await db
-            .update(schema.documentComments)
-            .set({ resolved: 1, updatedAt: updates.updatedAt })
-            .where(
-              and(
-                eq(schema.documentComments.documentId, comment.documentId),
-                eq(schema.documentComments.threadId, comment.threadId),
-              ),
-            );
-          return { ok: true, resolved: true };
-        }
-        updates.resolved = resolved ? 1 : 0;
+      if (resolved === true || resolved === false) {
+        // Resolving or reopening applies to every comment in the thread, not
+        // just the target row — matching the update-comment action.
+        await db
+          .update(schema.documentComments)
+          .set({ resolved: resolved ? 1 : 0, updatedAt })
+          .where(
+            and(
+              eq(schema.documentComments.documentId, comment.documentId),
+              eq(schema.documentComments.threadId, comment.threadId),
+            ),
+          );
+        return { ok: true, resolved };
       }
 
-      if (content === undefined && resolved === undefined) {
+      if (content === undefined) {
         return { ok: true };
       }
 
       await db
         .update(schema.documentComments)
-        .set(updates)
+        .set({ content, updatedAt })
         .where(
           and(
             eq(schema.documentComments.id, id),

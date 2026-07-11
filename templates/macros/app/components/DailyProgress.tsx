@@ -19,6 +19,7 @@ import {
   Area,
 } from "recharts";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,25 +83,32 @@ export function DailyProgress({
   }, [activeChart]);
 
   const netCalories = totalCalories - totalBurnedCalories;
-  const percentage = Math.min(100, (netCalories / goalCalories) * 100);
+  const percentage = Math.max(
+    0,
+    Math.min(100, (netCalories / goalCalories) * 100),
+  );
   const remaining = Math.max(0, goalCalories - netCalories);
   const isOver = netCalories > goalCalories;
 
   const endDate = formatLocalDate(new Date());
   const startDate = formatLocalDate(subDays(new Date(), 30));
 
-  const { data: rawWeightHistory, isLoading: weightLoading } = useActionQuery(
+  const weightHistoryQuery = useActionQuery(
     "weights-history",
     { startDate, endDate },
     { enabled: activeChart === "weight" },
   );
+  const { data: rawWeightHistory, isLoading: weightLoading } =
+    weightHistoryQuery;
   const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
-  const { data: rawCalorieHistory, isLoading: calorieLoading } = useActionQuery(
+  const calorieHistoryQuery = useActionQuery(
     "meals-history",
     { startDate, endDate },
     { enabled: activeChart === "activity" },
   );
+  const { data: rawCalorieHistory, isLoading: calorieLoading } =
+    calorieHistoryQuery;
   const calorieHistory = Array.isArray(rawCalorieHistory)
     ? rawCalorieHistory
     : [];
@@ -187,10 +195,12 @@ export function DailyProgress({
             <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <div
                 className={cn(
-                  "h-full transition-all duration-500 ease-out rounded-full",
+                  "h-full origin-left rounded-full transition-[transform,background-color] duration-200 ease-out motion-reduce:transition-none rtl:origin-right",
                   isOver ? "bg-red-400" : "bg-foreground",
                 )}
-                style={{ width: `${Math.min(percentage, 100)}%` }}
+                style={{
+                  transform: `scaleX(${percentage / 100})`,
+                }}
               />
             </div>
           </div>
@@ -271,6 +281,11 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {weightLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-muted" />
+                ) : weightHistoryQuery.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => void weightHistoryQuery.refetch()}
+                  />
                 ) : weightHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
@@ -347,6 +362,11 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {calorieLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-muted" />
+                ) : calorieHistoryQuery.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => void calorieHistoryQuery.refetch()}
+                  />
                 ) : calorieHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart

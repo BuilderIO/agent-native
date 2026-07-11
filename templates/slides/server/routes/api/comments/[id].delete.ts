@@ -1,13 +1,21 @@
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
-import { getDb, schema } from "../../../db/index.js";
+import deleteSlideCommentAction from "../../../../actions/delete-slide-comment.js";
 
+/**
+ * DELETE /api/comments/:id
+ * Delete a single slide comment. Delegates to the delete-slide-comment action
+ * so the human UI and the agent share one implementation and one permission
+ * rule.
+ */
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
-  if (!id) return { error: "id required" };
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "id required" };
+  }
 
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -15,48 +23,21 @@ export default defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    async () => {
-      const db = getDb();
-      const [comment] = await db
-        .select({
-          deckId: schema.slideComments.deckId,
-          authorEmail: schema.slideComments.authorEmail,
-        })
-        .from(schema.slideComments)
-        .where(eq(schema.slideComments.id, id))
-        .limit(1);
-
-      if (!comment) {
-        setResponseStatus(event, 404);
-        return { error: "Comment not found" };
-      }
-
-      try {
-        if (comment.authorEmail === session.email) {
-          await assertAccess("deck", comment.deckId, "viewer");
-        } else {
-          await assertAccess("deck", comment.deckId, "editor");
-        }
-      } catch (err) {
-        if (err instanceof ForbiddenError) {
-          setResponseStatus(event, 404);
-          return { error: "Comment not found" };
-        }
-        throw err;
-      }
-
-      await db
-        .delete(schema.slideComments)
-        .where(
-          and(
-            eq(schema.slideComments.id, id),
-            eq(schema.slideComments.deckId, comment.deckId),
-          ),
-        );
-
-      return { ok: true };
-    },
-  );
+  try {
+    return await runWithRequestContext(
+      { userEmail: session.email, orgId: session.orgId },
+      () => deleteSlideCommentAction.run({ id }),
+    );
+  } catch (err) {
+    // Not-found and forbidden both surface as 404 so callers can't probe for
+    // the existence of comments on decks they can't access. Any other error
+    // (e.g. a DB failure) propagates as a real 500.
+    const isNotFound =
+      err instanceof Error && err.message.startsWith("Comment not found");
+    if (err instanceof ForbiddenError || isNotFound) {
+      setResponseStatus(event, 404);
+      return { error: "Comment not found" };
+    }
+    throw err;
+  }
 });

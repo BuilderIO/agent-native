@@ -33,6 +33,7 @@ mac:
   icon: build/icon.icns
   extendInfo:
     CFBundleIconName: agent-native
+    NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.
   notarize: true
   target:
     - target: dmg

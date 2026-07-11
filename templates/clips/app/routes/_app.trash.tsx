@@ -1,5 +1,9 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
-import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconArrowBackUp,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -46,7 +50,7 @@ export default function TrashRoute() {
   const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
-  const { data, isLoading } = useRecordings(args);
+  const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
   const recordings = (data?.recordings ?? []) as RecordingSummary[];
 
   // These actions are owned by other teams and ship with the template.
@@ -221,6 +225,24 @@ export default function TrashRoute() {
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} />
             ))}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
+            <IconAlertTriangle className="size-10 text-destructive" />
+            <h2 className="text-base font-semibold">
+              {t("libraryGrid.loadFailedTitle")}
+            </h2>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {t("libraryGrid.loadFailedBody")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {t("libraryGrid.retry")}
+            </Button>
           </div>
         ) : recordings.length === 0 ? (
           <EmptyState kind="trash" />

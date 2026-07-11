@@ -22,6 +22,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -137,202 +142,219 @@ function FolderItem({
   const createFolder = useCreateFolder();
 
   return (
-    <li>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div
-            className={cn(
-              "group flex items-center gap-1 rounded px-1.5 py-1 text-xs",
-              isActive
-                ? "bg-primary/10 text-primary"
-                : "text-foreground hover:bg-accent/60",
-            )}
-            style={{ paddingInlineStart: 6 + depth * 12 }}
-          >
-            <button
-              type="button"
+    <Collapsible open={open} onOpenChange={setOpen} asChild>
+      <li>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
               className={cn(
-                "rounded p-0.5 text-muted-foreground",
-                !hasChildren && "invisible",
+                "group flex items-center gap-1 rounded px-1.5 py-1 text-xs",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground hover:bg-accent/60",
               )}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen((o) => !o);
-              }}
+              style={{ paddingInlineStart: 6 + depth * 12 }}
             >
-              <IconChevronRight
-                className={cn(
-                  "h-3 w-3 transition-transform rtl:-scale-x-100",
-                  open && "rotate-90",
+              <CollapsibleTrigger asChild disabled={!hasChildren}>
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded p-0.5 text-muted-foreground",
+                    !hasChildren && "invisible",
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`${t(open ? "settings.collapse" : "settings.expand")}: ${node.name}`}
+                >
+                  <IconChevronRight
+                    className={cn(
+                      "h-3 w-3 transition-transform motion-reduce:transition-none rtl:-scale-x-100",
+                      open && "rotate-90",
+                    )}
+                  />
+                </button>
+              </CollapsibleTrigger>
+              <NavLink
+                to={buildPath(node.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+              >
+                {open && hasChildren ? (
+                  <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-              />
-            </button>
-            <NavLink
-              to={buildPath(node.id)}
-              className="flex min-w-0 flex-1 items-center gap-1.5"
-            >
-              {open && hasChildren ? (
-                <IconFolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className="truncate">{node.name}</span>
-            </NavLink>
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem
-            onSelect={() => {
-              setRenameValue(node.name);
-              setRenameOpen(true);
-            }}
-          >
-            <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => {
-              setNewValue("");
-              setNewOpen(true);
-            }}
-          >
-            <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
-            {t("folderTree.newSubfolder")}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onSelect={() => setConfirmDelete(true)}
-            className="text-destructive"
-          >
-            <IconTrash className="h-3.5 w-3.5 me-2" /> {t("folderTree.delete")}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-
-      {open && hasChildren && (
-        <ul className="space-y-0.5">
-          {node.children!.map((child) => (
-            <FolderItem
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              buildPath={buildPath}
-              activeFolderId={activeFolderId}
-              organizationId={organizationId}
-              spaceId={spaceId}
-            />
-          ))}
-        </ul>
-      )}
-
-      {/* Rename dialog */}
-      <AlertDialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("folderTree.renameFolder")}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <input
-            autoFocus
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-          />
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const name = renameValue.trim();
-                if (!name) return;
-                renameFolder.mutate(
-                  { id: node.id, name },
-                  {
-                    onSuccess: () => toast.success(t("folderTree.renamed")),
-                    onError: (err: any) =>
-                      toast.error(err?.message ?? t("folderTree.renameFailed")),
-                  },
-                );
-                setRenameOpen(false);
+                <span className="truncate">{node.name}</span>
+              </NavLink>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onSelect={() => {
+                setRenameValue(node.name);
+                setRenameOpen(true);
               }}
             >
-              {t("common.save")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* New subfolder dialog */}
-      <AlertDialog open={newOpen} onOpenChange={setNewOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("folderTree.newSubfolder")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("folderTree.createInside", { name: node.name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <input
-            autoFocus
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder={t("folderTree.folderName")}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-          />
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const name = newValue.trim();
-                if (!name) return;
-                createFolder.mutate(
-                  {
-                    name,
-                    ...(organizationId ? { organizationId } : {}),
-                    spaceId: spaceId ?? undefined,
-                    parentId: node.id,
-                  },
-                  {
-                    onSuccess: () => toast.success(t("folderTree.created")),
-                    onError: (err: any) =>
-                      toast.error(err?.message ?? t("folderTree.createFailed")),
-                  },
-                );
-                setNewOpen(false);
+              <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                setNewValue("");
+                setNewOpen(true);
               }}
             >
-              {t("common.create")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Delete confirm */}
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("folderTree.deleteFolder")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("folderTree.deleteDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                deleteFolder.mutate(
-                  { id: node.id },
-                  {
-                    onSuccess: () => toast.success(t("folderTree.deleted")),
-                    onError: (err: any) =>
-                      toast.error(err?.message ?? t("folderTree.deleteFailed")),
-                  },
-                );
-                setConfirmDelete(false);
-              }}
+              <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
+              {t("folderTree.newSubfolder")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => setConfirmDelete(true)}
+              className="text-destructive"
             >
+              <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
               {t("folderTree.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </li>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
+        {hasChildren ? (
+          <CollapsibleContent className="clips-collapsible-content">
+            <ul className="space-y-0.5">
+              {node.children!.map((child) => (
+                <FolderItem
+                  key={child.id}
+                  node={child}
+                  depth={depth + 1}
+                  buildPath={buildPath}
+                  activeFolderId={activeFolderId}
+                  organizationId={organizationId}
+                  spaceId={spaceId}
+                />
+              ))}
+            </ul>
+          </CollapsibleContent>
+        ) : null}
+
+        {/* Rename dialog */}
+        <AlertDialog open={renameOpen} onOpenChange={setRenameOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("folderTree.renameFolder")}
+              </AlertDialogTitle>
+            </AlertDialogHeader>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const name = renameValue.trim();
+                  if (!name) return;
+                  renameFolder.mutate(
+                    { id: node.id, name },
+                    {
+                      onSuccess: () => toast.success(t("folderTree.renamed")),
+                      onError: (err: any) =>
+                        toast.error(
+                          err?.message ?? t("folderTree.renameFailed"),
+                        ),
+                    },
+                  );
+                  setRenameOpen(false);
+                }}
+              >
+                {t("common.save")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* New subfolder dialog */}
+        <AlertDialog open={newOpen} onOpenChange={setNewOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("folderTree.newSubfolder")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("folderTree.createInside", { name: node.name })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <input
+              autoFocus
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder={t("folderTree.folderName")}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  const name = newValue.trim();
+                  if (!name) return;
+                  createFolder.mutate(
+                    {
+                      name,
+                      ...(organizationId ? { organizationId } : {}),
+                      spaceId: spaceId ?? undefined,
+                      parentId: node.id,
+                    },
+                    {
+                      onSuccess: () => toast.success(t("folderTree.created")),
+                      onError: (err: any) =>
+                        toast.error(
+                          err?.message ?? t("folderTree.createFailed"),
+                        ),
+                    },
+                  );
+                  setNewOpen(false);
+                }}
+              >
+                {t("common.create")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete confirm */}
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("folderTree.deleteFolder")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("folderTree.deleteDescription")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  deleteFolder.mutate(
+                    { id: node.id },
+                    {
+                      onSuccess: () => toast.success(t("folderTree.deleted")),
+                      onError: (err: any) =>
+                        toast.error(
+                          err?.message ?? t("folderTree.deleteFailed"),
+                        ),
+                    },
+                  );
+                  setConfirmDelete(false);
+                }}
+              >
+                {t("folderTree.delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </li>
+    </Collapsible>
   );
 }

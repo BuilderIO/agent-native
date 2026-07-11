@@ -131,7 +131,7 @@ export function Sidebar() {
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-all hover:bg-accent/50 hover:text-foreground">
+      <button className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
         <IconPlus className="h-4 w-4 shrink-0" />
         <span>{t("sidebar.newForm")}</span>
       </button>
@@ -374,7 +374,7 @@ export function Sidebar() {
             to="/ask"
             onClick={navigateHomeChat}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-colors hover:text-primary",
               location.pathname === "/ask" || location.pathname === "/"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -390,7 +390,7 @@ export function Sidebar() {
             to="/forms"
             onClick={() => isMobile && setMobileOpen(false)}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-colors hover:text-primary",
               location.pathname.startsWith("/forms")
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",

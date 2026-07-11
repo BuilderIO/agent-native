@@ -137,7 +137,7 @@ snapshot until you refresh/review it again, so rescan the connector after MCP
 tool or MCP App metadata changes. If you still have old per-app connectors
 enabled alongside Dispatch, refresh or reconnect each stale connector; updating
 Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
-snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` scopes are the same ones
+snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
 covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
 Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
@@ -284,13 +284,14 @@ The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access 
 
 Current scopes are:
 
-| Scope       | Allows                                                                    |
-| ----------- | ------------------------------------------------------------------------- |
-| `mcp:read`  | read-only MCP actions and ordinary tool/resource discovery                |
-| `mcp:write` | mutating actions and the `ask-agent` meta-tool                            |
-| `mcp:apps`  | MCP Apps resource listing/reading and inline UI rendering where supported |
+| Scope            | Allows                                                                    |
+| ---------------- | ------------------------------------------------------------------------- |
+| `mcp:read`       | read-only MCP actions and ordinary tool/resource discovery                |
+| `mcp:write`      | mutating actions and the `ask-agent` meta-tool                            |
+| `mcp:apps`       | MCP Apps resource listing/reading and inline UI rendering where supported |
+| `offline_access` | refresh-token access so compatible hosts can stay connected               |
 
-When the client requests no explicit scope, the app grants all three so the connector behaves like the browser-authorized Connect flow. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
+When the client requests no explicit scope, the app grants all four so the connector behaves like the browser-authorized Connect flow and can refresh access without another sign-in. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
 
 ## Catalog tiers {#catalog-tiers}
 

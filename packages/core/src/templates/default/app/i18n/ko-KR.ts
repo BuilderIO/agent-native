@@ -363,6 +363,12 @@ const messages = {
     contentLabel: "콘텐츠",
     previewTitle: "확장 프로그램 미리보기",
     previewEmpty: "미리보기가 여기에 표시됩니다.",
+    loadError: "확장 프로그램을 불러올 수 없습니다.",
+    widgetsLoadError: "위젯을 불러올 수 없습니다.",
+    widgetAreasLoadError: "위젯 영역을 불러올 수 없습니다.",
+    historyLoadError: "확장 프로그램 기록을 불러올 수 없습니다.",
+    versionLoadError: "이 확장 프로그램 버전을 불러올 수 없습니다.",
+    retry: "다시 시도",
   },
   org: {
     createTitle: "조직 만들기",

@@ -218,7 +218,7 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder to use managed voice with credits, or use your own OpenAI API key.",
+        "Connect Builder to use managed voice with free credits, or use your own OpenAI API key.",
       connectBuilder: "Connect Builder",
       useOpenAiKey: "Use OpenAI API key",
       startWithOpenAiKey: "Start with OpenAI key",
@@ -227,6 +227,7 @@ const messages = {
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
+      microphoneSettings: "Microphone settings",
       status: {
         connecting: "Connecting",
         listening: "Listening",
@@ -408,6 +409,12 @@ const messages = {
     contentLabel: "Content",
     previewTitle: "Extension preview",
     previewEmpty: "Preview will appear here",
+    loadError: "Couldn't load extensions.",
+    widgetsLoadError: "Couldn't load widgets.",
+    widgetAreasLoadError: "Couldn't load widget areas.",
+    historyLoadError: "Couldn't load extension history.",
+    versionLoadError: "Couldn't load this extension version.",
+    retry: "Retry",
   },
   org: {
     createTitle: "Create your organization",

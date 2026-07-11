@@ -1,8 +1,6 @@
-import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
 import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 
 installRouteChunkRecovery();
-stripAuthRedirectParamFromUrl();
 
 export { getBrowserTabId } from "./browser-tab-id.js";
 
@@ -690,17 +688,6 @@ export {
   type SettingsTabItem,
   type SettingsTabsPageProps,
 } from "./settings/index.js";
-// Deprecated — use AgentSidebar + AgentToggleButton instead
-export {
-  ProductionAgentPanel,
-  type ProductionAgentPanelProps,
-} from "./ProductionAgentPanel.js";
-export {
-  useProductionAgent,
-  type ProductionAgentMessage,
-  type UseProductionAgentOptions,
-  type UseProductionAgentResult,
-} from "./useProductionAgent.js";
 export { Turnstile, type TurnstileProps } from "./Turnstile.js";
 export {
   OpenSourceBadge,

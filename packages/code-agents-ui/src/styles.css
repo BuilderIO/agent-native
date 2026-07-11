@@ -1858,7 +1858,7 @@
 
 .desktop-select-content[data-state="closed"] {
   animation-name: desktop-dropdown-out;
-  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-duration: 100ms;
 }
 
@@ -1970,7 +1970,7 @@
 
 .desktop-dropdown-content[data-state="closed"] {
   animation-name: desktop-dropdown-out;
-  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   animation-duration: 100ms;
 }
 
@@ -2776,6 +2776,8 @@ button.code-agents-capability:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .desktop-select-content,
+  .desktop-dropdown-content,
   .code-agents-dialog-overlay,
   .code-agents-dialog-content {
     animation: none;

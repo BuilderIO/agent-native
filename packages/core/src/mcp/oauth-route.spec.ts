@@ -171,7 +171,7 @@ describe("MCP OAuth route", () => {
     await expect(protectedRes.json()).resolves.toMatchObject({
       resource: "https://mail.agent-native.com/_agent-native/mcp",
       authorization_servers: ["https://mail.agent-native.com"],
-      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps"],
+      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
     });
 
     const authRes = handleMcpOAuthAuthorizationServerMetadata(event());
@@ -183,6 +183,7 @@ describe("MCP OAuth route", () => {
         "https://mail.agent-native.com/_agent-native/mcp/oauth/token",
       registration_endpoint:
         "https://mail.agent-native.com/_agent-native/mcp/oauth/register",
+      scopes_supported: expect.arrayContaining(["offline_access"]),
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     });

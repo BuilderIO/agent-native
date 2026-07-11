@@ -153,8 +153,8 @@ export default function GenerateSlidesDialog({
               }`}
             >
               <div
-                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                  includeImages ? "left-[calc(100%-18px)]" : "left-0.5"
+                className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform duration-150 ${
+                  includeImages ? "translate-x-[16px]" : "translate-x-0"
                 }`}
               />
             </button>

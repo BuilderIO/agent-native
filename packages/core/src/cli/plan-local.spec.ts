@@ -373,6 +373,12 @@ describe("local plan CLI helpers", () => {
     expect(result.stdout).toContain(
       "agent-native plan local serve --dir <folder>",
     );
+    expect(result.stdout).toContain(
+      "re-enable Local Network access in the plan.agent-native.com site",
+    );
+    expect(result.stdout).toContain(
+      "Keep the bridge command running while the page is open.",
+    );
   });
 
   it("starts the bridge through both plan serve and plan local serve", async () => {
@@ -426,6 +432,16 @@ describe("local plan CLI helpers", () => {
       expect(captured.stderr, label).toContain(
         `Open URL written to ${urlFile}`,
       );
+      expect(captured.stderr, label).toContain(
+        "Chrome/Edge will ask for Local Network access",
+      );
+      expect(captured.stderr, label).toContain(
+        "re-enable Local Network access in the plan.example.com site settings",
+      );
+      expect(captured.stderr, label).toContain(
+        "Keep this bridge command running while the Plan page is open",
+      );
+      expect(captured.stderr, label).toContain("Safari may block");
     }
   });
 
@@ -794,7 +810,7 @@ describe("local plan CLI helpers", () => {
     }) as typeof fetch;
   }
 
-  it("verifies the localhost bridge headlessly and reports Safari guidance", async () => {
+  it("verifies the localhost bridge headlessly and reports browser guidance", async () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
 
@@ -814,6 +830,12 @@ describe("local plan CLI helpers", () => {
     expect(result.bridge.mdxFiles).toContain("plan.mdx");
     expect(result.validation.ran).toBe(true);
     expect(result.validation.valid).toBe(true);
+    expect(result.warnings.join("\n")).toContain(
+      "Chrome/Edge will ask for Local Network access",
+    );
+    expect(result.warnings.join("\n")).toContain(
+      "re-enable Local Network access in the plan.example.com site settings",
+    );
     expect(result.warnings.join("\n")).toContain("Safari may block");
     expect(fs.existsSync(path.join(dir, ".plan-url"))).toBe(false);
   });

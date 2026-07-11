@@ -158,6 +158,8 @@ export interface BuilderConnectStartOptions {
 
 export interface BuilderConnectFlow {
   configured: boolean;
+  /** True after at least one successful `/builder/status` response. */
+  statusResolved: boolean;
   /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
    * is still available so users can override the fallback with their own
@@ -548,6 +550,7 @@ export function useBuilderConnectFlow(
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
+  const [statusResolved, setStatusResolved] = useState(false);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
   // _an_connect token with a 10-minute TTL; using an older URL fails the
@@ -609,6 +612,7 @@ export function useBuilderConnectFlow(
       setConnecting(false);
       setError(null);
       setHasFetchedStatus(false);
+      setStatusResolved(false);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       stopPoll();
@@ -624,6 +628,7 @@ export function useBuilderConnectFlow(
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
       if (!s) return;
+      setStatusResolved(true);
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
@@ -1019,6 +1024,7 @@ export function useBuilderConnectFlow(
 
   return {
     configured,
+    statusResolved,
     envManaged,
     builderEnabled,
     orgName,

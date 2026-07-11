@@ -34,6 +34,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";
 import {
   deleteOrHideExtension,
@@ -44,6 +45,7 @@ import {
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -577,6 +579,7 @@ function ExtensionHistoryPopover({
   onRestored?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
@@ -698,6 +701,13 @@ function ExtensionHistoryPopover({
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading history
                 </div>
+              ) : historyQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  message={t("extensions.historyLoadError")}
+                  onRetry={() => void historyQuery.refetch()}
+                  retrying={historyQuery.isFetching}
+                />
               ) : history.length === 0 ? (
                 <p className="px-2 py-3 text-xs text-muted-foreground">
                   No history yet.
@@ -767,9 +777,11 @@ function ExtensionHistoryPopover({
                   Loading diff
                 </div>
               ) : detailQuery.isError ? (
-                <div className="p-4 text-xs text-destructive">
-                  Could not load this version.
-                </div>
+                <ExtensionQueryErrorState
+                  message={t("extensions.versionLoadError")}
+                  onRetry={() => void detailQuery.refetch()}
+                  retrying={detailQuery.isFetching}
+                />
               ) : compactedDiff.length === 0 ? (
                 <div className="p-4 text-xs text-muted-foreground">
                   No content changes in this version.
@@ -802,6 +814,7 @@ function ExtensionHistoryPopover({
 }
 
 export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
+  const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
@@ -1112,6 +1125,8 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     failureReason: extensionFailureReason,
     isFetching,
     isLoading,
+    isError,
+    refetch,
   } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
@@ -1234,6 +1249,17 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         </div>
         <div className="flex-1 bg-muted/20 animate-pulse" />
       </div>
+    );
+  }
+
+  if (isError && !latestFetchDenied) {
+    return (
+      <ExtensionQueryErrorState
+        className="h-full min-h-[20rem]"
+        message={t("extensions.loadError")}
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
     );
   }
 
@@ -1414,6 +1440,7 @@ function ToolMoreMenu({
   sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
@@ -1423,17 +1450,20 @@ function ToolMoreMenu({
     onOpenChange?.(v);
   };
 
-  const { data: slots = [] } = useQuery<SlotDeclaration[]>({
+  const slotsQuery = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load extension slots (${res.status})`);
+      }
       return res.json();
     },
     enabled: open,
   });
+  const slots = slotsQuery.data ?? [];
 
   const closeMenu = () => {
     setOpenAndNotify(false);
@@ -1497,7 +1527,15 @@ function ToolMoreMenu({
           <>
             <div className="px-3 py-2 border-b border-border/40">
               <p className="text-[12px] font-medium">Appears in</p>
-              {slots.length === 0 ? (
+              {slotsQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  className="px-0"
+                  message={t("extensions.widgetAreasLoadError")}
+                  onRetry={() => void slotsQuery.refetch()}
+                  retrying={slotsQuery.isFetching}
+                />
+              ) : slots.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                   Not installed in any widget areas. Ask the agent to add it
                   somewhere.

@@ -7,6 +7,7 @@
 import { IconFiles } from "@tabler/icons-react";
 import { memo, useMemo, useState } from "react";
 
+import { AnimatedCollapse } from "../chat/tool-call-display.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { cn } from "../utils.js";
 import { EditCell } from "./EditCell.js";
@@ -174,29 +175,31 @@ export const FilesChangedSummary = memo(function FilesChangedSummary({
               </span>
             </button>
 
-            {isExpanded && part.type === "tool-call" && part.structuredMeta && (
-              <div className="pl-4">
-                {entry.kind === "edit" ? (
-                  <EditCell
-                    meta={
-                      part.structuredMeta as unknown as Parameters<
-                        typeof EditCell
-                      >[0]["meta"]
-                    }
-                    isRunning={false}
-                  />
-                ) : (
-                  <WriteCell
-                    meta={
-                      part.structuredMeta as unknown as Parameters<
-                        typeof WriteCell
-                      >[0]["meta"]
-                    }
-                    isRunning={false}
-                  />
-                )}
-              </div>
-            )}
+            <AnimatedCollapse open={isExpanded}>
+              {part.type === "tool-call" && part.structuredMeta && (
+                <div className="pl-4">
+                  {entry.kind === "edit" ? (
+                    <EditCell
+                      meta={
+                        part.structuredMeta as unknown as Parameters<
+                          typeof EditCell
+                        >[0]["meta"]
+                      }
+                      isRunning={false}
+                    />
+                  ) : (
+                    <WriteCell
+                      meta={
+                        part.structuredMeta as unknown as Parameters<
+                          typeof WriteCell
+                        >[0]["meta"]
+                      }
+                      isRunning={false}
+                    />
+                  )}
+                </div>
+              )}
+            </AnimatedCollapse>
           </div>
         );
       })}

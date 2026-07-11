@@ -27,31 +27,33 @@ export function useDashboardViews(dashboardId: string | undefined) {
   const queryClient = useQueryClient();
   const queryKey = ["dashboard-views", dashboardId];
 
-  const { data: views = [], isLoading } = useQuery({
+  const viewsQuery = useQuery({
     queryKey,
     queryFn: async (): Promise<DashboardView[]> => {
       if (!dashboardId) return [];
       const res = await fetchWithAuth(
         `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Load failed: ${res.status}`);
       const data = await res.json();
       return data.views ?? [];
     },
     enabled: !!dashboardId,
     staleTime: 30_000,
   });
+  const views = viewsQuery.data ?? [];
 
   const { mutateAsync: saveView } = useMutation({
     mutationFn: async (view: DashboardView) => {
       if (!dashboardId) return;
-      await fetchWithAuth(
+      const res = await fetchWithAuth(
         `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
         {
           method: "POST",
           body: JSON.stringify(view),
         },
       );
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -63,10 +65,11 @@ export function useDashboardViews(dashboardId: string | undefined) {
   const { mutateAsync: deleteView } = useMutation({
     mutationFn: async (viewId: string) => {
       if (!dashboardId) return;
-      await fetchWithAuth(
+      const res = await fetchWithAuth(
         `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
         { method: "DELETE" },
       );
+      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -74,7 +77,14 @@ export function useDashboardViews(dashboardId: string | undefined) {
     },
   });
 
-  return { views, isLoading, saveView, deleteView };
+  return {
+    views,
+    isLoading: viewsQuery.isLoading,
+    error: viewsQuery.error,
+    refetch: viewsQuery.refetch,
+    saveView,
+    deleteView,
+  };
 }
 
 /**

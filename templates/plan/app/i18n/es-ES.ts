@@ -500,6 +500,16 @@ const messages = {
       message: 'No se pudo leer la carpeta del plan local "{{slug}}".',
       title: "Plan local no encontrado",
     },
+    localPlanConnection: {
+      promptTitle: "Conectarse a este plan local",
+      promptMessage:
+        "Este plan permanece en tu ordenador. Plan necesita permiso del navegador para leerlo desde el puente local.",
+      deniedTitle: "El acceso a la red local está bloqueado",
+      deniedMessage:
+        "Abre la configuración del sitio de Plan en el navegador, permite el acceso a la red local y vuelve a comprobarlo.",
+      connect: "Conectarse al plan local",
+      checkAgain: "Comprobar de nuevo",
+    },
     loggedOut: {
       copied: "copiado",
       copy: "Copiar",

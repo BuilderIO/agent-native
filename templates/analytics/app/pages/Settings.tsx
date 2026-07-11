@@ -6,6 +6,7 @@ import {
   useAgentSettingsTabs,
   useBuilderConnectFlow,
   useBuilderStatus,
+  useSession,
   useT,
   type SettingsSearchEntry,
   type SettingsTabItem,
@@ -25,7 +26,6 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
-import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,7 +120,11 @@ async function saveS3StorageSettings(
 }
 
 export default function Settings() {
-  const { auth } = useAuth();
+  // Settings is also reachable directly from the full-page agent surface.
+  // Read the session from the framework's owning AppProviders boundary rather
+  // than the template-local compatibility context, which may be remounted
+  // independently during that route transition.
+  const { session: auth } = useSession();
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
 

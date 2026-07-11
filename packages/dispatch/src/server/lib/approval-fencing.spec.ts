@@ -5,11 +5,15 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Each test runs real migrations against a fresh SQLite file; under full
-// workspace concurrency that setup can exceed the 5s default timeout.
-vi.setConfig({ testTimeout: 30_000 });
+// workspace concurrency (and a shared machine running other suites) that
+// setup can far exceed the 5s default, so give it generous headroom. The
+// tests themselves complete in a few seconds uncontended.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const ownerEmail = "owner+approval-fencing@example.test";
 const orgId = "org_approval_fencing";
+const otherOwnerEmail = "owner+approval-fencing-other@example.test";
+const otherOrgId = "org_approval_fencing_other";
 
 const originalEnv = {
   APP_NAME: process.env.APP_NAME,
@@ -209,6 +213,113 @@ describe("dispatch approval request status fencing", () => {
       expect(second?.reviewedAt).toBe(first?.reviewedAt);
       expect(await rejectedAuditCount()).toBe(1);
     });
+  });
+
+  it("does not let a caller from a different tenant approve another tenant's request", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    const requestId = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      async () => {
+        const created = await dispatchStore.createApprovalRequest({
+          changeType: "approval-policy.update",
+          targetType: "dispatch-settings",
+          targetId: "dispatch-approval-policy",
+          summary: "Enable approval policy for tenant A",
+          payload: { enabled: true, approverEmails: ["reviewer@example.test"] },
+        });
+        return (created as any).id as string;
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: otherOwnerEmail, orgId: otherOrgId },
+      async () => {
+        await expect(dispatchStore.approveRequest(requestId)).rejects.toThrow(
+          "Approval request not found",
+        );
+      },
+    );
+
+    const rows = await exec.execute({
+      sql: "SELECT status, reviewed_by, reviewed_at FROM dispatch_approval_requests WHERE id = ?",
+      args: [requestId],
+    });
+    expect(rows.rows[0]).toMatchObject({
+      status: "pending",
+      reviewed_by: null,
+      reviewed_at: null,
+    });
+
+    const approvedAuditRows = await exec.execute({
+      sql: "SELECT COUNT(*) as count FROM dispatch_audit_events WHERE action = 'approval.approved' AND target_id = ?",
+      args: [requestId],
+    });
+    expect(Number((approvedAuditRows.rows[0] as any).count)).toBe(0);
+
+    // Confirm no side effect landed either: the policy change must not have
+    // been applied to tenant A's org settings by the foreign-tenant attempt.
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      expect(await dispatchStore.getApprovalPolicy()).toEqual({
+        enabled: false,
+        approverEmails: [],
+      });
+    });
+  });
+
+  it("does not let a caller from a different tenant reject another tenant's request", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    const requestId = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      async () => {
+        const created = await dispatchStore.createApprovalRequest({
+          changeType: "approval-policy.update",
+          targetType: "dispatch-settings",
+          targetId: "dispatch-approval-policy",
+          summary: "Enable approval policy for tenant A (reject case)",
+          payload: { enabled: true, approverEmails: ["reviewer@example.test"] },
+        });
+        return (created as any).id as string;
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: otherOwnerEmail, orgId: otherOrgId },
+      async () => {
+        await expect(
+          dispatchStore.rejectRequest(requestId, "not my call"),
+        ).rejects.toThrow("Approval request not found");
+      },
+    );
+
+    const rows = await exec.execute({
+      sql: "SELECT status, reviewed_by, reviewed_at FROM dispatch_approval_requests WHERE id = ?",
+      args: [requestId],
+    });
+    expect(rows.rows[0]).toMatchObject({
+      status: "pending",
+      reviewed_by: null,
+      reviewed_at: null,
+    });
+
+    const rejectedAuditRows = await exec.execute({
+      sql: "SELECT COUNT(*) as count FROM dispatch_audit_events WHERE action = 'approval.rejected' AND target_id = ?",
+      args: [requestId],
+    });
+    expect(Number((rejectedAuditRows.rows[0] as any).count)).toBe(0);
   });
 });
 

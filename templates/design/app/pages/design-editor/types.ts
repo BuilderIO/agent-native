@@ -34,3 +34,28 @@ export type DesignLeftPanel =
   | "code";
 
 export const SHOW_DESIGN_CODE_LEFT_PANEL = true;
+
+/** Zoom percentage applied when entering single-screen (focused) editor mode. */
+export const FOCUSED_SCREEN_ZOOM = 100;
+
+export interface DesignFile {
+  id: string;
+  filename: string;
+  fileType: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+
+export interface DesignData {
+  id: string;
+  title: string;
+  description?: string;
+  projectType: string;
+  designSystemId?: string | null;
+  data?: string | null;
+  accessRole?: DesignAccessRole;
+  files: DesignFile[];
+}

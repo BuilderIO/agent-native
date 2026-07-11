@@ -21,6 +21,7 @@ import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
@@ -247,6 +248,43 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("caps the aggregate text from multiple attachments", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Compare these files",
+      attachments: [
+        {
+          type: "file",
+          name: "first.md",
+          contentType: "text/markdown",
+          text: "A".repeat(60_000),
+        },
+        {
+          type: "file",
+          name: "second.md",
+          contentType: "text/markdown",
+          text: "B".repeat(60_000),
+        },
+        {
+          type: "file",
+          name: "third.md",
+          contentType: "text/markdown",
+          text: "C".repeat(10_000),
+        },
+      ],
+    });
+
+    const text = content[0].type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("B".repeat(20_000));
+    expect(text).not.toContain("B".repeat(20_001));
+    expect(text).toContain(
+      "[Attachment content omitted from the initial request; 10,000 characters available.",
+    );
+    expect(text).toContain(
+      'Use the `read-attachment` tool with name="third.md" to read the rest.',
+    );
   });
 
   it("adds binary file attachments before the prompt text", () => {
@@ -638,7 +676,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(writeTool.description).toContain("Plan mode blocked");
   });
 
-  it("promotes common provider tools into lean initial catalogs when available", () => {
+  it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         starter: actionEntry({ readOnly: true }),
@@ -662,17 +700,63 @@ describe("buildUserContentWithAttachments", () => {
 
     expect(initialTools).toContain("starter");
     expect(initialTools).toContain("tool-search");
-    expect(initialTools).toContain("provider-api-request");
-    expect(initialTools).toContain("provider-api-docs");
-    expect(initialTools).toContain("run-code");
-    expect(initialTools).toContain("get-extension");
-    expect(initialTools).toContain("update-extension");
-    expect(initialTools).toContain("account-deep-dive");
-    expect(initialTools).toContain("hubspot-deals");
-    expect(initialTools).toContain("hubspot-metrics");
-    expect(initialTools).toContain("gong-calls");
-    expect(initialTools).toContain("gcloud");
+    expect(initialTools).not.toContain("provider-api-request");
+    expect(initialTools).not.toContain("provider-api-docs");
+    expect(initialTools).not.toContain("run-code");
+    expect(initialTools).not.toContain("get-extension");
+    expect(initialTools).not.toContain("update-extension");
+    expect(initialTools).not.toContain("account-deep-dive");
+    expect(initialTools).not.toContain("hubspot-deals");
+    expect(initialTools).not.toContain("hubspot-metrics");
+    expect(initialTools).not.toContain("gong-calls");
+    expect(initialTools).not.toContain("gcloud");
     expect(initialTools).not.toContain("ordinary-rare-tool");
+  });
+
+  it("adds universal discovery tools to a configured starter list", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({
+        resources: actionEntry({ readOnly: true }),
+        "docs-search": actionEntry({ readOnly: true }),
+        "get-framework-context": actionEntry({ readOnly: true }),
+        "read-attachment": actionEntry({ readOnly: true }),
+        "mcp__huge__rare-tool": actionEntry({ readOnly: true }),
+      }),
+    );
+
+    expect(
+      filterInitialEngineTools(tools, ["mcp__huge__rare-tool"]).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual([
+      "resources",
+      "docs-search",
+      "get-framework-context",
+      "read-attachment",
+      "mcp__huge__rare-tool",
+      "tool-search",
+    ]);
+  });
+
+  it("records first-request prompt and tool payload sizes without content", () => {
+    const detail = buildFirstRequestPayloadDetail({
+      isFirstRequest: true,
+      systemPrompt: "system",
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      tools: [
+        {
+          name: "hello",
+          description: "Say hello",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      availableToolCount: 500,
+    });
+
+    expect(detail).toContain("first_request_system_chars=6");
+    expect(detail).toContain("first_request_tool_count=1");
+    expect(detail).toContain("first_request_available_tool_count=500");
+    expect(detail).not.toContain("hello");
   });
 
   it("compacts repeated identical tool-search calls within one agent run", async () => {

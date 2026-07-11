@@ -443,6 +443,16 @@ const messages = {
       title: "ローカルプランが見つかりません",
       message: "ローカル プラン フォルダー「{{slug}}」を読み取れませんでした。",
     },
+    localPlanConnection: {
+      promptTitle: "このローカルプランに接続",
+      promptMessage:
+        "このプランはコンピューター上に保存されています。ローカルブリッジから読み取るには、Plan にブラウザーの許可が必要です。",
+      deniedTitle: "ローカルネットワークへのアクセスがブロックされています",
+      deniedMessage:
+        "ブラウザーで Plan のサイト設定を開き、ローカルネットワークへのアクセスを許可してから、もう一度確認してください。",
+      connect: "ローカルプランに接続",
+      checkAgain: "もう一度確認",
+    },
     overview: {
       title: "计划",
       documentCount_other: "{{count}} 个文档",

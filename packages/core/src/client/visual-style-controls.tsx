@@ -336,7 +336,7 @@ export function VisualSwatchControl({
             aria-label={option.label}
             onClick={() => onChange(option.value)}
             className={cn(
-              "size-5 cursor-pointer rounded-md border border-border/70 transition-all hover:scale-105 hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "size-5 cursor-pointer rounded-md border border-border/70 transition-[transform,border-color] hover:scale-105 hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               value === option.value &&
                 "border-foreground/70 ring-2 ring-foreground/40 ring-offset-1 ring-offset-card",
             )}

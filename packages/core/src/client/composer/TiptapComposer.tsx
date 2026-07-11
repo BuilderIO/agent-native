@@ -2750,7 +2750,7 @@ export function TiptapComposer({
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
                     data-agent-composer-slot="send-button"
-                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <IconArrowUp className="h-3.5 w-3.5" />
                   </button>

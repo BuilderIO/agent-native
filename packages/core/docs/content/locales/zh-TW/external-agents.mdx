@@ -136,7 +136,7 @@ OAuth 代幣。 ChatGPT 可以保留已審查或已發布的連線器工具
 工具或 MCP 應用中繼資料更改。如果您仍然有舊的每應用連線器
 與調度、重新整理或重新連線每個過時的連線器一起啟用；正在更新
 Dispatch 不會重寫 ChatGPT 或 Claude 的快取行事曆/郵件/等。
-快照。`mcp:read` / `mcp:write` / `mcp:apps` 範圍與下文
+快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 範圍與下文
 [標準遠端 MCP OAuth](#standard-oauth) 中介紹的相同。
 
 Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遙控器
@@ -283,13 +283,14 @@ OAuth 流程是授權程式碼 + PKCE 和重新整理權杖輪換。存取權杖
 
 目前範圍是：
 
-| 範圍        | 允許                                             |
-| ----------- | ------------------------------------------------ |
-| `mcp:read`  | 唯讀 MCP actions和普通工具/資源發現              |
-| `mcp:write` | 變異 actions 和 `ask-agent` 元工具               |
-| `mcp:apps`  | MCP Apps 資源清單/讀取和行內 UI 渲染（如果支援） |
+| 範圍             | 允許                                             |
+| ---------------- | ------------------------------------------------ |
+| `mcp:read`       | 唯讀 MCP actions和普通工具/資源發現              |
+| `mcp:write`      | 變異 actions 和 `ask-agent` 元工具               |
+| `mcp:apps`       | MCP Apps 資源清單/讀取和行內 UI 渲染（如果支援） |
+| `offline_access` | 重新整理權杖存取權，讓主機保持連線               |
 
-當用戶端請求沒有明確的範圍時，應用程式會授予所有三個範圍，因此連線器的行為類似於瀏覽器授權的連線流。為本機開發人員、後備主機和需要準備貼上設定塊的用戶端保留不記名權杖連線頁面和 `npx @agent-native/core@latest connect --token <token>` 後備。
+當用戶端請求沒有明確的範圍時，應用程式會授予所有四個範圍，因此連線器的行為類似於瀏覽器授權的連線流，並且可以在不再次登入的情況下重新整理存取權。為本機開發人員、後備主機和需要準備貼上設定塊的用戶端保留不記名權杖連線頁面和 `npx @agent-native/core@latest connect --token <token>` 後備。
 
 ## 目錄層 {#catalog-tiers}
 

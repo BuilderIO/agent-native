@@ -617,6 +617,13 @@ export function createIntegrationsPlugin(
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
+    // Keep the app's own actions visible on the first request to the model;
+    // defer the framework additions merged in above (integration memory,
+    // call-agent) behind the tool-search entry `handleWebhook` /
+    // `startGoogleDocsPoller` attach to `actions`. The run loop's mid-run
+    // tool expansion still lets the model discover and call them after a
+    // search — see `filterInitialEngineTools` / `expandActiveTools`.
+    const initialToolNames = Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
@@ -1544,6 +1551,7 @@ export function createIntegrationsPlugin(
                 adapter,
                 systemPrompt: baseSystemPrompt + resources,
                 actions,
+                initialToolNames,
                 model,
                 apiKey: getApiKey(),
                 engine: options?.engine,
@@ -2385,6 +2393,7 @@ export function createIntegrationsPlugin(
             // where providers such as Discord enforce a 3-second deadline.
             systemPrompt: baseSystemPrompt,
             actions,
+            initialToolNames,
             model,
             apiKey: getApiKey(),
             engine: options?.engine,
@@ -2509,6 +2518,7 @@ export function createIntegrationsPlugin(
         void startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
+          initialToolNames,
           model: model ?? "",
           apiKey: getApiKey(),
           ownerEmail: "integration@google-docs",

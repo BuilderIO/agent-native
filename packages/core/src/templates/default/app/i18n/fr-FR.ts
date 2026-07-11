@@ -383,6 +383,12 @@ const messages = {
     contentLabel: "Contenu",
     previewTitle: "Aperçu des extensions",
     previewEmpty: "L'aperçu apparaîtra ici",
+    loadError: "Impossible de charger les extensions.",
+    widgetsLoadError: "Impossible de charger les widgets.",
+    widgetAreasLoadError: "Impossible de charger les zones de widgets.",
+    historyLoadError: "Impossible de charger l'historique de l'extension.",
+    versionLoadError: "Impossible de charger cette version de l'extension.",
+    retry: "Réessayer",
   },
   org: {
     createTitle: "Créez votre organisation",

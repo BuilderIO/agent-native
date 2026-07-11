@@ -1510,6 +1510,7 @@ const esES = {
     sharingPrivacy: "Compartir y privacidad",
     trackingAnalytics: "Tracking y analítica",
     auditLog: "Registro de auditoría",
+    doctorCodeChecks: "Doctor (verificaciones de código)",
     observability: "Observabilidad",
     observationalMemory: "Memoria observacional",
     ciEvalGate: "Puerta de evals en CI",

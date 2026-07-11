@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -23,16 +24,23 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
+    const me = getCurrentOwnerEmail();
+    const meLower = me.toLowerCase();
+
     const [invite] = await db
       .select({
         id: orgInvitations.id,
         orgId: orgInvitations.orgId,
+        email: orgInvitations.email,
       })
       .from(orgInvitations)
       .where(eq(orgInvitations.id, args.token))
       .limit(1);
     if (!invite) {
       return { declined: false, error: "Invite not found." };
+    }
+    if (invite.email.trim().toLowerCase() !== meLower) {
+      throw new Error("This invite was sent to a different email address.");
     }
 
     await db

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
@@ -17,6 +18,7 @@ export default defineAction({
   run: async (args) => {
     const source = await getEventTypeById(args.id);
     if (!source) throw new Error("Event type not found");
+    await assertAccess("event-type", args.id, "editor");
     return {
       eventType: await createEventType({
         ownerEmail: source.teamId ? undefined : currentUserEmail(),

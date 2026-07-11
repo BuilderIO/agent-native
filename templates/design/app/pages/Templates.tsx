@@ -24,6 +24,7 @@ import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import {
   AlertDialog,
@@ -91,10 +92,10 @@ export default function Templates() {
   const anchorRef = useRef<HTMLElement | null>(null);
   anchorRef.current = anchorElRef.current;
 
-  const { data, isLoading } = useActionQuery<TemplatesResult>(
-    "list-design-templates",
-    { includePreview: "true" },
-  );
+  const { data, isLoading, isError, isFetching, refetch } =
+    useActionQuery<TemplatesResult>("list-design-templates", {
+      includePreview: "true",
+    });
   const createMutation = useActionMutation("create-design-from-template");
   const deleteMutation = useActionMutation("delete-design-template");
 
@@ -255,6 +256,11 @@ export default function Templates() {
 
         {isLoading ? (
           <TemplateGridSkeleton />
+        ) : isError ? (
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : (
           <div className="flex flex-col gap-10">
             <TemplateSection

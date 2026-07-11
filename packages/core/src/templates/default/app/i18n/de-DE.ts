@@ -378,6 +378,12 @@ const messages = {
     contentLabel: "Inhalt",
     previewTitle: "Erweiterungsvorschau",
     previewEmpty: "Hier wird eine Vorschau angezeigt",
+    loadError: "Erweiterungen konnten nicht geladen werden.",
+    widgetsLoadError: "Widgets konnten nicht geladen werden.",
+    widgetAreasLoadError: "Widget-Bereiche konnten nicht geladen werden.",
+    historyLoadError: "Der Erweiterungsverlauf konnte nicht geladen werden.",
+    versionLoadError: "Diese Erweiterungsversion konnte nicht geladen werden.",
+    retry: "Erneut versuchen",
   },
   org: {
     createTitle: "Erstellen Sie Ihre Organisation",

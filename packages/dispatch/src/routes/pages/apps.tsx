@@ -25,6 +25,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
@@ -75,20 +76,22 @@ export default function AppsRoute() {
   const t = useT();
   const [showHidden, setShowHidden] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const { data: apps = [], isLoading: appsLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false, includeArchived: true },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+    includeArchived: true,
+  });
+  const { data: apps = [], isLoading: appsLoading } = appsQuery;
   const { data: workspace } = useActionQuery(
     "get-workspace-info",
     {},
     { staleTime: 60_000 },
   );
-  const { data: templates = [], isLoading: templatesLoading } = useActionQuery(
+  const templatesQuery = useActionQuery(
     "list-available-workspace-templates",
     {},
     { refetchInterval: 5_000 },
   );
+  const { data: templates = [], isLoading: templatesLoading } = templatesQuery;
 
   const ws = workspace as WorkspaceInfo | undefined;
   const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
@@ -152,7 +155,12 @@ export default function AppsRoute() {
             ) : null}
           </div>
 
-          {showAppSkeletons ? (
+          {appsQuery.isError ? (
+            <ActionQueryError
+              error={appsQuery.error}
+              onRetry={() => void appsQuery.refetch()}
+            />
+          ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
           ) : visibleApps.length > 0 ? (
             <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -165,7 +173,12 @@ export default function AppsRoute() {
           )}
         </section>
 
-        {typedTemplates.length > 0 || templatesLoading ? (
+        {templatesQuery.isError ? (
+          <ActionQueryError
+            error={templatesQuery.error}
+            onRetry={() => void templatesQuery.refetch()}
+          />
+        ) : typedTemplates.length > 0 || templatesLoading ? (
           <Collapsible open={templatesOpen} onOpenChange={setTemplatesOpen}>
             <section className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">

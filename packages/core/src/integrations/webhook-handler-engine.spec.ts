@@ -43,6 +43,32 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) and conflict with the narrower engine
+// mock below. This only needs to prove webhook-handler.ts WIRES the filter
+// with the right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
   getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
   getOwnerApiKey: getOwnerApiKeyMock,
@@ -52,6 +78,7 @@ vi.mock("../agent/production-agent.js", () => ({
       : engineName,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
@@ -1552,5 +1579,81 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+  });
+
+  it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    // Only this test needs a real-shaped action->tool conversion — every
+    // other test in this file relies on the `[]` stub set in `beforeEach`
+    // and doesn't inspect `tools`/`availableTools`.
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "ok" });
+    });
+
+    const noopTool = (description: string) => ({
+      tool: {
+        description,
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-tool-filter" }), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {
+        "template-action": noopTool("A template/app action"),
+        "call-agent": noopTool("Delegate to another A2A agent"),
+        "list-integration-memory": noopTool("List integration memory"),
+      },
+      // Mirrors what `createIntegrationsPlugin` passes: the app's own
+      // action names, not the framework additions merged into `actions`.
+      initialToolNames: ["template-action"],
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames: string[] = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames: string[] = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    // Deferred framework additions never reach the first request...
+    expect(firstRequestToolNames).not.toContain("call-agent");
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    // ...but the template action, and tool-search itself, do.
+    expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
+    // ...while the full registry (used for mid-run tool-search expansion)
+    // still contains everything, so the model can discover and call the
+    // deferred tools after a tool-search hit.
+    expect(availableToolNames).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
+    // The executable registry passed through for real tool dispatch must
+    // also include tool-search so a model-issued call to it can run.
+    expect(Object.keys(call.actions).sort()).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
   });
 });

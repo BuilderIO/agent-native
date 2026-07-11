@@ -5,7 +5,6 @@ import {
   ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  RequireSession,
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
@@ -439,17 +438,16 @@ export default function Root() {
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
         toaster={MAIL_TOASTER}
+        sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <RequireSession bypass={isMcpEmbedSurface()}>
-          <AutoFocus />
-          <AutomationTrigger />
-          <VisibilityRefresh />
-          <DbSyncSetup />
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </RequireSession>
+        <AutoFocus />
+        <AutomationTrigger />
+        <VisibilityRefresh />
+        <DbSyncSetup />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
       </AppProviders>
     </AppToolkitProvider>
   );

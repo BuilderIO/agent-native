@@ -59,6 +59,8 @@ const messages = {
     optional: "Optional",
     saveChanges: "Save Changes",
     saving: "Saving...",
+    loadFailed: "Couldn't load this data",
+    retry: "Retry",
   },
   seo: {
     homeTitle: "Agent-Native Macros - Open Source AI calorie and macro tracker",

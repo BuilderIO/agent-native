@@ -1,5 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 
 export function meta() {
@@ -7,7 +8,8 @@ export function meta() {
 }
 
 export default function AuditRoute() {
-  const { data } = useActionQuery("list-dispatch-audit", { limit: 100 });
+  const query = useActionQuery("list-dispatch-audit", { limit: 100 });
+  const { data } = query;
 
   return (
     <DispatchShell
@@ -15,27 +17,34 @@ export default function AuditRoute() {
       description="Change history for routes, settings, and approvals."
     >
       <section className="rounded-2xl border bg-card p-5">
-        <div className="space-y-3">
-          {(data || []).map((event: any) => (
-            <div
-              key={event.id}
-              className="rounded-xl border bg-muted/30 px-4 py-3"
-            >
-              <div className="text-sm font-medium text-foreground">
-                {event.summary}
+        {query.isError ? (
+          <ActionQueryError
+            error={query.error}
+            onRetry={() => void query.refetch()}
+          />
+        ) : (
+          <div className="space-y-3">
+            {(data || []).map((event: any) => (
+              <div
+                key={event.id}
+                className="rounded-xl border bg-muted/30 px-4 py-3"
+              >
+                <div className="text-sm font-medium text-foreground">
+                  {event.summary}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {event.actor} · {event.action} ·{" "}
+                  {new Date(event.createdAt).toLocaleString()}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {event.actor} · {event.action} ·{" "}
-                {new Date(event.createdAt).toLocaleString()}
+            ))}
+            {(data?.length || 0) === 0 && (
+              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                No audit entries yet.
               </div>
-            </div>
-          ))}
-          {(data?.length || 0) === 0 && (
-            <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              No audit entries yet.
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </section>
     </DispatchShell>
   );

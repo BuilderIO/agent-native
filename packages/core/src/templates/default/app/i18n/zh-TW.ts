@@ -350,6 +350,12 @@ const messages = {
     contentLabel: "內容",
     previewTitle: "擴充功能預覽",
     previewEmpty: "預覽將出現在這裡",
+    loadError: "無法載入擴充功能。",
+    widgetsLoadError: "無法載入小工具。",
+    widgetAreasLoadError: "無法載入小工具區域。",
+    historyLoadError: "無法載入擴充功能歷史記錄。",
+    versionLoadError: "無法載入此擴充功能版本。",
+    retry: "重試",
   },
   org: {
     createTitle: "建立您的組織",

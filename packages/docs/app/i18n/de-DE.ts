@@ -1512,6 +1512,7 @@ const deDE = {
     sharingPrivacy: "Teilen und Datenschutz",
     trackingAnalytics: "Tracking und Analytics",
     auditLog: "Audit-Log",
+    doctorCodeChecks: "Doctor (Code-Prüfungen)",
     observability: "Beobachtbarkeit",
     observationalMemory: "Beobachtungsspeicher",
     ciEvalGate: "CI-Eval-Gate",

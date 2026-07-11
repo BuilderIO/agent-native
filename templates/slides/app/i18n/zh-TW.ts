@@ -320,6 +320,8 @@ const messages = {
     hideResolved: "隱藏已解決",
     showResolved: "顯示 {{count}} 條已解決",
     noCommentsYet: "還沒有評論",
+    loadFailed: "無法載入評論",
+    retry: "重試",
     clickToAddComment: "點選新增評論",
     selectSlideToAdd: "選取幻燈片以新增評論",
   },
@@ -526,6 +528,9 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    loadFailed: "無法載入內容",
+    loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
+    retry: "重試",
     decksTitle: "幻燈片",
     newDeck: "新建幻燈片",
     deckLengthQuestion: "這份幻燈片需要多長？",

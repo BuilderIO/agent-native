@@ -691,11 +691,18 @@ export function PanelSection({
           <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
-      {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
-          {children}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
+        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+      >
+        <div className="overflow-hidden">
+          {children ? (
+            <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
+              {children}
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

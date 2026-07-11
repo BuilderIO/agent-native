@@ -129,20 +129,80 @@ describe("dashboard catalog", () => {
     }
   });
 
-  it("ships a parseable Agent LLM Observability first-party dashboard", () => {
-    const entry = getDashboardCatalogEntry("agent-observability-llm");
+  it("includes parseable LLM observability panels in the first-party dashboard", () => {
+    expect(getDashboardCatalogEntry("agent-observability-llm")).toBeNull();
+    expect(loadDashboardSeed("agent-observability-llm")).toBeNull();
+
+    const entry = getDashboardCatalogEntry("first-party-template-traffic");
     expect(entry).not.toBeNull();
-    expect(entry?.defaultDashboardId).toBe("agent-observability-llm");
+    expect(entry?.defaultDashboardId).toBe(
+      "agent-native-templates-first-party",
+    );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(10);
+    expect(entry?.panelCount).toBe(51);
 
     const config = cloneDashboardConfig(entry!);
-    expect(config.name).toBe("Agent LLM Observability");
-    expect(config.panels).toHaveLength(10);
+    expect(config.name).toBe("Agent Native Templates (First-party)");
+    expect(config.panels).toHaveLength(54);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(54);
+    const observabilityPanelIds = new Set([
+      "llm-generations-30d",
+      "llm-cost-30d",
+      "llm-avg-latency-30d",
+      "llm-error-rate-30d",
+      "llm-cost-over-time",
+      "llm-cost-by-model",
+      "llm-tokens-over-time",
+      "llm-latency-by-model",
+      "llm-feedback-responses-30d",
+      "llm-positive-feedback-rate-30d",
+      "llm-feedback-over-time",
+      "llm-feedback-by-model",
+      "llm-inferred-sentiment-30d",
+      "llm-inferred-sentiment-over-time",
+      "llm-inferred-sentiment-by-model",
+      "top-expensive-llm-runs",
+      "recent-llm-errors",
+    ]);
+    const observabilityPanels = config.panels.filter((panel) =>
+      observabilityPanelIds.has(panel.id),
+    );
+    expect(observabilityPanels).toHaveLength(17);
     expect(config.panels.some((panel) => panel.id === "llm-cost-30d")).toBe(
       true,
     );
-    for (const panel of config.panels) {
+    expect(
+      config.panels.some((panel) => panel.id === "llm-feedback-by-model"),
+    ).toBe(true);
+    const feedbackPanels = config.panels.filter(
+      (panel) =>
+        panel.id.startsWith("llm-feedback-") ||
+        panel.id === "llm-positive-feedback-rate-30d",
+    );
+    expect(feedbackPanels).toHaveLength(4);
+    for (const panel of feedbackPanels) {
+      expect(panel.sql).toContain("event_name = '$ai_feedback'");
+      expect(panel.sql).toContain("'positive', 'negative'");
+      expect(panel.sql.toLowerCase()).not.toContain("inferred");
+    }
+    const inferredSentimentPanels = config.panels.filter((panel) =>
+      panel.id.startsWith("llm-inferred-sentiment-"),
+    );
+    expect(inferredSentimentPanels).toHaveLength(3);
+    expect(
+      inferredSentimentPanels.some(
+        (panel) => panel.id === "llm-inferred-sentiment-by-model",
+      ),
+    ).toBe(true);
+    for (const panel of inferredSentimentPanels) {
+      expect(panel.title).toContain("Inferred");
+      expect(panel.sql).toContain("event_name = '$ai_sentiment'");
+      expect(panel.sql).toContain("'positive', 'neutral', 'negative'");
+      expect(panel.sql).toContain("->> 'method'");
+      expect(panel.sql).not.toContain("event_name = '$ai_feedback'");
+      expect(panel.config?.description?.toLowerCase()).toContain("inferred");
+    }
+    for (const panel of observabilityPanels) {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
     }

@@ -12,6 +12,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import { pathToFileURL } from "node:url";
 
 import {
   attachGatewaySocketErrorSink,
@@ -40,6 +41,12 @@ interface TemplateApp {
   ready?: boolean;
   readinessProbe?: Promise<void>;
   lastActivityAt?: number;
+  // Last time this app returned (or was probed as returning) a non-5xx
+  // response. Initialized to spawn time so a fresh cold boot is never
+  // mistaken for a stuck/stranded server. Drives both the stuck-app restart
+  // cap in `failAppStartupTimeout` and the permanent-503 self-heal in
+  // `dispatch()`.
+  lastNon5xxAt?: number;
   openSockets?: number;
   evicting?: boolean;
 }
@@ -54,10 +61,22 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
-const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 15_000;
+const DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const EVICT_SWEEP_MS = 30_000;
+// A child that is alive and already accepting TCP connections is very likely
+// mid dep-optimization or rebuilding after a concurrent edit (both can
+// legitimately take minutes under CPU contention) rather than actually stuck.
+// Only escalate to a tree-kill + restart once it has gone this long without
+// producing a single non-5xx response.
+const STUCK_APP_RESTART_MS = 300_000;
+// Nitro's dev env-runner has a known failure mode where it gives up after a
+// few worker crashes and serves 5xx for every request forever. Detect that by
+// tracking how long it has been since the app last returned a non-5xx
+// response and force a restart once it crosses this threshold.
+const PERSISTENT_5XX_RESTART_MS = 75_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
 const DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS = ["assets"];
@@ -145,6 +164,8 @@ Options:
                             switching (default: off / truly lazy)
   --no-prewarm              No-op alias (prewarm is already off by default)
   --prewarm-concurrency=N   Max parallel Vite spawns during prewarm (default 2)
+  --watch-core-dist         Rebuild core dist in the background (normally
+                            unnecessary because monorepo Vite aliases core src)
   --open                    Open the gateway URL in the browser on ready
   --no-open                 (legacy / no-op — auto-open is off by default)
   --no-kill                 Do not kill stale processes on gateway/template ports
@@ -293,16 +314,29 @@ const shouldOpen =
   process.env.WORKSPACE_NO_OPEN !== "1" &&
   !isHeadlessEnv;
 const shouldKill = !hasFlag("--no-kill");
+const shouldWatchCoreDist =
+  hasFlag("--watch-core-dist") ||
+  readBooleanEnv(process.env.WORKSPACE_WATCH_CORE_DIST) === true;
 const gatewayHost = process.env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
 const requestedGatewayPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || DEFAULT_GATEWAY_PORT,
 );
 const proxyReadyTimeoutMs = Number(
-  process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+  process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 90_000,
+);
+const stuckAppRestartMs = Number(
+  process.env.WORKSPACE_STUCK_APP_RESTART_MS ?? STUCK_APP_RESTART_MS,
+);
+const persistent5xxRestartMs = Number(
+  process.env.WORKSPACE_PERSISTENT_5XX_RESTART_MS ?? PERSISTENT_5XX_RESTART_MS,
 );
 const proxyResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
     DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
+);
+const proxyBrowserAssetResponseTimeoutMs = Number(
+  process.env.WORKSPACE_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS ??
+    DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS,
 );
 const proxyNonHtmlResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS ??
@@ -530,6 +564,42 @@ function wantsHtml(req: http.IncomingMessage): boolean {
   const accept = firstHeaderValue(req.headers.accept);
   if (!accept) return false;
   return accept.includes("text/html");
+}
+
+const BROWSER_ASSET_DESTINATIONS = new Set([
+  "audioworklet",
+  "font",
+  "image",
+  "manifest",
+  "paintworklet",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "style",
+  "track",
+  "video",
+  "worker",
+]);
+
+export function isBrowserAssetDestination(
+  destination: string | string[] | undefined,
+): boolean {
+  const value = Array.isArray(destination) ? destination[0] : destination;
+  return value ? BROWSER_ASSET_DESTINATIONS.has(value.toLowerCase()) : false;
+}
+
+function isBrowserAssetRequest(req: http.IncomingMessage): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  return isBrowserAssetDestination(req.headers["sec-fetch-dest"]);
+}
+
+export function selectProxyResponseTimeout(
+  request: { html: boolean; browserAsset: boolean },
+  timeouts: { html: number; browserAsset: number; other: number },
+): number {
+  if (request.html) return timeouts.html;
+  if (request.browserAsset) return timeouts.browserAsset;
+  return timeouts.other;
 }
 
 function renderStartingApp(app: TemplateApp): string {
@@ -779,15 +849,58 @@ async function waitForHttpReady(
   return false;
 }
 
+/**
+ * The single place an app transitions into the "ready" state: readiness-probe
+ * success, a proxied response with a non-5xx status, and upgrade (WebSocket)
+ * readiness all funnel through here. Resetting `restartAttempts` only on an
+ * actual successful serve (rather than on a fixed post-spawn timer) is what
+ * lets backoff keep escalating for an app that fails on every attempt.
+ */
+export function markAppReady(app: TemplateApp): void {
+  app.ready = true;
+  app.lastNon5xxAt = Date.now();
+  app.restartAttempts = 0;
+}
+
+/**
+ * Pure decision for whether a readiness-timeout should escalate all the way to
+ * a tree-kill + restart, versus simply waiting longer. Extracted so the matrix
+ * (dead port always restarts; a live port only restarts once it has been
+ * stuck for `stuckMs` with no non-5xx response) is unit-testable without
+ * spawning real processes.
+ */
+export function shouldRestartStuckApp(input: {
+  portOpen: boolean;
+  lastNon5xxAt: number;
+  now: number;
+  stuckMs: number;
+}): boolean {
+  if (!input.portOpen) return true;
+  return input.now - input.lastNon5xxAt > input.stuckMs;
+}
+
+/**
+ * Pure decision backing the permanent-503 self-heal: once an app has gone
+ * `restartMs` without a single non-5xx response, a run of 5xx responses is
+ * treated as a stranded dev-server runner rather than a transient blip.
+ */
+export function shouldRestartPersistent5xx(input: {
+  lastNon5xxAt: number;
+  now: number;
+  restartMs: number;
+}): boolean {
+  return input.now - input.lastNon5xxAt > input.restartMs;
+}
+
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
   app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
     .then((ready) => {
       if (ready) {
-        app.ready = true;
+        markAppReady(app);
         return;
       }
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
     })
     .finally(() => {
       app.readinessProbe = undefined;
@@ -799,7 +912,7 @@ function ensureReadinessProbe(app: TemplateApp): void {
  * socket past the timeout evicts; within the timeout does not) is testable in
  * isolation. `idleTimeoutMs <= 0` disables eviction entirely.
  */
-function shouldEvict(input: {
+export function shouldEvict(input: {
   lastActivityAt: number;
   openSockets: number;
   now: number;
@@ -950,6 +1063,11 @@ function startApp(app: TemplateApp): void {
   app.outputTail = undefined;
   app.evicting = false;
   app.lastActivityAt = Date.now();
+  // Seed the persistent-5xx/stuck-app clock at spawn time so a fresh cold
+  // boot (which necessarily has no non-5xx response yet) is never mistaken
+  // for a stranded runner or a stuck compile before it has had a chance to
+  // serve anything.
+  app.lastNon5xxAt = Date.now();
   app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
@@ -998,10 +1116,6 @@ function startApp(app: TemplateApp): void {
 
   app.process = child;
   const prefix = colorPrefix(app.id);
-  const stableTimer = setTimeout(() => {
-    app.restartAttempts = 0;
-  }, 5_000);
-  stableTimer.unref();
 
   child.stdout?.on("data", (chunk) => {
     appendAppOutputTail(
@@ -1021,7 +1135,6 @@ function startApp(app: TemplateApp): void {
     );
   });
   child.on("exit", (code) => {
-    clearTimeout(stableTimer);
     const wasEvicting = app.evicting;
     app.process = undefined;
     app.ready = false;
@@ -1060,12 +1173,54 @@ function scheduleAppRestart(
   app.restartTimer.unref();
 }
 
-function failAppStartupTimeout(app: TemplateApp): void {
+/**
+ * Called when a readiness probe (HTTP polling or the WebSocket upgrade's
+ * `waitForPort`) times out without the app ever becoming ready. A naive
+ * tree-kill here is wrong when the child is actually alive and its port is
+ * accepting TCP connections — that almost always means Vite is still deep in
+ * dependency optimization or rebuilding after a concurrent edit, which can
+ * legitimately take minutes under CPU contention. Killing there discards the
+ * warm esbuild/optimize cache and restarts the optimize pass from scratch,
+ * producing an infinite kill/cold-boot loop. So: only tree-kill immediately
+ * when the port is actually dead; otherwise wait longer, and only escalate to
+ * a kill once the app has gone `stuckAppRestartMs` with no non-5xx response at
+ * all (see `shouldRestartStuckApp`).
+ */
+async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
   if (app.ready || app.restartTimer) return;
   const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
+  const portOpen = await probePort(app.port);
+  const stillAlive = Boolean(app.process && !app.process.killed);
+  // Re-check after the async gap: another path may have already marked the
+  // app ready or scheduled a restart while we were probing the port.
+  if (app.ready || app.restartTimer) return;
+
+  if (
+    portOpen &&
+    stillAlive &&
+    !shouldRestartStuckApp({
+      portOpen,
+      lastNon5xxAt: app.lastNon5xxAt ?? Date.now(),
+      now: Date.now(),
+      stuckMs: stuckAppRestartMs,
+    })
+  ) {
+    process.stderr.write(
+      `${colorPrefix(app.id)} still compiling/optimizing after ${timeout} ` +
+        `but 127.0.0.1:${app.port} is accepting connections; waiting instead ` +
+        `of restarting\n`,
+    );
+    ensureReadinessProbe(app);
+    return;
+  }
+
   const message =
-    `Timed out waiting ${timeout} for /${app.id} to return ` +
-    `an HTTP response on 127.0.0.1:${app.port}.`;
+    portOpen && stillAlive
+      ? `/${app.id} has not returned a healthy response for ` +
+        `${formatProxyReadyTimeout(stuckAppRestartMs)} despite an open port ` +
+        `on 127.0.0.1:${app.port}; treating it as stuck.`
+      : `Timed out waiting ${timeout} for /${app.id} to return ` +
+        `an HTTP response on 127.0.0.1:${app.port}.`;
   const output = [message, app.outputTail?.trim()]
     .filter(Boolean)
     .join("\n\nLast child output:\n");
@@ -1076,7 +1231,51 @@ function failAppStartupTimeout(app: TemplateApp): void {
     output,
     logMessage: message,
   });
-  app.process?.kill("SIGTERM");
+  killChildProcessTree(app.process, "SIGTERM");
+}
+
+/**
+ * Permanent-503 self-heal: Nitro's dev env-runner has a known state where it
+ * gives up after a few worker crashes and serves 5xx for every request
+ * forever (the response body mentions the runner being unavailable). Because
+ * the gateway only ever saw "a response happened" before, it never noticed —
+ * this is the escalation path that does. Only fires once the app has gone
+ * `persistent5xxRestartMs` with no non-5xx response at all, so a normal
+ * transient 500 during a rebuild never triggers it.
+ */
+async function maybeRecoverPersistent5xx(
+  app: TemplateApp,
+  statusCode: number,
+): Promise<void> {
+  if (app.restartTimer) return;
+  const now = Date.now();
+  if (
+    !shouldRestartPersistent5xx({
+      lastNon5xxAt: app.lastNon5xxAt ?? now,
+      now,
+      restartMs: persistent5xxRestartMs,
+    })
+  ) {
+    return;
+  }
+  const stillAlive = Boolean(app.process && !app.process.killed);
+  if (!stillAlive) return;
+  if (!(await probePort(app.port))) return;
+  // Re-check after the async gap: another path may have already restarted it
+  // or it may have just recovered on its own.
+  if (app.restartTimer) return;
+  process.stderr.write(
+    `${colorPrefix(app.id)} stuck serving ${statusCode} for ` +
+      `${formatProxyReadyTimeout(persistent5xxRestartMs)} with no healthy ` +
+      `response; restarting (likely a stranded dev-server runner)\n`,
+  );
+  app.ready = false;
+  killChildProcessTree(app.process, "SIGTERM");
+  scheduleAppRestart(app, {
+    code: null,
+    output: app.outputTail ?? "",
+    logMessage: `stuck serving ${statusCode} responses with no healthy reply`,
+  });
 }
 
 function proxyHttp(
@@ -1112,9 +1311,51 @@ function proxyHttp(
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
-    const responseTimeoutMs = wantsHtml(req)
-      ? proxyResponseTimeoutMs
-      : proxyNonHtmlResponseTimeoutMs;
+    let bodyTimer: NodeJS.Timeout | undefined;
+    let upstreamResponse: http.IncomingMessage | undefined;
+    // Pin the app alive for the lifetime of this response the same way an
+    // open WebSocket does. Long-lived plain-HTTP streams (SSE from
+    // useDbSync/agent chat) used to look idle to the eviction sweep because
+    // only upgrade sockets counted toward `openSockets` — this let the sweep
+    // SIGTERM an app mid-stream. Guarded like `proxyUpgrade`'s
+    // `releaseSocket` so a close+error double-fire can't double-decrement.
+    let streamSocketReleased = true;
+    const releaseStreamSocket = () => {
+      if (streamSocketReleased) return;
+      streamSocketReleased = true;
+      app.openSockets = Math.max(0, (app.openSockets ?? 1) - 1);
+    };
+    const browserAsset = isBrowserAssetRequest(req);
+    const responseTimeoutMs = selectProxyResponseTimeout(
+      { html: wantsHtml(req), browserAsset },
+      {
+        html: proxyResponseTimeoutMs,
+        browserAsset: proxyBrowserAssetResponseTimeoutMs,
+        other: proxyNonHtmlResponseTimeoutMs,
+      },
+    );
+    const clearBodyTimer = () => {
+      if (bodyTimer) clearTimeout(bodyTimer);
+      bodyTimer = undefined;
+    };
+    const abortUpstream = () => {
+      clearTimeout(responseTimer);
+      clearBodyTimer();
+      upstreamResponse?.destroy();
+      proxyReq.destroy();
+    };
+    const armBodyTimer = () => {
+      if (!wantsHtml(req) && !browserAsset) return;
+      clearBodyTimer();
+      bodyTimer = setTimeout(() => {
+        process.stderr.write(
+          `${colorPrefix(app.id)} response body stalled for ${formatProxyReadyTimeout(responseTimeoutMs)}: ${req.method ?? "GET"} ${req.url ?? "/"}\n`,
+        );
+        upstreamResponse?.destroy();
+        if (!res.destroyed) res.destroy();
+      }, responseTimeoutMs);
+      bodyTimer.unref();
+    };
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -1124,14 +1365,24 @@ function proxyHttp(
         headers,
       },
       (proxyRes) => {
+        upstreamResponse = proxyRes;
         if (settled) {
           proxyRes.resume();
           return;
         }
         settled = true;
         clearTimeout(responseTimer);
-        app.ready = true;
         const statusCode = proxyRes.statusCode ?? 502;
+        // Only a non-5xx response proves the app is actually healthy. Nitro's
+        // dev env-runner can get stuck serving 5xx for every request forever
+        // after a few worker crashes; flipping `ready` true here regardless
+        // (as this used to) hid that permanent-failure state from the
+        // gateway entirely. Proxy the response through unchanged either way.
+        if (statusCode < 500) {
+          markAppReady(app);
+        } else {
+          void maybeRecoverPersistent5xx(app, statusCode);
+        }
         const responseHeaders = { ...proxyRes.headers };
         if (statusCode >= 300 && statusCode < 400) {
           const rewritten = rewriteRedirectLocation(
@@ -1140,8 +1391,21 @@ function proxyHttp(
           );
           if (rewritten) responseHeaders.location = rewritten;
         }
+        armBodyTimer();
+        proxyRes.on("data", armBodyTimer);
+        proxyRes.on("data", () => {
+          app.lastActivityAt = Date.now();
+        });
+        proxyRes.once("end", clearBodyTimer);
+        proxyRes.once("close", clearBodyTimer);
         res.writeHead(statusCode, responseHeaders);
+        streamSocketReleased = false;
+        app.openSockets = (app.openSockets ?? 0) + 1;
+        res.once("finish", releaseStreamSocket);
+        res.once("close", releaseStreamSocket);
+        res.once("error", releaseStreamSocket);
         proxyRes.once("error", () => {
+          clearBodyTimer();
           if (!res.destroyed) res.destroy();
         });
         proxyRes.pipe(res);
@@ -1150,9 +1414,9 @@ function proxyHttp(
     proxyReq.once("socket", (socket) => {
       attachGatewaySocketErrorSink(socket);
     });
-    res.once("error", () => {
-      proxyReq.destroy();
-    });
+    req.once("aborted", abortUpstream);
+    res.once("close", abortUpstream);
+    res.once("error", abortUpstream);
     responseTimer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -1196,7 +1460,7 @@ function proxyHttp(
 
   void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(
@@ -1207,7 +1471,7 @@ function proxyHttp(
       }
       return;
     }
-    app.ready = true;
+    markAppReady(app);
     dispatch();
   });
 }
@@ -1242,12 +1506,12 @@ function proxyUpgrade(
   });
   void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
       socket.destroy();
       return;
     }
     if (socket.destroyed) return;
-    app.ready = true;
+    markAppReady(app);
     const upstream = net.connect(app.port, "127.0.0.1", () => {
       const headers = Object.entries(proxyHeaders(req, `127.0.0.1:${app.port}`))
         .flatMap(([key, value]) =>
@@ -1288,8 +1552,54 @@ function workspaceAppsPayload(): string {
   );
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Keep browser-visible gateway URLs on the origin advertised to child apps.
+ *
+ * The gateway listens on a loopback address, so browsers can reach the same
+ * process through either `localhost` or `127.0.0.1`. Serving app HTML on one
+ * alias while injecting the other into `VITE_WORKSPACE_GATEWAY_URL` turns
+ * otherwise same-gateway requests into CORS requests. Redirect only equivalent
+ * loopback aliases on the same port; external/proxied hosts are left untouched.
+ */
+export function canonicalLoopbackRedirect(
+  requestHost: string | undefined,
+  requestTarget: string | undefined,
+  canonicalGatewayUrl: string,
+): string | undefined {
+  if (!requestHost || !requestTarget?.startsWith("/")) return undefined;
+
+  try {
+    const canonical = new URL(canonicalGatewayUrl);
+    const requested = new URL(`${canonical.protocol}//${requestHost}`);
+    if (
+      !LOOPBACK_HOSTNAMES.has(canonical.hostname) ||
+      !LOOPBACK_HOSTNAMES.has(requested.hostname) ||
+      canonical.port !== requested.port ||
+      canonical.hostname === requested.hostname
+    ) {
+      return undefined;
+    }
+    return `${canonical.origin}${requestTarget}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function createGateway(): http.Server {
   const server = http.createServer((req, res) => {
+    const canonicalRedirect = canonicalLoopbackRedirect(
+      firstHeaderValue(req.headers.host),
+      req.url,
+      gatewayUrl,
+    );
+    if (canonicalRedirect) {
+      res.writeHead(307, { location: canonicalRedirect });
+      res.end();
+      return;
+    }
+
     const parsedUrl = new URL(req.url || "/", "http://templates.local");
     const pathname = parsedUrl.pathname;
 
@@ -1486,130 +1796,152 @@ function shutdown(code = 0): void {
   }, 1_000).unref();
 }
 
-if (dryRun) {
-  console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
-  console.log(
-    `[dev-lazy] Mode: ${
-      eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
-    }`,
-  );
-  if (usePollingFileWatcher) {
-    console.log(
-      `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
-    );
-  }
-  for (const app of apps) {
-    console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
-  }
-  if (includeDesktop) {
-    console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
-  }
-  if (includeElectron) {
-    console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
-    console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
-  }
-  process.exit(0);
-}
-
-if (includeElectron) {
-  ensureElectronBinary();
-}
-
-if (shouldKill) {
-  const ports = [
-    requestedGatewayPort,
-    ...(includeElectron ? [FRAME_PORT] : []),
-    ...apps.map((app) => app.port),
-  ];
-  for (const port of ports) killPort(port);
-}
-
-console.log("[dev-lazy] Prebuilding workspace packages...");
-execSync("node scripts/prebuild-workspace-packages.ts dev", {
-  stdio: "inherit",
-});
-
-if (usePollingFileWatcher) {
-  console.log(
-    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
-  );
-}
-
-const coreWatchCompiler = "tsc";
-startBackgroundProcess("core", "pnpm", [
-  "--filter",
-  "@agent-native/core",
-  "exec",
-  coreWatchCompiler,
-  "--watch",
-  "--preserveWatchOutput",
-]);
-
-const server = createGateway();
-gatewayServer = server;
-
-if (templateIdleMs > 0) {
-  const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
-  evictSweep.unref();
-}
-
-function listen(port: number, attempts = 20): void {
-  server.once("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE" && attempts > 0) {
-      listen(port + 1, attempts - 1);
-      return;
-    }
-    console.error(`[dev-lazy] Could not start gateway: ${err.message}`);
-    shutdown(1);
-  });
-  server.listen(port, gatewayHost, () => {
-    const address = server.address();
-    const actualPort =
-      typeof address === "object" && address ? address.port : port;
-    gatewayUrl = `http://${gatewayHost}:${actualPort}`;
-    console.log(`[dev-lazy] Default: ${gatewayUrl}/${defaultApp}`);
+async function main(): Promise<void> {
+  if (dryRun) {
     console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
     console.log(
       `[dev-lazy] Mode: ${
         eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
       }`,
     );
+    if (usePollingFileWatcher) {
+      console.log(
+        `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
+      );
+    }
     for (const app of apps) {
       console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
     }
-
-    if (eager) {
-      for (const app of apps) startApp(app);
-    } else if (!includeElectron) {
-      // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
-      // browser following it cold-starts exactly one app via the proxy path.
-      if (prewarmEnabled) {
-        void prewarmRemainingApps().catch((err) => {
-          console.error(
-            `[dev-lazy] Prewarm error: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        });
-      }
-    }
-
     if (includeDesktop) {
-      // Boot the Tauri clips tray after its backend is reachable. The tray's
-      // Google sign-in opens the Clips backend URL directly in the browser.
-      const startClipsTray = () => {
-        if (shuttingDown) return;
-        startBackgroundProcess("tray", "pnpm", [
-          "--filter",
-          "clips-desktop",
-          "dev",
-        ]);
-      };
-      const clipsApp = selectedById.get("clips");
-      if (clipsApp) {
-        startApp(clipsApp);
-        void waitForPort(clipsApp.port, Date.now() + proxyReadyTimeoutMs).then(
-          (ready) => {
+      console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
+    }
+    if (includeElectron) {
+      console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
+      console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
+    }
+    return;
+  }
+
+  if (includeElectron) {
+    ensureElectronBinary();
+  }
+
+  if (shouldKill) {
+    const ports = [
+      requestedGatewayPort,
+      ...(includeElectron ? [FRAME_PORT] : []),
+      ...apps.map((app) => app.port),
+    ];
+    for (const port of ports) killPort(port);
+  }
+
+  console.log("[dev-lazy] Prebuilding workspace packages...");
+  execSync("node scripts/prebuild-workspace-packages.ts dev", {
+    stdio: "inherit",
+  });
+
+  if (usePollingFileWatcher) {
+    console.log(
+      `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
+    );
+  }
+
+  // The monorepo Vite plugin aliases @agent-native/core runtime imports to
+  // packages/core/src, so each active template already receives core HMR
+  // directly. A second full `tsc --watch` used to type-check and regenerate
+  // thousands of JS/declaration/map artifacts during agent edit bursts, which
+  // starved the Vite/Nitro servers serving the browser. Keep dist watching as
+  // an explicit escape hatch for workflows that truly consume dist, and make
+  // that watcher emit-only; the startup prebuild still performs the full check.
+  if (shouldWatchCoreDist) {
+    startBackgroundProcess("core", "pnpm", [
+      "--filter",
+      "@agent-native/core",
+      "exec",
+      "tsc",
+      "--watch",
+      "--preserveWatchOutput",
+      "--noCheck",
+      "--declaration",
+      "false",
+      "--declarationMap",
+      "false",
+      "--sourceMap",
+      "false",
+      "--inlineSources",
+      "false",
+    ]);
+  }
+
+  const server = createGateway();
+  gatewayServer = server;
+
+  if (templateIdleMs > 0) {
+    const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
+    evictSweep.unref();
+  }
+
+  function listen(port: number, attempts = 20): void {
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE" && attempts > 0) {
+        listen(port + 1, attempts - 1);
+        return;
+      }
+      console.error(`[dev-lazy] Could not start gateway: ${err.message}`);
+      shutdown(1);
+    });
+    server.listen(port, gatewayHost, () => {
+      const address = server.address();
+      const actualPort =
+        typeof address === "object" && address ? address.port : port;
+      gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      console.log(`[dev-lazy] Default: ${gatewayUrl}/${defaultApp}`);
+      console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
+      console.log(
+        `[dev-lazy] Mode: ${
+          eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
+        }`,
+      );
+      for (const app of apps) {
+        console.log(
+          `[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`,
+        );
+      }
+
+      if (eager) {
+        for (const app of apps) startApp(app);
+      } else if (!includeElectron) {
+        // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
+        // browser following it cold-starts exactly one app via the proxy path.
+        if (prewarmEnabled) {
+          void prewarmRemainingApps().catch((err) => {
+            console.error(
+              `[dev-lazy] Prewarm error: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
+        }
+      }
+
+      if (includeDesktop) {
+        // Boot the Tauri clips tray after its backend is reachable. The tray's
+        // Google sign-in opens the Clips backend URL directly in the browser.
+        const startClipsTray = () => {
+          if (shuttingDown) return;
+          startBackgroundProcess("tray", "pnpm", [
+            "--filter",
+            "clips-desktop",
+            "dev",
+          ]);
+        };
+        const clipsApp = selectedById.get("clips");
+        if (clipsApp) {
+          startApp(clipsApp);
+          void waitForPort(
+            clipsApp.port,
+            Date.now() + proxyReadyTimeoutMs,
+          ).then((ready) => {
             if (ready) {
               clipsApp.ready = true;
             } else {
@@ -1618,38 +1950,49 @@ function listen(port: number, attempts = 20): void {
               );
             }
             startClipsTray();
-          },
-        );
-      } else {
-        console.warn(
-          "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
-        );
-        startClipsTray();
+          });
+        } else {
+          console.warn(
+            "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
+          );
+          startClipsTray();
+        }
       }
-    }
 
-    if (includeElectron) {
-      const env = electronLazyEnv();
-      startBackgroundProcess(
-        "frame",
-        "pnpm",
-        ["--filter", "@agent-native/frame", "dev"],
-        env,
-      );
-      startBackgroundProcess(
-        "electron",
-        "pnpm",
-        ["--filter", "@agent-native/desktop-app", "dev"],
-        env,
-      );
-    }
+      if (includeElectron) {
+        const env = electronLazyEnv();
+        startBackgroundProcess(
+          "frame",
+          "pnpm",
+          ["--filter", "@agent-native/frame", "dev"],
+          env,
+        );
+        startBackgroundProcess(
+          "electron",
+          "pnpm",
+          ["--filter", "@agent-native/desktop-app", "dev"],
+          env,
+        );
+      }
 
-    openBrowser(`${gatewayUrl}/${defaultApp}`);
+      openBrowser(`${gatewayUrl}/${defaultApp}`);
+    });
+  }
+
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.once(sig, () => shutdown(sig === "SIGINT" ? 0 : 1));
+  }
+
+  listen(requestedGatewayPort);
+}
+
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (isDirectRun) {
+  void main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
   });
 }
-
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-  process.once(sig, () => shutdown(sig === "SIGINT" ? 0 : 1));
-}
-
-listen(requestedGatewayPort);

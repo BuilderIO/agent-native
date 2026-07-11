@@ -179,6 +179,16 @@ export interface ObservabilityConfig {
   captureToolArgs: boolean;
   captureToolResults: boolean;
   evalSampleRate: number;
+  /**
+   * Classify the raw user message as positive, negative, or neutral. Off by
+   * default for self-hosted apps; first-party agent-native.com deployments
+   * enable it automatically unless explicitly disabled.
+   */
+  inferredSentimentEnabled: boolean;
+  /** Deterministic fraction of eligible user messages to classify (0-1). */
+  inferredSentimentSampleRate: number;
+  /** Model used by the managed Builder classifier. */
+  inferredSentimentModel: string;
   exporters: ObservabilityExporterConfig[];
 }
 
@@ -194,5 +204,8 @@ export const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
   captureToolArgs: false,
   captureToolResults: false,
   evalSampleRate: 0,
+  inferredSentimentEnabled: false,
+  inferredSentimentSampleRate: 0,
+  inferredSentimentModel: "gpt-5-6-luna",
   exporters: [],
 };

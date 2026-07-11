@@ -1,4 +1,4 @@
-import Index from "@/pages/Index";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
   "Agent-Native Analytics - Open Source, agent-friendly Amplitude alternative";
@@ -20,6 +20,18 @@ export function meta() {
   ];
 }
 
+function target(url: URL): string {
+  return `/ask${url.search}${url.hash}`;
+}
+
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(target(url));
+}
+
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(target(url));
+}
+
 export default function IndexRoute() {
-  return <Index />;
+  return null;
 }

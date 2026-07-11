@@ -133,6 +133,13 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  const section = normalized.split(":", 1)[0];
+  const owner = tabs.find((tab) =>
+    tab.searchEntries?.some(
+      (entry) => normalizeTabId(entry.hash ?? entry.id) === section,
+    ),
+  );
+  if (owner) return owner.id;
   if (
     normalized === "organization" ||
     normalized === "org" ||

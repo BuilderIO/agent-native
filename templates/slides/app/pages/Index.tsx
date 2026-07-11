@@ -10,7 +10,13 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { extractGoogleDocUrls } from "@shared/google-docs";
-import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPlus,
+  IconRefresh,
+  IconStack2,
+  IconUserCircle,
+} from "@tabler/icons-react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -176,6 +182,8 @@ export default function Index() {
     deleteDeck,
     updateDeck,
     loading,
+    loadError,
+    reloadDecks,
   } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
@@ -539,6 +547,26 @@ export default function Index() {
             </div>
           </div>
         </>
+      ) : loadError ? (
+        <div className="flex min-h-[360px] items-center justify-center">
+          <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+            <IconAlertTriangle className="size-7 text-destructive/70" />
+            <div>
+              <h2 className="font-medium">{t("home.loadFailed")}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("home.loadFailedDescription")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void reloadDecks()}
+            >
+              <IconRefresh className="size-4" />
+              {t("home.retry")}
+            </Button>
+          </div>
+        </div>
       ) : decks.length === 0 ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (

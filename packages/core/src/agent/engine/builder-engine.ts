@@ -222,6 +222,9 @@ class BuilderEngine implements AgentEngine {
         opts.maxOutputTokens,
         opts.model,
       ),
+      ...(typeof opts.temperature === "number"
+        ? { temperature: opts.temperature }
+        : {}),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 

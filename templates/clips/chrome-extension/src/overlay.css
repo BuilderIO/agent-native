@@ -152,6 +152,31 @@ body {
   }
 }
 
+@keyframes countdown-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .countdown-number {
+    animation: countdown-fade 0.18s ease-out forwards;
+  }
+
+  .countdown-control {
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .countdown-control:active {
+    transform: none;
+  }
+}
+
 .countdown-hint {
   position: absolute;
   bottom: 14%;
@@ -260,14 +285,17 @@ body {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
+  transform: translateY(-4px) scaleY(0.92);
+  transform-origin: top;
   transition:
-    max-height 0.18s ease,
-    opacity 0.18s ease;
+    opacity 0.18s ease,
+    transform 0.18s ease;
 }
 
 .toolbar-v:hover .toolbar-v-hover-actions {
   max-height: 120px;
   opacity: 1;
+  transform: none;
 }
 
 .toolbar-v-action {
@@ -324,15 +352,16 @@ body {
   width: 40%;
   border-radius: 999px;
   background: #d4d4d8;
-  animation: saving-indeterminate 1.1s ease-in-out infinite;
+  animation: saving-indeterminate 1.1s linear infinite;
+  will-change: transform;
 }
 
 @keyframes saving-indeterminate {
   0% {
-    margin-left: -40%;
+    transform: translateX(-100%);
   }
   100% {
-    margin-left: 100%;
+    transform: translateX(250%);
   }
 }
 

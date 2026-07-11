@@ -21,7 +21,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import { useVoiceProviderStatus } from "../voice-provider-status.js";
+import {
+  type VoiceProviderStatus,
+  useVoiceProviderStatus,
+} from "../voice-provider-status.js";
 import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
 import {
   useRealtimeVoiceModeCopy,
@@ -43,6 +46,18 @@ export interface VoiceButtonProps {
   voice: VoiceDictationApi;
   isMac: boolean;
   disabled?: boolean;
+}
+
+export function isRealtimeVoiceSetupRequired(
+  status: VoiceProviderStatus | null,
+  builderConfigured: boolean | null,
+): boolean {
+  return (
+    status !== null &&
+    !status.builder &&
+    !status.openai &&
+    builderConfigured === false
+  );
 }
 
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
@@ -68,9 +83,10 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
       <RealtimeVoiceModeEntry
         copy={realtimeCopy}
         disabled={disabled}
-        setupRequired={
-          builderConnect.hasFetchedStatus && !builderConnect.configured
-        }
+        setupRequired={isRealtimeVoiceSetupRequired(
+          voiceProviders.status,
+          builderConnect.statusResolved ? builderConnect.configured : null,
+        )}
         openAiConfigured={voiceProviders.status?.openai === true}
         connectingBuilder={builderConnect.connecting}
         onConnectBuilder={builderConnect.start}
@@ -104,7 +120,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
           disabled={disabled || transcribing}
           aria-label={label}
           aria-pressed={recording}
-          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
+          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
             recording
               ? "text-[#00B5FF] bg-[#00B5FF]/10 hover:bg-[#00B5FF]/20"
               : "text-muted-foreground hover:text-foreground hover:bg-accent/50"

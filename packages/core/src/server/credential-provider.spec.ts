@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
@@ -12,6 +13,7 @@ const mockIsLocalDatabase = vi.fn<[], boolean>();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
@@ -103,6 +105,17 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecrets.mockImplementation(
+    async ({ keys, scope, scopeId }: any) => {
+      const entries = await Promise.all(
+        keys.map(async (key: string) => [
+          key,
+          await mockReadAppSecret({ key, scope, scopeId }),
+        ]),
+      );
+      return new Map(entries.filter(([, secret]) => secret));
+    },
+  );
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
   mockGetSetting.mockResolvedValue(null);
@@ -825,6 +838,10 @@ describe("resolveBuilderCredential", () => {
       isEnterprise: null,
       isFreeAccount: null,
     });
+    expect(mockReadAppSecrets).toHaveBeenCalledTimes(2);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([request]) => request.scope),
+    ).toEqual(["user", "org"]);
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
   });
 

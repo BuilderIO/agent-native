@@ -397,7 +397,7 @@ function ToolOutputPopover({
 
 // ─── Collapsible height animation ─────────────────────────────────────────────
 
-function AnimatedCollapse({
+export function AnimatedCollapse({
   open,
   children,
 }: {
@@ -452,7 +452,7 @@ function AnimatedCollapse({
   return (
     <div
       ref={ref}
-      className="overflow-hidden transition-[height] duration-200 ease-out"
+      className="overflow-hidden transition-[height] duration-200 ease-[var(--ease-collapse)]"
       style={{ height: height === "auto" ? "auto" : `${height}px` }}
       onTransitionEnd={onTransitionEnd}
     >
@@ -804,7 +804,7 @@ function ToolCallDisplayGeneric({
               {canExpand && (
                 <IconChevronRight
                   className={cn(
-                    "absolute size-3.5 opacity-0 transition-all group-hover/tool:opacity-100",
+                    "absolute size-3.5 opacity-0 transition-[opacity,transform] group-hover/tool:opacity-100",
                     isExpanded && "rotate-90",
                   )}
                 />

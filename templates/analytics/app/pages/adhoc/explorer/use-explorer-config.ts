@@ -1,6 +1,7 @@
 import { callAction, useT } from "@agent-native/core/client";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 
 import type { ExplorerConfig } from "./types";
 import { createDefaultConfig } from "./types";
@@ -14,32 +15,20 @@ interface SavedConfigEntry {
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfigEntry[]> {
-  try {
-    const rows = await callAction(
-      "list-explorer-configs",
-      {},
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
-  try {
-    const data = await callAction(
-      "get-explorer-config",
-      { id },
-      { method: "GET" },
-    );
-    if (!data || typeof data !== "object") return null;
-    // Strip server-added id field
-    const { id: _id, ...rest } = data as Record<string, unknown>;
-    return rest as unknown as ExplorerConfig;
-  } catch {
-    return null;
-  }
+  const data = await callAction(
+    "get-explorer-config",
+    { id },
+    { method: "GET" },
+  );
+  if (!data || typeof data !== "object") return null;
+  // Strip server-added id field
+  const { id: _id, ...rest } = data as Record<string, unknown>;
+  return rest as unknown as ExplorerConfig;
 }
 
 function persistConfig(id: string, config: ExplorerConfig) {
@@ -62,12 +51,14 @@ export function useExplorerConfig() {
 
   // On mount, try to restore from autosave
   useEffect(() => {
-    fetchConfig(AUTOSAVE_ID).then((saved) => {
-      if (saved) {
-        setConfig(saved);
-      }
-      setInitialized(true);
-    });
+    fetchConfig(AUTOSAVE_ID)
+      .catch(() => null)
+      .then((saved) => {
+        if (saved) {
+          setConfig(saved);
+        }
+        setInitialized(true);
+      });
   }, []);
 
   // Auto-save on every config change (debounced)
@@ -84,19 +75,27 @@ export function useExplorerConfig() {
     return () => clearTimeout(autosaveTimer.current);
   }, [config, currentId, initialized]);
 
-  const { data: savedConfigs = [], refetch: refetchList } = useQuery({
+  const savedConfigsQuery = useQuery({
     queryKey: ["explorer-configs"],
     queryFn: fetchSavedConfigs,
     staleTime: 30_000,
   });
+  const savedConfigs = savedConfigsQuery.data ?? [];
 
-  const loadConfig = useCallback(async (id: string) => {
-    const loaded = await fetchConfig(id);
-    if (loaded) {
-      setConfig(loaded);
-      setCurrentId(id);
-    }
-  }, []);
+  const loadConfig = useCallback(
+    async (id: string) => {
+      try {
+        const loaded = await fetchConfig(id);
+        if (loaded) {
+          setConfig(loaded);
+          setCurrentId(id);
+        }
+      } catch {
+        toast.error(t("commandPalette.loadFailed"));
+      }
+    },
+    [t],
+  );
 
   const saveConfig = useCallback(
     async (name?: string) => {
@@ -110,12 +109,12 @@ export function useExplorerConfig() {
         });
         setCurrentId(id);
         setConfig(toSave);
-        refetchList();
+        savedConfigsQuery.refetch();
       } finally {
         setIsSaving(false);
       }
     },
-    [config, currentId, refetchList],
+    [config, currentId, savedConfigsQuery],
   );
 
   const deleteConfig = useCallback(
@@ -125,9 +124,9 @@ export function useExplorerConfig() {
         setConfig(createDefaultConfig(defaultConfigName));
         setCurrentId(null);
       }
-      refetchList();
+      savedConfigsQuery.refetch();
     },
-    [currentId, defaultConfigName, refetchList],
+    [currentId, defaultConfigName, savedConfigsQuery],
   );
 
   const newConfig = useCallback(() => {
@@ -140,6 +139,8 @@ export function useExplorerConfig() {
     setConfig,
     currentId,
     savedConfigs,
+    savedConfigsError: savedConfigsQuery.error,
+    retrySavedConfigs: savedConfigsQuery.refetch,
     loadConfig,
     saveConfig,
     deleteConfig,

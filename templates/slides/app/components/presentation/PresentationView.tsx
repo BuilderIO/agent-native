@@ -515,8 +515,10 @@ export default function PresentationView({
           <div
             className="h-full bg-[#609FF8]"
             style={{
-              width: `${((currentIndex + 1) / safeSlides.length) * 100}%`,
-              transition: "width 0.3s",
+              transform: `scaleX(${(currentIndex + 1) / safeSlides.length})`,
+              transformOrigin: "left",
+              transition: "transform 0.3s cubic-bezier(0.2, 0, 0, 1)",
+              width: "100%",
             }}
           />
         </div>
