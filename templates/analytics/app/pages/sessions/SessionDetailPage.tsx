@@ -63,6 +63,7 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { extractReplayDiagnostics } from "./session-replay-devtools";
+import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -170,6 +171,7 @@ const REPLAY_CHUNK_BATCH_MAX_CHUNKS = 20;
 const REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES = 4 * 1024 * 1024;
 const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 3;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
+const SCROLL_MARKER_BURST_MS = 1_000;
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
@@ -179,13 +181,6 @@ const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const SUPPRESS_OVERLAYS_CSS = [
   "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
 ];
-const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
-  console: [],
-  network: [],
-  consoleErrorCount: 0,
-  networkFailedCount: 0,
-};
-
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -524,13 +519,11 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
-  const diagnostics = useMemo(
-    () => (devToolsOpen ? extractReplayDiagnostics(events) : EMPTY_DIAGNOSTICS),
-    [devToolsOpen, events],
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount = replayDevToolsIssueCount(
+    diagnostics,
+    response.isComplete,
   );
-  const devToolsIssueCount = devToolsOpen
-    ? diagnostics.consoleErrorCount + diagnostics.networkFailedCount
-    : response.recording.errorCount;
 
   // Resolve captured console errors in this replay to their Sentry-style issue
   // groups (one batched, access-scoped call, server-computed fingerprints) so
@@ -1047,8 +1040,10 @@ function ReplayPlayer({
                   "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
                   devToolsOpen &&
                     "border-primary/40 bg-primary/10 text-primary",
+                  !response.isComplete && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => setDevToolsOpen((value) => !value)}
+                disabled={!response.isComplete}
                 aria-pressed={devToolsOpen}
                 aria-expanded={devToolsOpen}
               >
@@ -1952,7 +1947,53 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
       if (marker) markers.push(marker);
     }
   }
-  return markers.sort((a, b) => a.offsetMs - b.offsetMs);
+  return collapseScrollMarkerBursts(
+    markers.sort((a, b) => a.offsetMs - b.offsetMs),
+  );
+}
+
+function collapseScrollMarkerBursts(markers: ReplayMarker[]): ReplayMarker[] {
+  const collapsed: ReplayMarker[] = [];
+  const lastScrollByTarget = new Map<
+    string,
+    { index: number; timestamp: number }
+  >();
+  for (const marker of markers) {
+    if (marker.label !== "Scroll") {
+      collapsed.push(marker);
+      continue;
+    }
+    const target =
+      marker.fields?.find((field) => field.label === "Element id")?.value ??
+      "viewport";
+    const previous = lastScrollByTarget.get(target);
+    if (
+      previous &&
+      marker.timestamp - previous.timestamp <= SCROLL_MARKER_BURST_MS
+    ) {
+      // Keep one marker per continuous scroll gesture, using its final
+      // position while retaining the first marker's stable id/time.
+      collapsed[previous.index] = {
+        ...marker,
+        id: collapsed[previous.index].id,
+        timestamp: collapsed[previous.index].timestamp,
+        offsetMs: collapsed[previous.index].offsetMs,
+      };
+      previous.timestamp = marker.timestamp;
+      continue;
+    }
+    const index = collapsed.push(marker) - 1;
+    lastScrollByTarget.set(target, { index, timestamp: marker.timestamp });
+  }
+  return collapsed;
+}
+
+export function replayDevToolsIssueCount(
+  diagnostics: ReplayDevToolsDiagnostics,
+  isComplete: boolean,
+): number {
+  if (!isComplete) return 0;
+  return diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 }
 
 function customReplayMarker(

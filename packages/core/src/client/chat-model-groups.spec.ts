@@ -99,7 +99,6 @@ describe("buildChatModelGroups", () => {
           label: "Mistral",
           supportedModels: ["mistral-large-latest"],
           requiredEnvVars: ["MISTRAL_API_KEY"],
-          packageInstalled: false,
         },
         {
           name: "ai-sdk:cohere",
@@ -154,6 +153,30 @@ describe("buildChatModelGroups", () => {
     });
 
     expect(groups).toEqual([]);
+  });
+
+  it("puts OpenRouter after other installed custom providers", () => {
+    const groups = buildChatModelGroups({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: ["custom/model"],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Custom",
+      "OpenRouter",
+    ]);
   });
 
   it("keeps the current engine visible without re-adding unsupported current models", () => {

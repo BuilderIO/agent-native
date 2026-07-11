@@ -7,6 +7,7 @@ import {
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
+  replayDevToolsIssueCount,
   replayPayloadEvents,
   replayViewportDimensions,
 } from "./SessionDetailPage";
@@ -262,6 +263,21 @@ describe("session replay timeline markers", () => {
     );
   });
 
+  it("collapses continuous same-element scroll events into one marker", () => {
+    const markers = buildReplayMarkers([
+      { type: 4, timestamp: 9_000, data: { href: "https://example.test" } },
+      { type: 3, timestamp: 10_000, data: { source: 3, id: 1, y: 100 } },
+      { type: 3, timestamp: 10_200, data: { source: 3, id: 1, y: 220 } },
+      { type: 3, timestamp: 10_800, data: { source: 3, id: 1, y: 480 } },
+      { type: 3, timestamp: 12_000, data: { source: 3, id: 1, y: 900 } },
+    ]);
+
+    const scrolls = markers.filter((marker) => marker.label === "Scroll");
+    expect(scrolls).toHaveLength(2);
+    expect(scrolls.map((marker) => marker.offsetMs)).toEqual([1_000, 3_000]);
+    expect(scrolls[0]?.fields).toContainEqual({ label: "Y", value: "480" });
+  });
+
   it("keeps only warning and error console diagnostics in the event timeline", () => {
     const markers = buildReplayMarkers([
       { type: 4, timestamp: 1_000, data: { width: 1280, height: 720 } },
@@ -361,6 +377,20 @@ describe("session replay inactivity ranges", () => {
       { startMs: 10_200, endMs: 16_800 },
       { startMs: 19_200, endMs: 25_800 },
     ]);
+  });
+});
+
+describe("session replay Dev Tools badge", () => {
+  const diagnostics = {
+    console: [],
+    network: [],
+    consoleErrorCount: 33,
+    networkFailedCount: 49,
+  };
+
+  it("hides partial counts and uses complete replay diagnostics", () => {
+    expect(replayDevToolsIssueCount(diagnostics, false)).toBe(0);
+    expect(replayDevToolsIssueCount(diagnostics, true)).toBe(82);
   });
 });
 

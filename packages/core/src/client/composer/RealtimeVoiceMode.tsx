@@ -106,6 +106,7 @@ export interface RealtimeVoiceModeCopy {
 export interface RealtimeVoiceModeEntryProps {
   copy: RealtimeVoiceModeCopy;
   disabled?: boolean;
+  providerStatusPending?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onStartVoiceMode: () => void;
@@ -126,6 +127,7 @@ export interface RealtimeVoiceModeEntryProps {
 export function RealtimeVoiceModeEntry({
   copy,
   disabled,
+  providerStatusPending = false,
   open: controlledOpen,
   onOpenChange,
   onStartVoiceMode,
@@ -254,9 +256,14 @@ export function RealtimeVoiceModeEntry({
               <Button
                 type="button"
                 size="sm"
+                disabled={providerStatusPending}
                 onClick={() => choose(onStartVoiceMode)}
               >
-                <IconMicrophone />
+                {providerStatusPending ? (
+                  <IconLoader2 className="animate-spin" />
+                ) : (
+                  <IconMicrophone />
+                )}
                 {copy.startVoiceMode}
               </Button>
             )}

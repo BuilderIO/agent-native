@@ -111,8 +111,11 @@ function putOpenRouterLast(
   a: ChatModelEngineEntry,
   b: ChatModelEngineEntry,
 ): number {
-  if (a.name === "ai-sdk:openrouter") return 1;
-  if (b.name === "ai-sdk:openrouter") return -1;
+  const aIsOpenRouter = a.name === "ai-sdk:openrouter";
+  const bIsOpenRouter = b.name === "ai-sdk:openrouter";
+  if (aIsOpenRouter === bIsOpenRouter) return 0;
+  if (aIsOpenRouter) return 1;
+  if (bIsOpenRouter) return -1;
   return 0;
 }
 

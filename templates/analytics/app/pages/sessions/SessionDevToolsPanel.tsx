@@ -65,14 +65,13 @@ const DEVTOOLS_MAX_HEIGHT = 620;
 export function buildDevToolsRowOffsets(
   entryCount: number,
   expandedIndex: number,
+  expandedHeight = DEVTOOLS_EXPANDED_ESTIMATE,
 ): number[] {
   const offsets = new Array<number>(entryCount + 1);
   offsets[0] = 0;
   for (let index = 0; index < entryCount; index += 1) {
     const height =
-      index === expandedIndex
-        ? DEVTOOLS_EXPANDED_ESTIMATE
-        : DEVTOOLS_ROW_HEIGHT;
+      index === expandedIndex ? expandedHeight : DEVTOOLS_ROW_HEIGHT;
     offsets[index + 1] = offsets[index] + height;
   }
   return offsets;
@@ -414,6 +413,12 @@ function VirtualizedDevToolsList<T extends { id: string }>({
   const lastManualScrollAtRef = useRef(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const [expandedRowHeight, setExpandedRowHeight] = useState(
+    DEVTOOLS_EXPANDED_ESTIMATE,
+  );
+  const [expandedElement, setExpandedElement] = useState<HTMLDivElement | null>(
+    null,
+  );
 
   const activeIndex = activeEntryId
     ? entries.findIndex((entry) => entry.id === activeEntryId)
@@ -423,11 +428,30 @@ function VirtualizedDevToolsList<T extends { id: string }>({
     : -1;
 
   const rowOffsets = useMemo(
-    () => buildDevToolsRowOffsets(entries.length, expandedIndex),
-    [entries.length, expandedIndex],
+    () =>
+      buildDevToolsRowOffsets(entries.length, expandedIndex, expandedRowHeight),
+    [entries.length, expandedIndex, expandedRowHeight],
   );
 
   const totalHeight = rowOffsets[entries.length] ?? 0;
+
+  useEffect(() => {
+    setExpandedRowHeight(DEVTOOLS_EXPANDED_ESTIMATE);
+  }, [expandedEntryId]);
+
+  useEffect(() => {
+    if (!expandedElement) return;
+    const update = () => {
+      const measured = Math.ceil(
+        expandedElement.getBoundingClientRect().height,
+      );
+      if (measured > 0) setExpandedRowHeight(measured);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(expandedElement);
+    return () => observer.disconnect();
+  }, [expandedElement]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -510,18 +534,11 @@ function VirtualizedDevToolsList<T extends { id: string }>({
           const index = startIndex + offset;
           const expanded = entry.id === expandedEntryId;
           const top = rowOffsets[index] ?? 0;
-          const height =
-            (rowOffsets[index + 1] ?? top + DEVTOOLS_ROW_HEIGHT) - top;
           return (
-            <div
-              key={entry.id}
-              className="absolute inset-x-0"
-              style={{
-                minHeight: height,
-                top,
-              }}
-            >
-              {renderRow(entry, expanded)}
+            <div key={entry.id} className="absolute inset-x-0" style={{ top }}>
+              <div ref={expanded ? setExpandedElement : undefined}>
+                {renderRow(entry, expanded)}
+              </div>
             </div>
           );
         })}

@@ -142,6 +142,33 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).not.toContain("Talk to your app");
   });
 
+  it("does not start realtime voice while provider readiness is unresolved", () => {
+    const onStartVoiceMode = vi.fn();
+    const onKeepDictating = vi.fn();
+
+    render(
+      <RealtimeVoiceModeEntry
+        copy={copy}
+        open
+        providerStatusPending
+        onStartVoiceMode={onStartVoiceMode}
+        onKeepDictating={onKeepDictating}
+      />,
+    );
+
+    const startVoiceMode = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Start voice mode"));
+    expect(startVoiceMode?.disabled).toBe(true);
+    act(() => startVoiceMode?.click());
+    expect(onStartVoiceMode).not.toHaveBeenCalled();
+
+    const keepDictating = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "Keep dictating");
+    expect(keepDictating?.disabled).toBe(false);
+  });
+
   it("keeps editable dictation available from the prompt", () => {
     const onStartVoiceMode = vi.fn();
     const onKeepDictating = vi.fn();

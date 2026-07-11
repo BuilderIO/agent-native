@@ -211,6 +211,7 @@ const messages = {
     cliRequiresDevModeDescription:
       "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
     toggleAgent: "Toggle agent",
+    checkingAiConnection: "Checking AI connection...",
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Talk to your app",

@@ -50,6 +50,7 @@ const MOUSE_INTERACTION = {
   DblClick: 4,
   Focus: 5,
 } as const;
+const SCROLL_MARKER_BURST_MS = 1_000;
 
 function appBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
@@ -499,6 +500,7 @@ function capReplayTimelineMarkers(
 function buildReplayTimeline(events: AgentReplayEvent[]) {
   const startedAt = replayStartedAt(events);
   const markers: ReplayTimelineMarker[] = [];
+  const lastScrollByTarget = new Map<string, number>();
 
   for (const event of events) {
     const timestamp = Number(event.timestamp ?? 0);
@@ -568,6 +570,15 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.Scroll
     ) {
+      const target = String(event.data?.id ?? "viewport");
+      const previousTimestamp = lastScrollByTarget.get(target);
+      if (
+        previousTimestamp !== undefined &&
+        timestamp - previousTimestamp <= SCROLL_MARKER_BURST_MS
+      ) {
+        lastScrollByTarget.set(target, timestamp);
+        continue;
+      }
       markers.push({
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
@@ -575,6 +586,7 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         label: "Scroll",
         detail: null,
       });
+      lastScrollByTarget.set(target, timestamp);
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.MouseInteraction &&

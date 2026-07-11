@@ -293,12 +293,15 @@ describe("devtools inline expansion layout", () => {
     const collapsed = buildDevToolsRowOffsets(5, -1);
     expect(collapsed).toEqual([0, 34, 68, 102, 136, 170]);
 
-    const expanded = buildDevToolsRowOffsets(5, 2);
+    const expanded = buildDevToolsRowOffsets(5, 2, 104);
     expect(expanded[2]).toBe(68);
-    expect(expanded[3]).toBe(68 + 220);
-    expect(expanded[5]).toBe(68 + 220 + 34 + 34);
+    expect(expanded[3]).toBe(68 + 104);
+    expect(expanded[5]).toBe(68 + 104 + 34 + 34);
     // Expanding one row must not collapse virtualization math for neighbors.
     expect(expanded[1] - expanded[0]).toBe(34);
     expect(expanded[5] - expanded[4]).toBe(34);
+
+    const tall = buildDevToolsRowOffsets(5, 2, 260);
+    expect(tall[3]).toBe(68 + 260);
   });
 });

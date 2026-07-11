@@ -170,6 +170,7 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+import { useT } from "./i18n.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -1885,6 +1886,7 @@ const AssistantChatInner = forwardRef<
 ) {
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
+  const t = useT();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   // Latest-value ref so long-lived async closures (the reconnect reader, its
@@ -2027,7 +2029,10 @@ const AssistantChatInner = forwardRef<
     { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const isComposerDisabled = missingApiKey || composerDisabled;
+  const isProviderStatusChecking =
+    providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
+  const isComposerDisabled =
+    missingApiKey || isProviderStatusChecking || composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);
@@ -2043,7 +2048,12 @@ const AssistantChatInner = forwardRef<
         : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
             timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
           });
-    if (state !== "missing") return true;
+    if (state === "configured") return true;
+
+    // Unknown means the readiness endpoint is unavailable or still resolving.
+    // Do not start a run optimistically: that recreates the long failure path
+    // this preflight exists to prevent. The mounted hook retries automatically.
+    if (state === "unknown") return false;
 
     requestMissingKeySetup();
     if (typeof window !== "undefined") {
@@ -5150,14 +5160,16 @@ const AssistantChatInner = forwardRef<
                             placeholder={
                               missingApiKey
                                 ? "Connect AI to start chatting..."
-                                : composerDisabled
-                                  ? (composerDisabledPlaceholder ??
-                                    "Open Desktop to use this chat.")
-                                  : isRunning
-                                    ? queuedMessages.length > 0
-                                      ? `${queuedMessages.length} queued — send a follow-up...`
-                                      : "Send a follow-up..."
-                                    : composerPlaceholder
+                                : isProviderStatusChecking
+                                  ? t("agentPanel.checkingAiConnection")
+                                  : composerDisabled
+                                    ? (composerDisabledPlaceholder ??
+                                      "Open Desktop to use this chat.")
+                                    : isRunning
+                                      ? queuedMessages.length > 0
+                                        ? `${queuedMessages.length} queued — send a follow-up...`
+                                        : "Send a follow-up..."
+                                      : composerPlaceholder
                             }
                             onSubmit={
                               isRunning || composerContextItems.length > 0
