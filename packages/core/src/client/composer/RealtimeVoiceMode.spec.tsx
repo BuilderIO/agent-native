@@ -302,6 +302,32 @@ describe("RealtimeVoiceMode", () => {
     ).not.toBeNull();
   });
 
+  it("keeps showing connection progress when microphone audio arrives early", () => {
+    const audioLevels = createRealtimeVoiceAudioLevelStore();
+    audioLevels.set({ input: 0.8, output: 0 });
+
+    render(
+      <RealtimeVoiceModeDock
+        state="connecting"
+        copy={copy}
+        chatVisible={false}
+        audioLevels={audioLevels}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+
+    expect(
+      document
+        .querySelector("[data-realtime-voice-state]")
+        ?.getAttribute("data-realtime-voice-activity"),
+    ).toBe("idle");
+    expect(
+      document.querySelector('[data-realtime-voice-waveform="true"]'),
+    ).toBeNull();
+    expect(document.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("exposes error details and a separate end-session action", () => {
     const onToggleChat = vi.fn();
     const onEndVoiceMode = vi.fn();
