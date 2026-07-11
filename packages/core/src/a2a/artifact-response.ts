@@ -228,6 +228,132 @@ function contentDatabaseSubmissionArtifact(
   };
 }
 
+function documentUrlForId(
+  parsed: Record<string, unknown>,
+  id: string,
+  additionalCandidates: Array<string | undefined> = [],
+  options: { requireContentOrigin?: boolean } = {},
+): string | undefined {
+  const candidates = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.deepLink),
+    stringValue(parsed.pageUrl),
+    stringValue(parsed.documentUrl),
+    ...additionalCandidates,
+  ].filter((value): value is string => !!value);
+
+  return candidates.find((candidate) => {
+    if (!artifactUrlReferencesId(candidate, "document", id)) return false;
+    return !options.requireContentOrigin || isContentDocumentUrl(candidate);
+  });
+}
+
+function isContentDocumentUrl(rawUrl: string): boolean {
+  try {
+    return new URL(rawUrl).origin === "https://content.agent-native.com";
+  } catch {
+    return false;
+  }
+}
+
+function addDocumentReadArtifact(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+  options: {
+    allowWithoutUrl: boolean;
+    additionalUrlCandidates?: Array<string | undefined>;
+    requireContentOrigin?: boolean;
+  },
+): void {
+  const id = stringValue(parsed.documentId) ?? stringValue(parsed.id);
+  if (!id) return;
+
+  const url = documentUrlForId(parsed, id, options.additionalUrlCandidates, {
+    requireContentOrigin: options.requireContentOrigin,
+  });
+  if (!url && !options.allowWithoutUrl) return;
+
+  documents.set(id, {
+    id,
+    title: stringValue(parsed.title) ?? stringValue(parsed.name),
+    url,
+  });
+}
+
+function addContentDatabaseReadArtifacts(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const resultUrls = [
+    stringValue(parsed.url),
+    stringValue(parsed.urlPath),
+    stringValue(parsed.deepLink),
+  ];
+  const database = asRecord(parsed.database);
+  if (database) {
+    addDocumentReadArtifact(documents, database, {
+      allowWithoutUrl: true,
+      requireContentOrigin: true,
+      additionalUrlCandidates: resultUrls,
+    });
+  } else {
+    // Unavailable database reads still return a documentId, but they do not
+    // prove that the page exists and must not authorize an artifact URL.
+    if (parsed.available !== false) {
+      addDocumentReadArtifact(documents, parsed, {
+        allowWithoutUrl: true,
+        requireContentOrigin: true,
+      });
+    }
+  }
+
+  if (!Array.isArray(parsed.items)) return;
+  for (const item of parsed.items) {
+    const itemRecord = asRecord(item);
+    const document = asRecord(itemRecord?.document);
+    if (!document) continue;
+    addDocumentReadArtifact(documents, document, {
+      allowWithoutUrl: true,
+      requireContentOrigin: true,
+      additionalUrlCandidates: [
+        stringValue(itemRecord?.url),
+        stringValue(itemRecord?.urlPath),
+        stringValue(itemRecord?.deepLink),
+      ],
+    });
+  }
+}
+
+function isGenericReadTool(tool: string): boolean {
+  return /^(?:find|get|list|query|read|search)-/i.test(tool);
+}
+
+function addGenericDocumentReadArtifact(
+  documents: Map<string, CreatedDocumentArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  // Unknown read actions are accepted only when their result pairs a document
+  // ID with a canonical page URL containing that exact ID. An ID by itself is
+  // insufficient, preserving the fabrication guard for unrelated actions.
+  addDocumentReadArtifact(documents, parsed, {
+    allowWithoutUrl: false,
+    requireContentOrigin: true,
+  });
+
+  const document = asRecord(parsed.document);
+  if (!document) return;
+  addDocumentReadArtifact(documents, document, {
+    allowWithoutUrl: false,
+    requireContentOrigin: true,
+    additionalUrlCandidates: [
+      stringValue(parsed.url),
+      stringValue(parsed.urlPath),
+      stringValue(parsed.deepLink),
+    ],
+  });
+}
+
 function addImageArtifact(
   images: Map<string, CreatedImageArtifact>,
   parsed: Record<string, unknown>,
@@ -387,7 +513,6 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "create-document" ||
-      toolResult.tool === "get-document" ||
       toolResult.tool === "update-document"
     ) {
       const id = stringValue(parsed.id);
@@ -399,6 +524,34 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
         });
       }
       continue;
+    }
+
+    if (
+      toolResult.tool === "get-document" ||
+      toolResult.tool === "get-content-document"
+    ) {
+      const document = asRecord(parsed.document);
+      addDocumentReadArtifact(documents, document ?? parsed, {
+        allowWithoutUrl: true,
+        requireContentOrigin: true,
+        additionalUrlCandidates: document
+          ? [
+              stringValue(parsed.url),
+              stringValue(parsed.urlPath),
+              stringValue(parsed.deepLink),
+            ]
+          : [],
+      });
+      continue;
+    }
+
+    if (toolResult.tool === "get-content-database") {
+      addContentDatabaseReadArtifacts(documents, parsed);
+      continue;
+    }
+
+    if (isGenericReadTool(toolResult.tool)) {
+      addGenericDocumentReadArtifact(documents, parsed);
     }
 
     if (

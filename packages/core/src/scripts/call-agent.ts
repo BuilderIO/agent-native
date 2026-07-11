@@ -427,6 +427,7 @@ async function enqueueIntegrationContinuationIfPossible(
       externalThreadId: integration.incoming.externalThreadId,
       incoming: integration.incoming,
       placeholderRef: integration.placeholderRef,
+      progressRef: integration.progressRef,
       ownerEmail,
       orgId: getRequestOrgId() ?? null,
       agentName: agent.name,

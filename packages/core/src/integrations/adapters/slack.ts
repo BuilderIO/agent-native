@@ -22,6 +22,7 @@ import type {
   IntegrationStatus,
   OutboundTarget,
   PlatformRunProgress,
+  PlatformRunProgressRef,
   IntegrationContextMessage,
   IntegrationFileReference,
 } from "../types.js";
@@ -357,6 +358,16 @@ export function slackAdapter(
       const token = await resolveBotToken(incoming);
       if (!token) return null;
       return startSlackRunProgress(token, incoming);
+    },
+
+    async resumeRunProgress(
+      incoming: IncomingMessage,
+      ref: PlatformRunProgressRef,
+    ): Promise<PlatformRunProgress | null> {
+      if (!isSlackStreamProgressRef(ref)) return null;
+      const token = await resolveBotToken(incoming);
+      if (!token) return null;
+      return resumeSlackRunProgress(token, incoming, ref.streamTs);
     },
 
     async sendResponse(
@@ -1273,6 +1284,21 @@ async function postSlackJson(
   return data;
 }
 
+function streamFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  return /^[a-z0-9_:-]{1,80}$/i.test(message) ? message : "unknown";
+}
+
+function streamChunkType(chunk: Record<string, unknown>): string {
+  const type = chunk.type;
+  return type === "task_update" ||
+    type === "plan_update" ||
+    type === "markdown_text" ||
+    type === "blocks"
+    ? type
+    : "unknown";
+}
+
 async function startSlackRunProgress(
   token: string,
   incoming: IncomingMessage,
@@ -1304,12 +1330,45 @@ async function startSlackRunProgress(
         },
       ],
     });
-  } catch {
+  } catch (error) {
+    console.warn("[slack] chat.startStream failed; using standard reply", {
+      errorCode: streamFailureCode(error),
+      isDirectMessage: incoming.conversationType === "dm",
+      hasRecipientTeam: Boolean(incoming.tenantId),
+      hasRecipientUser: Boolean(incoming.senderId),
+    });
     return null;
   }
 
   const streamTs = started.ts;
   if (typeof streamTs !== "string") return null;
+  return createSlackRunProgress(token, incoming, channel, threadTs, streamTs);
+}
+
+function isSlackStreamProgressRef(ref: PlatformRunProgressRef): boolean {
+  return (
+    ref.kind === "slack-stream" && /^\d{1,20}\.\d{1,9}$/.test(ref.streamTs)
+  );
+}
+
+async function resumeSlackRunProgress(
+  token: string,
+  incoming: IncomingMessage,
+  streamTs: string,
+): Promise<PlatformRunProgress | null> {
+  const channel = incoming.platformContext.channelId;
+  const threadTs = incoming.platformContext.threadTs;
+  if (typeof channel !== "string" || typeof threadTs !== "string") return null;
+  return createSlackRunProgress(token, incoming, channel, threadTs, streamTs);
+}
+
+function createSlackRunProgress(
+  token: string,
+  incoming: IncomingMessage,
+  channel: string,
+  threadTs: string,
+  streamTs: string,
+): PlatformRunProgress {
   const tasks = new Map<string, { title: string; status: string }>();
   const toolTaskIds = new Map<string, string>();
   const agentTaskIds = new Map<string, string>();
@@ -1328,12 +1387,22 @@ async function startSlackRunProgress(
     const now = Date.now();
     const write = async (value: Record<string, unknown>) => {
       lastWriteAt = Date.now();
-      await postSlackJson(token, "chat.appendStream", {
-        channel,
-        ts: streamTs,
-        markdown_text: "Progress updated.",
-        chunks: [value],
-      }).catch(() => {});
+      try {
+        await postSlackJson(token, "chat.appendStream", {
+          channel,
+          ts: streamTs,
+          markdown_text: "Progress updated.",
+          chunks: [value],
+        });
+      } catch (error) {
+        console.warn(
+          "[slack] chat.appendStream failed; progress may be stale",
+          {
+            chunkType: streamChunkType(value),
+            errorCode: streamFailureCode(error),
+          },
+        );
+      }
     };
     if (now - lastWriteAt >= 900) {
       await write(chunk);
@@ -1357,6 +1426,7 @@ async function startSlackRunProgress(
     `${prefix}:${explicit || ++sequence}`.slice(0, 240);
 
   return {
+    ref: { kind: "slack-stream", streamTs },
     async onEvent(event) {
       if (!cancelControl) {
         const context = getIntegrationRequestContext();

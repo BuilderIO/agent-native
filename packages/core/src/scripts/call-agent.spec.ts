@@ -50,6 +50,7 @@ vi.mock("../server/request-context.js", () => ({
       timestamp: 123,
     },
     placeholderRef: "placeholder-1",
+    progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
   }),
 }));
 
@@ -153,6 +154,10 @@ describe("call-agent action", () => {
         agentUrl: "https://slides.agent-native.test",
         a2aTaskId: "remote-task-1",
         dedupeKey: expect.any(String),
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
       }),
     );
     expect(dispatchA2AContinuationMock).toHaveBeenCalledWith("cont-1");

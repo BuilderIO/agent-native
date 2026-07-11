@@ -164,6 +164,8 @@ export interface RequestContext {
     attempts?: number;
     incoming: import("../integrations/types.js").IncomingMessage;
     placeholderRef?: string;
+    /** Opaque provider-native progress surface for a durable continuation. */
+    progressRef?: import("../integrations/types.js").PlatformRunProgressRef;
     installationId?: string;
     scopeId?: string;
     principalType?: "user" | "service";
