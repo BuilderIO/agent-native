@@ -187,6 +187,36 @@ describe("secrets storage CRUD (real sqlite)", () => {
     expect(read!.updatedAt).toBeGreaterThan(0);
   });
 
+  it("reads several scoped secrets in one projected query", async () => {
+    await mod.writeAppSecret({ ...userRef, value: "openai-example" });
+    await mod.writeAppSecret({
+      ...userRef,
+      key: "BUILDER_PRIVATE_KEY",
+      value: "builder-private-example",
+    });
+    await mod.writeAppSecret({
+      ...userRef,
+      scopeId: "bob@example.test",
+      value: "other-user-example",
+    });
+
+    const secrets = await mod.readAppSecrets({
+      keys: ["OPENAI_API_KEY", "BUILDER_PRIVATE_KEY", "MISSING_KEY"],
+      scope: "user",
+      scopeId: userRef.scopeId,
+    });
+
+    expect([...secrets.keys()].sort()).toEqual([
+      "BUILDER_PRIVATE_KEY",
+      "OPENAI_API_KEY",
+    ]);
+    expect(secrets.get("OPENAI_API_KEY")?.value).toBe("openai-example");
+    expect(secrets.get("BUILDER_PRIVATE_KEY")?.value).toBe(
+      "builder-private-example",
+    );
+    expect(secrets.has("MISSING_KEY")).toBe(false);
+  });
+
   it("rejects writes missing any required field without persisting", async () => {
     await expect(mod.writeAppSecret({ ...userRef, value: "" })).rejects.toThrow(
       /key, value, scope, and scopeId are all required/,

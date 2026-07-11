@@ -257,29 +257,29 @@ export function isBuilderPrivateKey(value: string | null | undefined): boolean {
 }
 
 async function readBuilderCredentialScope(
-  readAppSecret: typeof import("../secrets/storage.js").readAppSecret,
+  readAppSecrets: typeof import("../secrets/storage.js").readAppSecrets,
   scope: "user" | "org" | "workspace",
   scopeId: string,
 ): Promise<BuilderResolvedCredentials> {
-  const values = await Promise.all(
-    BUILDER_CREDENTIAL_KEYS.map(async (key) => {
-      const secret = await readAppSecret({ key, scope, scopeId });
-      return [key, secret?.value ?? null] as const;
-    }),
-  );
-  const map = new Map<string, string | null>(values);
+  const secrets = await readAppSecrets({
+    keys: BUILDER_CREDENTIAL_KEYS,
+    scope,
+    scopeId,
+  });
+  const value = (key: string): string | null =>
+    secrets.get(key)?.value ?? null;
   return {
-    privateKey: map.get("BUILDER_PRIVATE_KEY") ?? null,
-    publicKey: map.get("BUILDER_PUBLIC_KEY") ?? null,
-    userId: map.get("BUILDER_USER_ID") ?? null,
-    orgName: map.get("BUILDER_ORG_NAME") ?? null,
-    orgKind: map.get("BUILDER_ORG_KIND") ?? null,
-    subscription: map.get("BUILDER_SUBSCRIPTION") ?? null,
-    subscriptionLevel: map.get("BUILDER_SUBSCRIPTION_LEVEL") ?? null,
-    subscriptionName: map.get("BUILDER_SUBSCRIPTION_NAME") ?? null,
-    isEnterprise: readOptionalBuilderBoolean(map.get("BUILDER_IS_ENTERPRISE")),
+    privateKey: value("BUILDER_PRIVATE_KEY"),
+    publicKey: value("BUILDER_PUBLIC_KEY"),
+    userId: value("BUILDER_USER_ID"),
+    orgName: value("BUILDER_ORG_NAME"),
+    orgKind: value("BUILDER_ORG_KIND"),
+    subscription: value("BUILDER_SUBSCRIPTION"),
+    subscriptionLevel: value("BUILDER_SUBSCRIPTION_LEVEL"),
+    subscriptionName: value("BUILDER_SUBSCRIPTION_NAME"),
+    isEnterprise: readOptionalBuilderBoolean(value("BUILDER_IS_ENTERPRISE")),
     isFreeAccount: readOptionalBuilderBoolean(
-      map.get("BUILDER_IS_FREE_ACCOUNT"),
+      value("BUILDER_IS_FREE_ACCOUNT"),
     ),
     source: scope === "workspace" ? "workspace" : scope,
   };
@@ -397,7 +397,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   try {
-    const { readAppSecret } = await import("../secrets/storage.js");
+    const { readAppSecrets } = await import("../secrets/storage.js");
     const traceScope = (creds: BuilderResolvedCredentials, scopeId: string) => {
       if (!traceLookup) return;
       console.log(
@@ -406,7 +406,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
     };
 
     const userCreds = await readBuilderCredentialScope(
-      readAppSecret,
+      readAppSecrets,
       "user",
       email,
     );
@@ -417,7 +417,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
     if (orgId) {
       scopeAttempted = "org";
       const orgCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "org",
         orgId,
       );
@@ -426,7 +426,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
 
       scopeAttempted = "workspace";
       const workspaceCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "workspace",
         orgId,
       );
@@ -436,7 +436,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
       scopeAttempted = "workspace-solo";
       const scopeId = `solo:${email}`;
       const workspaceCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "workspace",
         scopeId,
       );

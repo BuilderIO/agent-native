@@ -230,6 +230,40 @@ export async function readAppSecret(
   }
 }
 
+/** Read several keys from one scope in a single database round trip. */
+export async function readAppSecrets(args: {
+  keys: readonly string[];
+  scope: SecretScope;
+  scopeId: string;
+}): Promise<Map<string, ReadSecretResult>> {
+  const keys = [...new Set(args.keys.filter(Boolean))];
+  if (keys.length === 0) return new Map();
+
+  await ensureTable();
+  const client = getDbExec();
+  const placeholders = keys.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT key, encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
+    args: [args.scope, args.scopeId, ...keys],
+  });
+  const results = new Map<string, ReadSecretResult>();
+  for (const row of rows) {
+    const key = String(row.key ?? "");
+    if (!key) continue;
+    try {
+      const value = decryptValue(row.encrypted_value as string);
+      results.set(key, {
+        value,
+        last4: last4(value),
+        updatedAt: Number(row.updated_at ?? 0),
+      });
+    } catch {
+      // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
+    }
+  }
+  return results;
+}
+
 /**
  * Return just the metadata for a secret (no value). Used by the list route so
  * the UI can show the "Set" pill and last-4 without the decrypted value going
