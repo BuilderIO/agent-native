@@ -329,6 +329,8 @@ const messages = {
     hideResolved: "Hide resolved",
     showResolved: "Show {{count}} resolved",
     noCommentsYet: "No comments yet",
+    loadFailed: "Couldn't load comments",
+    retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
   },

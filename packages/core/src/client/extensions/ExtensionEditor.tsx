@@ -28,6 +28,7 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface SlotDeclaration {
   id: string;
@@ -61,19 +62,22 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const { data: slots = [] } = useQuery<SlotDeclaration[]>({
+  const slotsQuery = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load extension slots (${res.status})`);
+      }
       return res.json();
     },
     enabled: isEdit && menuOpen,
   });
+  const slots = slotsQuery.data ?? [];
 
-  const { data: existingTool } = useQuery<Extension>({
+  const existingToolQuery = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
@@ -84,6 +88,7 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
     },
     enabled: isEdit,
   });
+  const existingTool = existingToolQuery.data;
 
   useEffect(() => {
     if (existingTool) {
@@ -175,6 +180,26 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
     }
   };
 
+  if (isEdit && existingToolQuery.isLoading) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="h-12 shrink-0 border-b" />
+        <div className="flex-1 bg-muted/20 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (isEdit && existingToolQuery.isError) {
+    return (
+      <ExtensionQueryErrorState
+        className="h-full min-h-[20rem]"
+        message={t("extensions.loadError")}
+        onRetry={() => void existingToolQuery.refetch()}
+        retrying={existingToolQuery.isFetching}
+      />
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col">
@@ -243,7 +268,15 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
                         <p className="text-[12px] font-medium">
                           {t("extensions.appearsIn")}
                         </p>
-                        {slots.length === 0 ? (
+                        {slotsQuery.isError ? (
+                          <ExtensionQueryErrorState
+                            compact
+                            className="px-0"
+                            message={t("extensions.widgetAreasLoadError")}
+                            onRetry={() => void slotsQuery.refetch()}
+                            retrying={slotsQuery.isFetching}
+                          />
+                        ) : slots.length === 0 ? (
                           <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                             {t("extensions.noWidgetAreas")}
                           </p>

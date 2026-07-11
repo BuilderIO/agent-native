@@ -334,6 +334,8 @@ const messages = {
     hideResolved: "Gelöste ausblenden",
     showResolved: "{{count}} gelöste anzeigen",
     noCommentsYet: "Noch keine Kommentare",
+    loadFailed: "Kommentare konnten nicht geladen werden",
+    retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
   },

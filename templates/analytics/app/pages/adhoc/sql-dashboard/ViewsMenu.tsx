@@ -92,7 +92,8 @@ function filtersMatch(
 export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { views, saveView, deleteView } = useDashboardViews(dashboardId);
+  const { views, error, refetch, saveView, deleteView } =
+    useDashboardViews(dashboardId);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -177,7 +178,21 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             {t("sqlDashboard.savedViews")}
           </DropdownMenuLabel>
-          {views.length === 0 ? (
+          {error ? (
+            <div className="px-2 py-2 text-xs text-destructive" role="status">
+              <span>{t("commandPalette.loadFailed")}</span>{" "}
+              <button
+                type="button"
+                className="font-medium underline underline-offset-2 hover:text-destructive/80"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void refetch();
+                }}
+              >
+                {t("sidebar.retry")}
+              </button>
+            </div>
+          ) : views.length === 0 ? (
             <div className="px-2 py-2 text-xs text-muted-foreground">
               {t("sqlDashboard.noSavedViews")}
             </div>

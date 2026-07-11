@@ -8,10 +8,12 @@ import type { AgentEngine } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread } from "../chat-threads/store.js";
 import {
   organizationIdFromResourceOwner,
@@ -175,6 +177,18 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
 export interface SchedulerDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a job run. When
+   * provided, every other action returned by `getActions()` is deferred
+   * behind an attached `tool-search` entry instead of being serialized on
+   * every scheduled tick — `runAgentLoop`'s mid-run tool expansion
+   * (`expandActiveTools`) still lets the model discover and call them after
+   * a search. Omit to keep the full `getActions()` set visible up front
+   * (current behavior). The caller (not this module) knows which of the
+   * merged actions are the app's own vs. framework additions, so this must
+   * be supplied explicitly rather than inferred here.
+   */
+  getInitialToolNames?: () => string[] | undefined;
   /** Optional engine override. Defaults to the resolved request engine. */
   engine?: AgentEngine;
   apiKey?: string;
@@ -463,9 +477,17 @@ async function executeJob(
     },
     async () => {
       try {
-        const actions = deps.getActions();
+        const baseActions = deps.getActions();
         const systemPrompt = await deps.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = deps.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
         // Prefer the job runner's saved Anthropic key so recurring jobs
         // don't silently bill the shared platform key once a user has
@@ -537,6 +559,7 @@ async function executeJob(
                   model,
                   systemPrompt,
                   tools,
+                  availableTools,
                   messages,
                   actions,
                   send,

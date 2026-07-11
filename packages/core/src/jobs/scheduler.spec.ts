@@ -30,10 +30,39 @@ vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
 }));
 
+const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));
+
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) that this file's narrower mocks don't
+// support. This only needs to prove scheduler.ts WIRES the filter with the
+// right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: vi.fn(() => []),
+  actionsToEngineTools: actionsToEngineToolsMock,
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
   runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
@@ -148,6 +177,89 @@ Summarize the inbox.`,
         title: expect.stringContaining("Job: daily-report"),
       }),
     );
+  });
+
+  it("defers framework-added tools behind tool-search on the first job request when an initial tool list is supplied", async () => {
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({
+        "template-job-action": noopTool("A job-relevant app action"),
+        "list-integration-memory": noopTool("Framework addition"),
+      }),
+      getInitialToolNames: () => ["template-job-action"],
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "template-job-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    expect(availableToolNames).toEqual([
+      "list-integration-memory",
+      "template-job-action",
+      "tool-search",
+    ]);
+  });
+
+  it("keeps every action visible on the first job request when no initial tool list is supplied (unchanged default)", async () => {
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({
+        "template-job-action": noopTool("A job-relevant app action"),
+        "other-framework-action": noopTool("Some other action"),
+      }),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    // No filtering applied and no tool-search attached — identical to the
+    // prior behavior when the caller doesn't opt into initial-tool filtering.
+    expect(firstRequestToolNames).toEqual([
+      "other-framework-action",
+      "template-job-action",
+    ]);
   });
 
   it("loads prompt resources for the effective run owner", async () => {

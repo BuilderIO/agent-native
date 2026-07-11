@@ -327,6 +327,8 @@ const messages = {
     hideResolved: "हल किए गए छिपाएं",
     showResolved: "{{count}} हल किए गए दिखाएं",
     noCommentsYet: "अभी कोई टिप्पणी नहीं",
+    loadFailed: "टिप्पणियाँ लोड नहीं हो सकीं",
+    retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
   },

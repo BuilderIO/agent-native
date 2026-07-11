@@ -329,6 +329,8 @@ const messages = {
     hideResolved: "해결됨 숨기기",
     showResolved: "해결됨 {{count}}개 표시",
     noCommentsYet: "아직 댓글 없음",
+    loadFailed: "댓글을 불러올 수 없습니다",
+    retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
   },

@@ -1,13 +1,13 @@
 import {
   PromptComposer,
   isInBuilderFrame,
+  navigateWithAgentChatViewTransition,
   useActionQuery,
   useChatModels,
   useT,
 } from "@agent-native/core/client";
 import {
   IconArrowUpRight,
-  IconBroadcast,
   IconStack3,
   type IconProps,
 } from "@tabler/icons-react";
@@ -22,12 +22,6 @@ import { DispatchShell } from "./dispatch-shell";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { WorkspaceAppCard } from "./workspace-app-card";
-
-const PROMPT_SUGGESTIONS = [
-  "Summarize the current workspace health",
-  "Create an app for onboarding requests",
-  "Check which agents can help with analytics",
-];
 
 const WORKSPACE_LINKS = [
   { to: "/automations", labelKey: "dispatch.nav.automations" },
@@ -70,8 +64,20 @@ function SectionHeader({
 }
 
 function CommandPanel() {
+  const t = useT();
   const { selectedModel } = useChatModels();
   const navigate = useNavigate();
+  const promptSuggestions = [
+    t("dispatch.pages.suggestionWorkspaceHealth", {
+      defaultValue: "Summarize the current workspace health",
+    }),
+    t("dispatch.pages.suggestionOnboardingApp", {
+      defaultValue: "Create an app for onboarding requests",
+    }),
+    t("dispatch.pages.suggestionAnalyticsAgents", {
+      defaultValue: "Check which agents can help with analytics",
+    }),
+  ];
 
   function send(message: string) {
     const trimmed = message.trim();
@@ -82,48 +88,82 @@ function CommandPanel() {
       return;
     }
 
-    navigate("/chat", {
-      state: {
-        dispatchPrompt: {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          message: trimmed,
-          selectedModel,
+    navigateWithAgentChatViewTransition(
+      navigate,
+      "/chat",
+      {
+        state: {
+          dispatchPrompt: {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            message: trimmed,
+            selectedModel,
+          },
         },
       },
-    });
+    );
   }
 
   return (
-    <section className="rounded-lg border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <IconBroadcast size={16} className="text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Ask Dispatch
+    <section className="flex flex-col">
+      <nav
+        aria-label={t("dispatch.pages.chatViewsAria", {
+          defaultValue: "Dispatch chat views",
+        })}
+        className="flex items-center gap-6 border-b"
+      >
+        <span className="border-b-2 border-foreground px-0.5 pb-2.5 text-sm font-medium text-foreground">
+          {t("dispatch.pages.askTab", { defaultValue: "Ask" })}
+        </span>
+        <Link
+          to="/chat"
+          onClick={(event) => {
+            if (
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              navigateWithAgentChatViewTransition(navigate, "/chat");
+            }
+          }}
+          className="px-0.5 pb-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {t("dispatch.nav.chat", { defaultValue: "Chat" })}
+        </Link>
+      </nav>
+      <div className="mx-auto flex w-full max-w-3xl flex-col pt-8 sm:pt-10">
+        <div className="mb-5 text-center">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            {t("dispatch.pages.chatAcrossApps", {
+              defaultValue: "Chat across your apps",
+            })}
           </h2>
+          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+            {t("dispatch.pages.chatAcrossAppsDescription", {
+              defaultValue:
+                "Route work, inspect status, or create something new from one place.",
+            })}
+          </p>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/chat">
-            Open chat
-            <IconArrowUpRight size={14} />
-          </Link>
-        </Button>
-      </div>
-      <PromptComposer
-        placeholder="Route work, inspect status, or create an app..."
-        onSubmit={(text) => send(text)}
-      />
-      <div className="mt-3 flex flex-wrap gap-2">
-        {PROMPT_SUGGESTIONS.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            onClick={() => send(suggestion)}
-            className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground transition hover:border-foreground/30 hover:text-foreground"
-          >
-            {suggestion}
-          </button>
-        ))}
+        <PromptComposer
+          placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
+            defaultValue: "Ask Dispatch anything...",
+          })}
+          onSubmit={(text) => send(text)}
+        />
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {promptSuggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => send(suggestion)}
+              className="cursor-pointer rounded-md border border-transparent bg-muted/60 px-2.5 py-1.5 text-xs text-muted-foreground transition-[background-color,color] hover:bg-muted hover:text-foreground"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   );

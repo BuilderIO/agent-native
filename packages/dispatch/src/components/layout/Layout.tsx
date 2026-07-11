@@ -95,17 +95,17 @@ export interface DispatchExtensionConfig {
 
 const PRIMARY_NAV_ITEMS = [
   {
-    id: "chat",
-    to: "/chat",
-    label: "Chat",
-    icon: IconMessageQuestion,
-    section: "primary",
-  },
-  {
     id: "overview",
     to: "/overview",
     label: "Overview",
     icon: IconBroadcast,
+    section: "primary",
+  },
+  {
+    id: "chat",
+    to: "/chat",
+    label: "Chat",
+    icon: IconMessageQuestion,
     section: "primary",
   },
   {

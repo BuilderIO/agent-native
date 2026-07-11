@@ -131,28 +131,24 @@ function ExplorerDashboardDragPreview({ title }: { title: string | null }) {
 async function fetchDashboard(
   id: string,
 ): Promise<FetchedExplorerDashboard | null> {
-  try {
-    const raw: any = await callAction(
-      "get-explorer-dashboard",
-      { id },
-      { method: "GET" },
-    );
-    if (!raw) return null;
-    return {
-      data: {
-        name: raw.name ?? "Untitled Dashboard",
-        charts: raw.charts ?? [],
-      },
-      archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
-      hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
-      hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
-      role: typeof raw.role === "string" ? raw.role : undefined,
-      canEdit: typeof raw.canEdit === "boolean" ? raw.canEdit : undefined,
-      canManage: typeof raw.canManage === "boolean" ? raw.canManage : undefined,
-    };
-  } catch {
-    return null;
-  }
+  const raw: any = await callAction(
+    "get-explorer-dashboard",
+    { id },
+    { method: "GET" },
+  );
+  if (!raw) return null;
+  return {
+    data: {
+      name: raw.name ?? "Untitled Dashboard",
+      charts: raw.charts ?? [],
+    },
+    archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
+    hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
+    hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
+    role: typeof raw.role === "string" ? raw.role : undefined,
+    canEdit: typeof raw.canEdit === "boolean" ? raw.canEdit : undefined,
+    canManage: typeof raw.canManage === "boolean" ? raw.canManage : undefined,
+  };
 }
 
 async function saveDashboard(id: string, data: ExplorerDashboardData) {
@@ -163,18 +159,10 @@ async function saveDashboard(id: string, data: ExplorerDashboardData) {
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
-  try {
-    const rows = await callAction(
-      "list-explorer-configs",
-      {},
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : [])
-      .filter((c: any) => c.id !== "_autosave")
-      .map((c: any) => ({ id: c.id, name: c.name }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : [])
+    .filter((c: any) => c.id !== "_autosave")
+    .map((c: any) => ({ id: c.id, name: c.name }));
 }
 
 export default function ExplorerDashboardPage() {
@@ -277,11 +265,12 @@ export default function ExplorerDashboardPage() {
     [collabDocId],
   );
 
-  const { data: savedConfigs = [] } = useQuery({
+  const savedConfigsQuery = useQuery({
     queryKey: ["explorer-configs"],
     queryFn: fetchSavedConfigs,
     staleTime: 30_000,
   });
+  const savedConfigs = savedConfigsQuery.data ?? [];
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
   // action runs — the same "agent writes show up without a manual refresh"
@@ -535,6 +524,24 @@ export default function ExplorerDashboardPage() {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         {t("explorerDashboard.noDashboardSelected")}
+      </div>
+    );
+  }
+
+  if (dashboardQuery.isError) {
+    return (
+      <div
+        className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-destructive"
+        role="status"
+      >
+        <span>{t("sidebar.dashboardsLoadFailed")}</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void dashboardQuery.refetch()}
+        >
+          {t("sidebar.retry")}
+        </Button>
       </div>
     );
   }
@@ -817,7 +824,21 @@ export default function ExplorerDashboardPage() {
               <DialogTitle>{t("explorerDashboard.addChart")}</DialogTitle>
             </DialogHeader>
             <div className="max-h-[400px] overflow-auto space-y-1">
-              {savedConfigs.length === 0 ? (
+              {savedConfigsQuery.isError ? (
+                <div
+                  className="flex flex-col items-center gap-2 py-4 text-center text-sm text-destructive"
+                  role="status"
+                >
+                  <span>{t("commandPalette.loadFailed")}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void savedConfigsQuery.refetch()}
+                  >
+                    {t("sidebar.retry")}
+                  </Button>
+                </div>
+              ) : savedConfigs.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   {t("explorerDashboard.noSavedExplorerCharts")}
                 </p>

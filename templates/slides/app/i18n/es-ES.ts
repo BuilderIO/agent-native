@@ -336,6 +336,8 @@ const messages = {
     hideResolved: "Ocultar resueltos",
     showResolved: "Mostrar {{count}} resueltos",
     noCommentsYet: "Aún no hay comentarios",
+    loadFailed: "No se pudieron cargar los comentarios",
+    retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
   },

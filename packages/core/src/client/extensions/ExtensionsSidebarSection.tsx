@@ -62,6 +62,7 @@ import {
   extensionPopularityOf,
   useExtensionPopularity,
 } from "./extension-popularity.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -114,6 +115,7 @@ type ExtensionsCopy = {
   delete: string;
   showLess: string;
   showMore: string;
+  loadError: string;
 };
 
 const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
@@ -149,6 +151,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Delete",
     showLess: "show less",
     showMore: "show more",
+    loadError: "Couldn't load extensions.",
   },
   "zh-CN": {
     title: "扩展",
@@ -181,6 +184,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "删除",
     showLess: "收起",
     showMore: "显示更多",
+    loadError: "无法加载扩展。",
   },
   "zh-TW": {
     title: "擴充功能",
@@ -214,6 +218,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "刪除",
     showLess: "顯示較少",
     showMore: "顯示更多",
+    loadError: "無法載入擴充功能。",
   },
   "es-ES": {
     title: "Extensiones",
@@ -247,6 +252,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Eliminar",
     showLess: "mostrar menos",
     showMore: "mostrar más",
+    loadError: "No se pudieron cargar las extensiones.",
   },
   "fr-FR": {
     title: "Extensions",
@@ -280,6 +286,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Supprimer",
     showLess: "afficher moins",
     showMore: "afficher plus",
+    loadError: "Impossible de charger les extensions.",
   },
   "de-DE": {
     title: "Erweiterungen",
@@ -313,6 +320,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Löschen",
     showLess: "weniger anzeigen",
     showMore: "mehr anzeigen",
+    loadError: "Erweiterungen konnten nicht geladen werden.",
   },
   "ja-JP": {
     title: "拡張機能",
@@ -346,6 +354,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "削除",
     showLess: "少なく表示",
     showMore: "さらに表示",
+    loadError: "拡張機能を読み込めませんでした。",
   },
   "ko-KR": {
     title: "확장",
@@ -379,6 +388,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "삭제",
     showLess: "덜 보기",
     showMore: "더 보기",
+    loadError: "확장 프로그램을 불러올 수 없습니다.",
   },
   "pt-BR": {
     title: "Extensões",
@@ -412,6 +422,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Excluir",
     showLess: "mostrar menos",
     showMore: "mostrar mais",
+    loadError: "Não foi possível carregar as extensões.",
   },
   "hi-IN": {
     title: "एक्सटेंशन",
@@ -445,6 +456,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "हटाएं",
     showLess: "कम दिखाएं",
     showMore: "और दिखाएं",
+    loadError: "एक्सटेंशन लोड नहीं हो सके।",
   },
   "ar-SA": {
     title: "الإضافات",
@@ -478,6 +490,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "حذف",
     showLess: "إظهار أقل",
     showMore: "إظهار المزيد",
+    loadError: "تعذر تحميل الإضافات.",
   },
 };
 
@@ -638,7 +651,7 @@ export function ExtensionsSidebarSection() {
   const [showAllExtensions, setShowAllExtensions] = useState(false);
   const [showGloballyHidden, setShowGloballyHidden] = useState(false);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -648,10 +661,11 @@ export function ExtensionsSidebarSection() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toggleFavorite = useCallback((id: string) => {
     setFavoriteIds((prev) => {
@@ -981,7 +995,7 @@ export function ExtensionsSidebarSection() {
         </div>
 
         {extensionsOpen &&
-          (isLoading ? (
+          (extensionsQuery.isLoading ? (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {[1, 2, 3].map((i) => (
                 <div
@@ -995,6 +1009,13 @@ export function ExtensionsSidebarSection() {
                 </div>
               ))}
             </div>
+          ) : extensionsQuery.isError ? (
+            <ExtensionQueryErrorState
+              compact
+              message={copy.loadError}
+              onRetry={() => void extensionsQuery.refetch()}
+              retrying={extensionsQuery.isFetching}
+            />
           ) : sortedTools.length === 0 ? null : (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {visibleTools.map((extension) => {

@@ -331,6 +331,8 @@ const messages = {
     hideResolved: "解決済みを非表示",
     showResolved: "{{count}} 件の解決済みを表示",
     noCommentsYet: "まだコメントはありません",
+    loadFailed: "コメントを読み込めませんでした",
+    retry: "再試行",
     clickToAddComment: "クリックしてコメントを追加",
     selectSlideToAdd: "追加するにはスライドを選択してください",
   },

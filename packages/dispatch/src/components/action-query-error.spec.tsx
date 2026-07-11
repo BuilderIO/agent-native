@@ -32,7 +32,7 @@ describe("ActionQueryError", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the query error and retries on request", () => {
+  it("shows a safe query error and retries on request", () => {
     const onRetry = vi.fn();
     act(() => {
       root.render(
@@ -44,7 +44,8 @@ describe("ActionQueryError", () => {
     });
 
     expect(container.textContent).toContain("Couldn't load data");
-    expect(container.textContent).toContain("Database unavailable");
+    expect(container.textContent).toContain("Dispatch couldn't load this data.");
+    expect(container.textContent).not.toContain("Database unavailable");
     act(() => {
       container.querySelector("button")?.click();
     });

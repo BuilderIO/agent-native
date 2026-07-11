@@ -14,16 +14,8 @@ interface SavedConfigEntry {
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfigEntry[]> {
-  try {
-    const rows = await callAction(
-      "list-explorer-configs",
-      {},
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : []) as SavedConfigEntry[];
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
@@ -84,11 +76,12 @@ export function useExplorerConfig() {
     return () => clearTimeout(autosaveTimer.current);
   }, [config, currentId, initialized]);
 
-  const { data: savedConfigs = [], refetch: refetchList } = useQuery({
+  const savedConfigsQuery = useQuery({
     queryKey: ["explorer-configs"],
     queryFn: fetchSavedConfigs,
     staleTime: 30_000,
   });
+  const savedConfigs = savedConfigsQuery.data ?? [];
 
   const loadConfig = useCallback(async (id: string) => {
     const loaded = await fetchConfig(id);
@@ -110,12 +103,12 @@ export function useExplorerConfig() {
         });
         setCurrentId(id);
         setConfig(toSave);
-        refetchList();
+        savedConfigsQuery.refetch();
       } finally {
         setIsSaving(false);
       }
     },
-    [config, currentId, refetchList],
+    [config, currentId, savedConfigsQuery],
   );
 
   const deleteConfig = useCallback(
@@ -125,9 +118,9 @@ export function useExplorerConfig() {
         setConfig(createDefaultConfig(defaultConfigName));
         setCurrentId(null);
       }
-      refetchList();
+      savedConfigsQuery.refetch();
     },
-    [currentId, defaultConfigName, refetchList],
+    [currentId, defaultConfigName, savedConfigsQuery],
   );
 
   const newConfig = useCallback(() => {
@@ -140,6 +133,8 @@ export function useExplorerConfig() {
     setConfig,
     currentId,
     savedConfigs,
+    savedConfigsError: savedConfigsQuery.error,
+    retrySavedConfigs: savedConfigsQuery.refetch,
     loadConfig,
     saveConfig,
     deleteConfig,

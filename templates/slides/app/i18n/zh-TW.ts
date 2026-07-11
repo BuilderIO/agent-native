@@ -320,6 +320,8 @@ const messages = {
     hideResolved: "隱藏已解決",
     showResolved: "顯示 {{count}} 條已解決",
     noCommentsYet: "還沒有評論",
+    loadFailed: "無法載入評論",
+    retry: "重試",
     clickToAddComment: "點選新增評論",
     selectSlideToAdd: "選取幻燈片以新增評論",
   },

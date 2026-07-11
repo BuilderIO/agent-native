@@ -3,6 +3,7 @@ import {
   appBasePath,
   appPath,
   markAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
 import {
   useCallback,
@@ -86,6 +87,7 @@ export function meta() {
 }
 
 export default function ChatRoute() {
+  const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
@@ -175,16 +177,25 @@ export default function ChatRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Dispatch to create apps, route work, or manage the workspace."
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder="Ask Dispatch..."
-        composerSlot={
+        emptyStateText={t("dispatch.pages.chatAcrossAppsDescription", {
+          defaultValue:
+            "Route work, inspect status, or create something new from one place.",
+        })}
+        composerPlaceholder={t("dispatch.pages.chatPromptPlaceholder", {
+          defaultValue: "Ask Dispatch...",
+        })}
+        emptyStateAddon={
           <div className="dispatch-chat-intro">
-            <h1>What should Dispatch do next?</h1>
+            <h1>
+              {t("dispatch.pages.chatAcrossApps", {
+                defaultValue: "Chat across your apps",
+              })}
+            </h1>
             <p>
-              Create apps, manage shared keys, and route work across agents.
+              {t("dispatch.pages.chatAcrossAppsDescription", {
+                defaultValue:
+                  "Route work, inspect status, or create something new from one place.",
+              })}
             </p>
           </div>
         }

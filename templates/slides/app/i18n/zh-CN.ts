@@ -325,6 +325,8 @@ const messages = {
     hideResolved: "隐藏已解决",
     showResolved: "显示 {{count}} 条已解决",
     noCommentsYet: "还没有评论",
+    loadFailed: "无法加载评论",
+    retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
   },

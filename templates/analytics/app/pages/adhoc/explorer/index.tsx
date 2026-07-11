@@ -54,6 +54,8 @@ export default function ExplorerPage() {
     setConfig,
     currentId,
     savedConfigs,
+    savedConfigsError,
+    retrySavedConfigs,
     loadConfig,
     saveConfig,
     deleteConfig,
@@ -158,27 +160,48 @@ export default function ExplorerPage() {
                   {t("explorer.saveAs")}
                 </DropdownMenuItem>
               )}
-              {savedConfigs.length > 0 && <DropdownMenuSeparator />}
-              {savedConfigs.map((sc) => (
-                <DropdownMenuItem
-                  key={sc.id}
-                  className="flex items-center justify-between"
-                  onClick={() => loadConfig(sc.id)}
+              {(savedConfigsError || savedConfigs.length > 0) && (
+                <DropdownMenuSeparator />
+              )}
+              {savedConfigsError ? (
+                <div
+                  className="px-2 py-2 text-xs text-destructive"
+                  role="status"
                 >
-                  <span className="truncate">{sc.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 shrink-0 ml-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirm({ id: sc.id, name: sc.name });
+                  <span>{t("commandPalette.loadFailed")}</span>{" "}
+                  <button
+                    type="button"
+                    className="font-medium underline underline-offset-2 hover:text-destructive/80"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void retrySavedConfigs();
                     }}
                   >
-                    <IconTrash className="h-3 w-3 text-destructive" />
-                  </Button>
-                </DropdownMenuItem>
-              ))}
+                    {t("sidebar.retry")}
+                  </button>
+                </div>
+              ) : (
+                savedConfigs.map((sc) => (
+                  <DropdownMenuItem
+                    key={sc.id}
+                    className="flex items-center justify-between"
+                    onClick={() => loadConfig(sc.id)}
+                  >
+                    <span className="truncate">{sc.name}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0 ml-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteConfirm({ id: sc.id, name: sc.name });
+                      }}
+                    >
+                      <IconTrash className="h-3 w-3 text-destructive" />
+                    </Button>
+                  </DropdownMenuItem>
+                ))
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 

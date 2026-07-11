@@ -280,6 +280,17 @@ const enUS = {
       also: "Also",
       monitoring: "Monitoring",
       database: "Database",
+      askTab: "Ask",
+      chatViewsAria: "Dispatch chat views",
+      chatAcrossApps: "Chat across your apps",
+      chatAcrossAppsDescription:
+        "Route work, inspect status, or create something new from one place.",
+      overviewPromptPlaceholder: "Ask Dispatch anything...",
+      chatPromptPlaceholder: "Ask Dispatch...",
+      suggestionWorkspaceHealth: "Summarize the current workspace health",
+      suggestionOnboardingApp: "Create an app for onboarding requests",
+      suggestionAnalyticsAgents:
+        "Check which agents can help with analytics",
       workspaceShortcutsAria: "Workspace shortcuts",
       deliveryQueue: "Delivery queue",
       failedLastHour: "{{count}} failed in the last hour",
@@ -656,6 +667,16 @@ export const messagesByLocale = {
         also: "还有",
         monitoring: "监控",
         database: "数据库",
+        askTab: "询问",
+        chatViewsAria: "Dispatch 聊天视图",
+        chatAcrossApps: "跨应用聊天",
+        chatAcrossAppsDescription:
+          "在一个地方分派工作、检查状态或创建新内容。",
+        overviewPromptPlaceholder: "向 Dispatch 提问...",
+        chatPromptPlaceholder: "询问 Dispatch...",
+        suggestionWorkspaceHealth: "总结当前工作区运行状况",
+        suggestionOnboardingApp: "为入职请求创建一个应用",
+        suggestionAnalyticsAgents: "查看哪些代理可以协助分析",
         workspaceShortcutsAria: "工作区快捷入口",
         deliveryQueue: "投递队列",
         failedLastHour: "过去一小时失败 {{count}} 次",
@@ -968,6 +989,19 @@ export const messagesByLocale = {
         also: "También",
         monitoring: "Monitorización",
         database: "Base de datos",
+        askTab: "Preguntar",
+        chatViewsAria: "Vistas de chat de Dispatch",
+        chatAcrossApps: "Chatea con todas tus aplicaciones",
+        chatAcrossAppsDescription:
+          "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
+        overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
+        chatPromptPlaceholder: "Pregunta a Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resume el estado actual del espacio de trabajo",
+        suggestionOnboardingApp:
+          "Crea una app para solicitudes de incorporación",
+        suggestionAnalyticsAgents:
+          "Comprueba qué agentes pueden ayudar con analítica",
         workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
         deliveryQueue: "Cola de entrega",
         failedLastHour: "{{count}} fallos en la última hora",
@@ -1281,6 +1315,19 @@ export const messagesByLocale = {
         also: "Aussi",
         monitoring: "Surveillance",
         database: "Base de données",
+        askTab: "Demander",
+        chatViewsAria: "Vues de discussion Dispatch",
+        chatAcrossApps: "Discutez avec toutes vos applications",
+        chatAcrossAppsDescription:
+          "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
+        overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
+        chatPromptPlaceholder: "Demandez à Dispatch…",
+        suggestionWorkspaceHealth:
+          "Résumer l’état actuel de l’espace de travail",
+        suggestionOnboardingApp:
+          "Créer une app pour les demandes d’intégration",
+        suggestionAnalyticsAgents:
+          "Vérifier quels agents peuvent aider avec l’analytique",
         workspaceShortcutsAria: "Raccourcis de l’espace de travail",
         deliveryQueue: "File de livraison",
         failedLastHour: "{{count}} échecs au cours de la dernière heure",
@@ -1583,6 +1630,19 @@ export const messagesByLocale = {
         also: "Außerdem",
         monitoring: "Überwachung",
         database: "Datenbank",
+        askTab: "Fragen",
+        chatViewsAria: "Dispatch-Chatansichten",
+        chatAcrossApps: "App-übergreifend chatten",
+        chatAcrossAppsDescription:
+          "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
+        overviewPromptPlaceholder: "Frage Dispatch alles...",
+        chatPromptPlaceholder: "Dispatch fragen...",
+        suggestionWorkspaceHealth:
+          "Aktuellen Zustand des Workspace zusammenfassen",
+        suggestionOnboardingApp:
+          "Eine App für Onboarding-Anfragen erstellen",
+        suggestionAnalyticsAgents:
+          "Prüfen, welche Agenten bei Analysen helfen können",
         workspaceShortcutsAria: "Workspace-Kurzbefehle",
         deliveryQueue: "Zustellungswarteschlange",
         failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
@@ -1882,6 +1942,18 @@ export const messagesByLocale = {
         also: "その他",
         monitoring: "監視",
         database: "データベース",
+        askTab: "質問",
+        chatViewsAria: "Dispatch のチャット表示",
+        chatAcrossApps: "アプリを横断してチャット",
+        chatAcrossAppsDescription:
+          "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
+        overviewPromptPlaceholder: "Dispatch に何でも質問...",
+        chatPromptPlaceholder: "Dispatch に質問...",
+        suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
+        suggestionOnboardingApp:
+          "オンボーディング依頼用のアプリを作成",
+        suggestionAnalyticsAgents:
+          "分析を支援できるエージェントを確認",
         workspaceShortcutsAria: "ワークスペースのショートカット",
         deliveryQueue: "配信キュー",
         failedLastHour: "過去 1 時間で {{count}} 件失敗",
@@ -2178,6 +2250,17 @@ export const messagesByLocale = {
         also: "또한",
         monitoring: "모니터링",
         database: "데이터베이스",
+        askTab: "질문",
+        chatViewsAria: "Dispatch 채팅 보기",
+        chatAcrossApps: "앱 전체에서 채팅",
+        chatAcrossAppsDescription:
+          "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
+        overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
+        chatPromptPlaceholder: "Dispatch에 질문...",
+        suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
+        suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
+        suggestionAnalyticsAgents:
+          "분석을 지원할 수 있는 에이전트 확인",
         workspaceShortcutsAria: "워크스페이스 바로가기",
         deliveryQueue: "전달 대기열",
         failedLastHour: "지난 1시간 동안 {{count}}건 실패",
@@ -2486,6 +2569,19 @@ export const messagesByLocale = {
         also: "Também",
         monitoring: "Monitoramento",
         database: "Banco de dados",
+        askTab: "Perguntar",
+        chatViewsAria: "Visualizações de chat do Dispatch",
+        chatAcrossApps: "Converse entre seus apps",
+        chatAcrossAppsDescription:
+          "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
+        overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
+        chatPromptPlaceholder: "Pergunte ao Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resumir a integridade atual do espaço de trabalho",
+        suggestionOnboardingApp:
+          "Criar um app para solicitações de integração",
+        suggestionAnalyticsAgents:
+          "Verificar quais agentes podem ajudar com análises",
         workspaceShortcutsAria: "Atalhos do espaço de trabalho",
         deliveryQueue: "Fila de entrega",
         failedLastHour: "{{count}} falhas na última hora",
@@ -2777,6 +2873,19 @@ export const messagesByLocale = {
         also: "और भी",
         monitoring: "निगरानी",
         database: "डेटाबेस",
+        askTab: "पूछें",
+        chatViewsAria: "Dispatch चैट दृश्य",
+        chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
+        chatAcrossAppsDescription:
+          "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
+        overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
+        chatPromptPlaceholder: "Dispatch से पूछें...",
+        suggestionWorkspaceHealth:
+          "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
+        suggestionOnboardingApp:
+          "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
+        suggestionAnalyticsAgents:
+          "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
         workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
         deliveryQueue: "डिलीवरी कतार",
         failedLastHour: "पिछले घंटे में {{count}} विफल",
@@ -3106,6 +3215,17 @@ export const messagesByLocale = {
         also: "أيضًا",
         monitoring: "المراقبة",
         database: "قاعدة البيانات",
+        askTab: "اسأل",
+        chatViewsAria: "طرق عرض دردشة Dispatch",
+        chatAcrossApps: "تحدث عبر تطبيقاتك",
+        chatAcrossAppsDescription:
+          "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
+        overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
+        chatPromptPlaceholder: "اسأل Dispatch...",
+        suggestionWorkspaceHealth: "لخّص حالة مساحة العمل الحالية",
+        suggestionOnboardingApp: "أنشئ تطبيقًا لطلبات الإعداد",
+        suggestionAnalyticsAgents:
+          "تحقق من الوكلاء الذين يمكنهم المساعدة في التحليلات",
         workspaceShortcutsAria: "اختصارات مساحة العمل",
         deliveryQueue: "قائمة انتظار التسليم",
         failedLastHour: "{{count}} فشل خلال الساعة الماضية",

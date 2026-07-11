@@ -340,6 +340,8 @@ const messages = {
     hideResolved: "Masquer les résolus",
     showResolved: "Afficher {{count}} résolus",
     noCommentsYet: "Aucun commentaire pour le moment",
+    loadFailed: "Impossible de charger les commentaires",
+    retry: "Réessayer",
     clickToAddComment: "Cliquez pour ajouter un commentaire",
     selectSlideToAdd: "Sélectionnez une diapositive pour en ajouter un",
   },
