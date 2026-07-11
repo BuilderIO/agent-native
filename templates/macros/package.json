@@ -24,7 +24,7 @@
     "@supabase/supabase-js": "^2.101.1",
     "@tabler/icons-react": "catalog:",
     "drizzle-orm": "^0.45.2",
-    "h3": "^2.0.1-rc.20",
+    "h3": "catalog:",
     "isbot": "^5",
     "recharts": "^3.8.1",
     "zod": "^4.4.3"
@@ -86,7 +86,6 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",

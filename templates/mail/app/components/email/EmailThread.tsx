@@ -3042,6 +3042,7 @@ function HtmlEmailBody({
       } catch {}
     });
 
+    let handleRsvpClick: ((e: MouseEvent) => void) | null = null;
     if (calEventId && rsvpLinks.length > 0) {
       const eventId = calEventId;
       rsvpLinks.forEach((a) => {
@@ -3083,7 +3084,7 @@ function HtmlEmailBody({
       });
 
       // Handle RSVP clicks inline
-      const handleRsvpClick = async (e: MouseEvent) => {
+      handleRsvpClick = async (e: MouseEvent) => {
         const anchor = (e.target as Element)?.closest?.(
           'a[href*="calendar.google.com/calendar/event"]',
         ) as HTMLElement | null;
@@ -3189,6 +3190,7 @@ function HtmlEmailBody({
 
     return () => {
       doc.removeEventListener("click", handleLinkClick);
+      if (handleRsvpClick) doc.removeEventListener("click", handleRsvpClick);
       doc.removeEventListener("keydown", forwardKey);
       clearTimeout(timer);
       clearTimeout(timer2);

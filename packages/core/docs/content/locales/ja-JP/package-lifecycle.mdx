@@ -1,0 +1,21 @@
+---
+title: パッケージのライフサイクル
+description: マニフェスト駆動の Agent Native パッケージを安全に確認、追加、排出します。
+---
+
+# パッケージのライフサイクル
+
+再利用可能なパッケージは、バージョン付きの静的な
+`agent-native.package.json` を公開できます。CLI は検査時にこの JSON のみを
+読み、パッケージコードを実行しません。
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+追加と排出は既定でドライランです。`--apply` を指定した場合だけ書き込みと
+パッケージマネージャーを実行します。競合や未知の配置は拒否し、インストール
+失敗時にはファイルとロックファイルを復元します。パイロットでは Scheduling
+のみ排出可能で、Pinpoint は対象外です。

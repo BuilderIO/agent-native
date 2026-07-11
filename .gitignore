@@ -86,6 +86,7 @@ wrangler.toml
 
 # Agent session scratch / plan draft notes
 .claude/plan-drafts/
+advisor-plans/
 
 # Builder writing agent scratch (edit-plan.md, edit-state.json)
 **/.builder-writing/

@@ -39,7 +39,7 @@
  */
 import {
   hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
+  isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
 import {
   extractBearerToken,
@@ -469,10 +469,13 @@ export function extractProcessRunId(body: unknown): string | null {
  *
  * Auth policy mirrors the agent-teams processor exactly:
  *   - `A2A_SECRET` set → require a valid `verifyInternalToken(runId, token)`.
- *   - no secret but a production runtime → refuse (503) — never run unsigned in
- *     prod.
- *   - no secret + non-prod (local dev) → allow unsigned; the SQL atomic claim
- *     in the worker still prevents double-processing.
+ *   - no secret → require `isTrustedLocalRuntime({ loopback })` (see
+ *     auth-policy.ts): refuse (503) unless `A2A_ALLOW_UNSIGNED_INTERNAL=1` is
+ *     set. This function has no h3 `event` of its own, so callers that CAN
+ *     see the inbound socket peer (the route handler, which has the event)
+ *     should compute `loopback` from it and pass it through; callers that
+ *     can't determine the peer address should omit it (defaults to `false`
+ *     — never trust unsigned dispatch without an explicit opt-in).
  *
  * Extracted from the route handler so the auth + marker-prep decision is unit
  * testable without booting the whole Nitro plugin. The route only adds body
@@ -481,6 +484,7 @@ export function extractProcessRunId(body: unknown): string | null {
 export function prepareProcessRunRequest(
   body: unknown,
   authHeader: string | undefined,
+  loopback: boolean = false,
 ): ProcessRunPreparation {
   if (!body || typeof body !== "object") {
     return {
@@ -514,12 +518,16 @@ export function prepareProcessRunRequest(
         runId,
       };
     }
-  } else if (isA2AProductionRuntime()) {
+  } else if (!isTrustedLocalRuntime({ loopback })) {
+    // Callers that can see the h3 `event` (the route handler) pass the real
+    // loopback signal; callers without one default to non-loopback. Unsigned
+    // dispatch is still allowed via A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted
+    // local/dev setups; see auth-policy.ts `isTrustedLocalRuntime`.
     return {
       ok: false,
       status: 503,
       error:
-        "Agent chat background processor not configured — set A2A_SECRET on this deployment.",
+        "Agent chat background processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
       runId,
     };
   }

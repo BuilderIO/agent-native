@@ -73,10 +73,11 @@ export default defineAction({
 
 ## قراءة المسار {#reading}
 
-تتوفر قراءتان actions للوكيل **و** الواجهة الأمامية في كل تطبيق، ويتم تحديد نطاقهما في SQL للمتصل - ولا يُرجعان أبدًا صفوف مستأجر آخر:
+تتوفر ثلاث قراءات actions للوكيل **و** الواجهة الأمامية في كل تطبيق، ويتم تحديد نطاقها في SQL للمتصل - ولا تُرجع أبدًا صفوف مستأجر آخر:
 
 - **`list-audit-events`** — التصفية حسب `targetType` / `targetId`، `actorKind` (`agent` | `human` | `system`)، `status`، `threadId` / `turnId`، `action`، `sinceMs`، و`limit`.
 - **`get-audit-event`** — حدث واحد حسب المعرف، بما في ذلك حمولة الإدخال المنقحة الخاصة به.
+- **`export-audit-events`** — تصدير السجل بالجملة بصيغة CSV أو NDJSON بدلاً من ترقيم `list-audit-events` يدويًا، لعمليات السحب دون اتصال لأغراض الامتثال. تأخذ نفس عوامل تصفية `list-audit-events` (بدون `limit`) بالإضافة إلى `format` (`csv` | `ndjson`، الافتراضي `csv`) و`maxRows` (الافتراضي 5000، الحد الأقصى 10000)، وتُرجع `{ content, rowCount, truncated, format }` — تعني `truncated: true` أن عدد الصفوف المطابقة تجاوز `maxRows`. وهي نفسها قراءة حساسة، يتم تدقيقها عبر `audit: { onRead: true }`.
 
 أنشئ خلاصة نشاط أو سطر "من قام بتغيير هذا" عن طريق استدعاء `list-audit-events` من UI باستخدام `useActionQuery` — لا تكتب أبدًا يدويًا أي جلب إلى جدول التدقيق:
 

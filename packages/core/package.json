@@ -101,6 +101,10 @@
     "./shared": "./dist/shared/index.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./guards": {
+      "types": "./dist/guards/index.d.ts",
+      "default": "./dist/guards/index.js"
+    },
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./localization": "./dist/localization/index.js",
@@ -207,6 +211,10 @@
       "default": "./dist/local-artifacts/index.js"
     },
     "./workspace-files": "./dist/workspace-files/index.js",
+    "./package-lifecycle": {
+      "types": "./dist/package-lifecycle/index.d.ts",
+      "default": "./dist/package-lifecycle/index.js"
+    },
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
@@ -373,7 +381,6 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",

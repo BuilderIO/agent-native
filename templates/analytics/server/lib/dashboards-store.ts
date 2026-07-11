@@ -129,6 +129,45 @@ function nanoidFallback(): string {
   );
 }
 
+/**
+ * Normalize affected-row metadata from every createGetDb backend: libSQL,
+ * PGlite, Neon, postgres.js, better-sqlite3, and D1. Mirrors
+ * templates/design/actions/update-design.ts's `affectedRowCount`.
+ */
+function affectedRowCount(result: unknown): number | undefined {
+  const candidate = result as
+    | {
+        rowsAffected?: unknown;
+        affectedRows?: unknown;
+        rowCount?: unknown;
+        count?: unknown;
+        changes?: unknown;
+        meta?: { changes?: unknown };
+      }
+    | undefined;
+  const value =
+    candidate?.rowsAffected ??
+    candidate?.affectedRows ??
+    candidate?.rowCount ??
+    candidate?.count ??
+    candidate?.changes ??
+    candidate?.meta?.changes;
+  return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * Thrown when a fenced `upsertDashboard` write (an `expectedUpdatedAt` was
+ * supplied) loses its compare-and-swap because another writer changed the
+ * row first. Callers should re-read the dashboard and re-apply their mutation
+ * against the fresh config — see `upsertDashboardWithRetry`.
+ */
+export class DashboardConflictError extends Error {
+  constructor(id: string) {
+    super(`Dashboard "${id}" changed between read and write.`);
+    this.name = "DashboardConflictError";
+  }
+}
+
 function changeScope(
   ownerEmail: string,
   orgId: string | null,
@@ -466,15 +505,33 @@ async function snapshotDashboardRevision(
  * Upsert a dashboard. On create, caller becomes owner and visibility defaults
  * to `private`; users explicitly promote useful dashboards to org/public via
  * sharing. On update, `assertAccess` requires `editor`.
+ *
+ * `expectedUpdatedAt` fences the update against concurrent writers: pass the
+ * `updatedAt` observed by an earlier `getDashboard` call and the UPDATE only
+ * applies `WHERE id = ? AND updated_at = ?`. If another writer already saved
+ * in between, the fenced UPDATE affects zero rows and this throws
+ * `DashboardConflictError` instead of silently clobbering their write. Omit
+ * it (the default) to keep the prior unconditional last-write-wins behavior,
+ * which existing callers (legacy migration, revision restore, and any
+ * one-shot write that isn't a read-modify-write) still rely on.
  */
 export async function upsertDashboard(
   id: string,
   kind: DashboardKind,
   body: Record<string, unknown>,
   ctx: AccessCtx,
+  expectedUpdatedAt?: string,
 ): Promise<DashboardRecord> {
   // If the row exists (or legacy-migrates), require editor.
   const existing = await getDashboard(id, ctx);
+  if (!existing && expectedUpdatedAt !== undefined) {
+    // A fence was supplied against a specific prior version, but the row is
+    // gone (deleted, or a legacy key that failed to migrate) by the time we
+    // looked. Treat this as a conflict rather than silently creating a fresh
+    // row — the caller's mutation was computed against state that no longer
+    // exists.
+    throw new DashboardConflictError(id);
+  }
   const db = getDb() as any;
   const { title, config } = configFromSettings(body);
   const configJson = JSON.stringify(config);
@@ -487,17 +544,43 @@ export async function upsertDashboard(
       existing.kind !== kind ||
       existing.title !== title ||
       JSON.stringify(existing.config) !== configJson;
-    if (changed) await snapshotDashboardRevision(db, existing, ctx);
-    await db
-      .update(schema.dashboards)
-      .set({
-        kind,
-        title,
-        config: configJson,
-        updatedAt: nowIso(),
-        updatedBy: ctx.email,
-      })
-      .where(eq(schema.dashboards.id, id));
+    const setValues = {
+      kind,
+      title,
+      config: configJson,
+      updatedAt: nowIso(),
+      updatedBy: ctx.email,
+    };
+    if (expectedUpdatedAt !== undefined) {
+      // Fenced write. Snapshot the revision only after we know this exact
+      // write actually landed — otherwise a lost race would record a
+      // revision for a save that never happened.
+      const updateResult = await db
+        .update(schema.dashboards)
+        .set(setValues)
+        .where(
+          and(
+            eq(schema.dashboards.id, id),
+            eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+          ),
+        );
+      const affected = affectedRowCount(updateResult);
+      if (affected === undefined) {
+        throw new Error(
+          "The database driver did not report an affected-row count for the fenced dashboard update.",
+        );
+      }
+      if (affected === 0) {
+        throw new DashboardConflictError(id);
+      }
+      if (changed) await snapshotDashboardRevision(db, existing, ctx);
+    } else {
+      if (changed) await snapshotDashboardRevision(db, existing, ctx);
+      await db
+        .update(schema.dashboards)
+        .set(setValues)
+        .where(eq(schema.dashboards.id, id));
+    }
   } else {
     await db.insert(schema.dashboards).values({
       id,
@@ -526,6 +609,66 @@ export async function upsertDashboard(
     dashboard.visibility,
   );
   return dashboard;
+}
+
+/** Max attempts (first try + retries) for `upsertDashboardWithRetry`. */
+export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
+
+/**
+ * Read-modify-write helper for the four action call sites that fetch a
+ * dashboard, mutate its config in memory, then save it back. Fences every
+ * save with the `updatedAt` of the record `mutate` was given, so a
+ * concurrent writer (agent adds a panel while a human drags one, or two
+ * agent calls race) never gets silently clobbered.
+ *
+ * `mutate` is invoked with the freshest `DashboardRecord` on every attempt —
+ * re-fetched from `getDashboard` each time — and must recompute the
+ * `{ kind, body }` to save FROM THAT RECORD, not from a closure over an
+ * earlier read; only then does a retry actually merge both writers' changes
+ * instead of re-deriving the same stale result. `mutate` may throw a
+ * non-conflict error (e.g. validation) to abort immediately without
+ * retrying.
+ *
+ * On a lost race, this re-reads and re-invokes `mutate` up to `maxAttempts`
+ * times before failing loud with a clear error so callers never silently
+ * drop a write or loop forever.
+ */
+export async function upsertDashboardWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  mutate: (
+    existing: DashboardRecord,
+  ) =>
+    | { kind: DashboardKind; body: Record<string, unknown> }
+    | Promise<{ kind: DashboardKind; body: Record<string, unknown> }>,
+  maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+): Promise<DashboardRecord> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const existing = await getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    const { kind, body } = await mutate(existing);
+    try {
+      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
+    } catch (err) {
+      if (err instanceof DashboardConflictError) {
+        lastConflict = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  const finalError = new Error(
+    `Could not save dashboard "${id}" after ${maxAttempts} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
 }
 
 export async function listDashboardRevisions(

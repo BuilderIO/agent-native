@@ -825,6 +825,14 @@ const migrations = runMigrations(
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
       ].join("; "),
     },
+    {
+      version: 48,
+      name: "recording-viewers-canonical-viewer-key",
+      sql: [
+        `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

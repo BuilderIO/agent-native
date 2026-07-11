@@ -15,10 +15,43 @@ const store = new Map<string, SavedDashboard>();
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
+  upsertDashboardWithRetry: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
+
+/**
+ * Default passthrough: fetch via the mocked `getDashboard` (backed by the
+ * in-memory `store` Map below), run the action's mutate callback once, then
+ * forward to the mocked `upsertDashboard` (preserving every existing
+ * `store`/`.mock.calls` assertion below) and return a DashboardRecord-shaped
+ * result carrying the mutated config. The interleave test overrides this with
+ * `mockImplementationOnce` to simulate a lost race and prove append recomputes
+ * from fresh state on retry.
+ */
+function defaultUpsertDashboardWithRetry(
+  id: string,
+  ctx: unknown,
+  mutate: (existing: any) =>
+    | Promise<{ kind: string; body: unknown }>
+    | {
+        kind: string;
+        body: unknown;
+      },
+) {
+  return (async () => {
+    const existing = await mocks.getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    const { kind, body } = await mutate(existing);
+    await mocks.upsertDashboard(id, kind, body, ctx);
+    return { ...existing, kind, config: body };
+  })();
+}
 
 vi.mock("@agent-native/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agent-native/core")>();
@@ -56,6 +89,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
+  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
@@ -113,6 +147,9 @@ beforeEach(() => {
         archivedAt: null,
       };
     },
+  );
+  mocks.upsertDashboardWithRetry.mockImplementation(
+    defaultUpsertDashboardWithRetry,
   );
 });
 
@@ -382,6 +419,80 @@ describe("compose-dashboard", () => {
     ]);
     // Original name preserved on append.
     expect(store.get("growth")!.config.name).toBe("Growth");
+  });
+
+  it("recomputes the append against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
+    // Simulates two interleaved writers: this call appends "sessions-by-app",
+    // but its first fenced write is lost because a concurrent writer already
+    // appended a different panel ("signed-in-vs-anon") in between. A correct
+    // retry re-reads that winning save and re-merges on top of it, so both
+    // appends land instead of the second writer clobbering the first's.
+    store.set("interleaved", {
+      config: {
+        name: "Interleaved",
+        panels: [
+          {
+            id: "total-signups",
+            title: "Total signups",
+            chartType: "metric",
+            source: "first-party",
+            width: 1,
+            sql: "SELECT COUNT(*) AS signups FROM analytics_events",
+            config: {},
+          },
+        ],
+      },
+    });
+    const beforeConcurrentWrite = store.get("interleaved")!.config;
+    const afterConcurrentWrite = {
+      ...beforeConcurrentWrite,
+      panels: [
+        ...(beforeConcurrentWrite.panels as Array<Record<string, unknown>>),
+        {
+          id: "signed-in-vs-anon",
+          title: "Signed-in vs anon",
+          chartType: "metric",
+          source: "first-party",
+          width: 1,
+          sql: "SELECT COUNT(*) AS n FROM analytics_events",
+          config: {},
+        },
+      ],
+    };
+
+    let mutateCallCount = 0;
+    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+      async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        mutateCallCount += 1;
+        await mutate({ kind: "sql", config: beforeConcurrentWrite }); // attempt 1: lost to the race
+        mutateCallCount += 1;
+        const { kind, body } = await mutate({
+          kind: "sql",
+          config: afterConcurrentWrite,
+        }); // retry: recomputes against the concurrent writer's saved state
+        await mocks.upsertDashboard(id, kind, body, ctx);
+        return { kind, config: body };
+      },
+    );
+
+    const result: any = await composeDashboard.run(
+      {
+        dashboardId: "interleaved",
+        metrics: ["sessions-by-app"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(mutateCallCount).toBe(2);
+    expect(result.panelCount).toBe(3);
+    const ids = (
+      store.get("interleaved")!.config.panels as Array<{ id: string }>
+    ).map((p) => p.id);
+    expect(ids).toEqual([
+      "total-signups",
+      "signed-in-vs-anon",
+      "sessions-by-app",
+    ]);
   });
 
   it("overwrite=true replaces the whole config", async () => {

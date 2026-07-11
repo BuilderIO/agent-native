@@ -238,6 +238,31 @@ describe("secrets storage CRUD (real sqlite)", () => {
     expect(meta!.urlAllowlist).toEqual(["https://api.openai.com"]);
   });
 
+  it("handles concurrent writes to the same key without throwing (atomic upsert)", async () => {
+    // Regression test for the SELECT-then-branch race: two writers for the
+    // same (scope, scope_id, key) used to both see "no row" and both
+    // attempt INSERT, and the loser threw a raw UNIQUE constraint
+    // violation. The atomic `INSERT ... ON CONFLICT DO UPDATE` closes that
+    // window — both calls must resolve without throwing and settle to a
+    // single row that keeps a stable id.
+    const [firstId, secondId] = await Promise.all([
+      mod.writeAppSecret({ ...userRef, value: "concurrent-value-aaaa" }),
+      mod.writeAppSecret({ ...userRef, value: "concurrent-value-bbbb" }),
+    ]);
+    expect(firstId).toBe(secondId);
+
+    const { count } = sqlite
+      .prepare(`SELECT COUNT(*) as count FROM app_secrets`)
+      .get() as { count: number };
+    expect(count).toBe(1);
+
+    const read = await mod.readAppSecret(userRef);
+    expect(read).not.toBeNull();
+    expect(["concurrent-value-aaaa", "concurrent-value-bbbb"]).toContain(
+      read!.value,
+    );
+  });
+
   it("isolates secrets by scope and scopeId (no cross-tenant leakage)", async () => {
     await mod.writeAppSecret({ ...userRef, value: "alice-secret" });
     await mod.writeAppSecret({

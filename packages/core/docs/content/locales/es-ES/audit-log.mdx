@@ -73,10 +73,11 @@ Todo en `audit` es opcional. La adición mínima útil es `target: () => ({ type
 
 ## Leyendo el rastro {#reading}
 
-Hay dos lecturas actions disponibles para el agente **y** la interfaz de cada aplicación, con alcance en SQL para la persona que llama; nunca devuelven las filas de otro inquilino:
+Hay tres lecturas actions disponibles para el agente **y** la interfaz de cada aplicación, con alcance en SQL para la persona que llama; nunca devuelven las filas de otro inquilino:
 
 - **`list-audit-events`** — filtrar por `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` y `limit`.
 - **`get-audit-event`**: un evento por ID, incluida su carga útil de entrada redactada.
+- **`export-audit-events`** — exporta el rastro en bloque como CSV o NDJSON en lugar de paginar manualmente `list-audit-events`, para extracciones de cumplimiento sin conexión. Toma los mismos filtros que `list-audit-events` (sin `limit`) más `format` (`csv` | `ndjson`, por defecto `csv`) y `maxRows` (por defecto 5000, tope máximo 10000), y devuelve `{ content, rowCount, truncated, format }` — `truncated: true` significa que hubo más filas coincidentes de las que permitía `maxRows`. Es en sí misma una lectura sensible, auditada mediante `audit: { onRead: true }`.
 
 Cree una fuente de actividad o una línea "quién cambió esto" llamando a `list-audit-events` desde UI con `useActionQuery`; nunca escriba a mano una búsqueda en la tabla de auditoría:
 

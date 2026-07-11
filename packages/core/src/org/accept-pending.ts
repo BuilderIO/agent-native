@@ -63,8 +63,16 @@ export async function acceptPendingInvitationsForEmail(
     });
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
+      // The SELECT above is a cheap pre-check, not a correctness guard —
+      // two concurrent acceptances (e.g. a retried signup hook) can both
+      // pass it before either INSERT commits. `ON CONFLICT (org_id,
+      // LOWER(email)) DO NOTHING` targets the unique expression index
+      // added in migrations.ts (org-members-unique-lower-email-idx) so the
+      // race's loser is a silent no-op instead of a thrown unique
+      // constraint violation or a duplicate row.
       await db.execute({
-        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
         args: [nanoid(), inv.orgId, email, role, Date.now()],
       });
     }
