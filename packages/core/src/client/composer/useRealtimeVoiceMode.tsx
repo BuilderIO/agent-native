@@ -15,10 +15,9 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "../agent-sidebar-state.js";
-import { agentNativePath } from "../api-path.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
-import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
   createRealtimeVoiceAudioLevelStore,
@@ -271,7 +270,8 @@ function openOpenAiKeySettings(): void {
 }
 
 function openMicrophoneSettings(): void {
-  openAgentSettings("voice");
+  if (typeof window === "undefined") return;
+  window.location.assign(`${appPath("/settings")}#voice`);
 }
 
 function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
