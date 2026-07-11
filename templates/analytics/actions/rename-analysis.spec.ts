@@ -21,9 +21,7 @@ function defaultUpsertAnalysisWithRetry(
   return (async () => {
     const existing = await mocks.getAnalysis(id, ctx);
     if (!existing) {
-      throw new Error(
-        `analysis "${id}" not found (or you don't have access).`,
-      );
+      throw new Error(`analysis "${id}" not found (or you don't have access).`);
     }
     const body = await mutate(existing);
     await mocks.upsertAnalysis(id, body, ctx);

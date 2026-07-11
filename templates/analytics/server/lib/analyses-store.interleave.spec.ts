@@ -327,11 +327,9 @@ describe("analyses-store concurrency", () => {
   it("upsertAnalysisWithRetry re-reads and re-applies the mutation after losing the race, landing both the concurrent re-run's fresh results and this call's rename", async () => {
     state.loseNextCas = true;
 
-    const saved = await upsertAnalysisWithRetry(
-      "closed-lost-q1",
-      ctx,
-      () => ({ name: "Renamed While Racing" }),
-    );
+    const saved = await upsertAnalysisWithRetry("closed-lost-q1", ctx, () => ({
+      name: "Renamed While Racing",
+    }));
 
     // "# Findings v2 (concurrent re-run)" / { rows: 9 } was injected by the
     // simulated concurrent writer on the lost first attempt; the new name is

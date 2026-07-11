@@ -1535,27 +1535,27 @@ function shutdown(code = 0): void {
 
 async function main(): Promise<void> {
   if (dryRun) {
-  console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
-  console.log(
-    `[dev-lazy] Mode: ${
-      eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
-    }`,
-  );
-  if (usePollingFileWatcher) {
+    console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
     console.log(
-      `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
+      `[dev-lazy] Mode: ${
+        eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
+      }`,
     );
-  }
-  for (const app of apps) {
-    console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
-  }
-  if (includeDesktop) {
-    console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
-  }
-  if (includeElectron) {
-    console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
-    console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
-  }
+    if (usePollingFileWatcher) {
+      console.log(
+        `[dev-lazy] Watch mode: polling (${POLLING_WATCH_INTERVAL_MS}ms)`,
+      );
+    }
+    for (const app of apps) {
+      console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
+    }
+    if (includeDesktop) {
+      console.log("[dev-lazy] tray: clips-desktop dev (Tauri)");
+    }
+    if (includeElectron) {
+      console.log(`[dev-lazy] frame: http://localhost:${FRAME_PORT}`);
+      console.log("[dev-lazy] electron: @agent-native/desktop-app dev");
+    }
     return;
   }
 
@@ -1564,11 +1564,11 @@ async function main(): Promise<void> {
   }
 
   if (shouldKill) {
-  const ports = [
-    requestedGatewayPort,
-    ...(includeElectron ? [FRAME_PORT] : []),
-    ...apps.map((app) => app.port),
-  ];
+    const ports = [
+      requestedGatewayPort,
+      ...(includeElectron ? [FRAME_PORT] : []),
+      ...apps.map((app) => app.port),
+    ];
     for (const port of ports) killPort(port);
   }
 
@@ -1578,86 +1578,90 @@ async function main(): Promise<void> {
   });
 
   if (usePollingFileWatcher) {
-  console.log(
-    `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
-  );
+    console.log(
+      `[dev-lazy] Using polling file watchers (${POLLING_WATCH_INTERVAL_MS}ms) to avoid file watcher descriptor limits.`,
+    );
   }
 
   const coreWatchCompiler = "tsc";
   startBackgroundProcess("core", "pnpm", [
-  "--filter",
-  "@agent-native/core",
-  "exec",
-  coreWatchCompiler,
-  "--watch",
-  "--preserveWatchOutput",
+    "--filter",
+    "@agent-native/core",
+    "exec",
+    coreWatchCompiler,
+    "--watch",
+    "--preserveWatchOutput",
   ]);
 
   const server = createGateway();
   gatewayServer = server;
 
   if (templateIdleMs > 0) {
-  const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
-  evictSweep.unref();
+    const evictSweep = setInterval(sweepIdleApps, EVICT_SWEEP_MS);
+    evictSweep.unref();
   }
 
   function listen(port: number, attempts = 20): void {
-  server.once("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE" && attempts > 0) {
-      listen(port + 1, attempts - 1);
-      return;
-    }
-    console.error(`[dev-lazy] Could not start gateway: ${err.message}`);
-    shutdown(1);
-  });
-  server.listen(port, gatewayHost, () => {
-    const address = server.address();
-    const actualPort =
-      typeof address === "object" && address ? address.port : port;
-    gatewayUrl = `http://${gatewayHost}:${actualPort}`;
-    console.log(`[dev-lazy] Default: ${gatewayUrl}/${defaultApp}`);
-    console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
-    console.log(
-      `[dev-lazy] Mode: ${
-        eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
-      }`,
-    );
-    for (const app of apps) {
-      console.log(`[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`);
-    }
-
-    if (eager) {
-      for (const app of apps) startApp(app);
-    } else if (!includeElectron) {
-      // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
-      // browser following it cold-starts exactly one app via the proxy path.
-      if (prewarmEnabled) {
-        void prewarmRemainingApps().catch((err) => {
-          console.error(
-            `[dev-lazy] Prewarm error: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
-        });
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE" && attempts > 0) {
+        listen(port + 1, attempts - 1);
+        return;
       }
-    }
+      console.error(`[dev-lazy] Could not start gateway: ${err.message}`);
+      shutdown(1);
+    });
+    server.listen(port, gatewayHost, () => {
+      const address = server.address();
+      const actualPort =
+        typeof address === "object" && address ? address.port : port;
+      gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      console.log(`[dev-lazy] Default: ${gatewayUrl}/${defaultApp}`);
+      console.log(`[dev-lazy] Gateway: ${gatewayUrl}`);
+      console.log(
+        `[dev-lazy] Mode: ${
+          eager ? "eager" : prewarmEnabled ? "lazy+prewarm" : "lazy"
+        }`,
+      );
+      for (const app of apps) {
+        console.log(
+          `[dev-lazy] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}`,
+        );
+      }
 
-    if (includeDesktop) {
-      // Boot the Tauri clips tray after its backend is reachable. The tray's
-      // Google sign-in opens the Clips backend URL directly in the browser.
-      const startClipsTray = () => {
-        if (shuttingDown) return;
-        startBackgroundProcess("tray", "pnpm", [
-          "--filter",
-          "clips-desktop",
-          "dev",
-        ]);
-      };
-      const clipsApp = selectedById.get("clips");
-      if (clipsApp) {
-        startApp(clipsApp);
-        void waitForPort(clipsApp.port, Date.now() + proxyReadyTimeoutMs).then(
-          (ready) => {
+      if (eager) {
+        for (const app of apps) startApp(app);
+      } else if (!includeElectron) {
+        // Truly lazy: no boot-time start. `/` redirects to /<defaultApp>, and the
+        // browser following it cold-starts exactly one app via the proxy path.
+        if (prewarmEnabled) {
+          void prewarmRemainingApps().catch((err) => {
+            console.error(
+              `[dev-lazy] Prewarm error: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            );
+          });
+        }
+      }
+
+      if (includeDesktop) {
+        // Boot the Tauri clips tray after its backend is reachable. The tray's
+        // Google sign-in opens the Clips backend URL directly in the browser.
+        const startClipsTray = () => {
+          if (shuttingDown) return;
+          startBackgroundProcess("tray", "pnpm", [
+            "--filter",
+            "clips-desktop",
+            "dev",
+          ]);
+        };
+        const clipsApp = selectedById.get("clips");
+        if (clipsApp) {
+          startApp(clipsApp);
+          void waitForPort(
+            clipsApp.port,
+            Date.now() + proxyReadyTimeoutMs,
+          ).then((ready) => {
             if (ready) {
               clipsApp.ready = true;
             } else {
@@ -1666,34 +1670,33 @@ async function main(): Promise<void> {
               );
             }
             startClipsTray();
-          },
-        );
-      } else {
-        console.warn(
-          "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
-        );
-        startClipsTray();
+          });
+        } else {
+          console.warn(
+            "[dev-lazy] --desktop starts the Clips tray, but the clips template is not selected.",
+          );
+          startClipsTray();
+        }
       }
-    }
 
-    if (includeElectron) {
-      const env = electronLazyEnv();
-      startBackgroundProcess(
-        "frame",
-        "pnpm",
-        ["--filter", "@agent-native/frame", "dev"],
-        env,
-      );
-      startBackgroundProcess(
-        "electron",
-        "pnpm",
-        ["--filter", "@agent-native/desktop-app", "dev"],
-        env,
-      );
-    }
+      if (includeElectron) {
+        const env = electronLazyEnv();
+        startBackgroundProcess(
+          "frame",
+          "pnpm",
+          ["--filter", "@agent-native/frame", "dev"],
+          env,
+        );
+        startBackgroundProcess(
+          "electron",
+          "pnpm",
+          ["--filter", "@agent-native/desktop-app", "dev"],
+          env,
+        );
+      }
 
-    openBrowser(`${gatewayUrl}/${defaultApp}`);
-  });
+      openBrowser(`${gatewayUrl}/${defaultApp}`);
+    });
   }
 
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {

@@ -1423,9 +1423,7 @@ export const ANALYSIS_SAVE_MAX_ATTEMPTS = 3;
 export async function upsertAnalysisWithRetry(
   id: string,
   ctx: AccessCtx,
-  mutate: (
-    existing: AnalysisRecord,
-  ) =>
+  mutate: (existing: AnalysisRecord) =>
     | {
         name?: string;
         description?: string;
@@ -1450,9 +1448,7 @@ export async function upsertAnalysisWithRetry(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getAnalysis(id, ctx);
     if (!existing) {
-      throw new Error(
-        `analysis "${id}" not found (or you don't have access).`,
-      );
+      throw new Error(`analysis "${id}" not found (or you don't have access).`);
     }
     const body = await mutate(existing);
     try {

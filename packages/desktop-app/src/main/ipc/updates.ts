@@ -38,77 +38,90 @@ export interface UpdatesIpcDeps {
   focusMainWindow: () => void;
 }
 
+// Populated by `registerUpdatesIpc` during startup, before any of the
+// functions below can be invoked (autoUpdater events fire only after
+// registration, and the app menu isn't clickable until the app is ready).
+let deps: UpdatesIpcDeps | null = null;
+
+function getDeps(): UpdatesIpcDeps {
+  if (!deps) {
+    throw new Error("registerUpdatesIpc() must run before update checks.");
+  }
+  return deps;
+}
+
 /** Current cached update status, for callers outside the IPC surface (e.g. the app menu). */
 export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
+}
+
+function broadcastUpdateStatus(status: UpdateStatus) {
+  currentUpdateStatus = status;
+  getDeps().refreshApplicationMenu();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
+    }
+  }
+}
+
+/** Triggers (or awaits an in-flight) update check. Exported for the app menu's "Check for Updates" item. */
+export async function checkForAppUpdates(): Promise<UpdateStatus> {
+  if (IS_DEV) return currentUpdateStatus;
+  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
+
+  if (!updateCheckInFlight) {
+    lastUpdateCheckStartedAt = Date.now();
+    updateCheckInFlight = autoUpdater
+      .checkForUpdates()
+      .catch((err) => {
+        broadcastUpdateStatus({
+          state: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        updateCheckInFlight = null;
+      });
+  }
+
+  await updateCheckInFlight;
+  return currentUpdateStatus;
+}
+
+function maybeCheckForAppUpdates() {
+  if (IS_DEV) return;
+  if (currentUpdateStatus.state === "downloaded") return;
+  if (
+    updateCheckInFlight ||
+    Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  void checkForAppUpdates();
+}
+
+function showUpdateReadyNotification(version: string) {
+  if (!Notification.isSupported()) return;
+  if (notifiedUpdateVersion === version) return;
+  notifiedUpdateVersion = version;
+
+  const notification = new Notification({
+    title: "Agent Native update ready",
+    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
+  });
+  notification.on("click", (_event) => {
+    getDeps().focusMainWindow();
+  });
+  notification.show();
 }
 
 /**
  * Registers the auto-update IPC handlers, wires up `autoUpdater` event
  * listeners (production only), and starts the periodic update-check timer.
  */
-export function registerUpdatesIpc(deps: UpdatesIpcDeps): void {
-  const { refreshApplicationMenu, focusMainWindow } = deps;
-
-  function broadcastUpdateStatus(status: UpdateStatus) {
-    currentUpdateStatus = status;
-    refreshApplicationMenu();
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
-      }
-    }
-  }
-
-  async function checkForAppUpdates(): Promise<UpdateStatus> {
-    if (IS_DEV) return currentUpdateStatus;
-    if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
-
-    if (!updateCheckInFlight) {
-      lastUpdateCheckStartedAt = Date.now();
-      updateCheckInFlight = autoUpdater
-        .checkForUpdates()
-        .catch((err) => {
-          broadcastUpdateStatus({
-            state: "error",
-            message: err instanceof Error ? err.message : String(err),
-          });
-        })
-        .finally(() => {
-          updateCheckInFlight = null;
-        });
-    }
-
-    await updateCheckInFlight;
-    return currentUpdateStatus;
-  }
-
-  function maybeCheckForAppUpdates() {
-    if (IS_DEV) return;
-    if (currentUpdateStatus.state === "downloaded") return;
-    if (
-      updateCheckInFlight ||
-      Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
-    ) {
-      return;
-    }
-    void checkForAppUpdates();
-  }
-
-  function showUpdateReadyNotification(version: string) {
-    if (!Notification.isSupported()) return;
-    if (notifiedUpdateVersion === version) return;
-    notifiedUpdateVersion = version;
-
-    const notification = new Notification({
-      title: "Agent Native update ready",
-      body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
-    });
-    notification.on("click", (_event) => {
-      focusMainWindow();
-    });
-    notification.show();
-  }
+export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
+  deps = ipcDeps;
 
   if (!IS_DEV) {
     // The GitHub provider reads the repository-wide latest release feed, which

@@ -148,10 +148,7 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
-import {
-  findCompletedJournalEntry,
-  type ToolCallJournal,
-} from "./tool-call-journal.js";
+import { findCompletedJournalEntry } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
