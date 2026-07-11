@@ -1903,6 +1903,11 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               description: "Output format",
               enum: ["json", "text"],
             },
+            includeArchived: {
+              type: "boolean",
+              description:
+                "Also include archived chats in the results. Archived chats are excluded by default.",
+            },
           },
         },
       },
@@ -1952,6 +1957,11 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
                 type: "string",
                 description: "(search) Output format",
                 enum: ["json", "text"],
+              },
+              includeArchived: {
+                type: "boolean",
+                description:
+                  "(search) Also include archived chats in the results. Archived chats are excluded by default, matching the 'archive' action's effect on the chat list.",
               },
               id: {
                 type: "string",
@@ -2971,9 +2981,9 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
   "chat-history": `### Chat History
 
 You can search and restore previous chat conversations using \`chat-history\`:
-- \`chat-history\` (action: "search") — Search or list past chat threads by keyword
+- \`chat-history\` (action: "search") — Search or list past chat threads by keyword. Archived threads are excluded by default; pass \`includeArchived: true\` to also see them.
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
-- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID. Archiving a thread hides it from the default chat list and search.
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 

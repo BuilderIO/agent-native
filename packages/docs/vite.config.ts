@@ -17,9 +17,9 @@ export default defineConfig({
     sitemapPlugin(),
     ...agentNativePlugins({
       tailwind: false,
-      // Warm route data and matched JS on hover/focus/touch, while links marked
-      // with data-an-prefetch="render" continue warming immediately.
-      routeWarmup: { strategy: "intent", data: true, modules: true },
+      // Warm every internal route's data and matched JS after hydration so
+      // clicks stay instant without adding those modules to the initial HTML.
+      routeWarmup: "render",
     }),
   ],
 });
