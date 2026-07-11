@@ -93,6 +93,8 @@ const SKIP_DIRS = new Set([
   ".wrangler",
   ".react-router",
   ".generated",
+  // Generated package corpus built from source files.
+  "corpus",
   ".claude",
   ".video-bakeoff",
   ".video-bakeoff-recording",
