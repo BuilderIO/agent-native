@@ -355,8 +355,23 @@ export async function run(
               `The ${agent.name} agent accepted this delegated subtask and will post its own final result to the originating integration thread automatically. ` +
               `Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting its result separately.`;
           } else {
-            const reason = pollErr?.message ?? "unknown error";
-            responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+            // The normal integration path must preserve the timeout task id so
+            // it can enqueue a durable continuation. If that enqueue fails,
+            // do not hide receiver-verified artifacts that were already
+            // returned with the last poll; this mirrors callAgent's default
+            // timeout behavior without treating arbitrary remote status text
+            // as a completed response.
+            const recoverableArtifactText =
+              extractRecoverableTimeoutArtifactText(pollErr);
+            if (recoverableArtifactText) {
+              responseText = expandRelativeUrls(
+                recoverableArtifactText,
+                agent.url,
+              );
+            } else {
+              const reason = pollErr?.message ?? "unknown error";
+              responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+            }
           }
         } else {
           const reason = pollErr?.message ?? "unknown error";
@@ -495,6 +510,34 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
 
   const match = message.match(/^A2A task ([^\s]+) did not complete\b/);
   return match?.[1] ?? null;
+}
+
+/**
+ * Mirrors the A2A client's default timeout recovery for the exceptional case
+ * where an integration cannot enqueue a durable continuation. Only an
+ * explicitly receiver-marked task message is safe to surface as a completed
+ * partial result; ordinary working-state text remains a timeout failure.
+ */
+function extractRecoverableTimeoutArtifactText(err: unknown): string {
+  const candidate = err as
+    | { lastTask?: Task | unknown; name?: unknown }
+    | null
+    | undefined;
+  const lastTask =
+    err instanceof A2ATaskTimeoutError
+      ? err.lastTask
+      : candidate?.name === "A2ATaskTimeoutError"
+        ? (candidate.lastTask as Task | undefined)
+        : undefined;
+  const message = lastTask?.status?.message;
+  if (!message?.metadata?.agentNativeRecoverableArtifacts) return "";
+
+  return message.parts
+    .filter(
+      (part): part is { type: "text"; text: string } => part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n");
 }
 
 async function formatExistingIntegrationContinuationIfRetry(

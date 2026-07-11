@@ -69,7 +69,7 @@ describe("bigquery action error handling", () => {
     expect(result).toEqual([{ week: "2026-05-11", signups: 42 }]);
   });
 
-  it("forwards the agent run signal and preserves cancellation", async () => {
+  it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {
     const controller = new AbortController();
     const aborted = new DOMException("BigQuery query aborted", "AbortError");
     controller.abort();
@@ -80,7 +80,15 @@ describe("bigquery action error handling", () => {
         { sql: "SELECT 1" },
         { caller: "tool", signal: controller.signal },
       ),
-    ).rejects.toBe(aborted);
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!isAgentActionStopError(err)) return false;
+      expect(err.errorCode).toBe("run_cancelled");
+      expect(err.message).toBe(
+        "The BigQuery query was cancelled because the agent run ended before it could finish.",
+      );
+      expect(err.toolResult).toContain('"recoverable": false');
+      return true;
+    });
 
     expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
       signal: controller.signal,
