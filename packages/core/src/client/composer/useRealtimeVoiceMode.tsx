@@ -18,6 +18,7 @@ import {
 import { agentNativePath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
+import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
   createRealtimeVoiceAudioLevelStore,
@@ -270,13 +271,7 @@ function openOpenAiKeySettings(): void {
 }
 
 function openMicrophoneSettings(): void {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event("agent-panel:open"));
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:open-settings", {
-      detail: { section: "voice" },
-    }),
-  );
+  openAgentSettings("voice");
 }
 
 function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {

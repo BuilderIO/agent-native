@@ -72,12 +72,16 @@ export function openAgentSettings(
   const normalizedSection =
     typeof section === "string" ? section : section?.section;
 
-  openAgentSidebar();
+  // Select or navigate to settings before opening the sidebar. Full-page chat
+  // surfaces may remount their composer/provider when `agent-panel:open`
+  // fires; dispatching that first could drop the immediately-following
+  // settings request and leave the user in chat.
   window.dispatchEvent(
     new CustomEvent("agent-panel:open-settings", {
       detail: normalizedSection ? { section: normalizedSection } : undefined,
     }),
   );
+  openAgentSidebar();
 }
 
 export function focusAgentChat() {

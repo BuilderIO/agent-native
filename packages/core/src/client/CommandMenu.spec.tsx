@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommandMenu,
+  openAgentSettings,
   useCommandMenuShortcut,
   type CommandMenuDoc,
 } from "./CommandMenu.js";
@@ -68,6 +69,20 @@ describe("CommandMenu docs group", () => {
       input!.dispatchEvent(new Event("change", { bubbles: true }));
     });
   }
+
+  it("requests settings before opening chat surfaces", () => {
+    const events: string[] = [];
+    const onSettings = () => events.push("settings");
+    const onOpen = () => events.push("open");
+    window.addEventListener("agent-panel:open-settings", onSettings);
+    window.addEventListener("agent-panel:open", onOpen);
+
+    openAgentSettings("voice");
+
+    expect(events).toEqual(["settings", "open"]);
+    window.removeEventListener("agent-panel:open-settings", onSettings);
+    window.removeEventListener("agent-panel:open", onOpen);
+  });
 
   it("filters app docs entries through the shared search field", () => {
     renderMenu();
