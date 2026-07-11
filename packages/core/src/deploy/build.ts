@@ -32,6 +32,7 @@ import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  DEFAULT_SSR_NETLIFY_VARY,
   DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
@@ -908,6 +909,7 @@ function injectHeadScript(html, script) {
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
 const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
+const DEFAULT_SSR_NETLIFY_VARY = ${JSON.stringify(DEFAULT_SSR_NETLIFY_VARY)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1003,6 +1005,7 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   // Netlify-specific header so SSR HTML/.data are served from the shared
   // durable CDN cache instead of stampeding origin — for every visitor.
   headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
+  headers.set("netlify-vary", DEFAULT_SSR_NETLIFY_VARY);
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
