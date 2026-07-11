@@ -1,5 +1,37 @@
 # @agent-native/core
 
+## 0.98.0
+
+### Minor Changes
+
+- 38ca6fa: Add an opt-in projected resource load to access checks so callers that only need the access decision can skip fetching heavy resource columns. Default behavior unchanged.
+
+  `resolveAccess()`/`assertAccess()` now accept `{ skipResourceBody: true }` (as the trailing options argument) to load only the columns the access decision itself reads — `id`, `ownerEmail`, `orgId`, `visibility` — instead of the full resource row (`resource` is typed as `AccessProjectedResource` in this mode). This is automatically ignored, falling back to a full row load, for any resource type registered with a `publicAccessRole` _function_ resolver, since that callback can read arbitrary resource fields the projection would have omitted. Passing nothing (the default) is a pure no-op: `loadResourceForAccess` still runs `db.select()` exactly as before, so none of the ~317 existing `assertAccess`/`resolveAccess` call sites change behavior.
+
+  This is a mechanism only — no call sites are migrated in this change. `templates/design/actions/update-design.ts`'s bare `assertAccess("design", id, "editor")` — which currently pulls the full `data` blob it doesn't otherwise need — was the motivating example and is the intended first adopter as a follow-up. Note: the `"design"` resource type itself is registered with a dynamic `publicAccessRole` resolver (`publicDesignAccessRole`), which the guard above always excludes from projection, so that specific call would keep loading the full row even after opting in; `"design-system"` (checked a few lines later in the same action) has no such resolver and is a real candidate. Follow-up migration work should account for this per resource type rather than assuming every `assertAccess`/`resolveAccess` call site benefits.
+
+### Patch Changes
+
+- 38ca6fa: Fix realtime voice microphone selection, connection teardown, stalled sessions, and compact audio-reactive controls.
+- 38ca6fa: Add an optional `agentInputSchema` to `defineAction` — a Standard Schema used ONLY to build the tool definition advertised to the model/MCP/A2A listings, while runtime validation keeps enforcing the full `schema`. Applied it in `templates/plan` to `create-visual-plan`, `create-ui-plan`, `create-plan-design`, `create-prototype-plan`, `update-visual-plan`, and `update-local-plan-folder`: their advertised `content`/`contentPatches` block shapes now show a compact `type` enum plus a pointer to `get-plan-blocks` instead of embedding the full per-block-type union, cutting each action's serialized tool definition by roughly half to three-quarters (largest actions went from ~55-58KB down to ~24-27KB; the rest from ~45-47KB down to ~13-15KB) without changing what content is accepted or how validation errors are reported.
+- 38ca6fa: Default app chats to compact first-turn tool and resource catalogs, keep uncommon actions, instructions, and integrations discoverable on demand, parallelize resource summaries, and record first-request prompt and tool payload sizes in run diagnostics.
+- 38ca6fa: Add optional content-free positive, negative, and neutral message sentiment tracking, enabled by default for first-party hosted apps with GPT-5.6 Luna.
+- 38ca6fa: Advertise and accept the standard `offline_access` OAuth scope so ChatGPT MCP apps can retain refresh-token access without repeated sign-in.
+- 38ca6fa: Removed the long-deprecated `ProductionAgentPanel` and `useProductionAgent` client exports (superseded by `AgentSidebar`/`AgentToggleButton`). No internal consumers remained.
+- 38ca6fa: Track content-free positive and negative sentiment events for explicit agent response feedback, including the associated model when available.
+- 38ca6fa: Render one cacheable, session-independent app shell for normal page requests and gate private UI through `AppProviders` on the client. Explicit auth pages remain cached login documents, signed-in visitors redirect without cache-buster query loops, APIs/actions remain server-protected, and generated edge workers now enforce the same anonymous public-shell cache policy as Nitro and Netlify.
+- 38ca6fa: Keep React Router hydration scoped to an app's workspace mount path so index redirects and nested pages route correctly.
+- 38ca6fa: Coalesce Nitro dev full-reloads so bursts of file edits trigger one server re-import instead of one per file.
+- 38ca6fa: Reduce serialized tool-schema payload on background agent runs. `webhook-handler.ts` and `google-docs-poller.ts` now defer framework-added tools (integration memory, `call-agent`) behind an attached `tool-search` entry on the first request, keeping only the app's own actions visible up front — `createIntegrationsPlugin` supplies the app action names via a new `initialToolNames` option. `scheduler.ts` (`SchedulerDeps.getInitialToolNames`), `dispatcher.ts` (`TriggerDispatcherDeps.getInitialToolNames`), and `agent-teams.ts` (`AgentTeamRunConfig.initialToolNames`) gained the same opt-in filtering plumbing (tool-search attach + `filterInitialEngineTools` + `availableTools` for mid-run expansion), inactive by default so existing behavior is unchanged until a caller supplies an initial tool list.
+- 38ca6fa: Reduce first-request token usage further: recurring jobs and automation triggers now defer framework-addition tools behind tool-search instead of always seeing the full registry; the MCP `ask_app` inner loop now uses the same compact initial-tool surface as interactive chat and A2A; the corpus-tools prompt (provider-api-request/provider-corpus-job/query-staged-dataset/run-code) no longer teaches tools by name that are missing from the first request's active tool set; oversized LEARNINGS.md/MEMORY.md content is capped instead of inlined in full outside lazy-context mode; and the First-Session Personalization block is now gated on the owner's persisted `personalization` flag instead of thread history, so a thread's system prompt stays byte-identical across turns 1 and 2 (fixing a prompt-cache break on every thread's second request).
+- 38ca6fa: Keep realtime voice setup actions on one line, describe Builder credits as free, and prevent false setup prompts by cross-checking successful connection statuses.
+- 38ca6fa: Explain browser loopback permissions and bridge lifecycle requirements when serving local Plans.
+- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
+- 38ca6fa: Add an Extensions docs shortcut and tighten the new-extension composer spacing.
+- 38ca6fa: Show retryable error states when extension lists, widget installs, slot metadata, or extension history fail to load instead of presenting persisted extensions as empty or missing.
+- Updated dependencies [38ca6fa]
+  - @agent-native/toolkit@0.4.7
+
 ## 0.97.0
 
 ### Minor Changes

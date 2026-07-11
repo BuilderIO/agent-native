@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.14.4
+
+### Patch Changes
+
+- 38ca6fa: Polish the Dispatch overview and chat flow with cleaner navigation, view-transition routing, and a stable bottom-pinned chat composer.
+- 38ca6fa: Restrict organization-wide Dispatch MCP app grants to owners and admins, default new gateways to Dispatch-only access, allow Dispatch itself in selected-app mode, and keep large app catalogs machine-readable for MCP hosts.
+- 38ca6fa: Make sheets and toasts respond faster while respecting reduced-motion preferences.
+- 38ca6fa: Show retryable error states when Dispatch data queries fail instead of rendering misleading empty content.
+- 38ca6fa: Tenant-scope approval request status updates so requests can only be approved or rejected within their own workspace context.
+
 ## 0.14.3
 
 ### Patch Changes
