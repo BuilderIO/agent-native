@@ -901,20 +901,28 @@ export function useDbSync(
           const hasDataChangingEvent = invalidating.some(
             (evt) => evt.source !== "app-state",
           );
-          // The broad action invalidate above already covers every fixed
-          // framework prefix. Re-invalidating ["action"] immediately after it
-          // cancels/restarts the same active reads and creates a duplicate
-          // request wave. Keep the fixed-prefix pass for non-action sources;
-          // action batches get exactly one compatibility invalidation.
-          if (hasDataChangingEvent && !hasActionEvent) {
-            invalidateWithoutCancel({ queryKey: ["action"] });
-            invalidateWithoutCancel({ queryKey: ["extension"] });
-            invalidateWithoutCancel({ queryKey: ["extensions"] });
-            invalidateWithoutCancel({ queryKey: ["extension-slots"] });
-            invalidateWithoutCancel({ queryKey: ["slot-installs"] });
-            invalidateWithoutCancel({ queryKey: ["slot-available"] });
-            invalidateWithoutCancel({ queryKey: ["tool"] });
-            invalidateWithoutCancel({ queryKey: ["tools"] });
+          if (hasDataChangingEvent) {
+            const hasFrameworkPrefixEvent = invalidating.some((evt) =>
+              ["extensions", "extension", "tool", "tools", "slots"].includes(
+                evt.source ?? "",
+              ),
+            );
+            // The action-specific invalidation above already refreshed
+            // ["action"]. A mixed action + extension/tool batch still needs
+            // the independent framework prefixes, while pure action batches
+            // retain their narrow storm-resistant invalidation.
+            if (!hasActionEvent) {
+              invalidateWithoutCancel({ queryKey: ["action"] });
+            }
+            if (!hasActionEvent || hasFrameworkPrefixEvent) {
+              invalidateWithoutCancel({ queryKey: ["extension"] });
+              invalidateWithoutCancel({ queryKey: ["extensions"] });
+              invalidateWithoutCancel({ queryKey: ["extension-slots"] });
+              invalidateWithoutCancel({ queryKey: ["slot-installs"] });
+              invalidateWithoutCancel({ queryKey: ["slot-available"] });
+              invalidateWithoutCancel({ queryKey: ["tool"] });
+              invalidateWithoutCancel({ queryKey: ["tools"] });
+            }
           }
           if (invalidating.some((evt) => evt.source === "app-state")) {
             invalidateWithoutCancel({ queryKey: ["app-state"] });

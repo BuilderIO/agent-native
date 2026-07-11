@@ -293,7 +293,7 @@ describe("useDbSync", () => {
     );
   });
 
-  it("uses one broad invalidation for mixed suppressed and unsuppressed action batches", async () => {
+  it("refreshes framework prefixes for mixed action batches", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -309,9 +309,9 @@ describe("useDbSync", () => {
               },
               {
                 version: 1,
-                source: "action",
+                source: "extensions",
                 type: "change",
-                key: "update-document",
+                key: "*",
               },
             ],
           }),
@@ -342,7 +342,15 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    expect(queryClient.calls).toEqual([{ queryKey: ["action"] }]);
+    expect(queryClient.calls).toEqual(
+      expect.arrayContaining([
+        { queryKey: ["action"] },
+        { queryKey: ["extension"] },
+        { queryKey: ["extensions"] },
+        { queryKey: ["tool"] },
+        { queryKey: ["tools"] },
+      ]),
+    );
   });
 
   it("keeps non-action events on targeted framework invalidations", async () => {
