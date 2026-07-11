@@ -17,6 +17,11 @@ const copy: RealtimeVoiceModeCopy = {
   promptTitle: "Talk to your app",
   promptDescription:
     "Voice mode keeps listening while the agent navigates and takes actions.",
+  setupTitle: "Set up voice mode",
+  setupDescription: "Connect Builder or use your OpenAI key.",
+  connectBuilder: "Connect Builder",
+  useOpenAiKey: "Use OpenAI API key",
+  startWithOpenAiKey: "Start with OpenAI key",
   startVoiceMode: "Start voice mode",
   keepDictating: "Keep dictating",
   showChat: "Show chat",
@@ -117,6 +122,35 @@ describe("RealtimeVoiceMode", () => {
 
     expect(onKeepDictating).toHaveBeenCalledOnce();
     expect(onStartVoiceMode).not.toHaveBeenCalled();
+  });
+
+  it("makes Builder the primary setup action and OpenAI the secondary", () => {
+    const onConnectBuilder = vi.fn();
+    const onUseOpenAiKey = vi.fn();
+
+    render(
+      <RealtimeVoiceModeEntry
+        copy={copy}
+        open
+        setupRequired
+        onStartVoiceMode={vi.fn()}
+        onKeepDictating={vi.fn()}
+        onConnectBuilder={onConnectBuilder}
+        onUseOpenAiKey={onUseOpenAiKey}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("Set up voice mode");
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    );
+    act(() =>
+      buttons
+        .find((button) => button.textContent === "Connect Builder")
+        ?.click(),
+    );
+    expect(onConnectBuilder).toHaveBeenCalledOnce();
+    expect(onUseOpenAiKey).not.toHaveBeenCalled();
   });
 
   it("toggles chat without ending the voice session", () => {

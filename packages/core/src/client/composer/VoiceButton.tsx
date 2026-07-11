@@ -20,12 +20,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { useVoiceProviderStatus } from "../voice-provider-status.js";
 import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
 import {
   useRealtimeVoiceModeCopy,
   useRealtimeVoiceModeOptional,
 } from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+
+function openOpenAiKeySettings(): void {
+  window.location.hash = "#secrets:OPENAI_API_KEY";
+  window.dispatchEvent(new Event("agent-panel:open"));
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open-settings", {
+      detail: { section: "secrets" },
+    }),
+  );
+}
 
 export interface VoiceButtonProps {
   voice: VoiceDictationApi;
@@ -37,6 +49,12 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   const { state, start, stop, supported } = voice;
   const realtimeVoice = useRealtimeVoiceModeOptional();
   const realtimeCopy = useRealtimeVoiceModeCopy();
+  const voiceProviders = useVoiceProviderStatus();
+  const builderConnect = useBuilderConnectFlow({
+    trackingSource: "realtime_voice",
+    trackingFlow: "voice_transcription",
+    onConnected: () => voiceProviders.refresh(),
+  });
 
   if (!supported) return null;
 
@@ -50,6 +68,16 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
       <RealtimeVoiceModeEntry
         copy={realtimeCopy}
         disabled={disabled}
+        setupRequired={
+          builderConnect.hasFetchedStatus && !builderConnect.configured
+        }
+        openAiConfigured={voiceProviders.status?.openai === true}
+        connectingBuilder={builderConnect.connecting}
+        onConnectBuilder={builderConnect.start}
+        onUseOpenAiKey={() => {
+          if (voiceProviders.status?.openai) void realtimeVoice.start();
+          else openOpenAiKeySettings();
+        }}
         onStartVoiceMode={() => void realtimeVoice.start()}
         onKeepDictating={() => void start()}
       />

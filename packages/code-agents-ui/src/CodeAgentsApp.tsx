@@ -3347,7 +3347,8 @@ function RunDetailCard({
   const hasInlineApprovalAffordance = pendingApproval
     ? codeAgentTranscriptHasPendingApproval(transcriptEvents)
     : false;
-  const showApprovalBanner = Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const showApprovalBanner =
+    Boolean(pendingApproval) && !hasInlineApprovalAffordance;
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -3498,8 +3499,7 @@ function TranscriptPanel({
   attachOnlyRef.current = false;
 
   const controller = useMemo(
-    () =>
-      createHostCodeAgentChatController(host, goal.id, permissionModeRef),
+    () => createHostCodeAgentChatController(host, goal.id, permissionModeRef),
     [goal.id, host],
   );
   const createAdapter = useCallback(

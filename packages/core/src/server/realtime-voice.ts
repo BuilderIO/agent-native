@@ -8,6 +8,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import {
   actionsToEngineTools,
   type ActionEntry,
@@ -23,7 +24,6 @@ import {
   resolveBuilderCredentials,
   resolveSecret,
 } from "./credential-provider.js";
-import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -344,7 +344,7 @@ function createSessionHandler(
         const builderCredentials = await resolveBuilderCredentials();
         const builderConfigured = Boolean(
           builderCredentials.privateKey?.trim() &&
-            builderCredentials.publicKey?.trim(),
+          builderCredentials.publicKey?.trim(),
         );
         const apiKey = builderConfigured
           ? null
@@ -352,7 +352,8 @@ function createSessionHandler(
         if (!builderConfigured && !apiKey) {
           setResponseStatus(event, 409);
           return {
-            error: "Connect Builder or configure an OpenAI API key to use realtime voice.",
+            error:
+              "Connect Builder or configure an OpenAI API key to use realtime voice.",
             code: "realtime_voice_setup_required",
           };
         }

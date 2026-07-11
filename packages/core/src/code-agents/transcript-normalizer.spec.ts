@@ -324,19 +324,26 @@ describe("normalizeCodeAgentTranscript", () => {
       // cli/code-agent-executor.ts — folded into hiddenEvents (status:
       // "running" reads as low-signal lifecycle noise) but still visible to
       // the raw-event resolution scan.
-      event("evt-approval-running", "status", "Approved command; running now.", {
-        status: "running",
-        phase: "approval-running",
-        approvalId: "approval-20260710120000",
-        command: "rm -rf tmp",
-      }),
+      event(
+        "evt-approval-running",
+        "status",
+        "Approved command; running now.",
+        {
+          status: "running",
+          phase: "approval-running",
+          approvalId: "approval-20260710120000",
+          command: "rm -rf tmp",
+        },
+      ),
     ];
 
     const transcript = normalizeCodeAgentTranscript(events);
 
     const toolItem = transcript.items.find((item) => item.type === "tool");
     expect(toolItem).toMatchObject({ type: "tool", tool: "bash" });
-    expect((toolItem as { pendingApprovalKey?: string }).pendingApprovalKey).toBeUndefined();
+    expect(
+      (toolItem as { pendingApprovalKey?: string }).pendingApprovalKey,
+    ).toBeUndefined();
   });
 
   it("propagates structuredMeta from tool_start and tool_done into the normalized tool event", () => {

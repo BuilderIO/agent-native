@@ -90,8 +90,9 @@ export function createVoiceProvidersStatusHandler() {
     let builder = false;
     try {
       builder =
-        (await withRequestContext(() => resolveHasCompleteBuilderConnection())) ===
-        true;
+        (await withRequestContext(() =>
+          resolveHasCompleteBuilderConnection(),
+        )) === true;
     } catch {
       builder = false;
     }
