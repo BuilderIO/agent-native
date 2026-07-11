@@ -651,6 +651,21 @@ export function defineAction(options: any) {
     };
   }
 
+  // `agentInputSchema` swaps in a compact JSON Schema for the ADVERTISED tool
+  // definition only (what the model/MCP/A2A tool listings see). It never
+  // touches validation below — `wrapWithValidation` is always called with
+  // `options.schema`, the full schema, as the source of truth for what's
+  // accepted. Passing the same (compact) `toolParameters` into it only
+  // affects the top-level "Expected: { ... }" hint text and gateway string
+  // coercion, both of which only look at top-level property names/types —
+  // unaffected by trimming a nested union, so this stays safe either way.
+  if (hasSchema && options.agentInputSchema && "~standard" in options.agentInputSchema) {
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema,
+      options.description,
+    );
+  }
+
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
