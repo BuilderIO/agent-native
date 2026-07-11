@@ -3635,13 +3635,14 @@ function TranscriptPanel({
       }),
     [controller, run.id],
   );
-  const loadHistoryRepository = useCallback(
-    async () =>
-      buildRepositoryFromCodeAgentTranscript(eventsRef.current, {
-        hideCredentialMessages: hideCredentialMessagesRef.current,
-      }),
-    [],
-  );
+  const loadHistoryRepository = useCallback(async () => {
+    const eventsToRender = hideCredentialMessagesRef.current
+      ? eventsRef.current.filter((event) => !isCredentialTranscriptEvent(event))
+      : eventsRef.current;
+    return buildRepositoryFromCodeAgentTranscript(eventsToRender, {
+      hideCredentialMessages: hideCredentialMessagesRef.current,
+    });
+  }, []);
   const historyReloadKey = useMemo(() => {
     const lastEvent = events.length > 0 ? events[events.length - 1] : undefined;
     return [
@@ -3815,9 +3816,11 @@ function hasMissingCredentialSignal(
   transcriptEvents: CodeAgentTranscriptEvent[],
 ): boolean {
   if (run.phase === "missing-credentials") return true;
-  return transcriptEvents.some((event) =>
-    /No LLM provider key was found|Missing credentials/i.test(event.text),
-  );
+  return transcriptEvents.some(isCredentialTranscriptEvent);
+}
+
+function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
+  return /No LLM provider key was found|Missing credentials/i.test(event.text);
 }
 
 function hasPendingApproval(run: CodeAgentRun): boolean {
