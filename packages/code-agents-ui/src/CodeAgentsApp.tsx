@@ -405,6 +405,24 @@ export default function CodeAgentsApp({
     () => remoteConnectorStatus?.relayUrl ?? defaultRemoteRelayUrl(apps),
     [apps, remoteConnectorStatus?.relayUrl],
   );
+  const newPromptRef = useRef<TiptapComposerHandle | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchTranscriptCacheRef = useRef(
+    new Map<string, CodeAgentTranscriptEvent[]>(),
+  );
+  const initialViewedRunIdsRef = useRef<{
+    initialized: boolean;
+    ids: Set<string>;
+  } | null>(null);
+  if (initialViewedRunIdsRef.current === null) {
+    initialViewedRunIdsRef.current = readStoredViewedRunIds();
+  }
+  const viewedRunIdsInitializedRef = useRef(
+    initialViewedRunIdsRef.current.initialized,
+  );
+  const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
+    () => new Set(initialViewedRunIdsRef.current!.ids),
+  );
   const railItems = useMemo<ChatHistoryItem[]>(
     () =>
       sortRunsForRail(runs).map((run) => ({
@@ -429,24 +447,6 @@ export default function CodeAgentsApp({
         ),
       })),
     [runs, viewedRunIds],
-  );
-  const newPromptRef = useRef<TiptapComposerHandle | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const searchTranscriptCacheRef = useRef(
-    new Map<string, CodeAgentTranscriptEvent[]>(),
-  );
-  const initialViewedRunIdsRef = useRef<{
-    initialized: boolean;
-    ids: Set<string>;
-  } | null>(null);
-  if (initialViewedRunIdsRef.current === null) {
-    initialViewedRunIdsRef.current = readStoredViewedRunIds();
-  }
-  const viewedRunIdsInitializedRef = useRef(
-    initialViewedRunIdsRef.current.initialized,
-  );
-  const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
-    () => new Set(initialViewedRunIdsRef.current!.ids),
   );
 
   const markRunsViewed = useCallback((runIds: string[]) => {
@@ -2939,8 +2939,7 @@ function SearchChatsPanel({
                 <IconSearch size={30} strokeWidth={1.5} />
                 <h3>No chats found</h3>
                 <p>
-                  Try a title, folder, command, or phrase from the
-                  conversation.
+                  Try a title, folder, command, or phrase from the conversation.
                 </p>
               </div>
             }
