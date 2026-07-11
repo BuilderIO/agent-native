@@ -282,6 +282,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => activeRequestContext?.userEmail,
+  getRequestRunContext: () => undefined,
   runWithRequestContext: (ctx: any, fn: () => any) => {
     const previous = activeRequestContext;
     activeRequestContext = ctx;
@@ -398,6 +399,61 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     // thread_data persisted with the assistant turn
     expect(threadData.get("thread-1")).toContain("the result");
+  }, 20_000);
+
+  it("defers framework-added tools behind tool-search on the first sub-agent request when an initial tool list is supplied", async () => {
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "the result" });
+    });
+    await seedTask("t-tool-filter");
+
+    const res = await processAgentTeamRun({
+      taskId: "t-tool-filter",
+      mode: "start",
+      resolveConfig: async () => ({
+        baseSystemPrompt: "base",
+        actions: {
+          "template-team-action": noopTool("A team-relevant app action"),
+          "list-integration-memory": noopTool("Framework addition"),
+        },
+        initialToolNames: ["template-team-action"],
+        engine: { name: "test", defaultModel: "m" } as any,
+        model: "m",
+      }),
+    });
+
+    expect(res.ok).toBe(true);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "template-team-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    expect(availableToolNames).toEqual([
+      "list-integration-memory",
+      "template-team-action",
+      "tool-search",
+    ]);
   }, 20_000);
 
   it("is idempotent: a duplicate dispatch does not re-run the agent", async () => {

@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip";
-import { NavContent } from "./Layout";
+import { formatThreadAge, NavContent } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
@@ -65,6 +65,20 @@ vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => null,
   OrgSwitcher: () => <div>Organization</div>,
 }));
+
+describe("formatThreadAge", () => {
+  const now = 2_000_000_000_000;
+
+  it.each([
+    [0, "now"],
+    [2 * 60 * 60_000, "2h"],
+    [7 * 24 * 60 * 60_000, "7d"],
+    [21 * 24 * 60 * 60_000, "3w"],
+    [365 * 24 * 60 * 60_000, "1y"],
+  ])("formats %i milliseconds as %s", (elapsed, expected) => {
+    expect(formatThreadAge(now - elapsed, now)).toBe(expected);
+  });
+});
 
 describe("Dispatch NavContent", () => {
   let container: HTMLDivElement;
@@ -140,6 +154,13 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
     expect(container.textContent).toContain("5m");
+    const age = [...container.querySelectorAll("time")].find(
+      (element) => element.textContent === "5m",
+    );
+    expect(age?.className).toContain("w-8");
+    expect(age?.className).toContain("shrink-0");
+    expect(age?.className).toContain("whitespace-nowrap");
+    expect(age?.className).toContain("tabular-nums");
     expect(
       [...container.querySelectorAll("div")].some((element) =>
         element.className.includes("group/item"),

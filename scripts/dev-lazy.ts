@@ -1234,6 +1234,50 @@ async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
   killChildProcessTree(app.process, "SIGTERM");
 }
 
+/**
+ * Permanent-503 self-heal: Nitro's dev env-runner has a known state where it
+ * gives up after a few worker crashes and serves 5xx for every request
+ * forever (the response body mentions the runner being unavailable). Because
+ * the gateway only ever saw "a response happened" before, it never noticed —
+ * this is the escalation path that does. Only fires once the app has gone
+ * `persistent5xxRestartMs` with no non-5xx response at all, so a normal
+ * transient 500 during a rebuild never triggers it.
+ */
+async function maybeRecoverPersistent5xx(
+  app: TemplateApp,
+  statusCode: number,
+): Promise<void> {
+  if (app.restartTimer) return;
+  const now = Date.now();
+  if (
+    !shouldRestartPersistent5xx({
+      lastNon5xxAt: app.lastNon5xxAt ?? now,
+      now,
+      restartMs: persistent5xxRestartMs,
+    })
+  ) {
+    return;
+  }
+  const stillAlive = Boolean(app.process && !app.process.killed);
+  if (!stillAlive) return;
+  if (!(await probePort(app.port))) return;
+  // Re-check after the async gap: another path may have already restarted it
+  // or it may have just recovered on its own.
+  if (app.restartTimer) return;
+  process.stderr.write(
+    `${colorPrefix(app.id)} stuck serving ${statusCode} for ` +
+      `${formatProxyReadyTimeout(persistent5xxRestartMs)} with no healthy ` +
+      `response; restarting (likely a stranded dev-server runner)\n`,
+  );
+  app.ready = false;
+  killChildProcessTree(app.process, "SIGTERM");
+  scheduleAppRestart(app, {
+    code: null,
+    output: app.outputTail ?? "",
+    logMessage: `stuck serving ${statusCode} responses with no healthy reply`,
+  });
+}
+
 function proxyHttp(
   app: TemplateApp,
   req: http.IncomingMessage,
