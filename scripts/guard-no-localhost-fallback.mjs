@@ -114,6 +114,8 @@ const ALLOWED_PATH_PREDICATES = [
   (rel) => /^packages\/core\/src\/dev/.test(rel),
   // The reusable implementation needs the literal to detect it.
   (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
+  // Generated package corpus mirrors framework source for agent retrieval.
+  (rel) => /^packages\/core\/corpus\//.test(rel),
   // Tests.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),
