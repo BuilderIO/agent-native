@@ -109,12 +109,12 @@ export const credentialKeys: CredentialKeyConfig[] = [
   // Slack
   {
     key: "SLACK_BOT_TOKEN",
-    label: "Slack Bot Token (legacy)",
+    label: "Slack Bot Token (legacy local fallback)",
     required: false,
   },
   {
     key: "SLACK_BOT_TOKEN_2",
-    label: "Slack Bot Token (legacy secondary)",
+    label: "Slack Bot Token (legacy secondary fallback)",
     required: false,
   },
   // Notion

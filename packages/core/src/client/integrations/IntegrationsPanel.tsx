@@ -47,7 +47,7 @@ const PLATFORMS: PlatformInfo[] = [
     icon: IconBrandSlack,
     description:
       "Legacy single-workspace setup. Use Settings → Messaging for new Slack connections.",
-    envVars: ["SLACK_SIGNING_SECRET"],
+    envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
       "Open Settings → Messaging for the supported managed Slack setup",
       "Use this legacy setup only for an existing single-workspace installation",

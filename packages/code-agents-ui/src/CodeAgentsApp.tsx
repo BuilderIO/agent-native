@@ -15,7 +15,6 @@ import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
   IconBan,
-  IconBrain,
   IconCheck,
   IconClock,
   IconCode,
@@ -24,7 +23,6 @@ import {
   IconDeviceMobile,
   IconDeviceDesktop,
   IconDots,
-  IconExternalLink,
   IconFolder,
   IconFolderPlus,
   IconLink,
@@ -203,7 +201,7 @@ type CodeAgentRunMode = "plan" | "auto";
 interface CodeAgentSearchResult {
   run: CodeAgentRun;
   match: string;
-  matchType: "Recent" | "Task" | "Transcript";
+  matchType: "Recent" | "Chat" | "Transcript";
   rank: number;
 }
 
@@ -1708,9 +1706,9 @@ export default function CodeAgentsApp({
                         <IconAlertCircle size={17} strokeWidth={1.8} />
                         <span>
                           {status === "unauthorized"
-                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see tasks.`
+                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see chats.`
                             : (error ??
-                              `${selectedGoal.surfaceLabel} is not reporting tasks yet.`)}
+                              `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
                         </span>
                       </div>
                     )}
@@ -1833,7 +1831,7 @@ function AgentCapabilitySummary({
     <div
       className="code-agents-capabilities"
       aria-label="Agent capabilities"
-      title="Auto can operate connected apps. Stop immediately releases task control."
+      title="Auto can operate connected apps. Stop immediately releases control."
     >
       <span className="code-agents-capability code-agents-capability--ready">
         <IconCode size={13} strokeWidth={1.8} />
@@ -1844,7 +1842,7 @@ function AgentCapabilitySummary({
         className={`code-agents-capability${chromeReady ? " code-agents-capability--ready" : ""}`}
         title={
           chromeReady
-            ? "The Chrome extension is connected and ready for this task."
+            ? "The Chrome extension is connected and ready."
             : "Load the bundled Chrome extension to enable browser control."
         }
         onClick={onOpenComputerSetup}
@@ -1961,8 +1959,8 @@ function ComputerAccessDialog({
           <div>
             <DialogTitle>Computer access</DialogTitle>
             <DialogDescription id="computer-access-description">
-              Agent Native only controls Chrome or your desktop while an Auto
-              task is running. Stop releases control immediately.
+              Agent Native only controls Chrome or your desktop while Agent is
+              working. Stop releases control immediately.
             </DialogDescription>
           </div>
         </div>
@@ -1973,7 +1971,7 @@ function ComputerAccessDialog({
             <div>
               <strong>Computer access is ready</strong>
               <span>
-                Chrome and desktop control are available to Auto tasks.
+                Chrome and desktop control are available in Auto mode.
               </span>
             </div>
           </div>
@@ -2296,8 +2294,8 @@ function CodeAgentComposer({
         type="button"
         onClick={onStop}
         className="code-agents-composer-stop-button"
-        aria-label="Stop task"
-        title="Stop task (Esc)"
+        aria-label="Stop response"
+        title="Stop response (Esc)"
       >
         <IconPlayerStop size={14} strokeWidth={1.9} />
       </button>
@@ -2810,7 +2808,7 @@ function buildSearchRunResults(
         {
           run,
           match: transcriptMatch ?? getSearchMatchSnippet(runText, tokens),
-          matchType: transcriptMatch ? "Transcript" : "Task",
+          matchType: transcriptMatch ? "Transcript" : "Chat",
           rank: titleMatch ? 0 : sessionMatch ? 1 : 2,
         },
       ];
@@ -2917,89 +2915,6 @@ function getRunStatusText(run: CodeAgentRun): string {
   return run.phase ?? run.status;
 }
 
-function getSessionMeta(run: CodeAgentRun, sourceLabel: string | null): string {
-  return [sourceLabel, getRunStatusText(run), formatRelativeTime(run.updatedAt)]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function runControlButtons({
-  goal,
-  onRetry,
-  onRerun,
-  onOpenWorkbench,
-  onOpenTerminal,
-}: {
-  goal: CodeAgentGoalDefinition;
-  onRetry?: () => void;
-  onRerun?: () => void;
-  onOpenWorkbench: () => void;
-  onOpenTerminal?: () => void;
-}): Array<{
-  key: string;
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}> {
-  return [
-    ...(onRetry
-      ? [
-          {
-            key: "retry",
-            label: "Retry",
-            icon: <IconRefresh size={14} strokeWidth={1.8} />,
-            onClick: onRetry,
-          },
-        ]
-      : []),
-    ...(onRerun
-      ? [
-          {
-            key: "rerun",
-            label: "Re-run",
-            icon: <IconRoute size={14} strokeWidth={1.8} />,
-            onClick: onRerun,
-          },
-        ]
-      : []),
-    {
-      key: "workbench",
-      label: `Open ${goal.surfaceLabel}`,
-      icon: <IconExternalLink size={14} strokeWidth={1.8} />,
-      onClick: onOpenWorkbench,
-    },
-    ...(onOpenTerminal
-      ? [
-          {
-            key: "terminal",
-            label: "Terminal",
-            icon: <IconTerminal2 size={14} strokeWidth={1.8} />,
-            onClick: onOpenTerminal,
-          },
-        ]
-      : []),
-  ];
-}
-
-function renderControlButton(button: {
-  key: string;
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      key={button.key}
-      type="button"
-      className="code-agents-button"
-      onClick={button.onClick}
-    >
-      {button.icon}
-      {button.label}
-    </button>
-  );
-}
-
 function RunRailItem({
   run,
   selected,
@@ -3067,7 +2982,7 @@ function RunRailItem({
             onKeyDown={handleRenameKeyDown}
             onBlur={commitRename}
             autoFocus
-            aria-label="Rename task"
+            aria-label="Rename chat"
           />
         </div>
       ) : (
@@ -3108,8 +3023,8 @@ function RunRailItem({
               className={`code-agents-run-menu${
                 pinned ? " code-agents-run-menu--pinned" : ""
               }`}
-              aria-label="Task options"
-              title="Task options"
+              aria-label="Chat options"
+              title="Chat options"
             >
               {pinned ? (
                 <IconPinned size={13} strokeWidth={1.8} />
@@ -3438,7 +3353,7 @@ function MobileConnectorPanel({
         </p>
         <h2>Agent Native mobile</h2>
         <p>
-          Scan the QR code to open tasks on your phone, then pair this Mac to
+          Scan the QR code to open chats on your phone, then pair this Mac to
           start and continue local Agent work from mobile.
         </p>
       </div>
@@ -3484,7 +3399,7 @@ function MobileConnectorPanel({
               size={224}
               level="H"
               marginSize={3}
-              title="Open Agent Native mobile tasks"
+              title="Open Agent Native mobile chats"
               bgColor="#ffffff"
               fgColor="#111111"
             />
@@ -3883,80 +3798,14 @@ function TranscriptPanel({
  * Used to compute approximate context-used % when the model is known.
  * This is a local approximation; a more precise table can replace it later.
  */
-const MODEL_CONTEXT_WINDOWS: Array<[RegExp, number]> = [
-  [/claude-3-7|claude-sonnet-4|claude-opus-4/i, 200_000],
-  [/claude-3-5|claude-3-opus|claude-3-haiku/i, 200_000],
-  [/claude-2|claude-instant/i, 100_000],
-  [/gpt-4o|gpt-4-turbo|gpt-4\.1/i, 128_000],
-  [/gpt-4/i, 8_192],
-  [/gpt-3\.5/i, 16_385],
-  [/gemini-1\.5|gemini-2/i, 1_000_000],
-  [/gemini-pro/i, 32_760],
-];
-
-function contextWindowForModel(model: string | undefined): number | null {
-  if (!model) return null;
-  for (const [pattern, size] of MODEL_CONTEXT_WINDOWS) {
-    if (pattern.test(model)) return size;
-  }
-  return null;
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return String(n);
-}
-
-function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
-  const usage = run.metadata?.tokenUsage;
-  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
-  const u = usage as Record<string, unknown>;
-  const input = typeof u.inputTokens === "number" ? u.inputTokens : 0;
-  const output = typeof u.outputTokens === "number" ? u.outputTokens : 0;
-  if (input + output === 0) return null;
-
-  const model =
-    typeof run.metadata?.model === "string" ? run.metadata.model : undefined;
-  const contextWindow = contextWindowForModel(model);
-  const contextPct =
-    contextWindow && input > 0
-      ? Math.min(100, Math.round((input / contextWindow) * 100))
-      : null;
-
-  return (
-    <div className="code-agents-token-meter">
-      <IconBrain
-        size={12}
-        strokeWidth={1.8}
-        className="code-agents-token-meter__icon"
-      />
-      <span className="code-agents-token-meter__label">
-        {formatTokenCount(input + output)} tokens
-      </span>
-      {contextPct !== null && (
-        <span
-          className="code-agents-token-meter__ctx"
-          title={`~${contextPct}% of ${formatTokenCount(contextWindow!)} context window used`}
-        >
-          {contextPct}% ctx
-        </span>
-      )}
-      <span className="code-agents-token-meter__detail">
-        {formatTokenCount(input)} in / {formatTokenCount(output)} out
-      </span>
-    </div>
-  );
-}
-
 function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
   return (
     <button
       type="button"
       onClick={onStop}
       className="code-agents-composer-stop-button"
-      aria-label="Stop task"
-      title="Stop task (Esc)"
+      aria-label="Stop response"
+      title="Stop response (Esc)"
     >
       <IconPlayerStop size={14} strokeWidth={1.9} />
     </button>
@@ -4022,15 +3871,6 @@ function normalizePromptAttachmentsForHost(
   });
 }
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="code-agents-field">
-      <span>{label}</span>
-      <strong title={value}>{value}</strong>
-    </div>
-  );
-}
-
 function RunListSkeleton() {
   return (
     <>
@@ -4052,16 +3892,6 @@ function OverviewSkeleton() {
       <div className="code-agents-overview-skeleton__composer" />
     </div>
   );
-}
-
-function getRunProgressPercent(run: CodeAgentRun): number {
-  if (typeof run.progress?.percent === "number") {
-    return Math.max(0, Math.min(100, Math.round(run.progress.percent)));
-  }
-  if (isMigrationRun(run) && run.taskCount > 0) {
-    return Math.round((run.passedTaskCount / run.taskCount) * 100);
-  }
-  return run.status === "completed" || run.phase === "complete" ? 100 : 0;
 }
 
 function hasMissingCredentialSignal(
@@ -4137,40 +3967,9 @@ function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
 function getRunSubtitle(run: CodeAgentRun): string {
   if (run.subtitle) return run.subtitle;
   if (isMigrationRun(run)) return run.sourceRoot;
-  return run.goalId ? `${run.goalId} task` : "Agent task";
-}
-
-function getRunDetails(
-  run: CodeAgentRun,
-  goal: CodeAgentGoalDefinition,
-): CodeAgentRunDetail[] {
-  const sourceDetail = getRunSourceDetail(run);
-  const details =
-    run.details?.filter(
-      (detail) => detail.value.length > 0 && !isPermissionDetail(detail.label),
-    ) ?? [];
-  if (details.length > 0) {
-    return [
-      ...(sourceDetail ? [sourceDetail] : []),
-      ...details,
-      { label: "Updated", value: formatRelativeTime(run.updatedAt) },
-    ];
-  }
-  if (isMigrationRun(run)) {
-    return [
-      ...(sourceDetail ? [sourceDetail] : []),
-      { label: "Source", value: run.sourceRoot },
-      { label: "Output", value: run.outputRoot },
-      { label: "Target", value: run.target },
-      { label: "Updated", value: formatRelativeTime(run.updatedAt) },
-    ];
-  }
-  return [
-    ...(sourceDetail ? [sourceDetail] : []),
-    { label: "Goal", value: goal.slashCommand },
-    { label: "Status", value: run.status },
-    { label: "Updated", value: formatRelativeTime(run.updatedAt) },
-  ];
+  return run.goalId && run.goalId !== "task"
+    ? `${run.goalId} chat`
+    : "Agent chat";
 }
 
 function getRunPermissionMode(run: CodeAgentRun): CodeAgentPermissionMode {

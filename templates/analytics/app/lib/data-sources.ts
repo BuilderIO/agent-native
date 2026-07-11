@@ -747,16 +747,16 @@ export const dataSources: DataSource[] = [
   // --- Communication ---
   {
     id: "slack",
-    name: "Slack (legacy token)",
+    name: "Slack",
     description:
-      "Legacy token access for Analytics channel history and workspace search. For new messaging automations, connect Slack in Settings > Messaging.",
+      "Channel history and workspace search. Prefer a Slack workspace integration from Settings > Connections; a local bot token remains available as a legacy fallback.",
     category: "communication",
     icon: IconMessage,
     envKeys: ["SLACK_BOT_TOKEN"],
     docsUrl: "https://api.slack.com/methods",
     walkthroughSteps: [
       {
-        title: "Create a legacy Slack App",
+        title: "Create a Slack App for local fallback access",
         description:
           "Go to api.slack.com/apps, create a new app, and add OAuth scopes: channels:read, channels:history, search:read.",
         url: "https://api.slack.com/apps",
@@ -768,10 +768,10 @@ export const dataSources: DataSource[] = [
           'Under "OAuth & Permissions", install the app and copy the Bot User OAuth Token.',
       },
       {
-        title: "Enter your legacy Bot Token",
+        title: "Enter your local fallback Bot Token",
         description: 'Paste the Bot User OAuth Token (starts with "xoxb-").',
         inputKey: "SLACK_BOT_TOKEN",
-        inputLabel: "Bot Token (legacy)",
+        inputLabel: "Bot Token (legacy local fallback)",
         inputPlaceholder: "xoxb-...",
         inputType: "password",
       },

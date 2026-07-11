@@ -151,10 +151,7 @@ describe("MessagingSetupPanel", () => {
     expect(container.textContent).toContain(
       "Save the required Slack app credentials below",
     );
-    expect(container.textContent).toContain(
-      "Advanced: legacy single-workspace token",
-    );
-    expect(container.textContent).not.toContain("Slack Bot Token (legacy)");
+    expect(container.textContent).toContain("Slack Bot Token (legacy)");
   });
 
   it("shows connected and alternative credential states", async () => {

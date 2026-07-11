@@ -857,14 +857,12 @@ export function MessagingSetupPanel() {
                   <Collapsible>
                     <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
                       <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                      <span>Advanced: legacy single-workspace token</span>
+                      <span>{legacyEnvKeys[0]?.label}</span>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <div className="mt-2 space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
                         <p className="text-xs text-muted-foreground">
-                          Do not use this for new automations. Add Slack above
-                          to use managed OAuth; the token is stored
-                          automatically for each connected workspace.
+                          {legacyEnvKeys[0]?.helpText}
                         </p>
                         {legacyEnvKeys.map((envKey) => {
                           const envStatus = envStatusByKey.get(envKey.key);
@@ -922,7 +920,7 @@ export function MessagingSetupPanel() {
                           >
                             {savingKeysFor === platform.id
                               ? "Saving..."
-                              : "Save legacy token"}
+                              : "Save credentials"}
                           </Button>
                         ) : null}
                       </div>
