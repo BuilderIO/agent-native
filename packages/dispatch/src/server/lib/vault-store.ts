@@ -962,15 +962,13 @@ export async function approveRequest(
 
   // Fence the transition on the current status — scoped to caller's tenant —
   // so a concurrent approve can't both win: only the caller that flips
-  // pending -> approved proceeds to create the secret/grant. See
+  // pending -> applying proceeds to create the secret/grant. See
   // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
   // for the same pattern.
   const claimed = await db
     .update(schema.vaultRequests)
     .set({
-      status: "approved",
-      reviewedBy: reviewer,
-      reviewedAt: timestamp,
+      status: "applying",
       updatedAt: timestamp,
     })
     .where(
@@ -983,9 +981,11 @@ export async function approveRequest(
     .returning();
 
   if (claimed.length === 0) {
-    // Another caller already resolved this request; return its current
-    // state idempotently instead of re-applying the grant.
-    return getRequest(requestId, ctx);
+    const current = await getRequest(requestId, ctx);
+    if (current?.status === "applying") {
+      throw new Error("Vault request is already being applied");
+    }
+    return current;
   }
 
   const claimedRequest = claimed[0];
@@ -994,33 +994,63 @@ export async function approveRequest(
   // (the approver may be acting on behalf of another user in the same org).
   const requestCtx = ctxForRow(claimedRequest);
 
-  // Check if secret already exists in the request's tenant for this key.
-  const existingSecrets = await db
-    .select()
-    .from(schema.vaultSecrets)
+  try {
+    // Check if secret already exists in the request's tenant for this key.
+    const existingSecrets = await db
+      .select()
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),
+          ctxScope(schema.vaultSecrets, requestCtx),
+        ),
+      );
+    let secret = existingSecrets[0] ?? null;
+
+    if (!secret) {
+      secret = await createSecret(
+        {
+          credentialKey: claimedRequest.credentialKey,
+          value: secretValue,
+          name: secretName || claimedRequest.credentialKey,
+        },
+        requestCtx,
+      );
+    }
+
+    if (secret) {
+      // Create the grant in the request's tenant as well.
+      await createGrant(secret.id, claimedRequest.appId, requestCtx);
+    }
+  } catch (error) {
+    await db
+      .update(schema.vaultRequests)
+      .set({ status: "pending", updatedAt: now() })
+      .where(
+        and(
+          eq(schema.vaultRequests.id, requestId),
+          ctxScope(schema.vaultRequests, ctx),
+          eq(schema.vaultRequests.status, "applying"),
+        ),
+      );
+    throw error;
+  }
+
+  await db
+    .update(schema.vaultRequests)
+    .set({
+      status: "approved",
+      reviewedBy: reviewer,
+      reviewedAt: timestamp,
+      updatedAt: now(),
+    })
     .where(
       and(
-        eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),
-        ctxScope(schema.vaultSecrets, requestCtx),
+        eq(schema.vaultRequests.id, requestId),
+        ctxScope(schema.vaultRequests, ctx),
+        eq(schema.vaultRequests.status, "applying"),
       ),
     );
-  let secret = existingSecrets[0] ?? null;
-
-  if (!secret) {
-    secret = await createSecret(
-      {
-        credentialKey: claimedRequest.credentialKey,
-        value: secretValue,
-        name: secretName || claimedRequest.credentialKey,
-      },
-      requestCtx,
-    );
-  }
-
-  if (secret) {
-    // Create the grant in the request's tenant as well.
-    await createGrant(secret.id, claimedRequest.appId, requestCtx);
-  }
 
   await recordVaultAudit({
     action: "request.approved",

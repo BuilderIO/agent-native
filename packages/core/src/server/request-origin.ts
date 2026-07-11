@@ -17,7 +17,16 @@ export function isSameOriginRequest(event: H3Event): boolean {
   if (origin && host) {
     try {
       const parsed = new URL(origin);
-      if (parsed.host === host) return true;
+      const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
+      const forwardedProtocol =
+        forwardedProto === "https" || forwardedProto === "http"
+          ? `${forwardedProto}:`
+          : null;
+      const matchesScheme = forwardedProtocol
+        ? parsed.protocol === forwardedProtocol
+        : parsed.protocol === "https:" ||
+          (parsed.protocol === "http:" && isLoopbackHost(host));
+      if (parsed.host === host && matchesScheme) return true;
       // Tauri desktop dev serves the tray WebView from localhost:1420 while
       // the app server lives on the template dev port. Production Tauri
       // WebViews can also send a tauri://localhost origin. Trust that custom

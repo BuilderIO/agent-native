@@ -465,6 +465,13 @@ function planEject(
   }
   const workspaceRoot =
     layout === "workspace-app" ? path.resolve(targetRoot, "../..") : targetRoot;
+  const pnpmWorkspace = path.join(workspaceRoot, "pnpm-workspace.yaml");
+  if (!fs.existsSync(pnpmWorkspace)) {
+    collisions.push(
+      "Eject currently requires an existing pnpm workspace; refusing to create a workspace:* dependency for another package manager",
+    );
+    return { changes: [], collisions, warnings };
+  }
   const targetDir = path.join(
     workspaceRoot,
     loaded.manifest.eject.targetDirectory,
@@ -532,7 +539,6 @@ function planEject(
       "dependency",
     ),
   );
-  const pnpmWorkspace = path.join(workspaceRoot, "pnpm-workspace.yaml");
   if (fs.existsSync(pnpmWorkspace)) {
     const text = fs.readFileSync(pnpmWorkspace, "utf8");
     if (!text.includes("packages/*") && !text.includes("packages/**")) {

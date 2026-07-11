@@ -24,6 +24,11 @@ describe("isSameOriginRequest", () => {
       expected: false,
     },
     {
+      name: "same host with a mismatched scheme",
+      headers: { host: "app.example.com", origin: "http://app.example.com" },
+      expected: false,
+    },
+    {
       name: "malformed Origin",
       headers: { host: "app.example.com", origin: "://invalid" },
       expected: false,

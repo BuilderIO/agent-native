@@ -613,15 +613,13 @@ export async function approveRequest(requestId: string) {
 
   const timestamp = now();
   // Fence the transition on the current status so a concurrent approve can't
-  // both win: only the caller that flips pending -> approved proceeds to
+  // both win: only the caller that flips pending -> applying proceeds to
   // apply the (side-effecting) change. See claimAgentTeamRun in
   // packages/core/src/server/agent-teams-run-queue.ts for the same pattern.
   const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
-      status: "approved",
-      reviewedBy: currentOwnerEmail(),
-      reviewedAt: timestamp,
+      status: "applying",
       updatedAt: timestamp,
     })
     .where(
@@ -633,13 +631,44 @@ export async function approveRequest(requestId: string) {
     .returning();
 
   if (claimed.length === 0) {
-    // Another caller already resolved this request; return its current
-    // state idempotently instead of re-applying the change.
-    return (await getApprovalRequest(requestId, ctx)) ?? request;
+    const current = (await getApprovalRequest(requestId, ctx)) ?? request;
+    if (current.status === "applying") {
+      throw new Error("Approval is already being applied");
+    }
+    return current;
   }
 
-  const updated = claimed[0];
-  await applyApprovedRequest(updated);
+  const applying = claimed[0];
+  try {
+    await applyApprovedRequest(applying);
+  } catch (error) {
+    await db
+      .update(schema.dispatchApprovalRequests)
+      .set({ status: "pending", updatedAt: now() })
+      .where(
+        and(
+          eq(schema.dispatchApprovalRequests.id, requestId),
+          eq(schema.dispatchApprovalRequests.status, "applying"),
+        ),
+      );
+    throw error;
+  }
+  const [updated] = await db
+    .update(schema.dispatchApprovalRequests)
+    .set({
+      status: "approved",
+      reviewedBy: currentOwnerEmail(),
+      reviewedAt: timestamp,
+      updatedAt: now(),
+    })
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        eq(schema.dispatchApprovalRequests.status, "applying"),
+      ),
+    )
+    .returning();
+  if (!updated) throw new Error("Approval request disappeared");
   await recordAudit({
     action: "approval.approved",
     targetType: updated.targetType,
