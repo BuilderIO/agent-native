@@ -6,11 +6,9 @@ import {
   type H3Event,
 } from "h3";
 
+import { normalizeThreadRepository } from "../../agent/thread-data-builder.js";
 import type { AgentRunSummary } from "../../agent/run-store.js";
-import {
-  normalizeThreadRepository,
-  type ChatThread,
-} from "../../chat-threads/store.js";
+import type { ChatThread } from "../../chat-threads/store.js";
 
 // ---------------------------------------------------------------------------
 // Read-only shared-thread route: renders a public HTML/JSON view of a chat
