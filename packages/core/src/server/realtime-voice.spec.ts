@@ -285,6 +285,57 @@ describe("realtime voice inline preferences", () => {
 });
 
 describe("realtime voice session route", () => {
+  it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue([
+      ...Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `template_tool_${index}`,
+        description: `Template tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+      {
+        name: "view-screen",
+        description: "View the current screen",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "set-search-params",
+        description: "Update URL filters",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "navigate",
+        description: "Navigate the app",
+        inputSchema: ACTIONS.navigate.tool.parameters,
+      },
+      {
+        name: "set-url-path",
+        description: "Navigate by URL",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("v=0\r\ns=builder\r\n", { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(
+      request.session.tools
+        .slice(0, 4)
+        .map((tool: { name: string }) => tool.name),
+    ).toEqual(["navigate", "set-url-path", "set-search-params", "view-screen"]);
+    expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+  });
+
   it("caps tools to the Builder realtime gateway contract", async () => {
     resolveBuilderCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
@@ -722,6 +773,46 @@ describe("realtime voice tool route", () => {
       status: "completed",
       output: '{"ok":true,"apiKey":[REDACTED]}',
     });
+  });
+
+  it("routes navigation execution through the active browser tab", async () => {
+    const contexts: unknown[] = [];
+    runWithRequestContext.mockImplementation(
+      async (context: unknown, callback: () => Promise<unknown>) => {
+        contexts.push(context);
+        return callback();
+      },
+    );
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "completed",
+      output: "Navigating",
+    });
+    const { handlers } = mount({ executeTool });
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: { dashboardId: "dashboard-1" },
+        callId: "call_tab",
+      },
+      { "x-agent-native-browser-tab": "analytics-tab-1" },
+    );
+
+    await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event);
+
+    expect(contexts).toContainEqual(
+      expect.objectContaining({
+        run: expect.objectContaining({
+          browserTabId: "analytics-tab-1",
+          threadId: "realtime:call_tab",
+        }),
+      }),
+    );
+    expect(executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "navigate",
+        browserTabId: "analytics-tab-1",
+      }),
+    );
   });
 
   it("preserves approval metadata and truncates sanitized output", async () => {

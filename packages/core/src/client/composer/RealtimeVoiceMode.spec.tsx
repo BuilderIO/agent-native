@@ -607,13 +607,7 @@ describe("RealtimeVoiceMode", () => {
     ).not.toBeNull();
   });
 
-  it.each([
-    "connecting",
-    "listening",
-    "speaking",
-    "working",
-    "ending",
-  ] as const)(
+  it.each(["listening", "speaking", "working", "ending"] as const)(
     "keeps the waveform visible while voice mode is %s and silent",
     (state) => {
       render(
@@ -632,15 +626,10 @@ describe("RealtimeVoiceMode", () => {
         ),
       ).not.toBeNull();
       expect(document.querySelector(".animate-spin")).toBeNull();
-      expect(
-        document
-          .querySelector('[data-realtime-voice-waveform="true"]')
-          ?.getAttribute("data-realtime-voice-waveform-connecting"),
-      ).toBe(state === "connecting" ? "true" : "false");
     },
   );
 
-  it("keeps early microphone audio visually idle until connected", () => {
+  it("shows an unmistakable loader and ignores early audio until connected", () => {
     const audioLevels = createRealtimeVoiceAudioLevelStore();
     audioLevels.set({ input: 0.8, output: 0 });
 
@@ -662,8 +651,13 @@ describe("RealtimeVoiceMode", () => {
     ).toBe("idle");
     expect(
       document.querySelector('[data-realtime-voice-waveform="true"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        '[data-realtime-voice-connecting-indicator="true"]',
+      ),
     ).not.toBeNull();
-    expect(document.querySelector(".animate-spin")).toBeNull();
+    expect(document.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("exposes error details and a separate end-session action", () => {

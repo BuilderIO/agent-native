@@ -362,7 +362,9 @@ export function createRealtimeVoiceGreetingEvent(): Record<string, unknown> {
       output_modalities: ["audio"],
       instructions:
         'Say exactly: "How can I help you?" Do not add anything else.',
-      max_output_tokens: 32,
+      // Do not set max_output_tokens here. Realtime counts assistant audio at
+      // roughly one token per 50 ms, so a text-sized cap can cut speech off.
+      // The exact-response instruction already keeps this greeting bounded.
     },
   };
 }
@@ -434,6 +436,14 @@ export function isRealtimeVoiceAbortError(error: unknown): boolean {
     error &&
     typeof error === "object" &&
     (error as { name?: unknown }).name === "AbortError",
+  );
+}
+
+export function isRealtimeVoiceSetupRequiredError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as { status?: unknown }).status === 409,
   );
 }
 
@@ -1261,12 +1271,29 @@ function useRealtimeVoiceModeController(
       ) {
         return;
       }
+      if (isRealtimeVoiceSetupRequiredError(startError)) {
+        // Credentials can disappear after the entry-point status check. Treat
+        // the authoritative setup response as a gate, not as an active voice
+        // session failure: clean up the mic/RTC attempt, reopen chat, and
+        // refresh both the chat and voice provider setup surfaces.
+        cleanupTransport();
+        setError(null);
+        startedAtRef.current = undefined;
+        sessionIdRef.current = undefined;
+        transcriptThreadIdRef.current = undefined;
+        transition("idle");
+        setChatVisible(true);
+        window.dispatchEvent(new Event("agent-panel:open"));
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
+        return;
+      }
       const status = (startError as { status?: unknown })?.status;
       fail(errorMessage(startError), { openKeySettings: status === 400 });
     }
   }, [
     attachAudioMeter,
     browserTabId,
+    cleanupTransport,
     copy,
     fail,
     greetingStarter,

@@ -14,6 +14,7 @@ import {
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
   isRealtimeVoiceAbortError,
+  isRealtimeVoiceSetupRequiredError,
   listenForRealtimeVoicePageHide,
   normalizeRealtimeVoicePreferences,
   REALTIME_VOICE_AUDIO_CONSTRAINTS,
@@ -302,14 +303,13 @@ describe("extractCompletedRealtimeVoiceTranscript", () => {
 });
 
 describe("Realtime voice startup and transcript ordering", () => {
-  it("requests one brief spoken greeting when the live session starts", () => {
+  it("requests one brief uncapped greeting when the live session starts", () => {
     expect(createRealtimeVoiceGreetingEvent()).toEqual({
       type: "response.create",
       response: {
         output_modalities: ["audio"],
         instructions:
           'Say exactly: "How can I help you?" Do not add anything else.',
-        max_output_tokens: 32,
       },
     });
   });
@@ -503,5 +503,11 @@ describe("shouldRestoreRealtimeVoiceTranscriptThread", () => {
     expect(
       shouldRestoreRealtimeVoiceTranscriptThread(undefined, "other-thread"),
     ).toBe(false);
+  });
+
+  it("recognizes the authoritative missing-provider response", () => {
+    expect(isRealtimeVoiceSetupRequiredError({ status: 409 })).toBe(true);
+    expect(isRealtimeVoiceSetupRequiredError({ status: 400 })).toBe(false);
+    expect(isRealtimeVoiceSetupRequiredError(new Error("offline"))).toBe(false);
   });
 });

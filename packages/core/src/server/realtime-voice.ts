@@ -70,6 +70,18 @@ const REALTIME_VOICE_REASONING_EFFORT = {
   deep: "medium",
 } as const;
 
+/**
+ * Realtime sessions have a deliberately bounded tool manifest. Keep the
+ * context/navigation tools ahead of large template registries so voice can
+ * always see and operate the same UI navigation surface as text chat.
+ */
+const REALTIME_VOICE_PRIORITY_TOOLS = [
+  "navigate",
+  "set-url-path",
+  "set-search-params",
+  "view-screen",
+] as const;
+
 export interface RealtimeVoiceRequestContext {
   event: H3Event;
   userEmail: string;
@@ -281,7 +293,22 @@ function buildRealtimeTools(
       parameters,
     });
   }
-  return tools;
+  const priority = new Map<string, number>(
+    REALTIME_VOICE_PRIORITY_TOOLS.map((name, index) => [name, index]),
+  );
+  return tools
+    .map((tool, index) => ({ tool, index }))
+    .sort((left, right) => {
+      const leftPriority = priority.get(left.tool.name);
+      const rightPriority = priority.get(right.tool.name);
+      if (leftPriority !== undefined || rightPriority !== undefined) {
+        if (leftPriority === undefined) return 1;
+        if (rightPriority === undefined) return -1;
+        return leftPriority - rightPriority;
+      }
+      return left.index - right.index;
+    })
+    .map(({ tool }) => tool);
 }
 
 function packRealtimeTools(
@@ -713,6 +740,7 @@ function createToolHandler(
               userEmail: auth.userEmail,
               orgId: auth.orgId,
               ...request,
+              ...(browserTabId ? { browserTabId } : {}),
             }),
           );
           return { callId: request.callId, ...result };

@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -133,7 +133,7 @@ export default defineAction({
       nav.monitoringView = "errors";
       if (!args.view) nav.view = "monitoring";
     }
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
 
     const parts: string[] = [];
     if (nav.view) parts.push(nav.view);

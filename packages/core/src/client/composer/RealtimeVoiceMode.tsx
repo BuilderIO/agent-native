@@ -329,12 +329,10 @@ function VoiceWaveform({
   level,
   reducedMotion,
   activity,
-  connecting = false,
 }: {
   level: number;
   reducedMotion: boolean;
   activity: "idle" | "user" | "assistant";
-  connecting?: boolean;
 }) {
   const visibleLevel = reducedMotion ? 0.45 : level;
   return (
@@ -343,22 +341,27 @@ function VoiceWaveform({
       className="flex h-6 items-center justify-center gap-0.5"
       data-realtime-voice-waveform="true"
       data-realtime-voice-waveform-activity={activity}
-      data-realtime-voice-waveform-connecting={connecting ? "true" : "false"}
     >
       {WAVEFORM_WEIGHTS.map((weight, index) => (
         <span
           key={index}
-          className={cn(
-            "h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none",
-            connecting && "animate-pulse motion-reduce:animate-none",
-          )}
+          className="h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none"
           style={{
-            animationDelay: connecting ? `${index * 120}ms` : undefined,
             transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})`,
           }}
         />
       ))}
     </span>
+  );
+}
+
+function VoiceConnectingIndicator() {
+  return (
+    <IconLoader2
+      aria-hidden="true"
+      className="size-6 animate-spin motion-reduce:animate-none"
+      data-realtime-voice-connecting-indicator="true"
+    />
   );
 }
 
@@ -759,12 +762,13 @@ export function RealtimeVoiceModeDock({
               )}
             >
               <span className="relative z-10 flex items-center justify-center">
-                {state !== "error" ? (
+                {state === "connecting" ? (
+                  <VoiceConnectingIndicator />
+                ) : state !== "error" ? (
                   <VoiceWaveform
                     level={activityLevel}
                     reducedMotion={reducedMotion}
                     activity={activity}
-                    connecting={state === "connecting"}
                   />
                 ) : (
                   <IconAlertTriangle />
