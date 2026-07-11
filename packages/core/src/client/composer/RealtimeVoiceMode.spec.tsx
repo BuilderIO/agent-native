@@ -89,6 +89,8 @@ describe("RealtimeVoiceMode", () => {
     act(() => microphone?.click());
 
     expect(document.body.textContent).toContain("Talk to your app");
+    const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(prompt?.className).toContain("w-[min(22rem,calc(100vw-2rem))]");
     expect(document.body.textContent).toContain("Keep dictating");
     expect(onStartVoiceMode).not.toHaveBeenCalled();
     expect(onKeepDictating).not.toHaveBeenCalled();
@@ -142,6 +144,13 @@ describe("RealtimeVoiceMode", () => {
     );
 
     expect(document.body.textContent).toContain("Set up voice mode");
+    const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(prompt?.className).toContain("w-[min(30rem,calc(100vw-2rem))]");
+    const actions = Array.from(prompt?.querySelectorAll("div") ?? []).find(
+      (element) => element.className.includes("sm:flex-row"),
+    );
+    expect(actions?.className).toContain("sm:flex-nowrap");
+    expect(actions?.className).not.toContain("sm:flex-wrap ");
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     );

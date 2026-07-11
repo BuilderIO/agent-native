@@ -21,7 +21,10 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import { useVoiceProviderStatus } from "../voice-provider-status.js";
+import {
+  type VoiceProviderStatus,
+  useVoiceProviderStatus,
+} from "../voice-provider-status.js";
 import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
 import {
   useRealtimeVoiceModeCopy,
@@ -43,6 +46,12 @@ export interface VoiceButtonProps {
   voice: VoiceDictationApi;
   isMac: boolean;
   disabled?: boolean;
+}
+
+export function isRealtimeVoiceSetupRequired(
+  status: VoiceProviderStatus | null,
+): boolean {
+  return status !== null && !status.builder && !status.openai;
 }
 
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
@@ -68,9 +77,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
       <RealtimeVoiceModeEntry
         copy={realtimeCopy}
         disabled={disabled}
-        setupRequired={
-          builderConnect.hasFetchedStatus && !builderConnect.configured
-        }
+        setupRequired={isRealtimeVoiceSetupRequired(voiceProviders.status)}
         openAiConfigured={voiceProviders.status?.openai === true}
         connectingBuilder={builderConnect.connecting}
         onConnectBuilder={builderConnect.start}

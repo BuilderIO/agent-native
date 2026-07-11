@@ -146,7 +146,12 @@ export function RealtimeVoiceModeEntry({
         side="top"
         align="end"
         sideOffset={10}
-        className="w-[min(22rem,calc(100vw-2rem))] p-4"
+        className={cn(
+          "p-4",
+          setupRequired
+            ? "w-[min(30rem,calc(100vw-2rem))]"
+            : "w-[min(22rem,calc(100vw-2rem))]",
+        )}
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
       >
@@ -163,7 +168,7 @@ export function RealtimeVoiceModeEntry({
             </p>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-nowrap sm:justify-end">
             <Button
               type="button"
               variant="ghost"

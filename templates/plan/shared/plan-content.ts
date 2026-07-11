@@ -1868,9 +1868,9 @@ export const PLAN_BLOCK_TYPES = [
  * still fails loudly with the real, actionable zod error.
  */
 export const agentPlanBlockSchema = z.object({
-  id: idSchema
-    .optional()
-    .describe("Stable block id; omit to auto-generate one."),
+  id: idSchema.describe(
+    "Stable block id (short, unique within the plan) — required.",
+  ),
   type: z
     .enum(PLAN_BLOCK_TYPES)
     .describe(
@@ -1911,7 +1911,7 @@ export const agentPlanBlockSchema = z.object({
  * information — a short cross-reference is enough here.
  */
 const agentPlanBlockSchemaTerse = z.object({
-  id: idSchema.optional(),
+  id: idSchema.describe("Stable block id (short, unique within the plan) — required."),
   type: z
     .enum(PLAN_BLOCK_TYPES)
     .describe(
