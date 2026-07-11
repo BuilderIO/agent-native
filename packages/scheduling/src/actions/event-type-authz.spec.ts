@@ -161,12 +161,12 @@ async function eventTypeCount(): Promise<number> {
 }
 
 describe("revoke-private-link authorization", () => {
-  it("rejects a caller with no access to the owning event type and keeps the link", async () => {
-    await expect(
-      runWithRequestContext({ userEmail: OUTSIDER_EMAIL }, () =>
-        revokePrivateLink.run({ hash: HASH }),
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenError);
+  it("returns the same idempotent result for an inaccessible link and keeps it", async () => {
+    const result: any = await runWithRequestContext(
+      { userEmail: OUTSIDER_EMAIL },
+      () => revokePrivateLink.run({ hash: HASH }),
+    );
+    expect(result.ok).toBe(true);
     expect(await hashedLinkExists()).toBe(true);
   });
 

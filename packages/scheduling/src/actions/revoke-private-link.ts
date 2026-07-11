@@ -16,8 +16,13 @@ export default defineAction({
       .from(schema.hashedLinks)
       .where(eq(schema.hashedLinks.hash, args.hash))
       .limit(1);
-    if (link) {
+    if (!link) return { ok: true };
+    try {
       await assertAccess("event-type", link.eventTypeId, "editor");
+    } catch {
+      // Keep private-link hashes unprobeable: callers without access receive
+      // the same idempotent result as callers presenting an unknown hash.
+      return { ok: true };
     }
     await db
       .delete(schema.hashedLinks)

@@ -18,7 +18,7 @@ export default defineAction({
   run: async (args) => {
     const source = await getEventTypeById(args.id);
     if (!source) throw new Error("Event type not found");
-    await assertAccess("event-type", args.id, "viewer");
+    await assertAccess("event-type", args.id, "editor");
     return {
       eventType: await createEventType({
         ownerEmail: source.teamId ? undefined : currentUserEmail(),
