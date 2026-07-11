@@ -60,6 +60,7 @@ import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_MAX_SDP_BYTES,
   REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+  REALTIME_VOICE_MAX_TOOLS,
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   realtimeVoiceSafetyIdentifier,
@@ -245,6 +246,37 @@ describe("mountRealtimeVoiceRoutes", () => {
 });
 
 describe("realtime voice session route", () => {
+  it("caps tools to the Builder realtime gateway contract", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue(
+      Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `tool_${index}`,
+        description: `Tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(request.session.tools[0].name).toBe("tool_0");
+    expect(request.session.tools.at(-1).name).toBe("tool_31");
+  });
+
   it("caps raw SDP before reading it", async () => {
     const { handlers } = mount();
     const event = sessionEvent("ignored", {

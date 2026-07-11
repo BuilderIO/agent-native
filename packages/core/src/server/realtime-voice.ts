@@ -34,6 +34,7 @@ export const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 export const REALTIME_VOICE_MAX_SDP_BYTES = 64 * 1024;
 export const REALTIME_VOICE_MAX_TOOL_BODY_BYTES = 64 * 1024;
 export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
+export const REALTIME_VOICE_MAX_TOOLS = 32;
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
@@ -209,6 +210,7 @@ function buildRealtimeTools(
       ),
       parameters,
     });
+    if (tools.length >= REALTIME_VOICE_MAX_TOOLS) break;
   }
   return tools;
 }
