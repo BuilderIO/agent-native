@@ -440,6 +440,35 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "bpk-private-test",
+      publicKey: "space-public-test",
+      userId: "builder-user-test",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount();
+    const event = sessionEvent(undefined, {
+      host: "127.0.0.1:8088",
+      origin: "http://127.0.0.1:8080",
+      "x-forwarded-host": "127.0.0.1:8080",
+      "x-forwarded-proto": "http",
+      "sec-fetch-site": "same-origin",
+    });
+
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event)).toBe(
+      "v=0\r\ns=builder\r\n",
+    );
+    expect(event.statusCode).toBe(201);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
     resolveBuilderCredentials.mockResolvedValue({
