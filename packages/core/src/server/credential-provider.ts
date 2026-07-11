@@ -266,8 +266,7 @@ async function readBuilderCredentialScope(
     scope,
     scopeId,
   });
-  const value = (key: string): string | null =>
-    secrets.get(key)?.value ?? null;
+  const value = (key: string): string | null => secrets.get(key)?.value ?? null;
   return {
     privateKey: value("BUILDER_PRIVATE_KEY"),
     publicKey: value("BUILDER_PUBLIC_KEY"),
@@ -278,9 +277,7 @@ async function readBuilderCredentialScope(
     subscriptionLevel: value("BUILDER_SUBSCRIPTION_LEVEL"),
     subscriptionName: value("BUILDER_SUBSCRIPTION_NAME"),
     isEnterprise: readOptionalBuilderBoolean(value("BUILDER_IS_ENTERPRISE")),
-    isFreeAccount: readOptionalBuilderBoolean(
-      value("BUILDER_IS_FREE_ACCOUNT"),
-    ),
+    isFreeAccount: readOptionalBuilderBoolean(value("BUILDER_IS_FREE_ACCOUNT")),
     source: scope === "workspace" ? "workspace" : scope,
   };
 }
