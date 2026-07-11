@@ -1935,9 +1935,9 @@ function createAuthGuardFn(): (
     // Normal app documents and React Router page-data requests are an
     // impersonal SSR shell. `createH3SSRHandler` renders both under an
     // explicitly anonymous request context and gives them one shared public
-    // cache policy, so the auth guard must not vary either response by cookie.
-    // `AppProviders` resolves the browser session and gates private UI after
-    // hydration. APIs and framework routes remain protected below.
+    // cache policy, so production requests must not vary either response by
+    // cookie. `AppProviders` resolves the browser session and gates private UI
+    // after hydration.
     const isAppPageRequest =
       p !== "/api" &&
       !p.startsWith("/api/") &&
@@ -1945,7 +1945,22 @@ function createAuthGuardFn(): (
       !p.startsWith("/_agent-native/") &&
       (isHtmlDocumentRequest(event, p) ||
         (isReadMethod(event) && p.endsWith(".data")));
-    if (isAppPageRequest) return;
+    if (isAppPageRequest) {
+      // A freshly scaffolded, loopback-only development app needs its initial
+      // session before Vite starts optimizing and potentially reloading the
+      // client. Waiting for the hydrated client gate to reach sign-in can lose
+      // that one-time redirect after the dev account is created, leaving the
+      // browser at the login page with no way to recreate its random password.
+      // `maybeAutoCreateDevSession` is strictly development + loopback scoped,
+      // does not read an existing session, and returns null for every existing
+      // dev account, so production SSR remains one cacheable anonymous shell
+      // and explicit sign-out still works.
+      if (getMethod(event) === "GET") {
+        const autoSession = await maybeAutoCreateDevSession(event, url);
+        if (autoSession) return autoSession;
+      }
+      return;
+    }
 
     const session = await getSession(event);
     if (session) return;
