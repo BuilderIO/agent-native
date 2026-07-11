@@ -307,6 +307,25 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /**
+   * Optional alternate Standard Schema (Zod, Valibot, ArkType) used ONLY to
+   * build the tool definition advertised to the model — the JSON Schema that
+   * lands in the Claude `tools` array (and MCP/A2A tool listings, which read
+   * the same `tool.parameters`). Runtime validation always runs against
+   * `schema` above via the normal `wrapWithValidation` path; setting this
+   * never weakens validation and never changes `run()`'s argument type.
+   *
+   * Use this when the full input schema is much richer than what the model
+   * needs to see up front — the canonical example is a deep discriminated
+   * union of block/shape types where a per-call catalog lookup tool (e.g.
+   * `get-plan-blocks`) already teaches the full field shapes. Advertise a
+   * compact version (e.g. an enum of valid `type` values plus a note to call
+   * the lookup tool) instead of embedding every variant's fields in every
+   * request. Invalid calls still get the full, actionable validation error
+   * (missing/invalid fields, received args) from `schema` — this only trims
+   * what is proactively shown, not what is accepted or checked.
+   */
+  agentInputSchema?: StandardSchemaV1;
   /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
    *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
    *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte

@@ -56,6 +56,7 @@ const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const EVICT_SWEEP_MS = 30_000;
@@ -146,6 +147,8 @@ Options:
                             switching (default: off / truly lazy)
   --no-prewarm              No-op alias (prewarm is already off by default)
   --prewarm-concurrency=N   Max parallel Vite spawns during prewarm (default 2)
+  --watch-core-dist         Rebuild core dist in the background (normally
+                            unnecessary because monorepo Vite aliases core src)
   --open                    Open the gateway URL in the browser on ready
   --no-open                 (legacy / no-op — auto-open is off by default)
   --no-kill                 Do not kill stale processes on gateway/template ports
@@ -294,6 +297,9 @@ const shouldOpen =
   process.env.WORKSPACE_NO_OPEN !== "1" &&
   !isHeadlessEnv;
 const shouldKill = !hasFlag("--no-kill");
+const shouldWatchCoreDist =
+  hasFlag("--watch-core-dist") ||
+  readBooleanEnv(process.env.WORKSPACE_WATCH_CORE_DIST) === true;
 const gatewayHost = process.env.WORKSPACE_HOST || DEFAULT_GATEWAY_HOST;
 const requestedGatewayPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || DEFAULT_GATEWAY_PORT,
@@ -304,6 +310,10 @@ const proxyReadyTimeoutMs = Number(
 const proxyResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
     DEFAULT_PROXY_RESPONSE_TIMEOUT_MS,
+);
+const proxyBrowserAssetResponseTimeoutMs = Number(
+  process.env.WORKSPACE_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS ??
+    DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS,
 );
 const proxyNonHtmlResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS ??
@@ -531,6 +541,33 @@ function wantsHtml(req: http.IncomingMessage): boolean {
   const accept = firstHeaderValue(req.headers.accept);
   if (!accept) return false;
   return accept.includes("text/html");
+}
+
+const BROWSER_ASSET_DESTINATIONS = new Set([
+  "audioworklet",
+  "font",
+  "image",
+  "manifest",
+  "paintworklet",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "style",
+  "track",
+  "video",
+  "worker",
+]);
+
+export function isBrowserAssetDestination(
+  destination: string | string[] | undefined,
+): boolean {
+  const value = Array.isArray(destination) ? destination[0] : destination;
+  return value ? BROWSER_ASSET_DESTINATIONS.has(value.toLowerCase()) : false;
+}
+
+function isBrowserAssetRequest(req: http.IncomingMessage): boolean {
+  if (req.method !== "GET" && req.method !== "HEAD") return false;
+  return isBrowserAssetDestination(req.headers["sec-fetch-dest"]);
 }
 
 function renderStartingApp(app: TemplateApp): string {
