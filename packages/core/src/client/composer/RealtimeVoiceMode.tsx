@@ -64,6 +64,7 @@ export interface RealtimeVoiceModeCopy {
     responseFailed: string;
     sessionFailed: string;
     channelDisconnected: string;
+    connectionTimedOut?: string;
     connectionFailed: string;
     offerFailed: string;
   };

@@ -318,6 +318,7 @@ function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
       responseFailed: t("agentPanel.voiceMode.errors.responseFailed"),
       sessionFailed: t("agentPanel.voiceMode.errors.sessionFailed"),
       channelDisconnected: t("agentPanel.voiceMode.errors.channelDisconnected"),
+      connectionTimedOut: t("agentPanel.voiceMode.errors.connectionTimedOut"),
       connectionFailed: t("agentPanel.voiceMode.errors.connectionFailed"),
       offerFailed: t("agentPanel.voiceMode.errors.offerFailed"),
     },
@@ -687,7 +688,7 @@ function useRealtimeVoiceModeController(
       () => {
         if (!isCurrentAttempt()) return;
         fail(
-          copy?.errors.connectionFailed ??
+          copy?.errors.connectionTimedOut ??
             "The realtime voice connection timed out.",
         );
       },

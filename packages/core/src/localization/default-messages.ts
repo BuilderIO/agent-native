@@ -242,6 +242,8 @@ const messages = {
         responseFailed: "OpenAI could not complete the voice response.",
         sessionFailed: "The realtime voice session encountered an error.",
         channelDisconnected: "The realtime voice control channel disconnected.",
+        connectionTimedOut:
+          "The realtime voice connection timed out. Try again after the app finishes loading.",
         connectionFailed: "The realtime voice connection failed.",
         offerFailed: "The browser did not create an audio offer.",
       },
