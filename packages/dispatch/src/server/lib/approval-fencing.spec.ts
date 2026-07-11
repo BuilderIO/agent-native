@@ -109,6 +109,66 @@ describe("dispatch approval request status fencing", () => {
     });
   });
 
+  it("reclaims a stale applying lease after a worker crash", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await dispatchStore.createApprovalRequest({
+        changeType: "approval-policy.update",
+        targetType: "dispatch-settings",
+        targetId: "dispatch-approval-policy",
+        summary: "Enable approval policy after recovery",
+        payload: { enabled: true, approverEmails: ["reviewer@example.test"] },
+      });
+      const requestId = (created as any).id;
+
+      await exec.execute({
+        sql: "UPDATE dispatch_approval_requests SET status = ?, updated_at = ? WHERE id = ?",
+        args: ["applying", Date.now() - 6 * 60 * 1000, requestId],
+      });
+
+      const recovered = await dispatchStore.approveRequest(requestId);
+      expect(recovered.status).toBe("approved");
+      expect(recovered.reviewedBy).toBe(ownerEmail);
+    });
+  });
+
+  it("keeps a failed apply leased instead of returning it to pending", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const created = await dispatchStore.createApprovalRequest({
+        changeType: "unsupported.partial-effect",
+        targetType: "test",
+        summary: "Do not immediately retry ambiguous work",
+        payload: {},
+      });
+      const requestId = (created as any).id;
+
+      await expect(dispatchStore.approveRequest(requestId)).rejects.toThrow(
+        "Unsupported approval request type",
+      );
+
+      const rows = await exec.execute({
+        sql: "SELECT status FROM dispatch_approval_requests WHERE id = ?",
+        args: [requestId],
+      });
+      expect(rows.rows[0]).toMatchObject({ status: "applying" });
+    });
+  });
+
   it("rejects the change once when rejectRequest is called twice on the same request", async () => {
     const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
       await Promise.all([
@@ -153,6 +213,30 @@ describe("dispatch approval request status fencing", () => {
 });
 
 describe("vault request status fencing", () => {
+  it("does not duplicate a grant when createGrant is retried", async () => {
+    const [{ runWithRequestContext }, vaultStore] = await Promise.all([
+      import("@agent-native/core/server"),
+      import("./vault-store.js"),
+    ]);
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const secret = await vaultStore.createSecret({
+        credentialKey: "RETRY_GRANT_API_KEY",
+        value: "secret-value",
+        name: "Retry Grant Secret",
+      });
+      expect(secret).toBeTruthy();
+
+      const first = await vaultStore.createGrant(secret!.id, "test-app");
+      const retry = await vaultStore.createGrant(secret!.id, "test-app");
+
+      expect(retry?.id).toBe(first?.id);
+      expect(await vaultStore.listGrants({ appId: "test-app" })).toHaveLength(
+        1,
+      );
+    });
+  });
+
   it("creates a single grant when approveRequest is called twice on the same request", async () => {
     const [{ runWithRequestContext }, vaultStore] = await Promise.all([
       import("@agent-native/core/server"),

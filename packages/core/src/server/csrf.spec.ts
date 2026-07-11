@@ -5,24 +5,28 @@ import { createCsrfMiddleware } from "./csrf.js";
 
 const PATH = "/_agent-native/actions/do-thing";
 
-function appWithCsrf() {
+function appWithCsrf(path = PATH) {
   const app = createApp();
   app.use(createCsrfMiddleware());
   const router = createRouter();
   router.post(
-    PATH,
+    path,
     defineEventHandler(() => new Response("ok")),
   );
   router.get(
-    PATH,
+    path,
     defineEventHandler(() => new Response("ok")),
   );
   app.use(router);
   return app;
 }
 
-async function status(headers: Record<string, string>, method = "POST") {
-  const res = await appWithCsrf().request("http://app.example.com" + PATH, {
+async function status(
+  headers: Record<string, string>,
+  method = "POST",
+  path = PATH,
+) {
+  const res = await appWithCsrf(path).request("http://app.example.com" + path, {
     method,
     headers,
   });
@@ -32,6 +36,27 @@ async function status(headers: Record<string, string>, method = "POST") {
 const COOKIE = "an_session=abc";
 
 describe("CSRF middleware", () => {
+  it("rejects a cookie-carrying simple request under APP_BASE_PATH", async () => {
+    const originalBasePath = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/foo";
+
+    try {
+      expect(
+        await status(
+          { cookie: COOKIE, "content-type": "text/plain" },
+          "POST",
+          "/foo/_agent-native/actions/do-thing",
+        ),
+      ).toBe(403);
+    } finally {
+      if (originalBasePath === undefined) {
+        delete process.env.APP_BASE_PATH;
+      } else {
+        process.env.APP_BASE_PATH = originalBasePath;
+      }
+    }
+  });
+
   it("REJECTS a cross-site request labelled Sec-Fetch-Site: same-site (the fix)", async () => {
     expect(
       await status({ cookie: COOKIE, "sec-fetch-site": "same-site" }),

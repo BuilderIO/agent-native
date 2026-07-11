@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
+import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -11,6 +11,7 @@ import { getDb, schema } from "../../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
 const APPROVAL_POLICY_KEY = "dispatch-approval-policy";
+const APPROVAL_APPLY_LEASE_MS = 5 * 60 * 1000;
 
 // ─── /link rate limiting ──────────────────────────────────────────────────
 //
@@ -616,10 +617,10 @@ export async function approveRequest(requestId: string) {
   if (!request) throw new Error("Approval request not found");
 
   const timestamp = now();
+  const staleApplyingBefore = timestamp - APPROVAL_APPLY_LEASE_MS;
   // Fence the transition on the current status so a concurrent approve can't
-  // both win: only the caller that flips pending -> applying proceeds to
-  // apply the (side-effecting) change. See claimAgentTeamRun in
-  // packages/core/src/server/agent-teams-run-queue.ts for the same pattern.
+  // both win. A crashed worker can leave its lease in "applying", so reclaim
+  // only a lease that has been idle for the full lease interval.
   const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
@@ -629,7 +630,14 @@ export async function approveRequest(requestId: string) {
     .where(
       and(
         eq(schema.dispatchApprovalRequests.id, requestId),
-        eq(schema.dispatchApprovalRequests.status, "pending"),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+        or(
+          eq(schema.dispatchApprovalRequests.status, "pending"),
+          and(
+            eq(schema.dispatchApprovalRequests.status, "applying"),
+            sql`${schema.dispatchApprovalRequests.updatedAt} < ${staleApplyingBefore}`,
+          ),
+        ),
       ),
     )
     .returning();
@@ -646,12 +654,17 @@ export async function approveRequest(requestId: string) {
   try {
     await applyApprovedRequest(applying);
   } catch (error) {
+    // Applying a request can have succeeded partially before throwing. Do not
+    // return it to pending: that would allow an immediate retry to duplicate a
+    // non-idempotent effect. Keep the lease until it becomes stale, which
+    // serializes any recovery attempt behind the same fencing rule.
     await db
       .update(schema.dispatchApprovalRequests)
-      .set({ status: "pending", updatedAt: now() })
+      .set({ updatedAt: now() })
       .where(
         and(
           eq(schema.dispatchApprovalRequests.id, requestId),
+          ctxScope(schema.dispatchApprovalRequests, ctx),
           eq(schema.dispatchApprovalRequests.status, "applying"),
         ),
       );

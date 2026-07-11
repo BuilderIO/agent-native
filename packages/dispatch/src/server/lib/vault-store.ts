@@ -567,8 +567,59 @@ export async function createGrant(
   if (!secret) throw new Error("Secret not found");
 
   const timestamp = now();
-  const grantId = id();
   const actor = ctx.ownerEmail;
+  const [existing] = await db
+    .select()
+    .from(schema.vaultGrants)
+    .where(
+      and(
+        eq(schema.vaultGrants.secretId, secretId),
+        eq(schema.vaultGrants.appId, appId),
+        ctxScope(schema.vaultGrants, ctx),
+      ),
+    )
+    .orderBy(desc(schema.vaultGrants.updatedAt))
+    .limit(1);
+
+  if (existing?.status === "active") {
+    return existing;
+  }
+
+  if (existing) {
+    await db
+      .update(schema.vaultGrants)
+      .set({
+        grantedBy: actor,
+        status: "active",
+        syncedAt: null,
+        updatedAt: timestamp,
+      })
+      .where(
+        and(
+          eq(schema.vaultGrants.id, existing.id),
+          ctxScope(schema.vaultGrants, ctx),
+        ),
+      );
+
+    await recordVaultAudit({
+      action: "grant.reinstated",
+      secretId,
+      appId,
+      summary: `Reinstated "${secret.name}" (${secret.credentialKey}) for ${appId}`,
+      metadata: { grantId: existing.id },
+    });
+
+    await recordAudit({
+      action: "vault.grant.reinstated",
+      targetType: "vault-grant",
+      targetId: existing.id,
+      summary: `Reinstated vault secret "${secret.name}" for ${appId}`,
+    });
+
+    return getGrant(existing.id, ctx);
+  }
+
+  const grantId = id();
 
   await db.insert(schema.vaultGrants).values({
     id: grantId,
