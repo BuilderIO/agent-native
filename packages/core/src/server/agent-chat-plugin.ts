@@ -221,6 +221,7 @@ import {
   buildFrameworkPrompts,
   buildSchemaBlock,
   collectFiles,
+  corpusToolNamesTaughtByPrompt,
   generateActionsPrompt,
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
@@ -650,7 +651,11 @@ export function createAgentChatPlugin(
       // third-party apps that have not curated a starter list yet. Keep the
       // app's own action surface immediately callable; framework, provider,
       // and MCP tools remain discoverable through tool-search.
-      const effectiveInitialToolNames = resolveInitialToolNames(
+      //
+      // This is the template-only baseline; the final `effectiveInitialToolNames`
+      // (below, after the run-code tools are built) additionally folds in
+      // whatever `generateCorpusToolsPrompt` teaches by name for this request.
+      const templateInitialToolNames = resolveInitialToolNames(
         templateScripts,
         options?.initialToolNames,
       );
@@ -910,6 +915,38 @@ export function createAgentChatPlugin(
             bridgeTools: options?.codeExecution?.bridgeTools,
           })
         : {};
+
+      // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
+      // it teaches by name — kept as one value so the prompt text and the
+      // initial-tool-set expansion just below can never drift apart.
+      const corpusPromptRegistry = {
+        ...templateScripts,
+        ...(canToggle
+          ? devRunCodeTool
+          : resolvedProdCodeExec !== "off"
+            ? runCodeTool
+            : {}),
+      };
+      // `generateCorpusToolsPrompt` teaches provider-api-request /
+      // provider-corpus-job / query-staged-dataset / run-code BY NAME
+      // whenever they're registered, regardless of whether they made the
+      // curated initial-tool-names list — a prior comment here (since
+      // removed) warned this exact mismatch "caused prod runs to waste
+      // turns": the model reads about a tool in the system prompt, tries to
+      // call it immediately, and finds it missing from the very first
+      // engine request until it calls tool-search. Fold in exactly the tool
+      // names the corpus prompt would announce for THIS registry so the two
+      // always agree. `corpusToolNamesTaughtByPrompt` returns [] for apps
+      // that never emit the corpus prompt (no provider/run-code tools
+      // registered), so this never silently expands the initial set for
+      // apps that don't teach these tools by name.
+      const corpusToolNames = corpusToolNamesTaughtByPrompt(
+        corpusPromptRegistry,
+      );
+      const effectiveInitialToolNames =
+        corpusToolNames.length > 0
+          ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
+          : templateInitialToolNames;
 
       const resolveExtraContext = async (
         event: any,
@@ -1382,14 +1419,9 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt({
-        ...templateScripts,
-        ...(canToggle
-          ? devRunCodeTool
-          : resolvedProdCodeExec !== "off"
-            ? runCodeTool
-            : {}),
-      });
+      const corpusToolsPrompt = generateCorpusToolsPrompt(
+        corpusPromptRegistry,
+      );
       const prodActionsPrompt =
         generateActionsPrompt(
           templateScripts,
@@ -4915,6 +4947,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : await buildSchemaBlock(owner, databaseToolsMode);
               return basePrompt + resources + schemaBlock;
             },
+            // `basePrompt` above is the same prompt the interactive chat
+            // handler builds, so it teaches the same template actions plus
+            // `manage-jobs` (Extended Capabilities / recurring jobs) and
+            // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
+            // getActions() via jobTools/progressTools. Keep the job runner's
+            // first request on the same compact surface as interactive chat
+            // instead of the full jobTools/automationTools/notificationTools/
+            // fetchTool/webSearchTool/toolActions catalog every tick.
+            getInitialToolNames: () => [
+              ...effectiveInitialToolNames,
+              "manage-jobs",
+              "manage-progress",
+            ],
             apiKey: options?.apiKey,
             model: options?.model,
             appId: options?.appId,
@@ -5221,6 +5266,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : await buildSchemaBlock(owner, databaseToolsMode);
               return basePrompt + resources + schemaBlock;
             },
+            // See the matching comment on schedulerDeps.getInitialToolNames
+            // above — same shared `basePrompt`, same reasoning.
+            getInitialToolNames: () => [
+              ...effectiveInitialToolNames,
+              "manage-jobs",
+              "manage-progress",
+            ],
             apiKey: options?.apiKey,
             model: options?.model,
             appId: options?.appId,

@@ -361,6 +361,30 @@ Do NOT try to call these by name as if they were tools — they will not exist i
 ${lines.join("\n")}`;
 }
 
+/**
+ * Tool names `generateCorpusToolsPrompt` teaches BY NAME, in the same order
+ * it lists them. Exported so callers that build a request's initial
+ * engine-tool set can fold in exactly the subset present in a given
+ * registry — keeping "what the prompt just told the model exists" and
+ * "what tools are actually callable on the first request" in sync. See the
+ * corpus-prompt/initial-tools note at this function's call site in
+ * agent-chat-plugin.ts.
+ */
+const CORPUS_TOOL_NAMES = [
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-staged-dataset",
+  "run-code",
+] as const;
+
+export function corpusToolNamesTaughtByPrompt(
+  registry: Record<string, ActionEntry>,
+): string[] {
+  return CORPUS_TOOL_NAMES.filter((name) => name in registry);
+}
+
 export function generateCorpusToolsPrompt(
   registry: Record<string, ActionEntry>,
 ): string {
