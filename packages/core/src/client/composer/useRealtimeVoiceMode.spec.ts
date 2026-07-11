@@ -393,6 +393,91 @@ describe("Realtime voice startup and transcript ordering", () => {
       expect.objectContaining({ role: "assistant", text: "Still here." }),
     ]);
   });
+
+  it("matches legacy completions without item_id to a reserved role slot", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      response_id: "response-1",
+      transcript: "First answer.",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "First question.",
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-2", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-2",
+      transcript: "Second answer.",
+    });
+
+    expect(published.map(({ text }) => text)).toEqual([
+      "First question.",
+      "First answer.",
+      "Second answer.",
+    ]);
+  });
+
+  it("ignores duplicate completion events and releases interrupted output", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    const completed = {
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-1",
+      transcript: "Only once.",
+    };
+    sequencer.handle(completed);
+    sequencer.handle(completed);
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-interrupted", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.done",
+      response: {
+        status: "cancelled",
+        output: [{ id: "assistant-interrupted", type: "message" }],
+      },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-2", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-2",
+      transcript: "After interruption.",
+    });
+
+    expect(published.map(({ text }) => text)).toEqual([
+      "Only once.",
+      "After interruption.",
+    ]);
+  });
 });
 
 describe("shouldRestoreRealtimeVoiceTranscriptThread", () => {

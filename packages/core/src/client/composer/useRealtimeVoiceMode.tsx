@@ -218,6 +218,7 @@ export interface RealtimeVoiceTranscriptSequencer {
 
 interface SequencedRealtimeVoiceTranscript {
   status: "pending" | "completed" | "skipped";
+  role?: CompletedRealtimeVoiceTranscript["role"];
   transcript?: CompletedRealtimeVoiceTranscript;
 }
 
@@ -231,11 +232,21 @@ export function createRealtimeVoiceTranscriptSequencer(
 ): RealtimeVoiceTranscriptSequencer {
   const order: string[] = [];
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
+  const settledItemIds = new Set<string>();
+  const receivedTranscriptIds = new Set<string>();
 
-  const reserve = (id: string) => {
-    if (items.has(id)) return;
+  const reserve = (
+    id: string,
+    role?: CompletedRealtimeVoiceTranscript["role"],
+  ) => {
+    if (settledItemIds.has(id)) return;
+    const existing = items.get(id);
+    if (existing) {
+      existing.role ??= role;
+      return;
+    }
     order.push(id);
-    items.set(id, { status: "pending" });
+    items.set(id, { status: "pending", role });
   };
 
   const drain = () => {
@@ -245,6 +256,7 @@ export function createRealtimeVoiceTranscriptSequencer(
       if (!entry || entry.status === "pending") return;
       order.shift();
       items.delete(id);
+      settledItemIds.add(id);
       if (entry.status === "completed" && entry.transcript) {
         publish(entry.transcript);
       }
@@ -272,22 +284,46 @@ export function createRealtimeVoiceTranscriptSequencer(
             (record.role === "user" || record.role === "assistant") &&
             typeof record.id === "string"
           ) {
-            reserve(record.id);
+            reserve(record.id, record.role);
           }
         }
       }
 
       const transcript = extractCompletedRealtimeVoiceTranscript(event);
       if (transcript) {
+        const transcriptId = transcript.providerId
+          ? `${transcript.role}:${transcript.providerId}`
+          : undefined;
+        if (transcriptId && receivedTranscriptIds.has(transcriptId)) return;
+        if (transcriptId) receivedTranscriptIds.add(transcriptId);
         const itemId =
           typeof event.item_id === "string" ? event.item_id : undefined;
         if (!itemId) {
-          // Older providers may omit item_id. Preserve the completed utterance
-          // even though they cannot provide conversation-order guarantees.
-          publish(transcript);
+          // Older providers may omit item_id. Match the first reserved slot for
+          // that role so one incomplete legacy event cannot strand the queue.
+          const reservedId = order.find((id) => {
+            const entry = items.get(id);
+            return (
+              entry?.status === "pending" && entry.role === transcript.role
+            );
+          });
+          if (reservedId) {
+            items.set(reservedId, {
+              status: "completed",
+              role: transcript.role,
+              transcript,
+            });
+          } else {
+            publish(transcript);
+          }
         } else {
-          reserve(itemId);
-          items.set(itemId, { status: "completed", transcript });
+          if (settledItemIds.has(itemId)) return;
+          reserve(itemId, transcript.role);
+          items.set(itemId, {
+            status: "completed",
+            role: transcript.role,
+            transcript,
+          });
         }
       } else if (
         event.type === "conversation.item.input_audio_transcription.failed" ||
@@ -313,6 +349,8 @@ export function createRealtimeVoiceTranscriptSequencer(
     reset() {
       order.length = 0;
       items.clear();
+      settledItemIds.clear();
+      receivedTranscriptIds.clear();
     },
   };
 }
