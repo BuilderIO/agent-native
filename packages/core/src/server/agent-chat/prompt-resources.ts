@@ -177,7 +177,10 @@ function getResourceSummaryFromContent(content: string): string | null {
   return null;
 }
 
-function resourceScopeForOwner(owner: string, currentOwner?: string): string {
+export function resourceScopeForOwner(
+  owner: string,
+  currentOwner?: string,
+): string {
   if (owner === WORKSPACE_OWNER) return "workspace";
   if (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) {
     return "shared";

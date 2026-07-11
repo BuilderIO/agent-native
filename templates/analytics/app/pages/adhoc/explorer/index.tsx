@@ -9,6 +9,7 @@ import {
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -164,22 +165,12 @@ export default function ExplorerPage() {
                 <DropdownMenuSeparator />
               )}
               {savedConfigsError ? (
-                <div
-                  className="px-2 py-2 text-xs text-destructive"
-                  role="status"
-                >
-                  <span>{t("commandPalette.loadFailed")}</span>{" "}
-                  <button
-                    type="button"
-                    className="font-medium underline underline-offset-2 hover:text-destructive/80"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      void retrySavedConfigs();
-                    }}
-                  >
-                    {t("sidebar.retry")}
-                  </button>
-                </div>
+                <ResourceLoadError
+                  inline
+                  message={t("commandPalette.loadFailed")}
+                  retryLabel={t("sidebar.retry")}
+                  onRetry={() => void retrySavedConfigs()}
+                />
               ) : (
                 savedConfigs.map((sc) => (
                   <DropdownMenuItem

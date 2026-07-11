@@ -105,6 +105,25 @@ describe("Dispatch NavContent", () => {
     vi.unstubAllGlobals();
   });
 
+  it("puts Overview before Chat in the primary navigation", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const primaryLabels = [...container.querySelectorAll("nav a")].map((link) =>
+      link.textContent?.trim(),
+    );
+    expect(primaryLabels.indexOf("Overview")).toBeLessThan(
+      primaryLabels.indexOf("Chat"),
+    );
+  });
+
   it("uses the quieter Analytics-style chat history and retains thread actions", async () => {
     await act(async () => {
       root.render(

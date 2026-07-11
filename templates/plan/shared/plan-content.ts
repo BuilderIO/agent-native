@@ -1294,6 +1294,25 @@ export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
   })
   .strict();
 
+/**
+ * Compact ADVERTISED-ONLY stand-in for `wireframeDataSchema`. Only the
+ * `screen` field changes: it's the same legacy per-node kit-tree schema also
+ * reachable through `planBlockSchema`'s `wireframe` block type (see
+ * `agentPlanBlockSchema`), reused here because `canvas.frames` (artboards)
+ * and the `update-canvas-frame` content patch can ALSO carry an inline
+ * wireframe outside of `blocks`. New wireframes should set `html` (semantic
+ * HTML) instead — `screen` kit trees are legacy-compatibility only.
+ */
+export const agentWireframeDataSchema = wireframeDataSchema.extend({
+  screen: z
+    .array(z.record(z.string(), z.unknown()))
+    .max(WIREFRAME_MAX_NODES)
+    .optional()
+    .describe(
+      "Legacy kit-tree node array — do not author new wireframes this way; prefer `html` (semantic HTML fragment). Call get-plan-blocks for the node shape before editing an existing kit-tree wireframe.",
+    ),
+});
+
 const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   id: idSchema,
   kind: z.enum([
@@ -1896,20 +1915,33 @@ const annotationStyleSchema: z.ZodType<PlanAnnotationStyle> = z.object({
   width: z.number().min(1).max(12).optional(),
 });
 
-const artboardSchema: z.ZodType<PlanArtboard> = z
-  .object({
-    id: idSchema,
-    label: z.string().trim().max(180).optional(),
-    surface: wireframeSurfaceSchema.optional(),
-    blockId: idSchema.optional(),
-    wireframe: wireframeDataSchema.optional(),
-    legacyWireframe: legacyWireframeDataSchema.optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    width: z.number().min(80).optional(),
-    height: z.number().min(80).optional(),
-    order: z.number().optional(),
-  })
+/**
+ * Named so `agentArtboardSchema` below can `.extend()` it with a compact
+ * `wireframe` field instead of duplicating every other key.
+ */
+const artboardObjectSchema = z.object({
+  id: idSchema,
+  label: z.string().trim().max(180).optional(),
+  surface: wireframeSurfaceSchema.optional(),
+  blockId: idSchema.optional(),
+  wireframe: wireframeDataSchema.optional(),
+  legacyWireframe: legacyWireframeDataSchema.optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().min(80).optional(),
+  height: z.number().min(80).optional(),
+  order: z.number().optional(),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `artboardSchema` (a canvas frame).
+ * Only `wireframe` changes, to the compact `agentWireframeDataSchema`.
+ */
+export const agentArtboardSchema = artboardObjectSchema.extend({
+  wireframe: agentWireframeDataSchema.optional(),
+});
+
+const artboardSchema: z.ZodType<PlanArtboard> = artboardObjectSchema
   // An artboard is a titled frame on the canvas; a label with no interior
   // wireframe renders as an empty dashed box (a label-only artboard). Reject
   // those at parse time so generation can never emit a frame with no content:
@@ -2161,46 +2193,65 @@ function preflightPlanContentInput(input: unknown): unknown {
  * wrapper, extracted so `agentPlanContentSchema` below can `.extend()` it
  * with a compact `blocks` field instead of duplicating every other key.
  */
+/**
+ * Named so `agentPlanContentSchema` below can `.extend()` it with a compact
+ * `frames` field instead of duplicating every other canvas key.
+ */
+const canvasSchema = z.object({
+  mode: visualCanvasModeSchema.optional(),
+  title: z.string().trim().max(180).optional(),
+  design: designMetadataSchema.optional(),
+  viewport: z
+    .object({
+      zoom: z.number().min(0.05).max(8).optional(),
+      pan: z
+        .object({
+          x: z.number().optional(),
+          y: z.number().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  sections: z.array(boardSectionSchema).max(40).optional(),
+  frames: z.array(artboardSchema).max(40).default([]),
+  flow: z.array(connectorSchema).max(80).optional(),
+  annotations: z.array(annotationSchema).max(80).optional(),
+  notes: z.array(legacyNoteSchema).max(80).optional(),
+});
+
 const planContentObjectSchema = z.object({
   version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
   title: z.string().trim().max(240).optional(),
   brief: z.string().trim().max(4_000).optional(),
   notionSync: z.boolean().optional(),
   prototype: prototypeSchema.optional(),
-  canvas: z
-    .object({
-      mode: visualCanvasModeSchema.optional(),
-      title: z.string().trim().max(180).optional(),
-      design: designMetadataSchema.optional(),
-      viewport: z
-        .object({
-          zoom: z.number().min(0.05).max(8).optional(),
-          pan: z
-            .object({
-              x: z.number().optional(),
-              y: z.number().optional(),
-            })
-            .optional(),
-        })
-        .optional(),
-      sections: z.array(boardSectionSchema).max(40).optional(),
-      frames: z.array(artboardSchema).max(40).default([]),
-      flow: z.array(connectorSchema).max(80).optional(),
-      annotations: z.array(annotationSchema).max(80).optional(),
-      notes: z.array(legacyNoteSchema).max(80).optional(),
-    })
-    .optional(),
+  canvas: canvasSchema.optional(),
   blocks: z.array(planBlockSchema).max(200).default([]),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `canvasSchema`. Only `frames` changes:
+ * each frame's `wireframe` swaps in the compact `agentWireframeDataSchema`.
+ */
+const agentCanvasSchema = canvasSchema.extend({
+  frames: z
+    .array(agentArtboardSchema)
+    .max(40)
+    .default([])
+    .describe(
+      "Canvas frames (artboards). Reference an existing `wireframe` block via `blockId` when possible instead of inlining `wireframe`/`legacyWireframe`.",
+    ),
 });
 
 /**
  * Compact ADVERTISED-ONLY stand-in for `planContentSchema`, for use as
  * `defineAction`'s `agentInputSchema`. Identical top-level shape — only
- * `blocks` is swapped for the compact `agentPlanBlockSchema` union. Runtime
- * validation of `content` always goes through the real `planContentSchema`
- * (see the `actions` skill: `agentInputSchema` never weakens validation).
+ * `blocks` and `canvas` swap in their compact stand-ins. Runtime validation
+ * of `content` always goes through the real `planContentSchema` (see the
+ * `actions` skill: `agentInputSchema` never weakens validation).
  */
 export const agentPlanContentSchema = planContentObjectSchema.extend({
+  canvas: agentCanvasSchema.optional(),
   blocks: z
     .array(agentPlanBlockSchema)
     .max(200)
@@ -2485,22 +2536,35 @@ const wireframeNodePatchSchema = z
     message: "Patch must include at least one wireframe node field.",
   });
 
-const canvasFramePatchSchema = z
-  .object({
-    label: z.string().trim().max(180).optional(),
-    surface: wireframeSurfaceSchema.optional(),
-    blockId: idSchema.optional(),
-    wireframe: wireframeDataSchema.optional(),
-    legacyWireframe: legacyWireframeDataSchema.optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    width: z.number().min(80).optional(),
-    height: z.number().min(80).optional(),
-    order: z.number().optional(),
-  })
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "Patch must include at least one canvas frame field.",
-  });
+/**
+ * Named so the compact `agentCanvasFramePatchSchema` below can `.extend()` it
+ * instead of duplicating every other key.
+ */
+const canvasFramePatchObjectSchema = z.object({
+  label: z.string().trim().max(180).optional(),
+  surface: wireframeSurfaceSchema.optional(),
+  blockId: idSchema.optional(),
+  wireframe: wireframeDataSchema.optional(),
+  legacyWireframe: legacyWireframeDataSchema.optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().min(80).optional(),
+  height: z.number().min(80).optional(),
+  order: z.number().optional(),
+});
+
+const canvasFramePatchSchema = canvasFramePatchObjectSchema.refine(
+  (value) => Object.keys(value).length > 0,
+  { message: "Patch must include at least one canvas frame field." },
+);
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `canvasFramePatchSchema` — only
+ * `wireframe` swaps in the compact `agentWireframeDataSchema`.
+ */
+const agentCanvasFramePatchSchema = canvasFramePatchObjectSchema.extend({
+  wireframe: agentWireframeDataSchema.optional(),
+});
 
 const canvasAnnotationPatchSchema = z
   .object({
@@ -2758,12 +2822,27 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
 
 /**
+ * Compact ADVERTISED-ONLY placeholder for editing an existing legacy kit-tree
+ * wireframe node/screen in-place (`update-wireframe-node` /
+ * `replace-wireframe-screen`). These ops only touch OLD kit-tree wireframes —
+ * new wireframes use `patch-wireframe-html` on semantic HTML instead — so the
+ * advertised shape is an opaque record/array plus a pointer to the lookup
+ * tool, not the full ~30-field node schema repeated per op.
+ */
+const AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION =
+  "Legacy kit-tree node field patch — do not use for new html-based wireframes; prefer patch-wireframe-html. Call get-plan-blocks for the node field shape.";
+
+/**
  * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
  * part of `defineAction`'s `agentInputSchema`. Same 20 `op` branches as the
- * real union — only the three block-carrying ops (`replace-block`,
- * `replace-blocks`, `append-block`) swap in the compact `agentPlanBlockSchema`
- * instead of the full per-block-type union. Runtime validation of
- * `contentPatches` always goes through the real `planContentPatchesSchema`.
+ * real union — only the ops that carry a deep block/wireframe union swap in
+ * their compact stand-ins:
+ * - `replace-block` / `append-block` / `replace-blocks`: `agentPlanBlockSchema`
+ * - `update-canvas-frame`: `agentCanvasFramePatchSchema` (compact `wireframe`)
+ * - `update-wireframe-node` / `replace-wireframe-screen`: opaque legacy
+ *   kit-tree placeholders (see above)
+ * Runtime validation of `contentPatches` always goes through the real
+ * `planContentPatchesSchema`.
  */
 const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
   (option) => {
@@ -2774,6 +2853,24 @@ const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
     if (opLiteral === "replace-blocks") {
       return option.extend({
         blocks: z.array(agentPlanBlockSchema).max(200),
+      });
+    }
+    if (opLiteral === "update-canvas-frame") {
+      return option.extend({ patch: agentCanvasFramePatchSchema });
+    }
+    if (opLiteral === "update-wireframe-node") {
+      return option.extend({
+        patch: z
+          .record(z.string(), z.unknown())
+          .describe(AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION),
+      });
+    }
+    if (opLiteral === "replace-wireframe-screen") {
+      return option.extend({
+        screen: z
+          .array(z.record(z.string(), z.unknown()))
+          .max(WIREFRAME_MAX_NODES)
+          .describe(AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION),
       });
     }
     return option;

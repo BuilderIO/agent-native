@@ -55,11 +55,22 @@ const DEFAULT_GATEWAY_PORT = 8080;
 const FRAME_PORT = 3334;
 const PROXY_READY_RETRY_DELAY_MS = 250;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
-const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_PROXY_BROWSER_ASSET_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const EVICT_SWEEP_MS = 30_000;
+// A child that is alive and already accepting TCP connections is very likely
+// mid dep-optimization or rebuilding after a concurrent edit (both can
+// legitimately take minutes under CPU contention) rather than actually stuck.
+// Only escalate to a tree-kill + restart once it has gone this long without
+// producing a single non-5xx response.
+const STUCK_APP_RESTART_MS = 300_000;
+// Nitro's dev env-runner has a known failure mode where it gives up after a
+// few worker crashes and serves 5xx for every request forever. Detect that by
+// tracking how long it has been since the app last returned a non-5xx
+// response and force a restart once it crosses this threshold.
+const PERSISTENT_5XX_RESTART_MS = 75_000;
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const POLLING_WATCH_INTERVAL_MS = "1000";
 const DESKTOP_LAZY_DEFAULT_TEMPLATE_IDS = ["assets"];

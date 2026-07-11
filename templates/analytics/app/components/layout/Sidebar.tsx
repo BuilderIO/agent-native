@@ -639,7 +639,7 @@ function SortableRow({
                 onFocus={onPrefetch}
                 onMouseEnter={onPrefetch}
                 onTouchStart={onPrefetch}
-                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
+                className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
                 <span className="block truncate">{name}</span>
               </Link>

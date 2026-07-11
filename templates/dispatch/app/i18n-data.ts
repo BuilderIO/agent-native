@@ -289,8 +289,7 @@ const enUS = {
       chatPromptPlaceholder: "Ask Dispatch...",
       suggestionWorkspaceHealth: "Summarize the current workspace health",
       suggestionOnboardingApp: "Create an app for onboarding requests",
-      suggestionAnalyticsAgents:
-        "Check which agents can help with analytics",
+      suggestionAnalyticsAgents: "Check which agents can help with analytics",
       workspaceShortcutsAria: "Workspace shortcuts",
       deliveryQueue: "Delivery queue",
       failedLastHour: "{{count}} failed in the last hour",
@@ -670,8 +669,7 @@ export const messagesByLocale = {
         askTab: "询问",
         chatViewsAria: "Dispatch 聊天视图",
         chatAcrossApps: "跨应用聊天",
-        chatAcrossAppsDescription:
-          "在一个地方分派工作、检查状态或创建新内容。",
+        chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
         overviewPromptPlaceholder: "向 Dispatch 提问...",
         chatPromptPlaceholder: "询问 Dispatch...",
         suggestionWorkspaceHealth: "总结当前工作区运行状况",
@@ -1639,8 +1637,7 @@ export const messagesByLocale = {
         chatPromptPlaceholder: "Dispatch fragen...",
         suggestionWorkspaceHealth:
           "Aktuellen Zustand des Workspace zusammenfassen",
-        suggestionOnboardingApp:
-          "Eine App für Onboarding-Anfragen erstellen",
+        suggestionOnboardingApp: "Eine App für Onboarding-Anfragen erstellen",
         suggestionAnalyticsAgents:
           "Prüfen, welche Agenten bei Analysen helfen können",
         workspaceShortcutsAria: "Workspace-Kurzbefehle",
@@ -1937,7 +1934,8 @@ export const messagesByLocale = {
       },
       pages: {
         dataLoadFailed: "データを読み込めませんでした",
-        dataLoadFailedDescription: "Dispatch はこのデータを読み込めませんでした。",
+        dataLoadFailedDescription:
+          "Dispatch はこのデータを読み込めませんでした。",
         tryAgain: "もう一度試す",
         also: "その他",
         monitoring: "監視",
@@ -1950,10 +1948,8 @@ export const messagesByLocale = {
         overviewPromptPlaceholder: "Dispatch に何でも質問...",
         chatPromptPlaceholder: "Dispatch に質問...",
         suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
-        suggestionOnboardingApp:
-          "オンボーディング依頼用のアプリを作成",
-        suggestionAnalyticsAgents:
-          "分析を支援できるエージェントを確認",
+        suggestionOnboardingApp: "オンボーディング依頼用のアプリを作成",
+        suggestionAnalyticsAgents: "分析を支援できるエージェントを確認",
         workspaceShortcutsAria: "ワークスペースのショートカット",
         deliveryQueue: "配信キュー",
         failedLastHour: "過去 1 時間で {{count}} 件失敗",
@@ -2245,7 +2241,8 @@ export const messagesByLocale = {
       },
       pages: {
         dataLoadFailed: "데이터를 불러올 수 없습니다",
-        dataLoadFailedDescription: "Dispatch에서 이 데이터를 불러오지 못했습니다.",
+        dataLoadFailedDescription:
+          "Dispatch에서 이 데이터를 불러오지 못했습니다.",
         tryAgain: "다시 시도",
         also: "또한",
         monitoring: "모니터링",
@@ -2259,8 +2256,7 @@ export const messagesByLocale = {
         chatPromptPlaceholder: "Dispatch에 질문...",
         suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
         suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
-        suggestionAnalyticsAgents:
-          "분석을 지원할 수 있는 에이전트 확인",
+        suggestionAnalyticsAgents: "분석을 지원할 수 있는 에이전트 확인",
         workspaceShortcutsAria: "워크스페이스 바로가기",
         deliveryQueue: "전달 대기열",
         failedLastHour: "지난 1시간 동안 {{count}}건 실패",
@@ -2564,7 +2560,8 @@ export const messagesByLocale = {
       },
       pages: {
         dataLoadFailed: "Não foi possível carregar os dados",
-        dataLoadFailedDescription: "O Dispatch não conseguiu carregar estes dados.",
+        dataLoadFailedDescription:
+          "O Dispatch não conseguiu carregar estes dados.",
         tryAgain: "Tentar novamente",
         also: "Também",
         monitoring: "Monitoramento",
@@ -2578,8 +2575,7 @@ export const messagesByLocale = {
         chatPromptPlaceholder: "Pergunte ao Dispatch...",
         suggestionWorkspaceHealth:
           "Resumir a integridade atual do espaço de trabalho",
-        suggestionOnboardingApp:
-          "Criar um app para solicitações de integração",
+        suggestionOnboardingApp: "Criar um app para solicitações de integração",
         suggestionAnalyticsAgents:
           "Verificar quais agentes podem ajudar com análises",
         workspaceShortcutsAria: "Atalhos do espaço de trabalho",
@@ -2880,12 +2876,9 @@ export const messagesByLocale = {
           "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
         overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
         chatPromptPlaceholder: "Dispatch से पूछें...",
-        suggestionWorkspaceHealth:
-          "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
-        suggestionOnboardingApp:
-          "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
-        suggestionAnalyticsAgents:
-          "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
+        suggestionWorkspaceHealth: "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
+        suggestionOnboardingApp: "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
+        suggestionAnalyticsAgents: "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
         workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
         deliveryQueue: "डिलीवरी कतार",
         failedLastHour: "पिछले घंटे में {{count}} विफल",

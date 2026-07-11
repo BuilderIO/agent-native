@@ -80,7 +80,8 @@ export function ExtensionSlot({
           `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
         ),
       );
-      if (!res.ok) throw new Error(`Failed to load slot installs (${res.status})`);
+      if (!res.ok)
+        throw new Error(`Failed to load slot installs (${res.status})`);
       return res.json();
     },
   });
@@ -244,9 +245,9 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           {!availableQuery.isLoading &&
             !availableQuery.isError &&
             available.length === 0 && (
-            <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
-              {t("extensions.noWidgetsAvailable")}
-            </div>
+              <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
+                {t("extensions.noWidgetsAvailable")}
+              </div>
             )}
           {available.map((extension) => (
             <button

@@ -88,19 +88,15 @@ function CommandPanel() {
       return;
     }
 
-    navigateWithAgentChatViewTransition(
-      navigate,
-      "/chat",
-      {
-        state: {
-          dispatchPrompt: {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            message: trimmed,
-            selectedModel,
-          },
+    navigateWithAgentChatViewTransition(navigate, "/chat", {
+      state: {
+        dispatchPrompt: {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          message: trimmed,
+          selectedModel,
         },
       },
-    );
+    });
   }
 
   return (

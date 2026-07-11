@@ -32,12 +32,12 @@ import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 import {
   TOOLS_ORDER_CHANGE_EVENT,
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;

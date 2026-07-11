@@ -265,8 +265,7 @@ const messages = {
       askTab: "詢問",
       chatViewsAria: "Dispatch 聊天檢視",
       chatAcrossApps: "跨應用程式聊天",
-      chatAcrossAppsDescription:
-        "在同一個地方分派工作、檢查狀態或建立新內容。",
+      chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "向 Dispatch 提問...",
       chatPromptPlaceholder: "詢問 Dispatch...",
       suggestionWorkspaceHealth: "摘要目前的工作區狀態",

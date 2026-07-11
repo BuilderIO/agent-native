@@ -26,10 +26,39 @@ vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
 }));
 
+const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));
+
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) that this file's narrower mocks don't
+// support. This only needs to prove dispatcher.ts WIRES the filter with the
+// right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: vi.fn(() => []),
+  actionsToEngineTools: actionsToEngineToolsMock,
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
   runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../usage/store.js", () => ({
@@ -97,6 +126,86 @@ Respond to the event.`,
       model: "test-model",
     });
     recordUsageMock.mockResolvedValue(undefined);
+  });
+
+  it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {
+    // Use a distinct event/resource path from the module-level default so
+    // this test doesn't collide with `_eventSubscriptions` state left behind
+    // by other tests in this file (the dispatcher module is a singleton that
+    // isn't reset between tests, and skips re-subscribing an event it
+    // already tracks).
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-tool-filter",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/tool-filter-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: tool-filter.event.fired
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the event.`,
+      },
+    ]);
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({
+        "template-trigger-action": noopTool("A trigger-relevant app action"),
+        "list-integration-memory": noopTool("Framework addition"),
+      }),
+      getInitialToolNames: () => ["template-trigger-action"],
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "tool-filter.event.fired",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "template-trigger-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    expect(availableToolNames).toEqual([
+      "list-integration-memory",
+      "template-trigger-action",
+      "tool-search",
+    ]);
   });
 
   it("creates trigger run history threads owned by the trigger user", async () => {

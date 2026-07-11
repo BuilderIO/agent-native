@@ -5,7 +5,13 @@ import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import type { ConfigEnv, Plugin, UserConfig } from "vite";
+import type {
+  ConfigEnv,
+  HotUpdateOptions,
+  NormalizedHotChannel,
+  Plugin,
+  UserConfig,
+} from "vite";
 
 import {
   mergePendingChangelog,
@@ -224,7 +230,124 @@ function nitroVitePlugin(
   ...args: Parameters<typeof import("nitro/vite").nitro>
 ) {
   installNitroFsWatchGuard();
-  return require("nitro/vite").nitro(...args);
+  const plugins = require("nitro/vite").nitro(...args) as Plugin[];
+  return plugins.map(debounceNitroFullReloadHotUpdate);
+}
+
+/**
+ * Debounce window for coalescing Nitro's dev-mode full-reload broadcasts.
+ *
+ * Nitro's own Vite plugin (the `hotUpdate` hook inside `nitro/vite`)
+ * invalidates each changed server module in the module graph synchronously,
+ * then sends `{ type: "full-reload" }` over that environment's hot channel —
+ * once per file-change event, with no debounce of its own. Every full-reload
+ * makes the Nitro dev worker re-import the entire SSR/server entry point,
+ * which is expensive. AI coding agents routinely write dozens of files in a
+ * single burst, so one edit session can trigger dozens of sequential
+ * re-imports back to back and pin a CPU core for minutes. This is a distinct
+ * concern from `fullReloadOnOptimizeDep504` elsewhere in this file (which
+ * rate-limits an unrelated client-reload nudge); keep the two independent.
+ */
+const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+
+/**
+ * Wraps a single Nitro-provided Vite plugin so that, if it defines a
+ * `hotUpdate` hook, any `environment.hot.send({ type: "full-reload" })` call
+ * made from inside that hook is coalesced with a trailing debounce (leading
+ * edge suppressed) instead of firing immediately for every changed file.
+ * Everything else — module-graph invalidation, non-reload hot messages, the
+ * hook's return value — passes through unchanged and immediate. A burst of
+ * N changes within the debounce window collapses into exactly one
+ * full-reload once things go quiet; a single isolated change still reloads,
+ * just delayed by up to `NITRO_FULL_RELOAD_DEBOUNCE_MS`.
+ *
+ * `hotUpdate` only ever runs on Vite's dev server (never during a build), so
+ * this has no effect outside `vite dev`.
+ */
+function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
+  const originalHook = plugin.hotUpdate;
+  if (!originalHook) return plugin;
+
+  // Vite hook properties are either a plain function or `{ handler, ... }`
+  // ("object form", used to attach hook metadata like `order`). Support both.
+  const isHandlerForm = typeof originalHook === "object";
+  const originalHandler = (
+    isHandlerForm
+      ? (originalHook as { handler: unknown }).handler
+      : originalHook
+  ) as (
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) => unknown;
+
+  // One pending-reload timer per Vite environment name ("ssr" by default, or
+  // a named Nitro service environment), so unrelated environments can never
+  // block or coalesce into each other.
+  const pendingReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function wrappedHotUpdate(
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) {
+    const realEnvironment = this.environment;
+    // Proxy `this.environment.hot.send` so nitro's hook body (which reads
+    // `this.environment` and calls `env.hot.send(...)`) is otherwise
+    // untouched — only full-reload payloads get intercepted below.
+    const proxiedThis = new Proxy(this, {
+      get(target, prop, receiver) {
+        if (prop !== "environment") {
+          return Reflect.get(target, prop, receiver);
+        }
+        return new Proxy(realEnvironment, {
+          get(envTarget, envProp, envReceiver) {
+            if (envProp !== "hot") {
+              return Reflect.get(envTarget, envProp, envReceiver);
+            }
+            const realHot = envTarget.hot;
+            return new Proxy(realHot, {
+              get(hotTarget, hotProp, hotReceiver) {
+                if (hotProp !== "send") {
+                  return Reflect.get(hotTarget, hotProp, hotReceiver);
+                }
+                return (payload: unknown) => {
+                  if (
+                    !payload ||
+                    typeof payload !== "object" ||
+                    (payload as { type?: string }).type !== "full-reload"
+                  ) {
+                    // Not a full-reload — pass through immediately.
+                    return (hotTarget.send as (p: unknown) => void)(payload);
+                  }
+                  const key = realEnvironment.name || "default";
+                  const pending = pendingReloadTimers.get(key);
+                  if (pending) clearTimeout(pending);
+                  const timer = setTimeout(() => {
+                    pendingReloadTimers.delete(key);
+                    (hotTarget.send as (p: unknown) => void)(payload);
+                  }, NITRO_FULL_RELOAD_DEBOUNCE_MS);
+                  // Never hold the process open just for a pending reload.
+                  timer.unref?.();
+                  pendingReloadTimers.set(key, timer);
+                };
+              },
+            });
+          },
+        });
+      },
+    });
+    return originalHandler.call(proxiedThis, options);
+  }
+
+  if (isHandlerForm) {
+    return {
+      ...plugin,
+      hotUpdate: {
+        ...(originalHook as object),
+        handler: wrappedHotUpdate,
+      },
+    } as Plugin;
+  }
+  return { ...plugin, hotUpdate: wrappedHotUpdate } as Plugin;
 }
 
 /**

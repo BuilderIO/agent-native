@@ -8,6 +8,7 @@ import {
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -179,19 +180,12 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             {t("sqlDashboard.savedViews")}
           </DropdownMenuLabel>
           {error ? (
-            <div className="px-2 py-2 text-xs text-destructive" role="status">
-              <span>{t("commandPalette.loadFailed")}</span>{" "}
-              <button
-                type="button"
-                className="font-medium underline underline-offset-2 hover:text-destructive/80"
-                onClick={(event) => {
-                  event.preventDefault();
-                  void refetch();
-                }}
-              >
-                {t("sidebar.retry")}
-              </button>
-            </div>
+            <ResourceLoadError
+              inline
+              message={t("commandPalette.loadFailed")}
+              retryLabel={t("sidebar.retry")}
+              onRetry={() => void refetch()}
+            />
           ) : views.length === 0 ? (
             <div className="px-2 py-2 text-xs text-muted-foreground">
               {t("sqlDashboard.noSavedViews")}

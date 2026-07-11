@@ -50,6 +50,7 @@ import {
   DashboardTitleSkeleton,
   useSetPageTitle,
 } from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -530,19 +531,11 @@ export default function ExplorerDashboardPage() {
 
   if (dashboardQuery.isError) {
     return (
-      <div
-        className="flex h-64 flex-col items-center justify-center gap-2 text-sm text-destructive"
-        role="status"
-      >
-        <span>{t("sidebar.dashboardsLoadFailed")}</span>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void dashboardQuery.refetch()}
-        >
-          {t("sidebar.retry")}
-        </Button>
-      </div>
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
     );
   }
 
@@ -825,19 +818,12 @@ export default function ExplorerDashboardPage() {
             </DialogHeader>
             <div className="max-h-[400px] overflow-auto space-y-1">
               {savedConfigsQuery.isError ? (
-                <div
-                  className="flex flex-col items-center gap-2 py-4 text-center text-sm text-destructive"
-                  role="status"
-                >
-                  <span>{t("commandPalette.loadFailed")}</span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void savedConfigsQuery.refetch()}
-                  >
-                    {t("sidebar.retry")}
-                  </Button>
-                </div>
+                <ResourceLoadError
+                  inline
+                  message={t("commandPalette.loadFailed")}
+                  retryLabel={t("sidebar.retry")}
+                  onRetry={() => void savedConfigsQuery.refetch()}
+                />
               ) : savedConfigs.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   {t("explorerDashboard.noSavedExplorerCharts")}
