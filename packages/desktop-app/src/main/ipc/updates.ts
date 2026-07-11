@@ -10,10 +10,9 @@
 // In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
 // so we report an "unsupported" status and skip all autoUpdater calls.
 
+import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
-
-import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 
 const IS_DEV = !app.isPackaged;
 
@@ -190,7 +189,10 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     app.on("activate", maybeCheckForAppUpdates);
   }
 
-  ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
+  ipcMain.handle(
+    IPC.UPDATE_GET_STATUS,
+    (): UpdateStatus => currentUpdateStatus,
+  );
 
   ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
     return checkForAppUpdates();

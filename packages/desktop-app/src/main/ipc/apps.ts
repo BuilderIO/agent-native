@@ -1,5 +1,3 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
-
 import type { AppConfig } from "@shared/app-registry";
 import {
   IPC,
@@ -9,6 +7,7 @@ import {
   type DesktopCreateAppResult,
   type LocalAppFolderSelectResult,
 } from "@shared/ipc-channels";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import * as AppStore from "../app-store";
 

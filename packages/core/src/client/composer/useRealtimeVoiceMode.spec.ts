@@ -32,15 +32,21 @@ describe("Realtime voice client transport", () => {
   it("times out a connection attempt and supports idempotent cancellation", () => {
     vi.useFakeTimers();
     const onTimeout = vi.fn();
-    const cancel = createRealtimeVoiceConnectionTimeout(onTimeout, 1_000);
+    const cancelFirst = createRealtimeVoiceConnectionTimeout(onTimeout, 1_000);
+
+    cancelFirst();
+    cancelFirst();
+    vi.advanceTimersByTime(1_000);
+    expect(onTimeout).not.toHaveBeenCalled();
+
+    const cancelSecond = createRealtimeVoiceConnectionTimeout(onTimeout, 1_000);
 
     vi.advanceTimersByTime(999);
     expect(onTimeout).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(onTimeout).toHaveBeenCalledOnce();
 
-    cancel();
-    cancel();
+    cancelSecond();
     vi.useRealTimers();
   });
 

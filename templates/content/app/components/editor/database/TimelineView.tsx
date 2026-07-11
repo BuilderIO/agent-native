@@ -1,3 +1,17 @@
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseView,
+  DocumentProperty,
+} from "@shared/api";
 import {
   IconArrowUp,
   IconCalendarDue,
@@ -9,24 +23,9 @@ import {
 } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
-import type {
-  ContentDatabaseItem,
-  ContentDatabaseView,
-  DocumentProperty,
-} from "@shared/api";
-
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { cn } from "@/lib/utils";
 
 import { AddProperty, TYPE_ICONS, displayValue } from "../DocumentProperties";
-import { cn } from "@/lib/utils";
 import {
   DatabaseDateViewNoDateSection,
   DatabaseItemPageIcon,
@@ -40,6 +39,7 @@ import {
   databaseTimelineItemSpans,
   databaseTimelineRangeLabel,
   databaseViewHasNoMatchingPages,
+  dbText,
   isDatabasePropertyVisibleInView,
   startOfMonth,
   type DatabaseFilter,
@@ -578,4 +578,3 @@ function NewTimelineCard({
     </form>
   );
 }
-

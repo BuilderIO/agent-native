@@ -122,8 +122,8 @@ function errorMessage(error: unknown): string {
 export function isRealtimeVoiceAbortError(error: unknown): boolean {
   return Boolean(
     error &&
-      typeof error === "object" &&
-      (error as { name?: unknown }).name === "AbortError",
+    typeof error === "object" &&
+    (error as { name?: unknown }).name === "AbortError",
   );
 }
 

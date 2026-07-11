@@ -34,3 +34,6 @@ export type DesignLeftPanel =
   | "code";
 
 export const SHOW_DESIGN_CODE_LEFT_PANEL = true;
+
+/** Zoom percentage applied when entering single-screen (focused) editor mode. */
+export const FOCUSED_SCREEN_ZOOM = 100;

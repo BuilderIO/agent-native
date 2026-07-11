@@ -1,11 +1,10 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
-
 import {
   IPC,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
 } from "@shared/ipc-channels";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import * as AppStore from "../app-store";
 

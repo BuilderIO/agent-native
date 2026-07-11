@@ -1,23 +1,8 @@
 import fs from "fs";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-import {
-  app,
-  clipboard,
-  desktopCapturer,
-  ipcMain,
-  shell,
-  systemPreferences,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-} from "electron";
-import { spawnSync } from "node:child_process";
-
-import {
-  getComputerPermissionStatus,
-  requestAccessibilityPermission,
-  runComputerSetupAction,
-} from "../computer-control";
+import { CODE_AGENT_GOALS, getCodeAgentGoal } from "@shared/code-agents";
 import {
   IPC,
   type CodeAgentCodePackResult,
@@ -42,8 +27,22 @@ import {
   type CodeAgentTranscriptResult,
   type CodeAgentUpdateRunResult,
 } from "@shared/ipc-channels";
-import { CODE_AGENT_GOALS, getCodeAgentGoal } from "@shared/code-agents";
+import {
+  app,
+  clipboard,
+  desktopCapturer,
+  ipcMain,
+  shell,
+  systemPreferences,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from "electron";
 
+import {
+  getComputerPermissionStatus,
+  requestAccessibilityPermission,
+  runComputerSetupAction,
+} from "../computer-control";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -163,7 +162,9 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       _event: IpcMainInvokeEvent,
       goalId?: string,
     ): Promise<CodeAgentRunListResult> => {
-      const goal = getCodeAgentGoal(goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task");
+      const goal = getCodeAgentGoal(
+        goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task",
+      );
       if (!goal) {
         return Promise.resolve({
           status: "unavailable",
@@ -227,7 +228,8 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
         senderId: event.sender.id,
         knownEventKeys: new Set(),
       };
-      const result = initializeCodeAgentTranscriptSubscriptionKeys(subscription);
+      const result =
+        initializeCodeAgentTranscriptSubscriptionKeys(subscription);
       setCodeAgentTranscriptSubscription(subscriptionId, subscription);
       watchCodeAgentTranscriptSubscription(subscription);
       event.sender.once("destroyed", () => {
@@ -328,7 +330,9 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
             { encoding: "utf8", stdio: "ignore" },
           );
           if (chrome.error || chrome.status !== 0) {
-            throw chrome.error ?? new Error("Google Chrome could not be opened.");
+            throw (
+              chrome.error ?? new Error("Google Chrome could not be opened.")
+            );
           }
         },
         restart: () => {
@@ -406,7 +410,10 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
 
   ipcMain.handle(
     IPC.CODE_AGENTS_OPEN_TERMINAL,
-    (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
+    (
+      _event: IpcMainInvokeEvent,
+      request?: unknown,
+    ): CodeAgentTerminalResult => {
       return openTerminalForCodeAgents(request);
     },
   );

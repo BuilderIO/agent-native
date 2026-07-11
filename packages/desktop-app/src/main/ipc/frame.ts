@@ -1,6 +1,5 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
-
 import { IPC } from "@shared/ipc-channels";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import * as AppStore from "../app-store";
 

@@ -1,5 +1,3 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
-
 import {
   IPC,
   type DesktopPlanFilesChooseFolderRequest,
@@ -10,6 +8,7 @@ import {
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
 } from "@shared/ipc-channels";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import type { PlanFilesGrant } from "../index";
 

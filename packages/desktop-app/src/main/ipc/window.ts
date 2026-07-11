@@ -1,11 +1,10 @@
+import { IPC } from "@shared/ipc-channels";
 import {
   BrowserWindow,
   ipcMain,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
-
-import { IPC } from "@shared/ipc-channels";
 
 /** Registers the basic frameless-window control IPC handlers (minimize/maximize/close/is-maximized). */
 export function registerWindowIpc(): void {

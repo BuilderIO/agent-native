@@ -4,6 +4,7 @@ import {
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
+  IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
@@ -50,6 +51,7 @@ export interface RealtimeVoiceModeCopy {
   showChat: string;
   hideChat: string;
   endVoiceMode: string;
+  microphoneSettings: string;
   status: Record<RealtimeVoiceModeState, string>;
   errors: {
     unsupported: string;
@@ -212,6 +214,7 @@ export interface RealtimeVoiceModeDockProps {
   audioLevels?: RealtimeVoiceAudioLevelStore;
   onToggleChat: () => void;
   onEndVoiceMode: () => void;
+  onOpenMicrophoneSettings?: () => void;
   errorMessage?: string | null;
   className?: string;
 }
@@ -236,9 +239,11 @@ function usePrefersReducedMotion(): boolean {
 function VoiceWaveform({
   level,
   reducedMotion,
+  activity,
 }: {
   level: number;
   reducedMotion: boolean;
+  activity: "user" | "assistant";
 }) {
   const visibleLevel = reducedMotion ? 0.45 : level;
   return (
@@ -246,12 +251,13 @@ function VoiceWaveform({
       aria-hidden="true"
       className="flex h-6 items-center justify-center gap-0.5"
       data-realtime-voice-waveform="true"
+      data-realtime-voice-waveform-activity={activity}
     >
       {WAVEFORM_WEIGHTS.map((weight, index) => (
         <span
           key={index}
-          className="w-0.5 rounded-full bg-current transition-[height] duration-75 ease-out motion-reduce:transition-none"
-          style={{ height: `${4 + visibleLevel * 16 * weight}px` }}
+          className="h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none"
+          style={{ transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})` }}
         />
       ))}
     </span>
@@ -260,16 +266,16 @@ function VoiceWaveform({
 
 const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
   connecting:
-    "bg-secondary text-secondary-foreground ring-4 ring-secondary/40 hover:bg-secondary/80",
+    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
   listening:
-    "bg-primary text-primary-foreground ring-4 ring-primary/15 hover:bg-primary/90",
+    "bg-primary text-primary-foreground ring-primary/20 hover:bg-primary/90",
   speaking:
-    "bg-foreground text-background ring-4 ring-foreground/15 hover:bg-foreground/90",
+    "bg-foreground text-background ring-foreground/20 hover:bg-foreground/90",
   working:
-    "bg-secondary text-secondary-foreground ring-4 ring-secondary/40 hover:bg-secondary/80",
+    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
   error:
-    "bg-destructive text-destructive-foreground ring-4 ring-destructive/15 hover:bg-destructive/90",
-  ending: "bg-muted text-muted-foreground ring-4 ring-muted/40 cursor-wait",
+    "bg-destructive text-destructive-foreground ring-destructive/20 hover:bg-destructive/90",
+  ending: "cursor-wait bg-muted text-muted-foreground ring-muted/40",
 };
 
 function VoiceStateIcon({ state }: { state: RealtimeVoiceModeState }) {
@@ -303,10 +309,13 @@ export function RealtimeVoiceModeDock({
   audioLevels = SILENT_AUDIO_LEVELS,
   onToggleChat,
   onEndVoiceMode,
+  onOpenMicrophoneSettings,
   errorMessage,
   className,
 }: RealtimeVoiceModeDockProps) {
   const statusId = useId();
+  const controlsId = useId();
+  const [controlsOpen, setControlsOpen] = useState(false);
   const levels = useSyncExternalStore(
     audioLevels.subscribe,
     audioLevels.getSnapshot,
@@ -323,6 +332,15 @@ export function RealtimeVoiceModeDock({
   const toggleLabel = chatVisible ? copy.hideChat : copy.showChat;
   const ending = state === "ending";
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
+  const orbScale = reducedMotion ? 1 : 1 + Math.min(activityLevel, 1) * 0.07;
+
+  const closeControlsUnlessFocused = (
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (!event.currentTarget.contains(document.activeElement)) {
+      setControlsOpen(false);
+    }
+  };
 
   return (
     <div
@@ -344,57 +362,127 @@ export function RealtimeVoiceModeDock({
       ) : null}
 
       <div
-        id={statusId}
-        role={state === "error" && !errorDetailVisible ? "alert" : "status"}
-        aria-live={
-          state === "error" && !errorDetailVisible ? "assertive" : "polite"
-        }
-        className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm"
+        className="group pointer-events-auto flex items-center gap-2"
+        onMouseEnter={() => setControlsOpen(true)}
+        onMouseLeave={closeControlsUnlessFocused}
+        onFocusCapture={() => setControlsOpen(true)}
+        onBlurCapture={(event) => {
+          if (
+            !event.currentTarget.contains(event.relatedTarget as Node | null)
+          ) {
+            setControlsOpen(false);
+          }
+        }}
       >
-        {copy.status[state]}
-      </div>
+        <div
+          id={controlsId}
+          data-realtime-voice-controls={controlsOpen ? "open" : "closed"}
+          className={cn(
+            "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 ps-3 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+            controlsOpen
+              ? "pointer-events-auto translate-x-0 opacity-100"
+              : "pointer-events-none opacity-0 ltr:translate-x-2 rtl:-translate-x-2 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100",
+          )}
+        >
+          <div
+            id={statusId}
+            role={state === "error" && !errorDetailVisible ? "alert" : "status"}
+            aria-live={
+              state === "error" && !errorDetailVisible ? "assertive" : "polite"
+            }
+            className="me-1 whitespace-nowrap text-xs font-medium text-foreground"
+          >
+            {copy.status[state]}
+          </div>
 
-      <div className="pointer-events-auto flex items-center gap-2">
+          {onOpenMicrophoneSettings ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  disabled={ending}
+                  onClick={onOpenMicrophoneSettings}
+                  aria-label={copy.microphoneSettings}
+                  className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
+                >
+                  <IconSettings />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{copy.microphoneSettings}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={ending}
+                onClick={onEndVoiceMode}
+                aria-label={copy.endVoiceMode}
+                className="size-8 rounded-full text-destructive transition-transform duration-150 ease-out hover:bg-destructive/10 hover:text-destructive active:scale-[0.97]"
+              >
+                <IconPhoneOff />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{copy.endVoiceMode}</TooltipContent>
+          </Tooltip>
+        </div>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               type="button"
-              variant="outline"
               size="icon"
               disabled={ending}
-              onClick={onEndVoiceMode}
-              aria-label={copy.endVoiceMode}
-              className="size-10 rounded-full bg-background shadow-md"
-            >
-              <IconPhoneOff />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{copy.endVoiceMode}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              disabled={ending}
-              onClick={onToggleChat}
+              onClick={() => {
+                setControlsOpen(true);
+                onToggleChat();
+              }}
               aria-label={toggleLabel}
               aria-pressed={chatVisible}
               aria-describedby={statusId}
+              aria-controls={controlsId}
+              aria-expanded={controlsOpen}
               className={cn(
-                "size-14 rounded-full shadow-lg",
+                "relative isolate size-16 overflow-visible rounded-full ring-4 shadow-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
               )}
             >
-              {activity === "idle" ? (
-                <VoiceStateIcon state={state} />
-              ) : (
-                <VoiceWaveform
-                  level={activityLevel}
-                  reducedMotion={reducedMotion}
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute -inset-2 -z-10 rounded-full bg-current opacity-0 blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+                  activity !== "idle" && "opacity-20",
+                )}
+                style={{ transform: `scale(${orbScale})` }}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-1 overflow-hidden rounded-full bg-gradient-to-br from-background/70 via-background/15 to-transparent opacity-70"
+              >
+                <span className="absolute start-2.5 top-2 size-3 rounded-full bg-background/70 blur-[1px]" />
+                <span
+                  className="absolute -bottom-2 -end-1 h-8 w-10 rounded-full bg-background/25 blur-md transition-transform duration-150 ease-out motion-reduce:transition-none"
+                  style={{
+                    transform: `scale(${reducedMotion ? 1 : 1 + activityLevel * 0.25})`,
+                  }}
                 />
-              )}
+              </span>
+              <span className="relative z-10 flex items-center justify-center">
+                {activity === "idle" ? (
+                  <VoiceStateIcon state={state} />
+                ) : (
+                  <VoiceWaveform
+                    level={activityLevel}
+                    reducedMotion={reducedMotion}
+                    activity={activity}
+                  />
+                )}
+              </span>
             </Button>
           </TooltipTrigger>
           <TooltipContent>{toggleLabel}</TooltipContent>

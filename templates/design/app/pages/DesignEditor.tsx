@@ -733,6 +733,7 @@ import {
   getSingleScreenCreationTool,
   isSingleScreenAnnotationTool,
   MOVE_GROUP_TOOL_PRESENTATIONS,
+  normalizeDesignLeftPanel,
   normalizeDesignTool,
 } from "./design-editor/tool-state";
 import {
@@ -749,6 +750,7 @@ import {
   type DesignTool,
   type EditorMode,
   type ShapeTool,
+  FOCUSED_SCREEN_ZOOM,
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./design-editor/types";
 
@@ -795,7 +797,6 @@ const NO_LOCALHOST_WRITE_PATH_MESSAGE =
   "Can't determine the source file for this screen."; /* i18n-ignore */
 const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
   "You need edit access to add tweak controls."; /* i18n-ignore */
-const FOCUSED_SCREEN_ZOOM = 100;
 
 // PF6: local alias for DesignCanvas's inline `embeddedFrame` prop type (not
 // exported from DesignCanvas.tsx) so the per-screen cache below can be typed.
@@ -2205,21 +2206,6 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "import",
   "code",
 ]);
-
-function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
-  if (value === "extensions") return "tools";
-  if (value === "code") {
-    return SHOW_DESIGN_CODE_LEFT_PANEL ? "code" : undefined;
-  }
-  return value === "file" ||
-    value === "agent" ||
-    value === "assets" ||
-    value === "tools" ||
-    value === "tokens" ||
-    value === "import"
-    ? value
-    : undefined;
-}
 
 function DesignWorkspaceRail({
   activePanel,

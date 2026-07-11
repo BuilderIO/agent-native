@@ -1,5 +1,3 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
-
 import {
   IPC,
   type DesktopContentFileDeleteRequest,
@@ -11,6 +9,7 @@ import {
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
 } from "@shared/ipc-channels";
+import { ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import type { ContentFilesGrant } from "../index";
 

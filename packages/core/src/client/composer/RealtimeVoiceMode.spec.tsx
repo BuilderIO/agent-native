@@ -27,6 +27,7 @@ const copy: RealtimeVoiceModeCopy = {
   showChat: "Show chat",
   hideChat: "Hide chat",
   endVoiceMode: "End voice mode",
+  microphoneSettings: "Microphone settings",
   status: {
     connecting: "Connecting",
     listening: "Listening",
@@ -174,11 +175,53 @@ describe("RealtimeVoiceMode", () => {
       'button[aria-label="Show chat"]',
     );
     expect(toggleChat?.getAttribute("aria-pressed")).toBe("false");
+    expect(toggleChat?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      document
+        .querySelector("[data-realtime-voice-controls]")
+        ?.getAttribute("data-realtime-voice-controls"),
+    ).toBe("closed");
 
     act(() => toggleChat?.click());
 
     expect(onToggleChat).toHaveBeenCalledOnce();
     expect(onEndVoiceMode).not.toHaveBeenCalled();
+    expect(toggleChat?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document
+        .querySelector("[data-realtime-voice-controls]")
+        ?.getAttribute("data-realtime-voice-controls"),
+    ).toBe("open");
+  });
+
+  it("progressively discloses working microphone and end-session controls", () => {
+    const onOpenMicrophoneSettings = vi.fn();
+    const onEndVoiceMode = vi.fn();
+
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={onEndVoiceMode}
+        onOpenMicrophoneSettings={onOpenMicrophoneSettings}
+      />,
+    );
+
+    const microphoneSettings = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Microphone settings"]',
+    );
+    const endVoiceMode = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="End voice mode"]',
+    );
+
+    act(() => microphoneSettings?.click());
+    expect(onOpenMicrophoneSettings).toHaveBeenCalledOnce();
+    expect(onEndVoiceMode).not.toHaveBeenCalled();
+
+    act(() => endVoiceMode?.click());
+    expect(onEndVoiceMode).toHaveBeenCalledOnce();
   });
 
   it("keeps the dock visible when chat opens itself", () => {
@@ -237,6 +280,11 @@ describe("RealtimeVoiceMode", () => {
     act(() => audioLevels.set({ input: 0, output: 0.8 }));
     expect(
       document.querySelector('[data-realtime-voice-activity="assistant"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector(
+        '[data-realtime-voice-waveform-activity="assistant"]',
+      ),
     ).not.toBeNull();
   });
 
