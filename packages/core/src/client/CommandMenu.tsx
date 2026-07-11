@@ -72,16 +72,17 @@ export function openAgentSettings(
   const normalizedSection =
     typeof section === "string" ? section : section?.section;
 
-  // Select or navigate to settings before opening the sidebar. Full-page chat
-  // surfaces may remount their composer/provider when `agent-panel:open`
-  // fires; dispatching that first could drop the immediately-following
-  // settings request and leave the user in chat.
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:open-settings", {
-      detail: normalizedSection ? { section: normalizedSection } : undefined,
-    }),
-  );
   openAgentSidebar();
+  // Voice mode unmounts the chat surface while its dock is collapsed, so its
+  // settings listener does not exist until opening the sidebar remounts it.
+  // Deliver the destination on the next task instead of racing that remount.
+  window.setTimeout(() => {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open-settings", {
+        detail: normalizedSection ? { section: normalizedSection } : undefined,
+      }),
+    );
+  }, 0);
 }
 
 export function focusAgentChat() {

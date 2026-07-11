@@ -605,21 +605,36 @@ export async function loadResourcesForPrompt(
       `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
     );
   } else {
-    // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
+    // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md
+    // above). Capped like every other prompt resource — an unbounded team
+    // notes file would otherwise inline in full on every non-lazy request.
     if (sharedLearnings?.content?.trim()) {
-      sections.push(
-        `<resource name="LEARNINGS.md" scope="shared">\n${sharedLearnings.content.trim()}\n</resource>`,
-      );
+      const block = promptResourceBlock({
+        name: "LEARNINGS.md",
+        scope: "shared",
+        path: "LEARNINGS.md",
+        content: sharedLearnings.content,
+        maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
+      });
+      if (block) sections.push(block);
     }
 
-    // 3. Personal memory index (skip if owner is the shared sentinel)
+    // 3. Personal memory index (skip if owner is the shared sentinel).
+    // Same cap as LEARNINGS.md — a large personal MEMORY.md index must not
+    // inline without bound just because this request opted out of lazy
+    // context.
     if (owner !== SHARED_OWNER) {
       try {
         const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
         if (memoryIndex?.content?.trim()) {
-          sections.push(
-            `<resource name="memory/MEMORY.md" scope="personal">\n${memoryIndex.content.trim()}\n</resource>`,
-          );
+          const block = promptResourceBlock({
+            name: "memory/MEMORY.md",
+            scope: "personal",
+            path: "memory/MEMORY.md",
+            content: memoryIndex.content,
+            maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
+          });
+          if (block) sections.push(block);
         }
       } catch {}
     }

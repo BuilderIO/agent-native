@@ -70,18 +70,25 @@ describe("CommandMenu docs group", () => {
     });
   }
 
-  it("requests settings before opening chat surfaces", () => {
+  it("opens chat surfaces before requesting settings on the next task", () => {
+    vi.useFakeTimers();
     const events: string[] = [];
-    const onSettings = () => events.push("settings");
+    const onSettings = (event: Event) =>
+      events.push(
+        `settings:${(event as CustomEvent<{ section?: string }>).detail?.section}`,
+      );
     const onOpen = () => events.push("open");
     window.addEventListener("agent-panel:open-settings", onSettings);
     window.addEventListener("agent-panel:open", onOpen);
 
     openAgentSettings("voice");
 
-    expect(events).toEqual(["settings", "open"]);
+    expect(events).toEqual(["open"]);
+    vi.runAllTimers();
+    expect(events).toEqual(["open", "settings:voice"]);
     window.removeEventListener("agent-panel:open-settings", onSettings);
     window.removeEventListener("agent-panel:open", onOpen);
+    vi.useRealTimers();
   });
 
   it("filters app docs entries through the shared search field", () => {

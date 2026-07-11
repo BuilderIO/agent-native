@@ -82,6 +82,7 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { appStateGet } from "../application-state/store.js";
 import {
   createThread,
   forkThread,

@@ -471,4 +471,46 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).not.toContain("dev-only");
     expect(prompt).not.toContain("Development-only workflow.");
   });
+
+  it("caps an oversized shared LEARNINGS.md instead of inlining it in full in the non-lazy (compact: false) path", async () => {
+    const hugeLearnings = `# Learnings\n${"- prior incident detail.\n".repeat(3_000)}`;
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (owner === "__shared__" && path === "LEARNINGS.md") {
+        return { content: hugeLearnings };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", false);
+
+    expect(hugeLearnings.length).toBeGreaterThan(30_000);
+    expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
+    expect(prompt).toContain(
+      "truncated after 30,000 characters",
+    );
+    expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
+    // The full oversized content must not have been inlined verbatim.
+    expect(prompt.length).toBeLessThan(hugeLearnings.length);
+  });
+
+  it("caps an oversized personal memory/MEMORY.md instead of inlining it in full in the non-lazy (compact: false) path", async () => {
+    const hugeMemory = `# Memory Index\n${"- long-term fact.\n".repeat(3_000)}`;
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (owner === "user@example.test" && path === "memory/MEMORY.md") {
+        return { content: hugeMemory };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", false);
+
+    expect(hugeMemory.length).toBeGreaterThan(30_000);
+    expect(prompt).toContain(
+      '<resource name="memory/MEMORY.md" scope="personal"',
+    );
+    expect(prompt).toContain(
+      "truncated after 30,000 characters",
+    );
+    expect(prompt.length).toBeLessThan(hugeMemory.length);
+  });
 });
