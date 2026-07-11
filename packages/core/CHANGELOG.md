@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.95.1
+
+### Patch Changes
+
+- 6baca78: Document Design tweak controls, inheritance, and context-specific overrides.
+- 6baca78: Show each live tool call and streamed response once, keep thinking expanded by default, and simplify tool preparation status text.
+- 6baca78: Keep public SSR responses fresh in Netlify's durable edge cache for an hour and ignore non-rendering query parameters when selecting cached responses.
+- 6baca78: Allow hosted apps to use their deployment-level Google OAuth client credentials for signed-in connection flows while keeping user OAuth tokens scoped per user.
+- 6baca78: Keep guided question forms visible while application state refreshes.
+
 ## 0.95.0
 
 ### Minor Changes
