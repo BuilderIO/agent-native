@@ -3469,8 +3469,11 @@ function RunDetailCard({
     );
   }
 
-  const hasCredentialGap =
-    providerBlocked && hasMissingCredentialSignal(run, transcriptEvents);
+  const hasCredentialHistory = hasMissingCredentialSignal(
+    run,
+    transcriptEvents,
+  );
+  const hasCredentialGap = providerBlocked && hasCredentialHistory;
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
 
   return (
@@ -3543,7 +3546,7 @@ function RunDetailCard({
         permissionMode={permissionMode}
         modelSelection={modelSelection}
         modelOptions={modelOptions}
-        hideCredentialMessages={hasCredentialGap}
+        hideCredentialMessages={hasCredentialHistory}
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
         onStop={onStop}
@@ -3711,13 +3714,6 @@ function TranscriptPanel({
   );
 }
 
-// --------------- Token / context meter ---------------
-
-/**
- * Context window size (in tokens) keyed by model-name substring.
- * Used to compute approximate context-used % when the model is known.
- * This is a local approximation; a more precise table can replace it later.
- */
 function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
   return (
     <button

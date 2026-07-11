@@ -116,7 +116,8 @@ describe("desktop passive-access regressions", () => {
     expect(connectFlow).toContain("await host.retryRun({");
     expect(connectFlow).toContain("setSelectedRunId(retryResult.run.id)");
     expect(agent).toContain(
-      "providerBlocked && hasMissingCredentialSignal(run, transcriptEvents)",
+      "const hasCredentialGap = providerBlocked && hasCredentialHistory",
     );
+    expect(agent).toContain("hideCredentialMessages={hasCredentialHistory}");
   });
 });
