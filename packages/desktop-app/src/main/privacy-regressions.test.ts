@@ -83,4 +83,40 @@ describe("desktop passive-access regressions", () => {
     expect(agent).toContain("availableModels={availableModels}");
     expect(agent).toContain("onModelChange={(model, engine) =>");
   });
+
+  it("keeps Agent chats on the standard chat surface", () => {
+    const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
+    const runDetail = between(
+      agent,
+      "function RunDetailCard(",
+      "function TranscriptPanel(",
+    );
+
+    expect(runDetail).toContain("<TranscriptPanel");
+    expect(runDetail).toContain("Approval pending");
+    expect(runDetail).toContain('secondaryActionLabel="API keys"');
+    expect(runDetail).not.toContain("Task paused");
+    expect(runDetail).not.toContain("code-agents-session-details");
+    expect(runDetail).not.toContain("TokenUsageMeter");
+    expect(runDetail).not.toContain("Open Task workspace");
+    expect(agent).toContain('code-agents-rail-label">Chats');
+    expect(agent).not.toContain('code-agents-rail-label">Tasks');
+  });
+
+  it("retries a missing-provider chat after Builder connects", () => {
+    const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
+    const connectFlow = between(
+      agent,
+      "const connectBuilderProvider = useCallback(async () =>",
+      "useEffect(() => {\n    if (!isActive || !host.getRemoteConnectorStatus)",
+    );
+
+    expect(connectFlow).toContain('modelSelection.model === "auto"');
+    expect(connectFlow).toContain("hasMissingCredentialSignal(");
+    expect(connectFlow).toContain("await host.retryRun({");
+    expect(connectFlow).toContain("setSelectedRunId(retryResult.run.id)");
+    expect(agent).toContain(
+      "providerBlocked && hasMissingCredentialSignal(run, transcriptEvents)",
+    );
+  });
 });

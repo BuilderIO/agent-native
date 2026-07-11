@@ -363,7 +363,6 @@ export default function CodeAgentsApp({
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
   const [selectedPermissionMode, setSelectedPermissionMode] =
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
-  const [updatingPermissionMode, setUpdatingPermissionMode] = useState(false);
   const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>(
     DEFAULT_CODE_AGENT_MODEL_OPTIONS,
   );
@@ -1210,75 +1209,6 @@ export default function CodeAgentsApp({
     });
   }
 
-  async function retrySelectedRun() {
-    if (!selectedRunId || !host.retryRun) {
-      toast("Retry is not available here", { duration: 2200 });
-      return;
-    }
-    try {
-      const result = await host.retryRun({
-        goalId: selectedGoal.id,
-        runId: selectedRunId,
-        permissionMode: selectedPermissionMode,
-        engine: selectedModelSelection.engine,
-        model: selectedModelSelection.model,
-        effort: selectedModelSelection.effort,
-      });
-      if (result.run) {
-        setRuns((current) =>
-          current.map((run) => (run.id === result.run!.id ? result.run! : run)),
-        );
-      }
-      await loadRuns(true);
-      await loadTranscript(selectedRunId, true);
-      toast(result.message, {
-        duration: result.ok ? 2200 : 3600,
-        description: result.error,
-      });
-    } catch (err) {
-      toast("Could not retry the response", {
-        description: err instanceof Error ? err.message : String(err),
-        duration: 3600,
-      });
-    }
-  }
-
-  async function rerunSelectedRun() {
-    if (!selectedRunId || !host.rerunRun) {
-      toast("Re-run is not available here", { duration: 2200 });
-      return;
-    }
-    try {
-      const result = await host.rerunRun({
-        goalId: selectedGoal.id,
-        runId: selectedRunId,
-        permissionMode: selectedPermissionMode,
-        engine: selectedModelSelection.engine,
-        model: selectedModelSelection.model,
-        effort: selectedModelSelection.effort,
-      });
-      if (result.run) {
-        setRuns((current) => [result.run!, ...current]);
-        setSelectedRunId(result.run.id);
-        setWorkbenchOpen(false);
-        setSearchPanelOpen(false);
-        setMobilePanelOpen(false);
-        if (result.event) setTranscriptEvents([result.event]);
-      }
-      await loadRuns(true);
-      if (result.run) await loadTranscript(result.run.id, true);
-      toast(result.message, {
-        duration: result.ok ? 2200 : 3600,
-        description: result.error,
-      });
-    } catch (err) {
-      toast("Could not restart the chat", {
-        description: err instanceof Error ? err.message : String(err),
-        duration: 3600,
-      });
-    }
-  }
-
   async function createRunFromPrompt(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -1365,7 +1295,6 @@ export default function CodeAgentsApp({
       ),
     );
 
-    setUpdatingPermissionMode(true);
     try {
       const result = await host.updateRun({
         goalId: selectedGoal.id,
@@ -1410,8 +1339,6 @@ export default function CodeAgentsApp({
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
-    } finally {
-      setUpdatingPermissionMode(false);
     }
   }
 
