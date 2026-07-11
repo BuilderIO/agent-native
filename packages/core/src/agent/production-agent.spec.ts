@@ -6004,6 +6004,22 @@ describe("isRetryableError", () => {
     );
   });
 
+  it("retries provider-unavailable outage signals", () => {
+    const cases = [
+      new EngineError("provider unavailable", {
+        errorCode: "provider_unavailable",
+      }),
+      new EngineError("service unavailable", {
+        errorCode: "service_unavailable",
+      }),
+      new Error("upstream provider temporarily unavailable"),
+      new Error("model is overloaded, try again later"),
+    ];
+    for (const err of cases) {
+      expect(isRetryableError(err)).toBe(true);
+    }
+  });
+
   it("does NOT retry builder_gateway_timeout", () => {
     const err = new EngineError("timed out", {
       errorCode: "builder_gateway_timeout",

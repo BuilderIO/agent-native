@@ -113,6 +113,22 @@ describe("isResumableEngineError", () => {
     expect(isResumableEngineError(outer)).toBe(true);
   });
 
+  it("recognizes provider-unavailable errors as resumable", () => {
+    const cases = [
+      new EngineError("provider unavailable", {
+        errorCode: "provider_unavailable",
+      }),
+      new EngineError("service unavailable", {
+        errorCode: "service_unavailable",
+      }),
+      new Error("Upstream provider temporarily unavailable"),
+      new Error("The model provider is unavailable right now"),
+    ];
+    for (const err of cases) {
+      expect(isResumableEngineError(err)).toBe(true);
+    }
+  });
+
   it("returns false for terminal user-facing errors", () => {
     expect(
       isResumableEngineError(

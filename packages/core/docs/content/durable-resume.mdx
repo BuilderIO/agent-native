@@ -13,6 +13,8 @@ Hosted agent runs get interrupted: a serverless function hits its hard timeout m
 
 Durable resume closes that gap. On resume, the framework knows which side-effecting tool calls already completed and refuses to re-run them — at two layers.
 
+Provider outage signals are recoverable too: structured `provider_unavailable` / `service_unavailable` errors, overloaded-model messages, and upstream unavailable responses now enter the same retry/resume path instead of ending the run as a terminal failure.
+
 <Diagram id="doc-block-1sldt6j" title="Two layers block duplicate side effects on resume" summary={"The journal reads the durable ledger and classifies prior calls; layer 1 tells the model, layer 2 hard-blocks a re-dispatched write that matches a completed entry."}>
 
 ```html

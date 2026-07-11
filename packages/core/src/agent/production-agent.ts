@@ -1151,6 +1151,63 @@ export function isContextTooLongError(err: unknown): boolean {
   return false;
 }
 
+function isProviderUnavailableOrTransientError({
+  code,
+  text,
+}: {
+  code: string;
+  text: string;
+}): boolean {
+  return (
+    code === "builder_gateway_error" ||
+    code === "builder_gateway_network_error" ||
+    code === "http_429" ||
+    code === "http_500" ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
+    code === "http_529" ||
+    code === "timeout" ||
+    code === "service_unavailable" ||
+    code === "provider_unavailable" ||
+    code === "overloaded" ||
+    // Anthropic
+    text.includes("overloaded") ||
+    text.includes("rate_limit") ||
+    // Bare provider rate-limit messages that carry no structured status,
+    // e.g. the Anthropic/AI-SDK "429 status code (no body)" format.
+    /\b429\b/.test(text) ||
+    text.includes("529") ||
+    // OpenAI phrasing
+    text.includes("rate limit reached") ||
+    // Google / Gemini
+    text.includes("resource_exhausted") ||
+    text.includes("quota exceeded") ||
+    // Generic provider / gateway unavailable phrases
+    text.includes("provider unavailable") ||
+    text.includes("provider is unavailable") ||
+    text.includes("model provider unavailable") ||
+    text.includes("service unavailable") ||
+    text.includes("temporarily unavailable") ||
+    text.includes("upstream unavailable") ||
+    text.includes("upstream provider unavailable") ||
+    text.includes("model is overloaded") ||
+    text.includes("model overloaded") ||
+    // Generic HTTP codes
+    text.includes("502") ||
+    text.includes("503") ||
+    text.includes("504") ||
+    text.includes("gateway error") ||
+    text.includes("socket hang up") ||
+    text.includes("connection reset") ||
+    text.includes("too many requests") ||
+    text.includes("timeout") ||
+    text.includes("gateway timeout") ||
+    text.includes("inactivity timeout") ||
+    text.includes("too much time has passed without sending any data")
+  );
+}
+
 /** @internal exported for unit tests only */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -1177,41 +1234,7 @@ export function isRetryableError(err: unknown): boolean {
     if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
       return true;
   }
-
-  return (
-    code === "builder_gateway_error" ||
-    code === "builder_gateway_network_error" ||
-    code === "http_429" ||
-    code === "http_500" ||
-    code === "http_502" ||
-    code === "http_503" ||
-    code === "http_504" ||
-    code === "timeout" ||
-    // Anthropic
-    msg.includes("overloaded") ||
-    msg.includes("rate_limit") ||
-    // Bare provider rate-limit messages that carry no structured status,
-    // e.g. the Anthropic/AI-SDK "429 status code (no body)" format.
-    /\b429\b/.test(msg) ||
-    msg.includes("529") ||
-    // OpenAI phrasing
-    msg.includes("rate limit reached") ||
-    // Google / Gemini
-    msg.includes("resource_exhausted") ||
-    msg.includes("quota exceeded") ||
-    // Generic HTTP codes
-    msg.includes("502") ||
-    msg.includes("503") ||
-    msg.includes("504") ||
-    msg.includes("gateway error") ||
-    msg.includes("socket hang up") ||
-    msg.includes("connection reset") ||
-    msg.includes("too many requests") ||
-    msg.includes("timeout") ||
-    msg.includes("gateway timeout") ||
-    msg.includes("inactivity timeout") ||
-    msg.includes("too much time has passed without sending any data")
-  );
+  return isProviderUnavailableOrTransientError({ code, text: msg });
 }
 
 // ---------------------------------------------------------------------------
@@ -1867,6 +1890,7 @@ export function isResumableEngineError(err: unknown): boolean {
   }
   const text = errorSearchText(err);
   return (
+    isProviderUnavailableOrTransientError({ code, text }) ||
     text.includes("socket hang up") ||
     text.includes("econnreset") ||
     text.includes("enetreset") ||
