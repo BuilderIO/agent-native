@@ -102,7 +102,16 @@ function requestForAnonymousSsr(request: Request): Request {
   const headers = new Headers(request.headers);
   headers.delete("cookie");
   headers.delete("authorization");
-  return new Request(request, { headers });
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers,
+    signal: request.signal,
+  };
+  if (request.body && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(request.url, init);
 }
 
 function prefixMountedPath(path: string, basePath: string): string {
