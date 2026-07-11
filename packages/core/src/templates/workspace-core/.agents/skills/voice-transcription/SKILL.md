@@ -52,11 +52,13 @@ action before requesting microphone permission.
 - Starting voice mode collapses the chat into a persistent bottom-end speech
   orb. The orb stays visible above the chat even when the chat opens
   automatically. Clicking it shows or hides chat without ending the session;
-  the expanded controls also include an explicit chat toggle for
-  discoverability. Ending the session is a separate, explicit control.
+  opening chat slides the orb clear of the sidebar. The progressively disclosed
+  controls contain only settings and the separate end-session action.
 - The orb's compact waveform stays visible for the full session and reflects
   actual microphone or assistant audio activity. At silence it rests at its
-  baseline instead of turning into a loading spinner.
+  baseline instead of turning into a loading spinner. While connecting, the
+  bars use a subtle motion-safe pulse; when the session becomes live, the
+  assistant gives one brief spoken greeting so readiness is unambiguous.
 - The orb settings cog opens in place without ending voice mode or navigating
   away. Language and intelligence update the active Realtime session; an
   output-voice change updates immediately only before the assistant has emitted
@@ -73,10 +75,13 @@ action before requesting microphone permission.
   the app the user is actually speaking to.
 - Do not persist audio or interim transcript deltas. Append completed user and
   assistant utterances as ordinary text messages to the exact chat thread
-  captured when the session starts. Ending voice mode opens that chat so the
-  user can continue over text. Store only compact lifecycle and latest context
-  at `application_state["realtime-voice-session"]`; delete it when the session
-  ends.
+  captured when the session starts. Input transcription completes
+  asynchronously from assistant generation, so reserve provider conversation
+  item order and publish only the contiguous completed sequence; never use
+  completion arrival time as chat order. Ending voice mode opens that chat so
+  the user can continue over text. Store only compact lifecycle and latest
+  context at `application_state["realtime-voice-session"]`; delete it when the
+  session ends.
 - Store the user-controlled language, intelligence, and output-voice choices at
   `application_state["realtime-voice-prefs"]`. Keep this separate from
   `voice-transcription-prefs`, which configures editable dictation rather than

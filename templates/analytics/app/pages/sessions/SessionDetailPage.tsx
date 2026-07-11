@@ -2006,7 +2006,7 @@ function customReplayMarker(
       timestamp,
       offsetMs,
       kind: "custom",
-      label: "Network error",
+      label: "Network error", // i18n-ignore: timeline protocol label.
       detail: [method, url].filter(Boolean).join(" ") || error,
       severity: "error",
       fields: markerFields([
