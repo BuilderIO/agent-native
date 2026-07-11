@@ -485,9 +485,7 @@ describe("loadResourcesForPrompt", () => {
 
     expect(hugeLearnings.length).toBeGreaterThan(30_000);
     expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
-    expect(prompt).toContain(
-      "truncated after 30,000 characters",
-    );
+    expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
     // The full oversized content must not have been inlined verbatim.
     expect(prompt.length).toBeLessThan(hugeLearnings.length);
@@ -508,9 +506,7 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain(
       '<resource name="memory/MEMORY.md" scope="personal"',
     );
-    expect(prompt).toContain(
-      "truncated after 30,000 characters",
-    );
+    expect(prompt).toContain("truncated after 30,000 characters");
     expect(prompt.length).toBeLessThan(hugeMemory.length);
   });
 });

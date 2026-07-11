@@ -386,7 +386,10 @@ describe("render-data-widget framework action", () => {
 
 describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency", () => {
   const noopTool = {
-    tool: { description: "noop", parameters: { type: "object" as const, properties: {} } },
+    tool: {
+      description: "noop",
+      parameters: { type: "object" as const, properties: {} },
+    },
     run: async () => "ok",
   } as never;
 
