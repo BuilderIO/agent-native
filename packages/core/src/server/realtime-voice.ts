@@ -26,6 +26,7 @@ import {
 } from "./credential-provider.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
+import { isSameOriginRequest } from "./request-origin.js";
 
 export const REALTIME_VOICE_SESSION_PATH =
   "/_agent-native/realtime-voice/session";
@@ -301,6 +302,10 @@ function createSessionHandler(
 ) {
   return defineEventHandler(async (event: H3Event) => {
     if (getMethod(event) !== "POST") return invalidMethod(event);
+    if (!isSameOriginRequest(event)) {
+      setResponseStatus(event, 403);
+      return { error: "Cross-origin request rejected" };
+    }
     setResponseHeader(event, "Cache-Control", "no-store");
 
     const auth = await authenticateVoiceRequest(event, options);
@@ -529,6 +534,10 @@ function createToolHandler(
 ) {
   return defineEventHandler(async (event: H3Event) => {
     if (getMethod(event) !== "POST") return invalidMethod(event);
+    if (!isSameOriginRequest(event)) {
+      setResponseStatus(event, 403);
+      return { error: "Cross-origin request rejected" };
+    }
     setResponseHeader(event, "Cache-Control", "no-store");
 
     const auth = await authenticateVoiceRequest(event, options);

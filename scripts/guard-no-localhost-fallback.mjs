@@ -93,6 +93,8 @@ const SKIP_DIRS = new Set([
   ".wrangler",
   ".react-router",
   ".generated",
+  // Generated package corpus built from source files.
+  "corpus",
   ".claude",
   ".video-bakeoff",
   ".video-bakeoff-recording",
@@ -110,6 +112,10 @@ const ALLOWED_PATH_PREDICATES = [
   (rel) => rel === "packages/core/src/server/auth.ts",
   // Dev-only framework code.
   (rel) => /^packages\/core\/src\/dev/.test(rel),
+  // The reusable implementation needs the literal to detect it.
+  (rel) => rel === "packages/core/src/guards/no-localhost-fallback.ts",
+  // Generated package corpus mirrors framework source for agent retrieval.
+  (rel) => /^packages\/core\/corpus\//.test(rel),
   // Tests.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),

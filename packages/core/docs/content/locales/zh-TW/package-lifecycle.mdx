@@ -1,0 +1,19 @@
+---
+title: 套件生命週期
+description: 安全檢查、新增與退出由資訊清單驅動的 Agent Native 套件。
+---
+
+# 套件生命週期
+
+可重用套件可以發布具版本的靜態 `agent-native.package.json`。CLI 檢查時只會
+讀取此 JSON，不會執行套件程式碼。
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+新增與退出預設只會預覽。只有指定 `--apply` 才會寫入檔案並執行偵測到的套件
+管理器。CLI 會拒絕衝突與未知配置；安裝失敗時會還原檔案與鎖定檔。試辦期間
+只有 Scheduling 可退出，Pinpoint 暫不納入。

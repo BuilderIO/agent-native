@@ -1069,15 +1069,15 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
   if (abortSignal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    abortSignal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      abortSignal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    abortSignal.addEventListener("abort", onAbort, { once: true });
   });
 }
 

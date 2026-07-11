@@ -820,6 +820,9 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"subjectAnchorIds": [');
     expect(prompt).toContain('"targetAnchorId": "target"');
     expect(prompt).toContain("Never use a generic AST reparent");
+    expect(prompt).toContain("source.kind=local-file");
+    expect(prompt).toContain("inspect proposedDiff");
+    expect(prompt).toContain("persist=true");
     expect(prompt).toContain(
       "read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash",
     );

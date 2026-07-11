@@ -102,6 +102,10 @@ Agent-Native 有兩個轉接器接縫，可消除狹窄後面的問題，
       note: "選取：getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "持久佇列標記與背景執行生命週期",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "預設後端：受限的 Node 子行程",
     },
@@ -181,11 +185,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### `AGENT_NATIVE_SANDBOX` 環境變數 {#env}
 
-透過 id 選取內建轉接器。目前僅有線`local`（預設）；未知值回退到本機而不是執行失敗。
+透過 id 選取內建轉接器。`local`（預設）與 `background` 均已接入；未知值會回退到 `local`，而不會導致執行失敗。
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # 預設值——顯式
+AGENT_NATIVE_SANDBOX=local        # 預設值——顯式
+AGENT_NATIVE_SANDBOX=background   # 將每次 run-code 呼叫持久排入佇列
 ```
+
+`background` 將原始程式碼存入 `sandbox_executions`，並立即回傳帶有 `status: "queued"` 的 `executionId`。簽署的自我派送會啟動新的 serverless 呼叫；長時間執行的 Node 會在行程內啟動分離工作；狀態輪詢與定期 sweep 會重新驅動遺失的派送或已過期的 lease。稍後輪詢該執行即可取得持久化結果。
+
+`BackgroundQueueAdapter` 是持久佇列標記，而不是執行器。佇列中的工作會在可用時使用已註冊的非佇列執行轉接器，否則回退到本機子行程。僅選取 `background` 不會提供遠端或容器隔離，也不會讓 edge 執行環境與 `node:child_process` 相容。
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -211,13 +220,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## 耐用跑鞋的接縫 {#durable}
 
-這個介面是特意為未來的遠端/持久沙箱做的接縫。遠端或持久轉接器（Docker、Vercel-Sandbox 式執行程式或排隊背景工作程式）將：
+內建 `background` 轉接器已提供持久排隊與新的執行預算，但實際執行仍使用非佇列轉接器或本機子行程回退。另行註冊的遠端或隔離轉接器（Docker 或 Vercel-Sandbox 式執行器）可以提供不同的執行邊界，也可以執行每次呼叫的背景工作。
 
-1. 針對行程外執行時實現 `SandboxAdapter.run`。
-2. 透過隧道環回網橋（或代理網橋回調至父級）。
-3. 讓大資料作業獨立於請求生命週期執行直至完成 - 超過限制本機子行程轉接器的託管約 40 秒程式碼執行上限。
+此類轉接器將：
 
-將其註冊為新的 `AGENT_NATIVE_SANDBOX` 值（例如 `remote`）和/或透過 `registerSandboxAdapter()`。代理迴圈和 `run-code.ts` 永遠不會改變。
+1. 針對行程外執行環境實作 `SandboxAdapter.run`。
+2. 為 loopback 橋接建立通道，或將橋接呼叫代理回父行程。
+3. 獨立於已提供的持久佇列生命週期，提供遠端或容器隔離。
+
+透過 `registerSandboxAdapter()` 以程式化方式註冊。代理迴圈和 `run-code.ts` 無需變更。
 
 > [!TIP]
 > `agent-native add sandbox docker` 藍圖發出了一個完整的、獨立的配方，用於針對此接縫實現 Docker 轉接器。參見[Blueprint Installer](/docs/blueprint-installer)。

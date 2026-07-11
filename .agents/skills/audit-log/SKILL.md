@@ -77,6 +77,9 @@ SQL to the caller — they never leak another tenant's rows:
   (`agent` | `human` | `system`), `status`, `threadId`/`turnId`, `action`,
   `sinceMs`, `limit`.
 - `get-audit-event` — one event by id, with its redacted input payload.
+- `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`,
+  plus `format` and `maxRows`) for offline/compliance pulls; itself audited
+  via `onRead`.
 
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.

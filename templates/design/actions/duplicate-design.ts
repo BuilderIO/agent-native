@@ -65,23 +65,11 @@ export default defineAction({
 
     // Copy the design with remapped canvasFrames
     const orgId = getRequestOrgId() || null;
-    await db.insert(schema.designs).values({
-      id: newId,
-      title: newTitle,
-      description: source.description,
-      projectType: source.projectType,
-      designSystemId: source.designSystemId ?? null,
-      data: newData,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
-      orgId,
-      visibility: orgId ? "org" : "private",
-      createdAt: now,
-      updatedAt: now,
-    });
+    const ownerEmail = (() => {
+      const e = getRequestUserEmail();
+      if (!e) throw new Error("no authenticated user");
+      return e;
+    })();
 
     // Copy all associated files using the pre-generated IDs. `content` is
     // copied verbatim, including any `data-agent-native-node-id` attributes
@@ -112,17 +100,35 @@ export default defineAction({
     // generated/imported before ids were stamped at creation time): this only
     // adds ids where none exist and never touches an id that's already
     // present, so it can't disturb the existing-id-copy contract above.
-    for (const file of files) {
-      await db.insert(schema.designFiles).values({
-        id: idMap.get(file.id)!,
-        designId: newId,
-        filename: file.filename,
-        fileType: file.fileType,
-        content: annotateScreenHtmlForPersist(file.content, file.fileType),
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.designs).values({
+        id: newId,
+        title: newTitle,
+        description: source.description,
+        projectType: source.projectType,
+        designSystemId: source.designSystemId ?? null,
+        data: newData,
+        ownerEmail,
+        orgId,
+        visibility: orgId ? "org" : "private",
         createdAt: now,
         updatedAt: now,
       });
-    }
+
+      if (files.length > 0) {
+        await tx.insert(schema.designFiles).values(
+          files.map((file) => ({
+            id: idMap.get(file.id)!,
+            designId: newId,
+            filename: file.filename,
+            fileType: file.fileType,
+            content: annotateScreenHtmlForPersist(file.content, file.fileType),
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
+    });
 
     return {
       id: newId,

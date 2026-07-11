@@ -135,6 +135,12 @@ Join the **[Discord](https://discord.gg/qm82StQ2NC)** to ask questions, share wh
 
 Full documentation at **[agent-native.com](https://agent-native.com)**.
 
+## Contributing
+
+Working on this repo itself (not just building an app with it)? See
+**[DEVELOPMENT.md](./DEVELOPMENT.md)** for local setup, workspace structure,
+and guard scripts.
+
 ## License
 
 MIT

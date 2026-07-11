@@ -56,13 +56,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -87,15 +81,16 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
         run: pnpm exec playwright install --only-shell chromium
@@ -118,13 +113,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -146,13 +135,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -174,15 +157,16 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed integration tests
         run: pnpm exec playwright install --only-shell chromium
@@ -205,13 +189,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -235,13 +213,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -263,13 +235,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -309,17 +275,18 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for dev smoke
         run: pnpm exec playwright install --only-shell chromium

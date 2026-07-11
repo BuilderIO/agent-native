@@ -104,8 +104,11 @@ The shared source model lives in `shared/source-mode.ts`. Use `inline` for
 SQL-backed prototype files, `localhost` for local dev-server artboards, and
 `fusion` only for future hybrid/hosted sources. Bridge operations are named
 `select`, `resolveNodeToFile`, `readFile`, `applyEdit`, `writeFile`,
-`captureSnapshot`, and `captureState`; current localhost writes are contract-only
-until the bridge adds explicit permission hardening.
+`captureSnapshot`, and `captureState`. Localhost file writes run through the
+token-authenticated bridge and require an explicit, time-boxed human consent
+grant. Deterministic JSX write-back is intentionally limited to exact
+single-instance leaf text and literal class/style edits; ambiguous or semantic
+changes fail closed for coding-agent inspection.
 
 ## Editor Model
 
@@ -130,10 +133,11 @@ Selectors are fallback aliases, not the primary identity. Localhost React mode
 should resolve through build-time source/debug metadata (generated stable id,
 component, file, and line) before using selector fallbacks.
 
-Inline source mode supports local code-layer projection and deterministic HTML
-edits through `get-code-layer-projection` and `apply-visual-edit`. Current
-limitations: visual code-layer edits are HTML-only, and localhost reads/writes
-are still bridge-contract scaffolding until permission controls are hardened.
+Inline source mode supports code-layer projection and deterministic HTML edits
+through `get-code-layer-projection` and `apply-visual-edit`. Localhost JSX/TSX
+supports diff-first literal leaf text/class/style edits when an exact source
+anchor resolves to one current file; structural, dynamic, repeated, shared, and
+breakpoint edits remain semantic coding-agent work.
 
 ## Adding a Route-Only Endpoint
 

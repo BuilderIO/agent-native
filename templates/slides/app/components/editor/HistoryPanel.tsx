@@ -6,6 +6,7 @@ import {
   IconRestore,
 } from "@tabler/icons-react";
 import { useMemo, useState, type RefObject } from "react";
+import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,6 @@ import {
   useDeckVersions,
   useRestoreDeckVersion,
 } from "@/hooks/use-deck-versions";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import type { DeckVersionSummary } from "../../../shared/api";
@@ -107,19 +107,16 @@ export default function HistoryPanel({
         deckId,
         versionId: selectedVersionId,
       });
-      toast({
-        title: t("history.versionRestored"),
+      toast.success(t("history.versionRestored"), {
         description: t("history.versionRestoredDescription"),
       });
       handleClose(false);
     } catch (error) {
-      toast({
-        title: t("history.restoreFailed"),
+      toast.error(t("history.restoreFailed"), {
         description:
           error instanceof Error
             ? error.message
             : t("history.restoreFailedDescription"),
-        variant: "destructive",
       });
     }
   };

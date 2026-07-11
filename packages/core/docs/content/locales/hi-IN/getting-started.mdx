@@ -163,7 +163,13 @@ Browser के लिए अलग duplicate REST route न बनाएं; UI 
   />
 </WireframeBlock>
 
-`view-screen` और `navigate` को extend करें ताकि agent current route जान सके और `/response-insights` खोल सके. Results में `href: "/response-insights"` भी हो सकता है, जिससे chat में "प्रतिक्रिया insights खोलें" button दिखे.
+## 6. agent को navigate करने दें {#agent-navigation}
+
+Chat template में `view-screen` और `navigate` actions शामिल हैं. आपकी app बढ़ने के साथ इन्हें extend करें:
+
+- `view-screen` को application state पढ़कर current route, selected insight, active filters, और agent को जरूरी किसी भी compact page context को return करना चाहिए.
+- `navigate` को `/response-insights` जैसा same-origin path तब लिखना चाहिए जब agent तय करे कि user को result visually देखना चाहिए.
+- action results में `href: "/response-insights"` जैसे links हो सकते हैं ताकि chat एक स्पष्ट "प्रतिक्रिया insights खोलें" button दिखा सके.
 
 जब full-page chat app page खोलता है, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) से `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` और `chatViewTransition` इस्तेमाल करें ताकि वही thread रखते हुए chat side panel में slide हो जाए.
 

@@ -73,10 +73,11 @@ export default defineAction({
 
 ## 트레일 읽기 {#reading}
 
-2개의 읽기 actions는 에이전트 **및** 호출자에게 SQL 범위로 지정된 모든 앱의 프런트엔드에서 사용할 수 있으며 다른 테넌트의 행을 반환하지 않습니다.
+3개의 읽기 actions는 에이전트 **및** 호출자에게 SQL 범위로 지정된 모든 앱의 프런트엔드에서 사용할 수 있으며 다른 테넌트의 행을 반환하지 않습니다.
 
 - **`list-audit-events`** — `targetType` / `targetId`, `actorKind`(`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`로 필터링, `sinceMs` 및 `limit`.
 - **`get-audit-event`** — 수정된 입력 페이로드를 포함하여 ID별 이벤트 1개.
+- **`export-audit-events`** — `list-audit-events`를 수동으로 페이징하는 대신 추적 기록을 CSV 또는 NDJSON으로 일괄 내보내며, 오프라인 규정 준수 확인용입니다. `list-audit-events`와 동일한 필터(`limit` 제외)에 `format`(`csv` | `ndjson`, 기본값 `csv`)과 `maxRows`(기본값 5000, 상한 10000)를 추가로 받으며, `{ content, rowCount, truncated, format }`을 반환합니다 — `truncated: true`는 `maxRows`가 허용한 것보다 더 많은 행이 일치했음을 의미합니다. 이 자체도 민감한 읽기이며 `audit: { onRead: true }`를 통해 감사됩니다.
 
 `useActionQuery`를 사용하여 UI에서 `list-audit-events`를 호출하여 활동 피드 또는 "이 항목을 변경한 사람" 줄을 작성합니다. 감사 테이블에 가져오기를 직접 작성하지 마세요.
 

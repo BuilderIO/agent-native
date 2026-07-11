@@ -2147,12 +2147,18 @@ async function startNativeFullscreenRecording(
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
-    await transcriptionCapture?.resetTimeline().catch((err) => {
-      console.warn(
-        "[clips-recorder] transcription timeline reset failed:",
-        err,
-      );
-    });
+    // Cast: `transcriptionCapture` is only ever reassigned inside the
+    // `startNativeTranscriptionBeforeRecording` closure above, so TS's
+    // control-flow analysis can't see past that call and narrows this
+    // read to `null`. Restate the variable's own declared type.
+    await (transcriptionCapture as TranscriptionCapture | null)
+      ?.resetTimeline()
+      .catch((err) => {
+        console.warn(
+          "[clips-recorder] transcription timeline reset failed:",
+          err,
+        );
+      });
     // Capture is now live — after rebasing the transcript timeline, stamp the
     // timer baseline so the toolbar clock lines up with the real start.
     startedAt = Date.now();
@@ -2164,12 +2170,15 @@ async function startNativeFullscreenRecording(
     localCameraExport?.start(2_000);
   } catch (err) {
     await localCameraExport?.cancel().catch(() => {});
-    await transcriptionCapture?.cancel().catch((cancelErr) => {
-      console.warn(
-        "[clips-recorder] native transcription cancel after start failure failed:",
-        cancelErr,
-      );
-    });
+    // Same TS narrowing gap as above: reassert the declared type.
+    await (transcriptionCapture as TranscriptionCapture | null)
+      ?.cancel()
+      .catch((cancelErr) => {
+        console.warn(
+          "[clips-recorder] native transcription cancel after start failure failed:",
+          cancelErr,
+        );
+      });
     // Tear down any capture started by the warm phase — on a countdown cancel
     // (or a `begin` failure) the SCStream is already running with the mic live,
     // and without this it would keep capturing after the aborted start.
@@ -2629,7 +2638,11 @@ async function startNativeFullscreenRecording(
       console.log(
         "[clips-recorder] native: paused during startup, pausing transcription",
       );
-      void transcriptionCapture.pause().catch(() => {});
+      // The `if` above already proves non-null at runtime; TS just can't see
+      // it (same closure-narrowing gap as above).
+      void (transcriptionCapture as TranscriptionCapture)
+        .pause()
+        .catch(() => {});
     }
   }
 

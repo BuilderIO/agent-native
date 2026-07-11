@@ -73,10 +73,11 @@ Tout dans `audit` est facultatif. L'ajout minimum utile est `target: () => ({ ty
 
 ## Lecture du parcours {#reading}
 
-Deux actions en lecture sont disponibles pour l'agent **et** le frontend dans chaque application, étendus dans SQL à l'appelant — ils ne renvoient jamais les lignes d'un autre locataire :
+Trois actions en lecture sont disponibles pour l'agent **et** le frontend dans chaque application, étendus dans SQL à l'appelant — ils ne renvoient jamais les lignes d'un autre locataire :
 
 - **`list-audit-events`** — filtrer par `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` et `limit`.
 - **`get-audit-event`** — un événement par identifiant, y compris sa charge utile d'entrée expurgée.
+- **`export-audit-events`** — exporte le journal en masse au format CSV ou NDJSON plutôt que de paginer manuellement `list-audit-events`, pour des extractions de conformité hors ligne. Prend les mêmes filtres que `list-audit-events` (sans `limit`), plus `format` (`csv` | `ndjson`, par défaut `csv`) et `maxRows` (par défaut 5000, plafond strict 10000), et renvoie `{ content, rowCount, truncated, format }` — `truncated: true` signifie que davantage de lignes correspondaient que ce que `maxRows` autorisait. C'est elle-même une lecture sensible, auditée via `audit: { onRead: true }`.
 
 Créez un flux d'activité ou une ligne « qui a modifié cela » en appelant `list-audit-events` à partir du UI avec `useActionQuery` — n'écrivez jamais manuellement une récupération dans la table d'audit :
 

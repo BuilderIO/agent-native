@@ -142,37 +142,57 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   const client = getDbExec();
   const now = Date.now();
   const encrypted = encryptValue(value);
+  const id = randomUUID();
 
-  // Upsert by (scope, scope_id, key). Keep the existing row's id on update so
-  // references stay stable.
+  // Atomic upsert by (scope, scope_id, key). Previously this was a
+  // SELECT-then-branch (UPDATE if found, else INSERT): under concurrent
+  // writers for the same key both could see "no row" and both attempt
+  // INSERT, and the loser threw a raw UNIQUE(scope, scope_id, key)
+  // constraint violation (a user-facing 500) instead of updating. A single
+  // `INSERT ... ON CONFLICT DO UPDATE` closes that window — it's one
+  // statement, so there's no gap between "check" and "act". `id` is
+  // deliberately left out of the `DO UPDATE SET` list so an existing row
+  // keeps its original id (any stored references stay stable); only a
+  // genuinely new row gets the freshly generated `id`. This syntax is
+  // portable across SQLite (UPSERT since 3.24) and Postgres.
+  const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (scope, scope_id, key) DO UPDATE SET
+      encrypted_value = excluded.encrypted_value,
+      description = excluded.description,
+      url_allowlist = excluded.url_allowlist,
+      updated_at = excluded.updated_at`;
+  const upsertArgs = [
+    id,
+    scope,
+    scopeId,
+    key,
+    encrypted,
+    description ?? null,
+    urlAllowlist ?? null,
+    now,
+    now,
+  ];
+
+  if (isPostgres()) {
+    const { rows } = await client.execute({
+      sql: `${upsertSql} RETURNING id`,
+      args: upsertArgs,
+    });
+    return String(rows[0]?.id ?? id);
+  }
+
+  // SQLite: RETURNING support varies across better-sqlite3/libsql builds, so
+  // (matching the convention elsewhere in this codebase, e.g.
+  // integrations/pending-tasks-store.ts) re-read the id afterward instead of
+  // relying on it. The row is guaranteed to exist at this point, so this is
+  // a plain lookup rather than a TOCTOU-prone gate on the write itself.
+  await client.execute({ sql: upsertSql, args: upsertArgs });
   const { rows } = await client.execute({
-    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
+    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
-  if (rows.length > 0) {
-    const id = rows[0].id as string;
-    await client.execute({
-      sql: `UPDATE app_secrets SET encrypted_value = ?, description = ?, url_allowlist = ?, updated_at = ? WHERE id = ?`,
-      args: [encrypted, description ?? null, urlAllowlist ?? null, now, id],
-    });
-    return id;
-  }
-  const id = randomUUID();
-  await client.execute({
-    sql: `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      scope,
-      scopeId,
-      key,
-      encrypted,
-      description ?? null,
-      urlAllowlist ?? null,
-      now,
-      now,
-    ],
-  });
-  return id;
+  return String(rows[0]?.id ?? id);
 }
 
 export interface ReadSecretResult {

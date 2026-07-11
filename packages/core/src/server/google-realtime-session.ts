@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises";
 import {
   defineEventHandler,
   getMethod,
-  getRequestHeader,
   readBody,
   setResponseStatus,
   type H3Event,
@@ -15,46 +14,12 @@ import { readAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
 import { resolveBuilderCredentials } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
+import { isSameOriginRequest } from "./request-origin.js";
 
 interface GoogleRealtimeSessionResponse {
   websocketUrl: string;
   sessionToken: string;
   websocketProtocol?: string;
-}
-
-function isSameOriginRequest(event: H3Event): boolean {
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
-  if (origin && host) {
-    try {
-      const parsed = new URL(origin);
-      if (parsed.host === host) return true;
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
-      if (
-        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-        parsed.hostname === "tauri.localhost" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      if (
-        parsed.protocol === "http:" &&
-        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
-        parsed.port === "1420" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-  const fetchSite = getRequestHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
-  return true;
 }
 
 export async function resolveGoogleRealtimeCredentials(opts: {

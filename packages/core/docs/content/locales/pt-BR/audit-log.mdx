@@ -73,10 +73,11 @@ Tudo em `audit` é opcional. A adição mínima útil é `target: () => ({ type,
 
 ## Lendo a trilha {#reading}
 
-Duas leituras actions estão disponíveis para o agente **e** o frontend em cada aplicativo, com escopo SQL para o chamador — eles nunca retornam as linhas de outro locatário:
+Três leituras actions estão disponíveis para o agente **e** o frontend em cada aplicativo, com escopo SQL para o chamador — eles nunca retornam as linhas de outro locatário:
 
 - **`list-audit-events`** — filtrar por `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs` e `limit`.
 - **`get-audit-event`** — um evento por ID, incluindo sua carga útil de entrada editada.
+- **`export-audit-events`** — exporta a trilha em massa como CSV ou NDJSON em vez de paginar manualmente `list-audit-events`, para extrações de conformidade offline. Aceita os mesmos filtros de `list-audit-events` (sem `limit`) mais `format` (`csv` | `ndjson`, padrão `csv`) e `maxRows` (padrão 5000, limite máximo 10000), e retorna `{ content, rowCount, truncated, format }` — `truncated: true` significa que mais linhas corresponderam do que `maxRows` permitia. É, em si, uma leitura sensível, auditada via `audit: { onRead: true }`.
 
 Crie um feed de atividades ou uma linha "quem mudou isto" chamando `list-audit-events` do UI com `useActionQuery` — nunca escreva manualmente uma busca na tabela de auditoria:
 

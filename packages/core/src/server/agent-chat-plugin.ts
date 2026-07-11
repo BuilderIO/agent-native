@@ -8,6 +8,7 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  getRequestIP,
   type H3Event,
 } from "h3";
 
@@ -19,7 +20,8 @@ import {
 } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
+  isLoopbackAddress,
+  isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
 import {
   applyAgentTextEventToBuffer,
@@ -1064,6 +1066,10 @@ function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
  * entries are pruned on read.
  */
 const generateTitleRateLimit = new Map<string, number[]>();
+
+/** Only sweep drained rate-limit entries once the map grows past this size,
+ * so the common small-map case stays O(1). */
+const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
 
 /**
  * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
@@ -6551,12 +6557,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else if (isA2AProductionRuntime()) {
-            setResponseStatus(event, 503);
-            return {
-              error:
-                "Agent Teams processor not configured — set A2A_SECRET on this deployment.",
-            };
+          } else {
+            const loopback = isLoopbackAddress(
+              getRequestIP(event, { xForwardedFor: false }),
+            );
+            if (!isTrustedLocalRuntime({ loopback })) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+              };
+            }
           }
 
           try {
@@ -7224,6 +7235,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           setResponseHeader(event, "Content-Type", "application/x-ndjson");
           setResponseHeader(event, "Cache-Control", "no-cache");
 
+          // Lets `cancel()` signal in-flight source work to stop early on
+          // client disconnect, instead of only being noticed the next time
+          // `flush()`'s `controller.enqueue` throws.
+          const mentionsAbort = new AbortController();
+
           const stream = new ReadableStream({
             start(controller) {
               return runWithRequestContext(
@@ -7235,7 +7251,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             },
             cancel() {
-              // Client disconnected — stop enqueuing
+              // Client disconnected — stop enqueuing and let in-flight source
+              // work short-circuit instead of running to completion unseen.
+              mentionsAbort.abort();
             },
           });
 
@@ -7246,10 +7264,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ) {
             const MAX_RESULTS = 50;
             let totalSent = 0;
-            let cancelled = false;
+            let cancelled = mentionsAbort.signal.aborted;
 
             const flush = (batch: MentionItemResponse[]) => {
-              if (cancelled) return;
+              if (cancelled || mentionsAbort.signal.aborted) {
+                cancelled = true;
+                return;
+              }
               const filtered = batch.filter(matchesQuery);
               if (filtered.length === 0) return;
               const remaining = MAX_RESULTS - totalSent;
@@ -7332,6 +7353,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             // 3. Custom mention providers (each flushes independently)
             for (const [key, provider] of Object.entries(mentionProviders)) {
+              // Client already disconnected — don't spawn more provider work.
+              if (mentionsAbort.signal.aborted) break;
               sources.push(
                 (async () => {
                   try {
@@ -7419,7 +7442,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
 
             await Promise.all(sources);
-            if (!cancelled) controller.close();
+            if (!cancelled && !mentionsAbort.signal.aborted) {
+              controller.close();
+            }
           }
         }),
       );
@@ -7449,6 +7474,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           recent.push(now);
           generateTitleRateLimit.set(ownerEmail, recent);
+
+          // Opportunistic eviction: keep the map from growing unbounded by
+          // the count of distinct users on a long-lived process. Drop any
+          // key whose window has fully drained (no timestamps within the
+          // rolling window).
+          if (generateTitleRateLimit.size > RATE_LIMIT_SWEEP_THRESHOLD) {
+            for (const [email, times] of generateTitleRateLimit) {
+              if (email === ownerEmail) continue;
+              if (times.every((t) => now - t >= limitWindowMs)) {
+                generateTitleRateLimit.delete(email);
+              }
+            }
+          }
 
           const body = await readBody(event);
           const message = body?.message;
@@ -8438,10 +8476,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
           // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3.
+          // durable-background.spec.ts); the route only wires it to h3. This
+          // handler DOES have the h3 event, so it can see the real socket
+          // peer — thread the loopback signal through so unsigned local-dev
+          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
+            isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
           );
           if (!prepared.ok) {
             // DIAGNOSTIC: record the auth/validation failure ONTO the run

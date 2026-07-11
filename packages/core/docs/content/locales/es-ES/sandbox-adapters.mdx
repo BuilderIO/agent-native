@@ -105,6 +105,10 @@ La costura se encuentra en el núcleo en `packages/core/src/coding-tools/sandbox
       note: "Selección: getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "marcador de cola duradera y ciclo de vida de ejecución en segundo plano",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "Backend predeterminado: proceso hijo de Node bloqueado",
     },
@@ -184,11 +188,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### Var entorno `AGENT_NATIVE_SANDBOX` {#env}
 
-Selecciona un adaptador integrado por id. Actualmente, solo está cableado `local` (el predeterminado); los valores desconocidos recurren al local en lugar de fallar la ejecución.
+Selecciona un adaptador integrado por id. Están conectados tanto `local` (el predeterminado) como `background`; los valores desconocidos recurren a `local` en lugar de fallar la ejecución.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # el valor predeterminado - explícito
+AGENT_NATIVE_SANDBOX=local        # el valor predeterminado - explícito
+AGENT_NATIVE_SANDBOX=background   # pone en cola duradera cada llamada a run-code
 ```
+
+`background` guarda el código sin procesar en `sandbox_executions` y devuelve inmediatamente un `executionId` con `status: "queued"`. Un autoenvío firmado inicia una nueva invocación serverless; un proceso Node de larga duración inicia trabajo desacoplado en el proceso; el sondeo de estado y el barrido periódico reactivan envíos perdidos o concesiones vencidas. Consulte la ejecución más tarde para obtener el resultado persistido.
+
+`BackgroundQueueAdapter` es un marcador de cola duradera, no el ejecutor. El trabajo en cola usa un adaptador de ejecución registrado que no sea de cola cuando está disponible; de lo contrario, recurre al proceso secundario local. Seleccionar solo `background` no proporciona aislamiento remoto ni de contenedor, ni hace que un entorno edge sea compatible con `node:child_process`.
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -214,13 +223,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## La costura para un corredor duradero {#durable}
 
-Esta interfaz es deliberadamente la unión para una futura zona de pruebas remota/duradera. Un adaptador remoto o duradero (Docker, un ejecutor estilo Vercel-Sandbox o un trabajador en segundo plano en cola) haría lo siguiente:
+El adaptador integrado `background` ya proporciona una cola duradera y un presupuesto de ejecución nuevo, mientras que la ejecución real sigue usando un adaptador que no sea de cola o el proceso secundario local como alternativa. Un adaptador remoto o aislado registrado por separado (Docker o un ejecutor estilo Vercel-Sandbox) puede proporcionar otro límite de ejecución y también ejecutar trabajo en segundo plano por llamada.
 
-1. Implemente `SandboxAdapter.run` en un tiempo de ejecución fuera de proceso.
-2. Haz un túnel para el puente loopback (o las llamadas del puente proxy al padre).
-3. Permita que los trabajos de datos grandes se ejecuten hasta su finalización independientemente del ciclo de vida de la solicitud, superando el límite máximo de ejecución de código alojado de ~40 s que limita el adaptador de proceso secundario local.
+Ese adaptador:
 
-Regístrelo con un nuevo valor `AGENT_NATIVE_SANDBOX` (por ejemplo, `remote`) y/o mediante `registerSandboxAdapter()`. El bucle del agente y `run-code.ts` nunca cambian.
+1. Implementaría `SandboxAdapter.run` en un entorno de ejecución fuera del proceso.
+2. Crearía un túnel para el puente loopback o reenviaría sus llamadas al proceso principal.
+3. Proporcionaría aislamiento remoto o de contenedor independientemente del ciclo de vida de la cola duradera incluida.
+
+Regístrelo mediante programación con `registerSandboxAdapter()`. El bucle del agente y `run-code.ts` no necesitan cambiar.
 
 > [!TIP]
 > El plano `agent-native add sandbox docker` emite una receta completa e independiente para implementar un adaptador Docker en esta unión. Ver [Blueprint Installer](/docs/blueprint-installer).

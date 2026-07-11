@@ -631,6 +631,70 @@ describe("run store", () => {
     expect(repair?.args[5]).toBe("run-done-event");
   });
 
+  it("reconciles multiple stale candidate runs in parallel, not sequentially", async () => {
+    runListRows = [
+      {
+        id: "run-stale-a",
+        thread_id: "thread-multi-stale",
+        turn_id: null,
+        status: "running",
+        started_at: 1000,
+        heartbeat_at: 1500,
+        completed_at: null,
+        last_progress_at: 1500,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: null,
+        diag_stage: null,
+      },
+      {
+        id: "run-stale-b",
+        thread_id: "thread-multi-stale",
+        turn_id: null,
+        status: "running",
+        started_at: 900,
+        heartbeat_at: 1400,
+        completed_at: null,
+        last_progress_at: 1400,
+        error_code: null,
+        abort_reason: null,
+        dispatch_mode: "background-processing",
+        terminal_reason: null,
+        diag_stage: null,
+      },
+    ];
+    refreshedRunListRows = runListRows.map((row) => ({
+      ...row,
+      status: "completed",
+      completed_at: 123_456,
+      terminal_reason: "done",
+    }));
+    latestEventRows = [
+      {
+        seq: 9,
+        event_at: 123_456,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+
+    const runs = await listRunsForThread("thread-multi-stale");
+
+    expect(runs).toHaveLength(2);
+    expect(runs.every((run) => run.status === "completed")).toBe(true);
+    // Only one refetch of the row list, no matter how many candidates were
+    // reconciled — the reconciliations run concurrently, not per-row.
+    expect(runListSelectCount).toBe(2);
+    const repairCalls = execCalls.filter(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /SET status = \?/i.test(call.sql),
+    );
+    expect(repairCalls).toHaveLength(2);
+    const reconciledRunIds = repairCalls.map((call) => call.args[5]).sort();
+    expect(reconciledRunIds).toEqual(["run-stale-a", "run-stale-b"]);
+  });
+
   it("reapIfStale honors last_progress_at as liveness so a progressing run is not reaped mid-tool", async () => {
     await reapIfStale("run-progressing");
 

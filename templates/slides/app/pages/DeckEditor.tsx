@@ -35,6 +35,7 @@ import {
 } from "react";
 import type { ComponentType } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
@@ -51,7 +52,6 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
-import { ToastAction } from "@/components/ui/toast";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -61,7 +61,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -396,18 +395,15 @@ export default function DeckEditor() {
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
-        toast({
-          title: t("deckEditor.imageAdded"),
+        toast.success(t("deckEditor.imageAdded"), {
           description: file.name,
         });
       } catch (error) {
-        toast({
-          title: t("deckEditor.imageUploadFailed"),
+        toast.error(t("deckEditor.imageUploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("deckEditor.imageUploadError"),
-          variant: "destructive",
         });
       }
     },
@@ -482,25 +478,14 @@ export default function DeckEditor() {
         );
       })();
       deleteSlide(deckId, slideId);
-      const t = toast({
-        title: `${slideTitle} deleted`,
+      toast(`${slideTitle} deleted`, {
         description: `Press ${shortcutLabel("cmd+z")} or click Undo to restore.`,
-        action: (
-          <ToastAction
-            altText="Undo delete"
-            data-undo-button
-            onClick={() => {
-              undo();
-              t.dismiss();
-            }}
-          >
-            Undo
-          </ToastAction>
-        ),
+        duration: 6000,
+        action: {
+          label: "Undo",
+          onClick: () => undo(),
+        },
       });
-      // Auto-dismiss after 6 seconds (shadcn toast's TOAST_REMOVE_DELAY is
-      // intentionally enormous, so we trigger it manually).
-      setTimeout(() => t.dismiss(), 6000);
     },
     [deck, deleteSlide, undo],
   );
@@ -841,23 +826,19 @@ export default function DeckEditor() {
           try {
             const slideIds = deck.slides.map((s) => s.id);
             if (slideIds.length === 0) {
-              toast({
-                title: t("deckEditor.exportFailed"),
+              toast.error(t("deckEditor.exportFailed"), {
                 description: t("deckEditor.deckHasNoSlides"),
-                variant: "destructive",
               });
               return;
             }
             await exportDeckAsPdf(deck.title, slideIds, deck.aspectRatio);
           } catch (err) {
             console.error("[pdf-export] failed:", err);
-            toast({
-              title: t("deckEditor.exportFailed"),
+            toast.error(t("deckEditor.exportFailed"), {
               description:
                 err instanceof Error
                   ? err.message
                   : t("deckEditor.pdfRenderFailed"),
-              variant: "destructive",
             });
           }
         }}

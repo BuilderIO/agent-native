@@ -1,0 +1,22 @@
+---
+title: Paketlebenszyklus
+description: Manifestgesteuerte Agent-Native-Pakete sicher prüfen, hinzufügen und auswerfen.
+---
+
+# Paketlebenszyklus
+
+Wiederverwendbare Pakete können ein statisches, versioniertes
+`agent-native.package.json` veröffentlichen. Die CLI liest nur diese JSON-Datei
+und führt beim Prüfen keinen Paketcode aus.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Hinzufügen und Auswerfen sind standardmäßig Vorschauen. Erst `--apply` schreibt
+Dateien und startet den erkannten Paketmanager. Kollisionen und unbekannte
+Layouts werden abgelehnt; bei einem Installationsfehler werden Dateien und
+Lockdateien zurückgesetzt. Zunächst unterstützt nur Scheduling das Auswerfen;
+Pinpoint bleibt bis nach dem Pilotprojekt zurückgestellt.

@@ -2,8 +2,8 @@
  * `agent-native info <pkg>` — read-only command that prints a package's
  * subpath exports, source paths in node_modules, and docs links.
  *
- * Useful precursor to the full `eject` command (planned for v0.2):
- * a user can inspect what a package ships before ejecting.
+ * Legacy package summary. Manifest-aware packages should use
+ * `agent-native package inspect <pkg>` for compatibility and change reports.
  */
 import fs from "fs";
 import path from "path";
@@ -72,7 +72,7 @@ export function runInfo(pkgName?: string): void {
     console.log("## Eject");
     console.log(`  See ${ejectDoc} for manual eject instructions.`);
     console.log(
-      "  (A full `agent-native eject` command is planned for a future release.)",
+      "  Use `agent-native package eject <package>` for a safe dry-run report.",
     );
   }
 }

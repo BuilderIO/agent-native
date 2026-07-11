@@ -79,6 +79,8 @@ const OPT_OUT_MARKER =
 // implementation under guard. These are never call-site offenders.
 const FILE_ALLOWLIST = new Set([
   "packages/core/src/credentials/index.ts",
+  // This spec embeds intentionally unsafe fixture snippets for the scanner.
+  "packages/core/src/guards/no-unscoped-credentials.spec.ts",
   "scripts/guard-no-unscoped-credentials.mjs",
 ]);
 
@@ -228,6 +230,7 @@ async function scan() {
     if (file.endsWith(".d.ts")) continue;
     const rel = path.relative(REPO_ROOT, file).replaceAll("\\", "/");
     if (FILE_ALLOWLIST.has(rel)) continue;
+    if (/\.(spec|test)\.[tj]sx?$/.test(rel)) continue;
     // Only scan source code: packages, templates, app, server, actions,
     // scripts. Skip generated and build outputs (handled by SKIP_DIRS).
     if (

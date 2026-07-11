@@ -114,6 +114,22 @@ find a page to link to).
 pnpm action search-notion-pages --query "meeting notes"
 ```
 
+### list-notion-database-sources
+
+List Notion data sources visible to the current user's OAuth connection before
+attaching one to a Content database:
+
+```bash
+pnpm action list-notion-database-sources --query "projects"
+```
+
+The database-source pilot is read-only and uses the same per-user OAuth
+connection as page sync. Choose a returned data-source ID, run
+`suggest-source-join-key`, then attach it with
+`attach-content-database-source --sourceType notion-database
+--relationshipMode details`. Use `refresh-content-database-source` to pull a
+new bounded snapshot. Never use a pasted token or claim Notion write-back.
+
 ### disconnect-notion
 
 Disconnect the current user's Notion OAuth connection.

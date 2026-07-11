@@ -83,6 +83,69 @@ describe("runQuery cancellation", () => {
     );
   });
 
+  it("cancels an incomplete job after the polling limit is reached", async () => {
+    vi.useFakeTimers();
+    const incompleteJob = {
+      jobComplete: false,
+      jobReference: { jobId: "job-timeout" },
+    };
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        return url.endsWith("/cancel")
+          ? jsonResponse({})
+          : jsonResponse(incompleteJob);
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 1");
+    const rejection = expect(pending).rejects.toThrow(
+      "BigQuery query timed out after 60 seconds",
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejection;
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/job-timeout/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("preserves the timeout error when job cancellation fails", async () => {
+    vi.useFakeTimers();
+    const incompleteJob = {
+      jobComplete: false,
+      jobReference: { jobId: "job-cancel-fails" },
+    };
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/cancel")) {
+          throw new Error("cancel unavailable");
+        }
+        return jsonResponse(incompleteJob);
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = runQuery("SELECT 2");
+    const rejection = expect(pending).rejects.toThrow(
+      "BigQuery query timed out after 60 seconds",
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejection;
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://bigquery.googleapis.com/bigquery/v2/projects/test-project/jobs/job-cancel-fails/cancel",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("forwards the signal to completed-job polling requests", async () => {
     vi.useFakeTimers();
     const controller = new AbortController();

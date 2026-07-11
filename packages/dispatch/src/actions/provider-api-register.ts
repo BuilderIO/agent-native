@@ -1,12 +1,49 @@
 import { defineAction } from "@agent-native/core";
+import { getDbExec } from "@agent-native/core/db";
 import {
   upsertCustomProvider,
   deleteCustomProvider,
   listCustomProviders,
   getCustomProvider,
+  assertCanMutateCustomProviderScope,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
+
+/**
+ * Resolve the caller's role in a specific org, straight from `org_members`.
+ *
+ * `getCredentialContext()` (from `@agent-native/core/server`) only exposes
+ * `{ userEmail, orgId }` — no role. `getOrgContext()` (from
+ * `@agent-native/core/org`) resolves role but requires an `H3Event`, which
+ * `defineAction` handlers are not given. This mirrors the established
+ * no-event role-lookup idiom already used for org-admin gating inside
+ * agent-callable/background code (see `isCurrentUserOrgAdmin` in
+ * `packages/core/src/jobs/tools.ts`, `getViewerOrgRole` in
+ * `packages/dispatch/src/server/lib/usage-metrics-store.ts`, and the same
+ * query in `packages/core/src/mcp/actions/service-token-access.ts`) — same
+ * SQL, same fail-closed-to-null-on-error semantics. Returns null (never an
+ * org role) on any lookup error or when the caller has no membership row in
+ * this org.
+ */
+async function resolveCallerOrgRole(
+  orgId: string | null,
+  email: string,
+): Promise<string | null> {
+  if (!orgId) return null;
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [orgId, email.toLowerCase()],
+    });
+    if (rows.length === 0) return null;
+    const role = (rows[0] as { role?: unknown }).role;
+    return typeof role === "string" && role ? role : null;
+  } catch {
+    return null;
+  }
+}
 
 const AuthSchema = z.discriminatedUnion("type", [
   z.object({
@@ -138,6 +175,33 @@ After registration the provider appears in provider-api-catalog and can be used 
     const scopeId =
       scope === "org" ? (ctx.orgId ?? ctx.userEmail) : ctx.userEmail;
 
+    // Only upsert/delete mutate state; list/get remain readable by any org
+    // member (scoping org-scoped reads is left as a follow-up — see plan
+    // 014). Resolve the caller's role in the *target* org (`scopeId`, which
+    // for scope === "org" is exactly `ctx.orgId`) and enforce owner/admin
+    // before allowing an org-scoped write. `assertCanMutateCustomProviderScope`
+    // is the single source of truth for this check and is also enforced a
+    // second time inside `upsertCustomProvider`/`deleteCustomProvider`
+    // themselves (defense in depth) — calling it here too gives a clear,
+    // early error before any other work happens.
+    //
+    // When the caller has no active org (`ctx.orgId` is null — a solo user,
+    // or an app that hasn't wired `resolveOrgId` at all), `scopeId` above
+    // already collapsed to `ctx.userEmail`: there is no shared org resource
+    // to protect, and no *other* caller can ever address that same scopeId
+    // (every other request's fallback is scoped to *its own* email). Treat
+    // that case like sole ownership of a personal bucket — consistent with
+    // `org/context.ts`'s auto-created personal org, which also assigns the
+    // user role "owner" — rather than hard-rejecting scope: "org" (the
+    // action's own default) for every solo user or org-less app.
+    let orgRole: string | null = null;
+    if ((operation === "upsert" || operation === "delete") && scope === "org") {
+      orgRole = ctx.orgId
+        ? await resolveCallerOrgRole(ctx.orgId, ctx.userEmail)
+        : "owner";
+      assertCanMutateCustomProviderScope(scope, scopeId, orgRole);
+    }
+
     if (operation === "list") {
       const providers = await listCustomProviders(scope, scopeId);
       return {
@@ -165,7 +229,7 @@ After registration the provider appears in provider-api-catalog and can be used 
 
     if (operation === "delete") {
       if (!id) throw new Error("id is required for delete operation.");
-      const deleted = await deleteCustomProvider(scope, scopeId, id);
+      const deleted = await deleteCustomProvider(scope, scopeId, id, orgRole);
       return { deleted, id };
     }
 
@@ -186,6 +250,7 @@ After registration the provider appears in provider-api-catalog and can be used 
       allowedHostSuffixes,
       defaultHeaders,
       notes,
+      orgRole,
     });
 
     return {

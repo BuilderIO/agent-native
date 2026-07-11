@@ -64,6 +64,12 @@ export interface UpsertCustomProviderArgs {
   allowedHostSuffixes?: string[];
   defaultHeaders?: Record<string, string>;
   notes?: string;
+  /**
+   * Caller's org role in the target org (`scopeId` when `scope === "org"`),
+   * resolved by the caller (e.g. `provider-api-register.ts`) before invoking
+   * this function. Required — see `assertCanMutateCustomProviderScope`.
+   */
+  orgRole: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +265,53 @@ export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Authorization
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `assertCanMutateCustomProviderScope` when the caller is not
+ * authorized to mutate a scoped custom provider row.
+ */
+export class CustomProviderAuthError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CustomProviderAuthError";
+  }
+}
+
+/**
+ * Defense-in-depth authorization guard for custom-provider mutations. Mirrors
+ * `assertCanMutateScope` in `server/scoped-key-storage.ts`: user-scoped writes
+ * need no role check (each user only ever mutates their own row), but
+ * org-scoped writes require the caller to be an owner or admin of the target
+ * org (`scopeId`) — otherwise a plain member could repoint an org-wide
+ * provider's base URL or attach a different credential key name that other
+ * members' agents then trust. `scopeId` is accepted (unused today) for
+ * signature parity with `assertCanMutateScope` in case a future scope value
+ * needs it (e.g. a solo-workspace carve-out).
+ *
+ * The only caller today is `provider-api-register.ts`, which resolves
+ * `orgRole` itself and enforces this same check before calling in; this
+ * function is the second, harder-to-bypass layer so a future caller can't
+ * reintroduce the gap by forgetting to check.
+ */
+export function assertCanMutateCustomProviderScope(
+  scope: CustomProviderScope,
+  _scopeId: string,
+  orgRole: string | null,
+): void {
+  if (scope === "user") return;
+  if (orgRole === "owner" || orgRole === "admin") return;
+  throw new CustomProviderAuthError(
+    403,
+    "Only organization owners and admins can register or modify org-scoped custom providers.",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
 
@@ -269,6 +322,7 @@ export function validateAllowedHostSuffixes(suffixes: string[]): string[] {
 export async function upsertCustomProvider(
   args: UpsertCustomProviderArgs,
 ): Promise<string> {
+  assertCanMutateCustomProviderScope(args.scope, args.scopeId, args.orgRole);
   await ensureTable();
   validateProviderId(args.id);
   validateAuth(args.auth);
@@ -333,7 +387,9 @@ export async function deleteCustomProvider(
   scope: CustomProviderScope,
   scopeId: string,
   id: string,
+  orgRole: string | null,
 ): Promise<boolean> {
+  assertCanMutateCustomProviderScope(scope, scopeId, orgRole);
   await ensureTable();
   const client = getDbExec();
   const { rowsAffected } = await client.execute({

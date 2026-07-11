@@ -16,6 +16,7 @@ import {
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
+import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   enqueueBuilderBodyHydrationForItems,
   ensureDatabaseSourceProperty,
@@ -109,7 +110,12 @@ function identityFederation(
 }
 
 function sourceType(value: string): ContentDatabaseSourceType {
-  if (value === "builder-cms" || value === "local-table") return value;
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "notion-database"
+  )
+    return value;
   return "mock-local";
 }
 
@@ -255,6 +261,22 @@ async function readSourceEntries(args: {
       message: null,
     };
   }
+  if (args.sourceType === "notion-database") {
+    const read = await getContentDatabaseSourceAdapter("notion-database")!.read(
+      {
+        sourceTable: args.sourceTable,
+        limit: args.limit,
+        offset: args.offset,
+      },
+    );
+    return {
+      entries: read.entries,
+      modelFields: read.fields,
+      readState: read.state,
+      fetchedAt: read.fetchedAt,
+      message: read.message,
+    };
+  }
   return {
     entries: [],
     modelFields: [],
@@ -330,6 +352,7 @@ export default defineAction({
       await seedSecondarySourceFields({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
+        sourceType: normalizedType,
         modelFields,
         sampleEntry: entries[0],
         now,

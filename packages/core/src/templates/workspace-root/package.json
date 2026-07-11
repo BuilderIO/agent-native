@@ -20,7 +20,6 @@
     "@types/node": "^24.2.1",
     "oxfmt": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:",
     "typescript-7": "catalog:"
   },
   "packageManager": "pnpm@10.14.0",

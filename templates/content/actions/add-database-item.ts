@@ -11,6 +11,11 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  databaseItemsPositionScope,
+  documentsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
 import { nanoid, normalizedValueJson } from "./_property-utils.js";
 
 export default defineAction({
@@ -44,48 +49,56 @@ export default defineAction({
     const databaseDocument = access.resource;
     const now = new Date().toISOString();
 
-    const [maxDocPos] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.ownerEmail, database.ownerEmail),
-          eq(schema.documents.parentId, database.documentId),
-        ),
-      );
-
-    const [maxItemPos] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-
     const documentId = nanoid();
     const itemId = nanoid();
-    await db.insert(schema.documents).values({
-      id: documentId,
-      ownerEmail: database.ownerEmail,
-      orgId: database.orgId,
-      parentId: database.documentId,
-      title: title?.trim() ?? "",
-      content: "",
-      icon: null,
-      position: (maxDocPos?.max ?? -1) + 1,
-      isFavorite: 0,
-      hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-      visibility: databaseDocument.visibility ?? "private",
-      createdAt: now,
-      updatedAt: now,
-    });
 
-    await db.insert(schema.contentDatabaseItems).values({
-      id: itemId,
-      ownerEmail: database.ownerEmail,
-      orgId: database.orgId,
-      databaseId,
-      documentId,
-      position: (maxItemPos?.max ?? -1) + 1,
-      createdAt: now,
-      updatedAt: now,
+    await withPositionLock(
+      documentsPositionScope(database.ownerEmail, database.documentId),
+      async () => {
+        const [maxDocPos] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.ownerEmail, database.ownerEmail),
+              eq(schema.documents.parentId, database.documentId),
+            ),
+          );
+
+        await db.insert(schema.documents).values({
+          id: documentId,
+          ownerEmail: database.ownerEmail,
+          orgId: database.orgId,
+          parentId: database.documentId,
+          title: title?.trim() ?? "",
+          content: "",
+          icon: null,
+          position: (maxDocPos?.max ?? -1) + 1,
+          isFavorite: 0,
+          hideFromSearch: databaseDocument.hideFromSearch ?? 0,
+          visibility: databaseDocument.visibility ?? "private",
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
+
+    await withPositionLock(databaseItemsPositionScope(databaseId), async () => {
+      const [maxItemPos] = await db
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+      await db.insert(schema.contentDatabaseItems).values({
+        id: itemId,
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        databaseId,
+        documentId,
+        position: (maxItemPos?.max ?? -1) + 1,
+        createdAt: now,
+        updatedAt: now,
+      });
     });
 
     const inheritedShares = await db

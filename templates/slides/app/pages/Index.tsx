@@ -14,6 +14,7 @@ import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -40,7 +41,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
-import { toast } from "@/hooks/use-toast";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -451,8 +451,7 @@ export default function Index() {
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deck.id);
-      toast({
-        title: t("home.generationStartFailed"),
+      toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
       setShowNewDeckPrompt(true);

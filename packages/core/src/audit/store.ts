@@ -250,7 +250,9 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   return { sql: `(${clauses.join(" OR ")})`, args };
 }
 
-const MAX_LIMIT = 500;
+// Exported so callers that must page past a single call (e.g.
+// `export-audit-events`) can mirror the clamp instead of guessing it.
+export const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 
 // Columns returned by the list surface — deliberately EXCLUDES `input` so a
@@ -297,13 +299,16 @@ export async function queryAuditEvents(
     Math.max(1, Math.floor(filters.limit ?? DEFAULT_LIMIT)),
     MAX_LIMIT,
   );
+  // 0-based, default-compatible: existing callers that never pass `offset`
+  // keep selecting from the top of the ordered result set.
+  const offset = Math.max(0, Math.floor(filters.offset ?? 0));
 
   const result = await client.execute({
     sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
           ORDER BY created_at DESC
-          LIMIT ?`,
-    args: [...args, limit],
+          LIMIT ? OFFSET ?`,
+    args: [...args, limit, offset],
   });
   return (result.rows ?? []).map(mapRow);
 }

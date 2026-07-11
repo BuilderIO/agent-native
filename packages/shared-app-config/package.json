@@ -35,7 +35,6 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "typescript": "catalog:",
     "typescript-7": "catalog:"
   }
 }

@@ -4,6 +4,8 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   readRawBody: async (event: any) =>
     event.rawBody == null ? event.rawBody : new Uint8Array(event.rawBody),
@@ -136,10 +138,10 @@ function sessionEvent(
   });
 }
 
-function toolEvent(body: unknown) {
+function toolEvent(body: unknown, headers: Record<string, string> = {}) {
   return fakeEvent({
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -204,6 +206,37 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(401);
     expect(resolveSecret).not.toHaveBeenCalled();
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-site session and tool requests before privileged work", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const executeTool = vi.fn();
+    const { handlers } = mount({ executeTool });
+    const crossSiteHeaders = {
+      host: "app.example.com",
+      origin: "https://evil.example.com",
+    };
+
+    const session = sessionEvent(undefined, crossSiteHeaders);
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(session)).toEqual({
+      error: "Cross-origin request rejected",
+    });
+    expect(session.statusCode).toBe(403);
+
+    const tool = toolEvent(
+      { name: "navigate", args: {}, callId: "call_1" },
+      crossSiteHeaders,
+    );
+    expect(await handlers.get(REALTIME_VOICE_TOOL_PATH)!(tool)).toEqual({
+      error: "Cross-origin request rejected",
+    });
+    expect(tool.statusCode).toBe(403);
+    expect(getSession).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
   });
 });

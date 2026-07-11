@@ -61,7 +61,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `triggerType` | `"schedule" \| "event"`        | How the automation fires                               |
 | `event`       | `string?`                      | Event name to subscribe to (event triggers)            |
 | `condition`   | `string?`                      | Natural-language condition evaluated before dispatch   |
-| `mode`        | `"agentic" \| "deterministic"` | Full agent loop vs. fixed action set                   |
+| `mode`        | `"agentic"`                    | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
 | `model`       | `string?`                      | Override the model for this trigger's agent loop       |
 | `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
 | `createdBy`   | `string?`                      | Owner email                                            |

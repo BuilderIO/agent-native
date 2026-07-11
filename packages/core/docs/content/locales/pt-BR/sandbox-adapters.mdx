@@ -104,6 +104,10 @@ A costura reside no núcleo em `packages/core/src/coding-tools/sandbox/` — `ad
       note: "Seleção: getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "marcador de fila durável e ciclo de vida da execução em segundo plano",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "O backend padrão: processo filho Node bloqueado",
     },
@@ -183,11 +187,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### Var ambiente `AGENT_NATIVE_SANDBOX` {#env}
 
-Seleciona um adaptador integrado por ID. Atualmente apenas `local` (o padrão) está conectado; valores desconhecidos voltam para o local em vez de falhar na execução.
+Seleciona um adaptador integrado por ID. Tanto `local` (o padrão) quanto `background` estão conectados; valores desconhecidos voltam para `local` em vez de falhar na execução.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # o padrão - explícito
+AGENT_NATIVE_SANDBOX=local        # o padrão - explícito
+AGENT_NATIVE_SANDBOX=background   # enfileira cada chamada run-code de forma durável
 ```
+
+`background` armazena o código bruto em `sandbox_executions` e retorna imediatamente um `executionId` com `status: "queued"`. Um auto-dispatch assinado inicia uma nova invocação serverless; um processo Node de longa duração inicia trabalho desacoplado no processo; a consulta de status e a varredura periódica reativam dispatches perdidos ou leases expirados. Consulte a execução mais tarde para obter o resultado persistido.
+
+`BackgroundQueueAdapter` é um marcador de fila durável, não o executor. O trabalho enfileirado usa um adaptador de execução registrado que não seja de fila quando disponível; caso contrário, volta para o processo filho local. Selecionar apenas `background` não fornece isolamento remoto nem de contêiner e não torna um runtime edge compatível com `node:child_process`.
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -213,13 +222,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## A costura para um corredor durável {#durable}
 
-Esta interface é deliberadamente a costura para uma futura sandbox remota/durável. Um adaptador remoto ou durável (Docker, um executor estilo Vercel-Sandbox ou um trabalhador em segundo plano na fila) faria:
+O adaptador integrado `background` já fornece enfileiramento durável e um novo orçamento de execução, enquanto a execução real ainda usa um adaptador que não seja de fila ou o processo filho local como fallback. Um adaptador remoto ou isolado registrado separadamente (Docker ou um executor estilo Vercel-Sandbox) pode fornecer outro limite de execução e também executar trabalho em segundo plano por chamada.
 
-1. Implemente `SandboxAdapter.run` em um tempo de execução fora do processo.
-2. Coloque um túnel na ponte de loopback (ou chamadas da ponte proxy de volta para o pai).
-3. Permita que grandes trabalhos de dados sejam executados até a conclusão independentemente do ciclo de vida da solicitação, excedendo o limite máximo de execução de código hospedado de aproximadamente 40 anos que limita o adaptador de processo filho local.
+Esse adaptador:
 
-Registre-o com um novo valor `AGENT_NATIVE_SANDBOX` (por exemplo, `remote`) e/ou via `registerSandboxAdapter()`. O loop do agente e `run-code.ts` nunca mudam.
+1. Implementaria `SandboxAdapter.run` em um runtime fora do processo.
+2. Criaria um túnel para a ponte de loopback ou encaminharia suas chamadas ao processo pai.
+3. Forneceria isolamento remoto ou de contêiner independentemente do ciclo de vida da fila durável incluída.
+
+Registre-o programaticamente por meio de `registerSandboxAdapter()`. O loop do agente e `run-code.ts` não precisam mudar.
 
 > [!TIP]
 > O blueprint `agent-native add sandbox docker` emite uma receita completa e independente para implementar um adaptador Docker nessa junção. Consulte [Blueprint Installer](/docs/blueprint-installer).

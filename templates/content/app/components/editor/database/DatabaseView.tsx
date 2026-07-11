@@ -159,6 +159,7 @@ import {
   useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
+  useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
@@ -1067,12 +1068,21 @@ function DatabaseTable({
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
     };
-    const response = await addItem.mutateAsync({
-      databaseId,
-      title,
-      propertyValues:
-        Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
-    });
+    let response;
+    try {
+      response = await addItem.mutateAsync({
+        databaseId,
+        title,
+        propertyValues:
+          Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
+      });
+    } catch (err) {
+      toast.error(dbText("failedToCreateRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
     const createdItem = response.items.find(
       (item) => item.id === response.createdItemId,
     );
@@ -5365,7 +5375,7 @@ type DatabaseSettingsPanel =
 // the leaf can attach without re-fetching.
 // A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
-  sourceType: "mock-local" | "builder-cms" | "local-table";
+  sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
   sourceName: string;
   sourceTable: string;
   displayName: string;
@@ -5983,6 +5993,7 @@ function DatabaseSettingsSourcePanel({
         onOpenBuilder={() =>
           onNavPush({ kind: "provider", providerId: "builder" })
         }
+        onOpenNotion={() => onNavPush({ kind: "addSource" })}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -6018,6 +6029,17 @@ function DatabaseSettingsSourcePanel({
               sourceName: table.title,
               sourceTable: table.databaseId,
               displayName: table.title,
+            },
+          })
+        }
+        onPickNotionDatabase={(notionSource) =>
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: "notion-database",
+              sourceName: notionSource.name,
+              sourceTable: notionSource.id,
+              displayName: notionSource.name,
             },
           })
         }
@@ -6241,8 +6263,17 @@ function DatabaseSettingsSourcePanel({
               size="sm"
               disabled={!canEdit || sourceActionPending}
               onClick={async () => {
-                await onAttachBuilderSource(model);
-                onNavReplace([]);
+                try {
+                  await onAttachBuilderSource(model);
+                  onNavReplace([]);
+                } catch (err) {
+                  toast.error(dbText("failedToAttachSource"), {
+                    description:
+                      err instanceof Error
+                        ? err.message
+                        : dbText("somethingWentWrong"),
+                  });
+                }
               }}
             >
               {sourceActionPending ? (
@@ -6484,6 +6515,7 @@ function SourcesListView({
   builderSpaceLabel,
   reviewableCount,
   onOpenBuilder,
+  onOpenNotion,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -6493,6 +6525,7 @@ function SourcesListView({
   builderSpaceLabel: string | null;
   reviewableCount: number;
   onOpenBuilder: () => void;
+  onOpenNotion: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -6562,8 +6595,14 @@ function SourcesListView({
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
-          value="Coming soon"
-          disabled
+          value={
+            connectedSources.some(
+              (connected) => connected.sourceType === "notion-database",
+            )
+              ? dbText("connected")
+              : undefined
+          }
+          onClick={onOpenNotion}
         />
       </div>
       <div className="grid min-w-0 gap-1.5">
@@ -6776,6 +6815,7 @@ function AddSourceView({
   excludeDatabaseIds,
   canEdit,
   onPickLocalTable,
+  onPickNotionDatabase,
 }: {
   excludeDatabaseIds: string[];
   canEdit: boolean;
@@ -6784,8 +6824,10 @@ function AddSourceView({
     documentId: string;
     title: string;
   }) => void;
+  onPickNotionDatabase: (source: { id: string; name: string }) => void;
 }) {
   const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
+  const notion = useNotionDatabaseSources(true);
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
@@ -6826,9 +6868,28 @@ function AddSourceView({
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
-          value="Coming soon"
-          disabled
+          value={
+            notion.isLoading
+              ? dbText("loadingTables")
+              : notion.data?.connected
+                ? (notion.data.workspaceName ?? "Notion")
+                : dbText("connectNotionFirst")
+          }
+          disabled={!notion.data?.connected}
         />
+        {notion.data?.connected
+          ? notion.data.sources.map((source) => (
+              <DatabaseSettingsRow
+                key={source.id}
+                icon={<NotionLogoMark className="size-4" />}
+                label={source.name}
+                onClick={
+                  canEdit ? () => onPickNotionDatabase(source) : undefined
+                }
+                disabled={!canEdit}
+              />
+            ))
+          : null}
       </div>
     </div>
   );
@@ -6884,6 +6945,7 @@ function SecondarySourceLeaf({
       </div>
       <SourceRoleCard
         source={source}
+        canAddItems={source.sourceType === "builder-cms"}
         canEdit={canEdit}
         pending={pending}
         onAddDetails={onAddDetails}
@@ -7037,6 +7099,7 @@ function SourceRelationshipChoice({
 function SourceRoleCard({
   source,
   canAddDetails = true,
+  canAddItems = true,
   canEdit,
   pending,
   onAddDetails,
@@ -7045,6 +7108,7 @@ function SourceRoleCard({
 }: {
   source: ContentDatabaseSource;
   canAddDetails?: boolean;
+  canAddItems?: boolean;
   canEdit: boolean;
   pending: boolean;
   onAddDetails: () => void;
@@ -7079,16 +7143,18 @@ function SourceRoleCard({
             >
               {dbText("chooseFields")}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              disabled={!canEdit || pending}
-              onClick={onAddItems}
-            >
-              {dbText("addAsItems")}
-            </Button>
+            {canAddItems ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                disabled={!canEdit || pending}
+                onClick={onAddItems}
+              >
+                {dbText("addAsItems")}
+              </Button>
+            ) : null}
           </>
         ) : canAddDetails ? (
           <Button

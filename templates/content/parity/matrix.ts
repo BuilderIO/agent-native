@@ -341,6 +341,7 @@ export const parityMatrix: ParityRow[] = [
       "disconnect-content-database-source",
       "get-content-database-source",
       "list-builder-cms-models",
+      "list-notion-database-sources",
       "refresh-content-database-source",
       "suggest-source-join-key",
     ],

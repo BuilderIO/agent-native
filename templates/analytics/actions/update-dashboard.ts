@@ -13,12 +13,16 @@ import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  upsertDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
   applyPanelOrder,
   compactDashboardResult,
+  type PanelOrderResult,
 } from "./dashboard-panel-order";
 
 /**
@@ -627,29 +631,27 @@ export default defineAction({
       );
     }
 
-    const existing = await getDashboard(dashboardId, ctx);
-    if (!existing) {
-      throw new Error(
-        `dashboard "${dashboardId}" not found (or you don't have access).`,
-      );
-    }
-
-    const root = existing.config as any;
-
     if (args.panelOrder) {
-      const orderDetails = applyPanelOrder(root, args.panelOrder);
-      const validation = validateDashboardConfig(root);
-      if (validation) throw new Error(validation);
-      await upsertDashboard(
+      // Recomputed on every retry attempt from the freshest dashboard config,
+      // so a concurrent writer's edit is never silently overwritten by this
+      // move.
+      let orderDetails!: PanelOrderResult;
+      const saved = await upsertDashboardWithRetry(
         dashboardId,
-        existing.kind,
-        root as Record<string, unknown>,
         ctx,
+        (existing) => {
+          const root = existing.config as Record<string, unknown>;
+          orderDetails = applyPanelOrder(root, args.panelOrder!);
+          const validation = validateDashboardConfig(root);
+          if (validation) throw new Error(validation);
+          return { kind: existing.kind, body: root };
+        },
       );
-      await syncToCollab(dashboardId, root as Record<string, unknown>);
+      const root = saved.config as Record<string, unknown>;
+      await syncToCollab(dashboardId, root);
       return dashboardResult(
         dashboardId,
-        root as Record<string, unknown>,
+        root,
         1,
         `Moved ${orderDetails.movedPanelIds.length} panel id(s) to the front of dashboard "${dashboardId}"; it now has ${orderDetails.panelCount} panel(s).`,
         orderDetails.movedPanelIds,
@@ -657,36 +659,45 @@ export default defineAction({
       );
     }
 
-    const details: string[] = [];
-    for (const op of args.ops!) {
-      try {
-        details.push(applyJsonOp(root, op as JsonOp));
-      } catch (err: any) {
-        throw new Error(`applying op ${JSON.stringify(op)}: ${err.message}`);
-      }
-    }
-
-    const validation = validateDashboardConfig(root);
-    if (validation) throw new Error(validation);
-    if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
-      const sqlError = await validatePanelSql(root);
-      if (sqlError) throw new Error(sqlError);
-    }
-
-    await upsertDashboard(
+    // Recomputed on every retry attempt from the freshest dashboard config —
+    // JSON-pointer ops are replayed against fresh state, not the stale config
+    // that produced the first (lost) attempt.
+    let appliedDetails: string[] = [];
+    const saved = await upsertDashboardWithRetry(
       dashboardId,
-      existing.kind,
-      root as Record<string, unknown>,
       ctx,
-    );
-    await syncToCollab(dashboardId, root as Record<string, unknown>);
+      async (existing) => {
+        const root = existing.config as Record<string, unknown>;
+        const details: string[] = [];
+        for (const op of args.ops!) {
+          try {
+            details.push(applyJsonOp(root, op as JsonOp));
+          } catch (err: any) {
+            throw new Error(
+              `applying op ${JSON.stringify(op)}: ${err.message}`,
+            );
+          }
+        }
 
-    const panelCount = countPanels(root as Record<string, unknown>);
+        const validation = validateDashboardConfig(root);
+        if (validation) throw new Error(validation);
+        if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
+          const sqlError = await validatePanelSql(root);
+          if (sqlError) throw new Error(sqlError);
+        }
+        appliedDetails = details;
+        return { kind: existing.kind, body: root };
+      },
+    );
+    const root = saved.config as Record<string, unknown>;
+    await syncToCollab(dashboardId, root);
+
+    const panelCount = countPanels(root);
     return dashboardResult(
       dashboardId,
-      root as Record<string, unknown>,
-      details.length,
-      `Applied ${details.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
+      root,
+      appliedDetails.length,
+      `Applied ${appliedDetails.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
       [],
       args.returnConfig === true,
     );

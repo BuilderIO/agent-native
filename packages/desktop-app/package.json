@@ -51,7 +51,6 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.3.0",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.10"

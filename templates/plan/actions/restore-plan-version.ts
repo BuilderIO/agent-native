@@ -38,6 +38,13 @@ export default defineAction({
   run: async ({ planId, versionId }) => {
     const access = await assertPlanEditor(planId);
     const ownerEmail = access.resource.ownerEmail as string;
+    // Optimistic-concurrency fence, mirroring the versionAtLoad/updatedAt
+    // pattern in update-visual-plan.ts: captured before any restore work
+    // starts, then used to guard the leading `plans` UPDATE below so a
+    // restore racing a concurrent edit fails cleanly instead of silently
+    // clobbering it or interleaving writes.
+    const versionAtLoad = (access.resource as typeof schema.plans.$inferSelect)
+      .updatedAt;
     const db = getDb();
 
     const [version] = await db
@@ -63,114 +70,137 @@ export default defineAction({
     const snapshot = parsePlanVersionSnapshot(version.snapshotJson);
     const now = nowIso();
 
-    await db
-      .update(schema.plans)
-      .set({
-        title: snapshot.plan.title,
-        brief: snapshot.plan.brief,
-        status: snapshot.plan.status,
-        source: snapshot.plan.source,
-        repoPath: snapshot.plan.repoPath ?? null,
-        currentFocus: snapshot.plan.currentFocus ?? null,
-        html: snapshot.plan.html ?? null,
-        markdown: snapshot.plan.markdown ?? null,
-        content: snapshot.plan.content
-          ? serializePlanContent(snapshot.plan.content)
-          : null,
-        approvedAt: snapshot.plan.approvedAt ?? null,
-        updatedAt: now,
-      })
-      .where(eq(schema.plans.id, planId));
-
-    // Preserve comment anchors for sections whose ids survive in the snapshot.
-    // Strategy: capture comment→sectionId pairs for surviving sections first,
-    // then null ALL sectionIds (required to satisfy FK before section deletion),
-    // delete and re-insert sections, then re-anchor the surviving comments.
-    const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
-    const commentAnchorMap = new Map<string, string>(); // commentId → sectionId
-    if (survivingSectionIds.size > 0) {
-      const anchored = await db
-        .select({
-          id: schema.planComments.id,
-          sectionId: schema.planComments.sectionId,
+    // The destructive part of the restore (plans update, comment sectionId
+    // nulling, section delete/re-insert, comment re-anchor, and the restore
+    // event) runs as a single atomic transaction. Without this, a
+    // mid-sequence failure could leave the plan with zero sections and
+    // permanently detached comments. better-sqlite3's normally-sync-only
+    // transaction() is patched to support async callbacks in
+    // packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
+    // wired into createGetDb for local sqlite urls), so this is safe on the
+    // local driver as well as libsql/Postgres.
+    await db.transaction(async (tx) => {
+      const updatedRows = await tx
+        .update(schema.plans)
+        .set({
+          title: snapshot.plan.title,
+          brief: snapshot.plan.brief,
+          status: snapshot.plan.status,
+          source: snapshot.plan.source,
+          repoPath: snapshot.plan.repoPath ?? null,
+          currentFocus: snapshot.plan.currentFocus ?? null,
+          html: snapshot.plan.html ?? null,
+          markdown: snapshot.plan.markdown ?? null,
+          content: snapshot.plan.content
+            ? serializePlanContent(snapshot.plan.content)
+            : null,
+          approvedAt: snapshot.plan.approvedAt ?? null,
+          updatedAt: now,
         })
-        .from(schema.planComments)
         .where(
           and(
-            eq(schema.planComments.planId, planId),
-            inArray(
-              schema.planComments.sectionId,
-              Array.from(survivingSectionIds),
-            ),
+            eq(schema.plans.id, planId),
+            eq(schema.plans.updatedAt, versionAtLoad),
           ),
+        )
+        .returning({ id: schema.plans.id });
+
+      if (updatedRows.length === 0) {
+        throw new Error(
+          "This plan was updated by someone else while the restore was being prepared. Reload the plan and try restoring again.",
         );
-      for (const row of anchored) {
-        if (row.sectionId) commentAnchorMap.set(row.id, row.sectionId);
       }
-    }
 
-    // Null ALL comment anchors so the section delete below doesn't violate FK.
-    await db
-      .update(schema.planComments)
-      .set({ sectionId: null, updatedAt: now })
-      .where(eq(schema.planComments.planId, planId));
-
-    await db
-      .delete(schema.planSections)
-      .where(eq(schema.planSections.planId, planId));
-
-    if (snapshot.sections.length > 0) {
-      await db.insert(schema.planSections).values(
-        snapshot.sections.map((section, index) => ({
-          id: section.id,
-          planId,
-          type: section.type,
-          title: section.title,
-          body: section.body,
-          html: section.html ?? null,
-          order: section.order ?? index,
-          createdBy: section.createdBy,
-          createdAt: section.createdAt || now,
-          updatedAt: section.updatedAt || now,
-        })),
-      );
-    }
-
-    // Re-anchor comments that were pointing to sections present in the snapshot.
-    // These sections now exist again, so the FK is satisfied and the comment
-    // threads remain navigable. Comments on sections that did not survive stay
-    // detached (sectionId = null).
-    if (commentAnchorMap.size > 0) {
-      const anchorGroups = new Map<string, string[]>(); // sectionId → commentIds
-      for (const [commentId, sectionId] of commentAnchorMap) {
-        const ids = anchorGroups.get(sectionId) ?? [];
-        ids.push(commentId);
-        anchorGroups.set(sectionId, ids);
-      }
-      for (const [sectionId, commentIds] of anchorGroups) {
-        await db
-          .update(schema.planComments)
-          .set({ sectionId, updatedAt: now })
+      // Preserve comment anchors for sections whose ids survive in the snapshot.
+      // Strategy: capture comment→sectionId pairs for surviving sections first,
+      // then null ALL sectionIds (required to satisfy FK before section deletion),
+      // delete and re-insert sections, then re-anchor the surviving comments.
+      const survivingSectionIds = new Set(snapshot.sections.map((s) => s.id));
+      const commentAnchorMap = new Map<string, string>(); // commentId → sectionId
+      if (survivingSectionIds.size > 0) {
+        const anchored = await tx
+          .select({
+            id: schema.planComments.id,
+            sectionId: schema.planComments.sectionId,
+          })
+          .from(schema.planComments)
           .where(
             and(
               eq(schema.planComments.planId, planId),
-              inArray(schema.planComments.id, commentIds),
+              inArray(
+                schema.planComments.sectionId,
+                Array.from(survivingSectionIds),
+              ),
             ),
           );
+        for (const row of anchored) {
+          if (row.sectionId) commentAnchorMap.set(row.id, row.sectionId);
+        }
       }
-    }
 
-    await db.insert(schema.planEvents).values({
-      id: newId("evt"),
-      planId,
-      type: "plan.version.restored",
-      message: "Restored plan from version history.",
-      payload: JSON.stringify({
-        restoredVersionId: version.id,
-        restoredVersionCreatedAt: version.createdAt,
-      }),
-      createdBy: "agent",
-      createdAt: now,
+      // Null ALL comment anchors so the section delete below doesn't violate FK.
+      await tx
+        .update(schema.planComments)
+        .set({ sectionId: null, updatedAt: now })
+        .where(eq(schema.planComments.planId, planId));
+
+      await tx
+        .delete(schema.planSections)
+        .where(eq(schema.planSections.planId, planId));
+
+      if (snapshot.sections.length > 0) {
+        await tx.insert(schema.planSections).values(
+          snapshot.sections.map((section, index) => ({
+            id: section.id,
+            planId,
+            type: section.type,
+            title: section.title,
+            body: section.body,
+            html: section.html ?? null,
+            order: section.order ?? index,
+            createdBy: section.createdBy,
+            createdAt: section.createdAt || now,
+            updatedAt: section.updatedAt || now,
+          })),
+        );
+      }
+
+      // Re-anchor comments that were pointing to sections present in the snapshot.
+      // These sections now exist again, so the FK is satisfied and the comment
+      // threads remain navigable. Comments on sections that did not survive stay
+      // detached (sectionId = null).
+      if (commentAnchorMap.size > 0) {
+        const anchorGroups = new Map<string, string[]>(); // sectionId → commentIds
+        for (const [commentId, sectionId] of commentAnchorMap) {
+          const ids = anchorGroups.get(sectionId) ?? [];
+          ids.push(commentId);
+          anchorGroups.set(sectionId, ids);
+        }
+        for (const [sectionId, commentIds] of anchorGroups) {
+          await tx
+            .update(schema.planComments)
+            .set({ sectionId, updatedAt: now })
+            .where(
+              and(
+                eq(schema.planComments.planId, planId),
+                inArray(schema.planComments.id, commentIds),
+              ),
+            );
+        }
+      }
+
+      await tx.insert(schema.planEvents).values({
+        id: newId("evt"),
+        planId,
+        type: "plan.version.restored",
+        message: "Restored plan from version history.",
+        payload: JSON.stringify({
+          restoredVersionId: version.id,
+          restoredVersionCreatedAt: version.createdAt,
+        }),
+        createdBy: "agent",
+        createdAt: now,
+      });
     });
 
     const bundle = await loadPlanBundle(planId);

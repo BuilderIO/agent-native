@@ -135,6 +135,34 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts a bounded read-only Notion database details source", () => {
+    expect(
+      attachSource.schema.parse({
+        documentId: "database-page",
+        sourceType: "notion-database",
+        sourceName: "Projects",
+        sourceTable: "notion-data-source-id",
+        relationshipMode: "details",
+        join: {
+          canonicalKey: { label: "Project", type: "text" },
+          primary: {
+            keyField: "title",
+            normalizationFormula: "lower(trim(value))",
+          },
+          secondary: {
+            keyField: "title-id",
+            normalizationFormula: "lower(trim(value))",
+          },
+        },
+      }),
+    ).toMatchObject({
+      sourceType: "notion-database",
+      relationshipMode: "details",
+      limit: 100,
+      offset: 0,
+    });
+  });
+
   it("bounds initial Builder source attachment to a single continuation page", async () => {
     const calls: Array<{
       model: string;

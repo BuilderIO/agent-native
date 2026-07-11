@@ -102,7 +102,11 @@ La couture réside dans le noyau de `packages/core/src/coding-tools/sandbox/` :
     },
     {
       path: "index.ts",
-      note: "Sélection : getSandboxAdapter() / registerSandboxAdapter()",
+      note: "Sélection : getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "background.ts",
+      note: "marqueur de file durable et cycle de vie de l’exécution en arrière-plan",
     },
     {
       path: "local-child-process-adapter.ts",
@@ -184,11 +188,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### Variable d'environnement `AGENT_NATIVE_SANDBOX` {#env}
 
-Sélectionne un adaptateur intégré par identifiant. Actuellement, seul le `local` (valeur par défaut) est câblé ; les valeurs inconnues reviennent au niveau local plutôt que d'échouer l'exécution.
+Sélectionne un adaptateur intégré par identifiant. `local` (valeur par défaut) et `background` sont tous deux câblés ; les valeurs inconnues reviennent à `local` plutôt que d’échouer l’exécution.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # la valeur par défaut - explicite
+AGENT_NATIVE_SANDBOX=local        # la valeur par défaut - explicite
+AGENT_NATIVE_SANDBOX=background   # met durablement en file chaque appel run-code
 ```
+
+`background` stocke le code brut dans `sandbox_executions` et renvoie immédiatement un `executionId` avec `status: "queued"`. Un auto-dispatch signé démarre une nouvelle invocation serverless ; un processus Node de longue durée lance un travail détaché dans le processus ; l’interrogation du statut et le balayage périodique relancent les dispatchs perdus ou les baux expirés. Interrogez l’exécution plus tard pour obtenir son résultat persistant.
+
+`BackgroundQueueAdapter` est un marqueur de file durable, pas l’exécuteur. Le travail en file utilise un adaptateur d’exécution enregistré non mis en file lorsqu’il est disponible ; sinon, il revient au processus enfant local. La sélection de `background` seule ne fournit pas d’isolation distante ou par conteneur et ne rend pas un environnement edge compatible avec `node:child_process`.
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -214,13 +223,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## La couture pour un coureur durable {#durable}
 
-Cette interface est délibérément le joint d'un futur bac à sable distant/durable. Un adaptateur distant ou durable (Docker, un exécuteur de type Vercel-Sandbox ou un travailleur en arrière-plan en file d'attente) :
+L’adaptateur intégré `background` fournit déjà une mise en file durable et un nouveau budget d’exécution, tandis que l’exécution réelle utilise toujours un adaptateur non mis en file ou le processus enfant local comme solution de repli. Un adaptateur distant ou isolé enregistré séparément (Docker ou un exécuteur de type Vercel-Sandbox) peut fournir une autre frontière d’exécution et exécuter également du travail en arrière-plan par appel.
 
-1. Implémentez `SandboxAdapter.run` sur un environnement d'exécution hors processus.
-2. Tunnelez le pont de bouclage (ou le pont proxy rappelle le parent).
-3. Laissez les tâches de données volumineuses s'exécuter jusqu'à leur terme indépendamment du cycle de vie de la demande, en dépassant le plafond d'exécution de code hébergé d'environ 40 s qui limite l'adaptateur de processus enfant local.
+Un tel adaptateur :
 
-Enregistrez-le sous une nouvelle valeur `AGENT_NATIVE_SANDBOX` (par exemple `remote`) et/ou via `registerSandboxAdapter()`. La boucle d'agent et `run-code.ts` ne changent jamais.
+1. Implémenterait `SandboxAdapter.run` sur un environnement d’exécution hors processus.
+2. Créerait un tunnel pour le pont de bouclage ou transmettrait ses appels au processus parent.
+3. Fournirait une isolation distante ou par conteneur indépendamment du cycle de vie de la file durable livrée.
+
+Enregistrez-le par programmation avec `registerSandboxAdapter()`. La boucle d’agent et `run-code.ts` n’ont pas besoin de changer.
 
 > [!TIP]
 > Le plan `agent-native add sandbox docker` émet une recette complète et autonome pour implémenter un adaptateur Docker contre cette couture. Voir [Blueprint Installer](/docs/blueprint-installer).

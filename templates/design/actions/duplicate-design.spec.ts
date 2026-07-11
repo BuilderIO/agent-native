@@ -25,7 +25,16 @@ const mocks = vi.hoisted(() => {
   fileSelectChain.from.mockReturnValue(fileSelectChain);
   fileSelectChain.where.mockImplementation(() => Promise.resolve(sourceFiles));
 
-  const db = { select: vi.fn(() => fileSelectChain), insert };
+  const db = {
+    select: vi.fn(() => fileSelectChain),
+    insert,
+    // The action runs both inserts inside one db.transaction(); the mock
+    // hands the same insert-tracking db to the callback as `tx` so existing
+    // insertValues assertions keep working unchanged.
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
+      await callback(db);
+    }),
+  };
 
   return {
     db,
@@ -125,10 +134,14 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const designInsert = mocks.insertValues.mock.calls[0]![0] as {
       id: string;
     };
-    const fileInsert = mocks.insertValues.mock.calls[1]![0] as {
-      id: string;
-      designId: string;
-    };
+    // File inserts are now batched: `.values()` receives an array of rows in
+    // one call rather than one call per file.
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{
+        id: string;
+        designId: string;
+      }>
+    )[0]!;
     expect(designInsert.id).toBe(result.id);
     expect(designInsert.id).not.toBe("design-src");
     expect(fileInsert.id).not.toBe("file-src-1");
@@ -148,9 +161,9 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
 
     await action.run({ id: "design-src" });
 
-    const fileInsert = mocks.insertValues.mock.calls[1]![0] as {
-      content: string;
-    };
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ content: string }>
+    )[0]!;
     // Existing id on <main> is preserved verbatim (not regenerated).
     expect(fileInsert.content).toContain('data-agent-native-node-id="an-kept"');
     // The <button>, which had no id in the source, gets one filled in on the
@@ -175,13 +188,14 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const second = await action.run({ id: "design-src" });
 
     expect(first.id).not.toBe(second.id);
-    const firstFileId = (mocks.insertValues.mock.calls[1]![0] as { id: string })
-      .id;
+    const firstFileId = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ id: string }>
+    )[0]!.id;
     const secondFileId = (
-      mocks.insertValues.mock.calls[secondInsertCallsBefore + 1]![0] as {
+      mocks.insertValues.mock.calls[secondInsertCallsBefore + 1]![0] as Array<{
         id: string;
-      }
-    ).id;
+      }>
+    )[0]!.id;
     expect(firstFileId).not.toBe(secondFileId);
   });
 });

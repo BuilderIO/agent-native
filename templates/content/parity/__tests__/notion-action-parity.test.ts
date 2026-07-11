@@ -10,6 +10,7 @@ const notionDocumentSyncActions = [
   "create-and-link-notion-page",
   "disconnect-notion",
   "link-notion-page",
+  "list-notion-database-sources",
   "pull-notion-page",
   "push-notion-page",
   "refresh-notion-sync-status",

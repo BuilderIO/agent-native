@@ -135,4 +135,7 @@ export interface AuditQueryFilters {
   sourcePlatform?: string;
   sinceMs?: number;
   limit?: number;
+  /** Skip this many matching rows before applying `limit` (0-based). Used by
+   *  `export-audit-events` to page past the per-call `MAX_LIMIT` clamp. */
+  offset?: number;
 }

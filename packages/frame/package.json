@@ -44,7 +44,6 @@
     "@vitejs/plugin-react": "catalog:",
     "tailwindcss": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:"
   },

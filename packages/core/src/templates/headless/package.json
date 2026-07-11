@@ -19,7 +19,6 @@
     "@types/node": "^24.2.1",
     "oxfmt": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:"
   }
 }

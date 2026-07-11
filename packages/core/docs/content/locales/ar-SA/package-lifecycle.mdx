@@ -1,0 +1,19 @@
+---
+title: دورة حياة الحزم
+description: فحص حزم Agent Native المعتمدة على بيان وإضافتها وإخراجها بأمان.
+---
+
+# دورة حياة الحزم
+
+يمكن للحزم القابلة لإعادة الاستخدام نشر ملف `agent-native.package.json` ثابت ذي
+إصدار. تقرأ أداة CLI ملف JSON فقط أثناء الفحص ولا تشغّل شيفرة الحزمة.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+الإضافة والإخراج معاينة افتراضيًا. يسمح `--apply` بالكتابة وتشغيل مدير الحزم. ترفض
+الأداة التعارضات والتخطيطات غير المعروفة، وتستعيد الملفات وملفات القفل عند فشل التثبيت.
+يدعم الإصدار التجريبي إخراج Scheduling فقط، بينما يبقى Pinpoint مؤجلاً.

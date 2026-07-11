@@ -225,56 +225,62 @@ export async function insertBooking(
   const id = nanoid();
   const uid = nanoid(12);
   const iCalUid = input.iCalUid ?? `${uid}@agent-native-scheduling`;
-  await db.insert(schema.bookings).values({
-    id,
-    uid,
-    eventTypeId: input.eventTypeId,
-    hostEmail: input.hostEmail,
-    title: input.title,
-    description: input.description ?? null,
-    startTime: input.startTime,
-    endTime: input.endTime,
-    timezone: input.timezone,
-    status: input.status ?? "confirmed",
-    location: input.location ? JSON.stringify(input.location) : null,
-    customResponses: input.customResponses
-      ? JSON.stringify(input.customResponses)
-      : null,
-    cancelToken: nanoid(24),
-    rescheduleToken: nanoid(24),
-    fromReschedule: input.fromReschedule ?? null,
-    iCalUid,
-    iCalSequence: input.iCalSequence ?? 0,
-    paid: false,
-    createdAt: now,
-    updatedAt: now,
-    ownerEmail: input.ownerEmail,
-    orgId: input.orgId ?? null,
+  await db.transaction(async (tx: any) => {
+    await tx.insert(schema.bookings).values({
+      id,
+      uid,
+      eventTypeId: input.eventTypeId,
+      hostEmail: input.hostEmail,
+      title: input.title,
+      description: input.description ?? null,
+      startTime: input.startTime,
+      endTime: input.endTime,
+      timezone: input.timezone,
+      status: input.status ?? "confirmed",
+      location: input.location ? JSON.stringify(input.location) : null,
+      customResponses: input.customResponses
+        ? JSON.stringify(input.customResponses)
+        : null,
+      cancelToken: nanoid(24),
+      rescheduleToken: nanoid(24),
+      fromReschedule: input.fromReschedule ?? null,
+      iCalUid,
+      iCalSequence: input.iCalSequence ?? 0,
+      paid: false,
+      createdAt: now,
+      updatedAt: now,
+      ownerEmail: input.ownerEmail,
+      orgId: input.orgId ?? null,
+    });
+    if (input.attendees.length > 0) {
+      await tx.insert(schema.bookingAttendees).values(
+        input.attendees.map((a) => ({
+          id: nanoid(),
+          bookingId: id,
+          email: a.email,
+          name: a.name,
+          timezone: a.timezone ?? null,
+          locale: a.locale ?? null,
+          noShow: false,
+          createdAt: now,
+        })),
+      );
+    }
+    if (input.references && input.references.length > 0) {
+      await tx.insert(schema.bookingReferences).values(
+        input.references.map((r) => ({
+          id: nanoid(),
+          bookingId: id,
+          type: r.type,
+          externalId: r.externalId,
+          meetingUrl: r.meetingUrl ?? null,
+          meetingPassword: r.meetingPassword ?? null,
+          credentialId: r.credentialId ?? null,
+          createdAt: now,
+        })),
+      );
+    }
   });
-  for (const a of input.attendees) {
-    await db.insert(schema.bookingAttendees).values({
-      id: nanoid(),
-      bookingId: id,
-      email: a.email,
-      name: a.name,
-      timezone: a.timezone ?? null,
-      locale: a.locale ?? null,
-      noShow: false,
-      createdAt: now,
-    });
-  }
-  for (const r of input.references ?? []) {
-    await db.insert(schema.bookingReferences).values({
-      id: nanoid(),
-      bookingId: id,
-      type: r.type,
-      externalId: r.externalId,
-      meetingUrl: r.meetingUrl ?? null,
-      meetingPassword: r.meetingPassword ?? null,
-      credentialId: r.credentialId ?? null,
-      createdAt: now,
-    });
-  }
   const created = await getBookingByUid(uid);
   if (!created) throw new Error("Failed to create booking");
   return created;

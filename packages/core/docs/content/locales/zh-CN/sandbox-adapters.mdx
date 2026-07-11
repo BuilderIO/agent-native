@@ -102,6 +102,10 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
       note: "选择：getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "持久队列标记和后台执行生命周期",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "默认后端：受限的 Node 子进程",
     },
@@ -181,11 +185,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### `AGENT_NATIVE_SANDBOX` 环境变量 {#env}
 
-通过 id 选择内置适配器。目前仅有线`local`（默认）；未知值回退到本地而不是运行失败。
+通过 id 选择内置适配器。`local`（默认）和 `background` 均已接入；未知值会回退到 `local`，而不会导致运行失败。
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # 默认值——显式
+AGENT_NATIVE_SANDBOX=local        # 默认值——显式
+AGENT_NATIVE_SANDBOX=background   # 将每次 run-code 调用持久排队
 ```
+
+`background` 将原始代码存入 `sandbox_executions`，并立即返回带有 `status: "queued"` 的 `executionId`。签名的自分发会启动新的 serverless 调用；长时间运行的 Node 会在进程内启动分离任务；状态轮询和定期 sweep 会重新驱动丢失的分发或已过期的 lease。稍后轮询该执行即可获取持久化结果。
+
+`BackgroundQueueAdapter` 是持久队列标记，而不是执行器。排队的工作会在可用时使用已注册的非队列执行适配器，否则回退到本地子进程。仅选择 `background` 不会提供远程或容器隔离，也不会让 edge 运行时兼容 `node:child_process`。
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -211,13 +220,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## 耐用跑鞋的接缝 {#durable}
 
-这个接口是特意为未来的远程/持久沙箱做的接缝。远程或持久适配器（Docker、Vercel-Sandbox 式运行程序或排队后台工作程序）将：
+内置 `background` 适配器已经提供持久排队和新的执行预算，但实际执行仍使用非队列适配器或本地子进程回退。单独注册的远程或隔离适配器（Docker 或 Vercel-Sandbox 式运行器）可以提供不同的执行边界，也可以执行每次调用的后台工作。
+
+此类适配器将：
 
 1. 针对进程外运行时实现 `SandboxAdapter.run`。
-2. 通过隧道环回网桥（或代理网桥回调至父级）。
-3. 让大数据作业独立于请求生命周期运行直至完成 - 超过限制本地子进程适配器的托管约 40 秒代码执行上限。
+2. 为 loopback 网桥建立隧道，或将网桥调用代理回父进程。
+3. 独立于已提供的持久队列生命周期，提供远程或容器隔离。
 
-将其注册为新的 `AGENT_NATIVE_SANDBOX` 值（例如 `remote`）和/或通过 `registerSandboxAdapter()`。代理循环和 `run-code.ts` 永远不会改变。
+通过 `registerSandboxAdapter()` 以编程方式注册。代理循环和 `run-code.ts` 无需更改。
 
 > [!TIP]
 > `agent-native add sandbox docker` 蓝图发出了一个完整的、独立的配方，用于针对此接缝实现 Docker 适配器。参见[Blueprint Installer](/docs/blueprint-installer)。

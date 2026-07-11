@@ -1,0 +1,51 @@
+---
+title: Package Lifecycle
+description: Inspect, add, and eject manifest-driven Agent Native packages safely.
+---
+
+# Package lifecycle
+
+Reusable Agent Native packages can publish a versioned static
+`agent-native.package.json`. The CLI reads that JSON without executing package
+code and reports the package's actions, schema entry point, skills, secret key
+names, and peer providers.
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+`add` and `eject` are dry-run by default. `--apply` is required before the CLI
+writes files or runs the detected package manager. Use `--root` for a different
+project root; at a workspace root, pass `--app <name>` to select the target app.
+
+## Safety and idempotency
+
+Before writing, the CLI resolves every contribution and refuses missing or
+ambiguous layouts, existing files with different content, escaping manifest
+paths, and eject targets that already exist. It stages the complete write set,
+uses atomic renames, snapshots package and lock files, and rolls back if the
+package-manager install fails. A provenance record under
+`.agent-native/packages/` makes a repeated add a no-op when generated files are
+unchanged.
+
+Inspection and registry staging use static package metadata only. The CLI never
+imports a package's JavaScript manifest and passes `--ignore-scripts` while
+downloading an uninstalled package archive. Reports show credential key names,
+never credential values.
+
+## Scheduling pilot
+
+`@agent-native/scheduling` is the first package with the generic manifest. Add
+creates action re-export stubs, adds the schema export, copies its agent skills,
+records the dependency, and reports required secret names and providers.
+Eject copies the published Scheduling source to `packages/scheduling`, switches
+the dependency to `workspace:*`, and preserves canonical
+`@agent-native/scheduling` imports so workspace resolution selects the local
+copy.
+
+Ejecting other packages, including Pinpoint, is intentionally refused until the
+Scheduling pilot has proven the contract.

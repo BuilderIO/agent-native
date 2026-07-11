@@ -163,7 +163,13 @@ export const responseInsights = table("response_insights", {
   />
 </WireframeBlock>
 
-وسع `view-screen` و `navigate` كي يعرف agent المسار الحالي ويستطيع فتح `/response-insights`. يمكن للنتائج أيضًا تضمين `href: "/response-insights"` لعرض زر "افتح رؤى الردود" في الدردشة.
+## 6. دع agent يتنقل {#agent-navigation}
+
+يتضمن قالب Chat action من نوع `view-screen` و `navigate`. وسّعهما مع نمو تطبيقك:
+
+- يجب أن يقرأ `view-screen` حالة التطبيق ويُعيد المسار الحالي، والرؤية المحددة، والفلاتر النشطة، وأي سياق صفحة مضغوط يحتاجه agent.
+- يجب أن يكتب `navigate` مسارًا من نفس الأصل مثل `/response-insights` عندما يقرر agent أن على المستخدم معاينة النتيجة بصريًا.
+- يمكن لنتائج action تضمين روابط مثل `href: "/response-insights"` كي تعرض الدردشة زر "افتح رؤى الردود" بشكل صريح.
 
 عندما تفتح الدردشة الكاملة صفحة تطبيق، استخدم `AgentChatSurface` و `AgentSidebar` و `useAgentChatHomeHandoff` و `useAgentChatHomeHandoffLinks` و `chatViewTransition` من [Agent Surfaces](/docs/agent-surfaces#rich-chat) كي تنتقل الدردشة إلى اللوحة الجانبية مع الحفاظ على نفس thread.
 

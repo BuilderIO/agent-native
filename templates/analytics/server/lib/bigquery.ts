@@ -320,8 +320,8 @@ async function cancelQueryJob(
       },
     );
   } catch {
-    // The caller is already aborting. Cancellation is best-effort and must not
-    // hide the original abort reason if BigQuery or the network is unavailable.
+    // Cancellation is best-effort and must not hide the original abort or
+    // timeout reason if BigQuery or the network is unavailable.
   }
 }
 
@@ -502,6 +502,7 @@ export async function runQuery(
     }
 
     if (!data.jobComplete) {
+      await cancelQueryJob(projectId, jobId, token);
       throw new Error("BigQuery query timed out after 60 seconds");
     }
   }

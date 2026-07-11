@@ -1,0 +1,22 @@
+---
+title: Ciclo de vida de paquetes
+description: Inspecciona, añade y expulsa paquetes de Agent Native mediante manifiestos seguros.
+---
+
+# Ciclo de vida de paquetes
+
+Los paquetes reutilizables pueden publicar un `agent-native.package.json`
+estático y versionado. La CLI lee únicamente ese JSON y no ejecuta código del
+paquete durante la inspección.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Añadir y expulsar solo muestran una vista previa de forma predeterminada.
+`--apply` habilita las escrituras y el gestor de paquetes. La CLI rechaza
+colisiones y diseños desconocidos, y revierte archivos y bloqueos si falla la
+instalación. Solo Scheduling admite expulsión en este piloto; Pinpoint queda
+aplazado.

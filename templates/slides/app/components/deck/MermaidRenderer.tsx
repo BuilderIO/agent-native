@@ -1,31 +1,47 @@
 import DOMPurify from "dompurify";
-import mermaid from "mermaid";
 import { useEffect, useRef, useState } from "react";
 
-let initialized = false;
-let idCounter = 0;
+// `mermaid` pulls in d3 and its layout engine, which is a heavy chunk that
+// every deck view would otherwise ship even when no slide has a diagram.
+// Load it lazily and only once, the first time a mermaid slide actually
+// renders — mirrors the shiki lazy-load pattern in
+// packages/core/src/client/blocks/library/HighlightedCode.tsx.
+type MermaidModule = typeof import("mermaid");
 
-function initMermaid() {
-  if (initialized) return;
-  initialized = true;
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    theme: "dark",
-    themeVariables: {
-      darkMode: true,
-      background: "transparent",
-      primaryColor: "#1a1a2e",
-      primaryTextColor: "#e0e0e0",
-      primaryBorderColor: "#00E5FF",
-      lineColor: "#00E5FF",
-      secondaryColor: "#16213e",
-      tertiaryColor: "#0f3460",
-      fontFamily: "Poppins, sans-serif",
-    },
-    flowchart: { curve: "basis" },
-  });
+let mermaidLoader: Promise<MermaidModule["default"]> | null = null;
+function loadMermaid(): Promise<MermaidModule["default"]> {
+  if (!mermaidLoader) {
+    mermaidLoader = import("mermaid")
+      .then((mod) => {
+        const mermaid = mod.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "dark",
+          themeVariables: {
+            darkMode: true,
+            background: "transparent",
+            primaryColor: "#1a1a2e",
+            primaryTextColor: "#e0e0e0",
+            primaryBorderColor: "#00E5FF",
+            lineColor: "#00E5FF",
+            secondaryColor: "#16213e",
+            tertiaryColor: "#0f3460",
+            fontFamily: "Poppins, sans-serif",
+          },
+          flowchart: { curve: "basis" },
+        });
+        return mermaid;
+      })
+      .catch((error) => {
+        mermaidLoader = null;
+        throw error;
+      });
+  }
+  return mermaidLoader;
 }
+
+let idCounter = 0;
 
 interface MermaidRendererProps {
   definition: string;
@@ -42,13 +58,12 @@ export function MermaidRenderer({
 
   useEffect(() => {
     if (!definition.trim()) return;
-    initMermaid();
 
     let cancelled = false;
     const id = `mermaid-${++idCounter}`;
 
-    mermaid
-      .render(id, definition.trim())
+    loadMermaid()
+      .then((mermaid) => mermaid.render(id, definition.trim()))
       .then(({ svg: renderedSvg }) => {
         if (cancelled) return;
         // Mermaid 11.x runs DOMPurify internally with `securityLevel:"strict"`,

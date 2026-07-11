@@ -298,7 +298,10 @@ function appendFinalTranscript(session: VoiceSession, text: string): void {
   } else if (clean === committed || clean.startsWith(`${committed} `)) {
     // Some recognizers send the whole dictation as their final result.
     session.finalTranscriptParts = [clean];
-  } else if (session.finalTranscriptParts.at(-1) !== clean) {
+  } else if (
+    session.finalTranscriptParts[session.finalTranscriptParts.length - 1] !==
+    clean
+  ) {
     session.finalTranscriptParts.push(clean);
   }
   session.interimTranscript = "";

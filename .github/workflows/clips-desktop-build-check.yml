@@ -80,6 +80,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Typecheck
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run typecheck
+
+      - name: Test
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run test
+
       - name: Build frontend
         working-directory: ${{ env.TAURI_APP_PATH }}
         run: pnpm run build

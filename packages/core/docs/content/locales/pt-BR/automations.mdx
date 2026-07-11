@@ -114,13 +114,13 @@ O terceiro caminho — escrever o arquivo `jobs/<name>.md` manualmente via `reso
 
 As automações compartilham todos os campos do [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Esses campos adicionais controlam gatilhos de eventos, condições e modo de execução:
 
-| Campo         | Tipo                             | Padrão       | Descrição                                                                                                                                                                             |
-| ------------- | -------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Como a automação é acionada                                                                                                                                                           |
-| `event`       | string                           | _(opcional)_ | Nome do evento para assinatura (somente acionadores de eventos)                                                                                                                       |
-| `condition`   | string                           | _(opcional)_ | Condição de linguagem natural avaliada antes do envio                                                                                                                                 |
-| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Loop completo do agente. (`"deterministic"` está reservado, mas ainda não implementado — as automações que o definem são ignoradas. Use `"agentic"` para todas as automações atuais.) |
-| `domain`      | string                           | _(opcional)_ | Tag de agrupamento (e-mail, calendário, clipes etc.)                                                                                                                                  |
+| Campo         | Tipo                      | Padrão       | Descrição                                                                                                                                                        |
+| ------------- | ------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` | `"schedule"` | Como a automação é acionada                                                                                                                                      |
+| `event`       | string                    | _(opcional)_ | Nome do evento para assinatura (somente acionadores de eventos)                                                                                                  |
+| `condition`   | string                    | _(opcional)_ | Condição de linguagem natural avaliada antes do envio                                                                                                            |
+| `mode`        | `"agentic"`               | `"agentic"`  | Loop completo do agente (o único modo suportado). `"deterministic"` foi removido — nunca foi implementado, e as automações que o definiam nunca eram disparadas. |
+| `domain`      | string                    | _(opcional)_ | Tag de agrupamento (e-mail, calendário, clipes etc.)                                                                                                             |
 
 Para um acionador de evento, `schedule` é `""` (vazio); para um gatilho de agendamento, ele carrega a expressão cron. O despachante também grava os mesmos campos gerenciados `lastRun`/`lastStatus`/`lastError` que o agendador faz, além de um status `"skipped"` quando uma condição é avaliada como falsa.
 

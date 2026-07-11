@@ -11,10 +11,11 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
 import {
   compactDashboardResult,
   movePanelsById,
+  type PanelOrderResult,
   type PanelOrderTarget,
 } from "./dashboard-panel-order";
 
@@ -155,20 +156,22 @@ export default defineAction({
     const dashboardId = resolveDashboardId(args);
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
-    const existing = await getDashboard(dashboardId, ctx);
-    if (!existing) {
-      throw new Error(
-        `dashboard "${dashboardId}" not found (or you don't have access).`,
-      );
-    }
 
-    const root = existing.config as Record<string, unknown>;
-    const orderResult = movePanelsById(
-      root,
-      args.panelIds,
-      resolveTarget(args),
+    // Recomputed on every attempt from whichever dashboard state
+    // `upsertDashboardWithRetry` hands us, so a retry after a concurrent
+    // writer's save re-applies this move against their fresh panel order
+    // instead of silently discarding it.
+    let orderResult!: PanelOrderResult;
+    const saved = await upsertDashboardWithRetry(
+      dashboardId,
+      ctx,
+      (existing) => {
+        const root = existing.config as Record<string, unknown>;
+        orderResult = movePanelsById(root, args.panelIds, resolveTarget(args));
+        return { kind: existing.kind, body: root };
+      },
     );
-    await upsertDashboard(dashboardId, existing.kind, root, ctx);
+    const root = saved.config as Record<string, unknown>;
     await syncToCollab(dashboardId, root);
 
     const compact = compactDashboardResult(root, orderResult.movedPanelIds);

@@ -19,7 +19,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@tabler/icons-react": "catalog:",
-    "h3": "^2.0.1-rc.20",
+    "h3": "catalog:",
     "isbot": "^5",
     "node-pty": "^1.1.0",
     "zod": "^4.4.3"
@@ -81,7 +81,6 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vaul": "^1.1.2",
     "vite": "catalog:",

@@ -171,11 +171,13 @@ export const responseInsights = table("response_insights", {
   />
 </WireframeBlock>
 
-擴充 `view-screen` 和 `navigate`：
+## 6. 讓 agent 導覽 {#agent-navigation}
 
-- `view-screen` 返回目前 route、選中的 insight 和頁面上下文。
-- `navigate` 寫入 `/response-insights` 這類同源 path。
-- action 結果可以包含 `href: "/response-insights"`，讓聊天顯示「開啟回覆洞察」按鈕。
+Chat 範本包含 `view-screen` 和 `navigate` action。隨著應用的成長擴充它們：
+
+- `view-screen` 應讀取 application state，回傳目前 route、選中的 insight、生效的篩選條件，以及 agent 需要的任何精簡頁面上下文。
+- 當 agent 判斷使用者需要直觀檢視結果時，`navigate` 應寫入 `/response-insights` 這類同源 path。
+- action 結果可以包含 `href: "/response-insights"` 這類連結，讓聊天提供明確的「開啟回覆洞察」按鈕。
 
 當完整聊天頁開啟 app 頁面時，使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中的 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`，讓聊天滑到側邊欄並保留同一個 thread。
 

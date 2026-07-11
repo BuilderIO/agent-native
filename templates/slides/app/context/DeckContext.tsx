@@ -708,6 +708,36 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   }
 }
 
+/**
+ * Fetch a minimal id-only deck listing (`light: "true"`) for cheap add/remove
+ * diffing. Never downloads deck bodies — see `list-decks.ts`. Returns `null`
+ * on any failure so callers can skip the diff instead of wiping local state.
+ */
+async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
+  try {
+    const result = await callAction<DeckListActionResult>(
+      "list-decks",
+      { light: "true" },
+      { method: "GET" },
+    );
+    if (!Array.isArray(result?.decks)) {
+      console.warn("Failed to fetch deck list: invalid action response");
+      return null;
+    }
+    return result.decks
+      .filter(
+        (deck): deck is { id: string } =>
+          !!deck &&
+          typeof deck === "object" &&
+          typeof (deck as { id?: unknown }).id === "string",
+      )
+      .map((deck) => ({ id: deck.id }));
+  } catch (err) {
+    console.error("Failed to fetch deck list:", err);
+    return null;
+  }
+}
+
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
   try {
     const result = await callAction<unknown>(
@@ -1070,8 +1100,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Re-fetch the deck list and diff it against local state (added/removed
   // decks). Shared by the fallback poll and the SSE resync-on-reconnect path
   // below so both pull from one implementation of "what changed".
+  //
+  // Uses the `light` (id-only) listing — this runs every 15s and previously
+  // downloaded every deck's full slide JSON just to diff ids, even though
+  // existing decks' content was thrown away unused. Only genuinely NEW decks
+  // (rare — usually zero per poll) get a follow-up full fetch so DeckCard can
+  // still render an immediate preview for them.
   const refetchDeckListIfChanged = useCallback(async () => {
-    const fresh = await fetchDecksFromAPI();
+    const fresh = await fetchDeckListLightFromAPI();
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
@@ -1081,18 +1117,25 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const freshIds = new Set(fresh.map((d) => d.id));
     // Check if deck list changed (added or removed). Optimistic decks still
     // in flight are preserved (not treated as removed).
-    const added = fresh.filter((d) => !currentIds.has(d.id));
+    const addedIds = fresh
+      .filter((d) => !currentIds.has(d.id))
+      .map((d) => d.id);
     const removed = currentDecks.filter(
       (d) => !freshIds.has(d.id) && !pending.has(d.id),
     );
-    if (added.length === 0 && removed.length === 0) return;
+    if (addedIds.length === 0 && removed.length === 0) return;
+
+    const addedDecks = (
+      await Promise.all(addedIds.map((id) => fetchDeckFromAPI(id)))
+    ).filter((d): d is Deck => d !== null);
+
     lastExternalUpdateRef.current = Date.now();
     setDecks((prev) => {
       const prevIds = new Set(prev.map((d) => d.id));
       // Only add decks that aren't already in prev (prevents duplicates when
       // the closure's deck snapshot is stale compared to `prev`).
       let next = prev.filter((d) => freshIds.has(d.id) || pending.has(d.id));
-      for (const a of added) {
+      for (const a of addedDecks) {
         if (!prevIds.has(a.id)) next = [...next, a];
       }
       return next;

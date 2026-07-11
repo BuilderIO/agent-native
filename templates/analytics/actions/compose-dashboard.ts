@@ -11,7 +11,11 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
   buildFirstPartyDashboardFilters,
@@ -235,61 +239,85 @@ export default defineAction({
         ? (existing.config.name as string)
         : args.dashboardId);
 
+    function withFilters(
+      config: Record<string, unknown>,
+    ): Record<string, unknown> {
+      return composedPanels.some((panel) =>
+        usesFirstPartyDashboardFilters(panel.sql),
+      )
+        ? withFirstPartyDashboardFilters(config)
+        : config;
+    }
+
     let finalConfig: Record<string, unknown>;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
 
     if (existing && !args.overwrite) {
       // Append: preserve existing panels + order, add only new panel ids.
-      const existingConfig = existing.config as Record<string, unknown>;
-      const existingPanels = Array.isArray(existingConfig.panels)
-        ? (existingConfig.panels as Array<Record<string, unknown>>)
-        : [];
-      const existingIds = new Set(
-        existingPanels
-          .map((p) => (typeof p?.id === "string" ? p.id : null))
-          .filter((id): id is string => !!id),
+      // Recomputed on every retry attempt from the freshest existing config —
+      // via upsertDashboardWithRetry — so a panel a concurrent writer just
+      // added is never silently dropped by this merge.
+      const saved = await upsertDashboardWithRetry(
+        args.dashboardId,
+        ctx,
+        (freshExisting) => {
+          const existingConfig = freshExisting.config as Record<
+            string,
+            unknown
+          >;
+          const existingPanels = Array.isArray(existingConfig.panels)
+            ? (existingConfig.panels as Array<Record<string, unknown>>)
+            : [];
+          const existingIds = new Set(
+            existingPanels
+              .map((p) => (typeof p?.id === "string" ? p.id : null))
+              .filter((id): id is string => !!id),
+          );
+          const toAppend: ComposedPanel[] = [];
+          const skipped: string[] = [];
+          for (const panel of composedPanels) {
+            if (existingIds.has(panel.id)) {
+              skipped.push(panel.id);
+              continue;
+            }
+            toAppend.push(panel);
+            existingIds.add(panel.id);
+          }
+          appendedCount = toAppend.length;
+          skippedExistingIds = skipped;
+          const merged = withFilters({
+            ...existingConfig,
+            name:
+              typeof existingConfig.name === "string" &&
+              existingConfig.name.trim()
+                ? existingConfig.name
+                : dashboardName,
+            panels: [...existingPanels, ...toAppend],
+          });
+          return { kind: "sql" as const, body: merged };
+        },
       );
-      const toAppend: ComposedPanel[] = [];
-      for (const panel of composedPanels) {
-        if (existingIds.has(panel.id)) {
-          skippedExistingIds.push(panel.id);
-          continue;
-        }
-        toAppend.push(panel);
-        existingIds.add(panel.id);
-      }
-      appendedCount = toAppend.length;
-      finalConfig = {
-        ...existingConfig,
-        name:
-          typeof existingConfig.name === "string" && existingConfig.name.trim()
-            ? existingConfig.name
-            : dashboardName,
-        panels: [...existingPanels, ...toAppend],
-      };
+      finalConfig = saved.config as Record<string, unknown>;
     } else {
       // Create or overwrite: a fresh config with exactly the composed panels.
-      finalConfig = {
+      // No prior state can be lost here — create has none, and
+      // `overwrite: true` is an explicit full-replace request rather than a
+      // read-modify-write, so it saves unconditionally like update-dashboard's
+      // full-config replace mode.
+      finalConfig = withFilters({
         name: dashboardName,
         description:
           "First-party analytics dashboard composed from the metric catalog.",
         panels: composedPanels,
-      };
-    }
-
-    if (
-      composedPanels.some((panel) => usesFirstPartyDashboardFilters(panel.sql))
-    ) {
-      finalConfig = withFirstPartyDashboardFilters(finalConfig);
+      });
+      await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
     }
 
     const panelCount = Array.isArray(finalConfig.panels)
       ? (finalConfig.panels as unknown[]).length
       : 0;
 
-    // Single atomic save through the same store path update-dashboard uses.
-    await upsertDashboard(args.dashboardId, "sql", finalConfig, ctx);
     await syncToCollab(args.dashboardId, finalConfig);
 
     const parts: string[] = [];

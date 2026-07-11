@@ -107,6 +107,14 @@ async function handleDefine(
     return `Error: An automation named "${name}" already exists. Use a different name or delete the existing one first.`;
   }
 
+  if (args.mode === "deterministic") {
+    return (
+      "Error: Deterministic mode was removed — it was never implemented and " +
+      "automations that set it never fired. Create the automation without " +
+      "mode (agentic), and describe the exact fixed steps in the automation body."
+    );
+  }
+
   const triggerType = args.trigger_type === "schedule" ? "schedule" : "event";
   const meta: TriggerFrontmatter = {
     schedule: args.schedule || "",
@@ -114,7 +122,7 @@ async function handleDefine(
     triggerType,
     event: args.event || undefined,
     condition: args.condition || undefined,
-    mode: args.mode === "deterministic" ? "deterministic" : "agentic",
+    mode: "agentic",
     domain: args.domain || undefined,
     createdBy: owner,
     runAs: "creator",
@@ -268,8 +276,8 @@ export function createAutomationToolEntries(
             mode: {
               type: "string",
               description:
-                '"agentic" (full agent loop, can use tools) or "deterministic" (fixed actions only). Used by define.',
-              enum: ["agentic", "deterministic"],
+                '"agentic" (full agent loop, can use tools) — the only supported mode. Used by define.',
+              enum: ["agentic"],
             },
             domain: {
               type: "string",

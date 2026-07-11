@@ -397,7 +397,8 @@ export interface ContentDatabaseSourceOverlay {
 export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
-  | "local-table";
+  | "local-table"
+  | "notion-database";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -670,6 +671,20 @@ export interface BuilderCmsModelsResponse {
   models: BuilderCmsModelSummary[];
   fetchedAt: string;
   message: string | null;
+}
+
+export interface NotionDatabaseSourceSummary {
+  id: string;
+  name: string;
+  url: string | null;
+}
+
+export interface NotionDatabaseSourcesResponse {
+  connected: boolean;
+  workspaceName: string | null;
+  sources: NotionDatabaseSourceSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 export interface ContentDatabaseResponse {

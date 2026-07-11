@@ -1,0 +1,21 @@
+---
+title: Ciclo de vida de pacotes
+description: Inspecione, adicione e ejete pacotes Agent Native orientados por manifesto.
+---
+
+# Ciclo de vida de pacotes
+
+Pacotes reutilizáveis podem publicar um `agent-native.package.json` estático e
+versionado. A CLI lê somente esse JSON e não executa código do pacote durante a
+inspeção.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Adicionar e ejetar são simulações por padrão. `--apply` permite gravações e
+executa o gerenciador de pacotes. A CLI recusa colisões e layouts desconhecidos
+e restaura arquivos e lockfiles se a instalação falhar. Apenas Scheduling pode
+ser ejetado neste piloto; Pinpoint fica adiado.

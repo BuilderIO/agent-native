@@ -606,6 +606,10 @@ export async function mergeCoreSharingActions(
       () => import("../audit/actions/list-audit-events.js"),
     ],
     ["get-audit-event", () => import("../audit/actions/get-audit-event.js")],
+    [
+      "export-audit-events",
+      () => import("../audit/actions/export-audit-events.js"),
+    ],
     // History kit — reusable version snapshots and restore surface.
     [
       "create-resource-version",

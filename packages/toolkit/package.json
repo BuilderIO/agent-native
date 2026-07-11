@@ -164,7 +164,7 @@
     "@radix-ui/react-toggle": "^1.1.13",
     "@radix-ui/react-toggle-group": "^1.1.14",
     "@radix-ui/react-tooltip": "^1.2.11",
-    "@tabler/icons-react": "^3.44.0",
+    "@tabler/icons-react": "^3.41.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -183,7 +183,6 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:"
   },
   "peerDependencies": {

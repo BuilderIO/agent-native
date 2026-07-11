@@ -565,6 +565,29 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      // Doctor pre-step: scans app source for the security-critical guard
+      // invariants (see `agent-native doctor --help`). Warn-only by
+      // default — prints findings to stderr and always continues. Only
+      // fails the build when `agent-native build --strict` was passed or
+      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      try {
+        const { runDoctorBuildHook } = await import("./doctor.js");
+        const hook = await runDoctorBuildHook({
+          cwd: process.cwd(),
+          strict: args.includes("--strict"),
+        });
+        if (!hook.ok) {
+          console.error(
+            "\nBuild aborted by `agent-native doctor` (see findings above).",
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        console.warn(
+          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
       if (isReactRouterFramework()) {
         validateReactRouterBuildDependencies();
         const rr = findReactRouterBin();
@@ -742,6 +765,22 @@ switch (command) {
     import("./upgrade.js")
       .then(async (m) => {
         const code = await m.runUpgrade(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "doctor": {
+    // Scan app source for security-critical guard invariants (see
+    // `agent-native doctor --help`). For dependency-pin health, see
+    // `agent-native upgrade check` instead.
+    import("./doctor.js")
+      .then(async (m) => {
+        const code = await m.runDoctor(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -950,6 +989,19 @@ switch (command) {
     break;
   }
 
+  case "package": {
+    import("./package-lifecycle.js")
+      .then(async (m) => {
+        const code = await m.runPackageLifecycle(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
@@ -1079,6 +1131,10 @@ Usage:
                                 Pass a URL instead of a name for a generic
                                 research-and-integrate blueprint. --list to
                                 browse available blueprints.
+  agent-native package <cmd> <package>
+                                Manifest package lifecycle: inspect | add | eject.
+                                add/eject are dry-run unless --apply; --json emits
+                                a machine-readable compatibility/change report.
   agent-native changelog <cmd>  Author the app's user-facing changelog.
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in

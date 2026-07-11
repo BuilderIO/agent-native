@@ -18,6 +18,7 @@ import type {
   Location,
   EventType,
 } from "../shared/index.js";
+import { assertSlotAvailable } from "./availability-engine.js";
 import {
   insertBooking,
   getBookingByUid,
@@ -62,6 +63,14 @@ export async function createBooking(
     eventType.eventName?.replace("{attendeeName}", input.attendee.name) ??
     `${eventType.title} with ${input.attendee.name}`;
   const attendees: Attendee[] = [input.attendee, ...(input.guests ?? [])];
+  await assertSlotAvailable({
+    hostEmail: input.hostEmail,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    beforeEventBuffer: eventType.beforeEventBuffer,
+    afterEventBuffer: eventType.afterEventBuffer,
+    excludeBookingUid: input.fromReschedule,
+  });
   const booking = await insertBooking({
     eventTypeId: eventType.id,
     hostEmail: input.hostEmail,
@@ -130,12 +139,9 @@ export async function rescheduleBooking(input: {
   const eventType = await getEventTypeById(original.eventTypeId);
   if (!eventType) throw new Error("Event type missing");
 
-  // Mark old as rescheduled
-  await updateBookingStatus(input.uid, "rescheduled", {
-    reschedulingReason: input.reason,
-  });
-
-  // Create new booking linked back to the original
+  // Create the new booking (validated against availability, ignoring the
+  // original's own slot) before touching the original, so a slot conflict
+  // never leaves the original marked "rescheduled" with no successor.
   const attendee = original.attendees[0];
   const guests = original.attendees.slice(1);
   const newBooking = await createBooking({
@@ -153,6 +159,11 @@ export async function rescheduleBooking(input: {
     iCalUid: original.iCalUid,
     iCalSequence: original.iCalSequence + 1,
     fromReschedule: input.uid,
+  });
+
+  // Mark old as rescheduled now that the replacement exists.
+  await updateBookingStatus(input.uid, "rescheduled", {
+    reschedulingReason: input.reason,
   });
 
   // Update external calendar events (PATCH, not delete+create)

@@ -1759,7 +1759,7 @@ export async function listRunsForThread(
           LIMIT ?`,
     args: [threadId, limit],
   });
-  let repairedTerminalRow = false;
+  const reconcileCandidateIds: string[] = [];
   for (const r of rows) {
     const row = r as {
       id?: string;
@@ -1773,10 +1773,19 @@ export async function listRunsForThread(
       (row.status === "errored" &&
         row.error_code === STALE_RUN_ERROR_EVENT.errorCode);
     if (!canReconcileFromEvents) continue;
-    repairedTerminalRow =
-      (await reconcileTerminalRunFromEvents(runId).catch(() => false)) ||
-      repairedTerminalRow;
+    reconcileCandidateIds.push(runId);
   }
+  // Each candidate's reconciliation is independently fenced by the UPDATE's
+  // WHERE clause (status = 'running' OR errored-with-stale-code) inside
+  // reconcileTerminalRunFromEvents, keyed on that run's own id — reconciling
+  // several stale runs in parallel is safe and avoids N sequential
+  // SELECT+UPDATE round-trip pairs on a shared-thread page load.
+  const reconcileResults = await Promise.all(
+    reconcileCandidateIds.map((runId) =>
+      reconcileTerminalRunFromEvents(runId).catch(() => false),
+    ),
+  );
+  const repairedTerminalRow = reconcileResults.some(Boolean);
   if (repairedTerminalRow) {
     const refreshed = await client.execute({
       sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage

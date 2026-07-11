@@ -1169,12 +1169,20 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Defense-in-depth CSRF check for state-changing /_agent-native/* routes.
-      // Mounted AFTER the CORS layer so disallowed-origin OPTIONS preflights
-      // 403 first (rather than being rejected on a stale cookie heuristic).
-      // See `csrf.ts` for the threat model and allowlist.
-      const { createCsrfMiddleware } = await import("./csrf.js");
-      getH3App(nitroApp).use(createCsrfMiddleware(P));
+      // Defense-in-depth CSRF check for state-changing /_agent-native/* routes
+      // (see `csrf.ts` for the threat model and allowlist) is registered by
+      // `getH3App()` itself (framework-request-handler.ts), synchronously, on
+      // the very first call to `getH3App(nitroApp)` for this process — NOT
+      // here. Registering it inside this plugin's own async init chain would
+      // race against agent-chat-plugin's action-route registration (a
+      // SEPARATE, independently-async-initialized Nitro plugin file in real
+      // deployments): whichever plugin's `getH3App(nitroApp).use(...)` call
+      // happened to resolve first would win the position in the middleware
+      // array, and CSRF losing that race would let an action route match and
+      // run before the CSRF check ever saw the request. Centralizing the
+      // registration in `getH3App()`'s one-time bootstrap makes it the first
+      // middleware any plugin's route can possibly land behind, regardless of
+      // plugin init ordering.
 
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
@@ -1275,8 +1283,11 @@ export function createCoreRoutesPlugin(
             return { error: "executionId required" };
           }
 
-          const { hasConfiguredA2ASecret, isA2AProductionRuntime } =
-            await import("../a2a/auth-policy.js");
+          const {
+            hasConfiguredA2ASecret,
+            isLoopbackAddress,
+            isTrustedLocalRuntime,
+          } = await import("../a2a/auth-policy.js");
           if (hasConfiguredA2ASecret()) {
             const { verifyInternalToken, extractBearerToken } =
               await import("../integrations/internal-token.js");
@@ -1285,12 +1296,17 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else if (isA2AProductionRuntime()) {
-            setResponseStatus(event, 503);
-            return {
-              error:
-                "Sandbox execution processor not configured — set A2A_SECRET on this deployment.",
-            };
+          } else {
+            const loopback = isLoopbackAddress(
+              getRequestIP(event, { xForwardedFor: false }),
+            );
+            if (!isTrustedLocalRuntime({ loopback })) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+              };
+            }
           }
 
           try {

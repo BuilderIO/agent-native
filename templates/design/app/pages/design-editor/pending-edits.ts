@@ -474,6 +474,7 @@ export function formatPendingVisualStylePrompt(args: {
   designTitle?: string | null;
   activeFileId?: string | null;
   activeFilename?: string | null;
+  localhostConnectionId?: string | null;
   edits: readonly PendingVisualStyleEdit[];
   liveEdits?: readonly PendingLiveNonStyleEdit[];
 }): string {
@@ -595,10 +596,13 @@ export function formatPendingVisualStylePrompt(args: {
     args.activeFileId
       ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
       : "",
+    args.localhostConnectionId
+      ? `Active localhost connection id: "${args.localhostConnectionId}".`
+      : "",
     "",
     "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
     hasReactSourceAnchors
-      ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. Verify every project-relative file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, or other structural transform. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
+      ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
       : "",
     hasRepeatedOrSharedReactScope
       ? "At least one React anchor is repeated at runtime or resolves to a shared component definition. Inspect map/conditional/component call sites and confirm whether the change should affect one instance or every instance before writing source."

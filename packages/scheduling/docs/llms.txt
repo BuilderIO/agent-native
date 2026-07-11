@@ -17,7 +17,7 @@ locally-owned scheduling stack, not an API wrapper.
   application, booking-limit bucketing, recurring-event expansion.
 - **Server layer** (`/server`) — DB repos, availability engine, booking
   service, pluggable calendar + video providers (Google Calendar, Outlook,
-  Zoom, Google Meet, built-in video), iCal generator, lifecycle hooks →
+  Zoom, Microsoft Teams, Google Meet, built-in video), iCal generator, lifecycle hooks →
   workflows.
 - **Actions** (`/actions/*`) — ~55 `defineAction` modules covering every
   operation in the product (event type CRUD, availability edit, booking
@@ -45,6 +45,7 @@ import {
   registerVideoProvider,
   createGoogleCalendarProvider,
   createDailyVideoProvider,
+  createTeamsProvider,
 } from "@agent-native/scheduling/server/providers";
 import { getDb, schema } from "./db/index.js";
 
@@ -65,12 +66,25 @@ registerCalendarProvider(createGoogleCalendarProvider({
 registerVideoProvider(createDailyVideoProvider({
   apiKey: process.env.DAILY_API_KEY!,
 }));
+
+registerVideoProvider(createTeamsProvider({
+  clientId: process.env.MICROSOFT_CLIENT_ID!,
+  clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+  getAccessToken: fetchMicrosoftToken, // your refresh-aware implementation
+}));
 ```
 
 ## Full documentation
 
 For the full bundled docs (every .md file concatenated), see
 `llms-full.txt` in this folder.
+
+## Package lifecycle
+
+The published static `agent-native.package.json` drives safe package lifecycle
+commands. Use `agent-native package inspect @agent-native/scheduling --json`
+for contribution metadata, and preview `package add` or `package eject` before
+re-running with `--apply`. Inspection never executes package code.
 
 ## Individual skills
 

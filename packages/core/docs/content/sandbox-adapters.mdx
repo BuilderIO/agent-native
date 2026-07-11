@@ -107,6 +107,10 @@ The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter
       note: "selection: getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "durable queue marker and background execution lifecycle",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "the default backend — locked-down Node child process",
     },
@@ -189,11 +193,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 #### `AGENT_NATIVE_SANDBOX` env var {#env}
 
-Selects a built-in adapter by id. Currently only `local` (the default) is wired; unknown values fall back to local rather than failing the run.
+Selects a built-in adapter by id. Both `local` (the default) and `background` are wired; unknown values fall back to local rather than failing the run.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local        # the default — explicit
+AGENT_NATIVE_SANDBOX=background   # enqueue every run-code call durably
 ```
+
+`background` stores the raw code in `sandbox_executions` and returns an `executionId` with `status: "queued"` immediately. A signed self-dispatch starts a fresh serverless invocation; long-lived Node starts detached in-process work; status polling and the periodic sweep redrive lost dispatches or expired leases. Poll the execution later for its persisted result.
+
+`BackgroundQueueAdapter` is a durable queue marker, not the executor. Queued work uses a registered non-queued execution adapter when one is available; otherwise it falls back to the local child process. Selecting `background` alone does not provide remote or container isolation, and it does not make an edge runtime compatible with `node:child_process`.
 
 #### `registerSandboxAdapter()` {#register}
 
@@ -219,13 +228,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ### The seam for a durable runner {#durable}
 
-This interface is deliberately the seam for a future remote/durable sandbox. A remote or durable adapter (Docker, a Vercel-Sandbox-style runner, or a queued background worker) would:
+The built-in `background` adapter already provides durable queuing and a fresh execution budget, while actual execution still uses a non-queued adapter or the local child-process fallback. A separately registered remote or isolated adapter (Docker or a Vercel-Sandbox-style runner) can provide a different execution boundary and can also execute per-call background work.
+
+Such an adapter would:
 
 1. Implement `SandboxAdapter.run` against an out-of-process runtime.
 2. Tunnel the loopback bridge (or proxy bridge calls back to the parent).
-3. Let large data jobs run to completion independently of the request lifecycle — exceeding the hosted ~40s code-exec ceiling that bounds the local child-process adapter.
+3. Supply remote or container isolation independently of the shipped durable queue lifecycle.
 
-Register it under a new `AGENT_NATIVE_SANDBOX` value (e.g. `remote`) and/or via `registerSandboxAdapter()`. The agent loop and `run-code.ts` never change.
+Register it programmatically via `registerSandboxAdapter()`. The agent loop and `run-code.ts` do not need to change.
 
 <Callout id="doc-block-adap1tip" tone="info">
 
