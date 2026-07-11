@@ -61,7 +61,14 @@ export interface CodeAgentChatController {
   }): Promise<CodeAgentChatControlResult>;
   control(input: {
     runId: string;
-    command: "stop";
+    /**
+     * `"approve"` resolves the run's current pending `needsApproval` gate
+     * (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`) — the
+     * same effect as the host UI's "Approve" control. Deny / always-allow are
+     * intentionally NOT routed through this method; hosts wire those directly
+     * via `AssistantChatProps.approvalActions` instead (see CodeAgentsApp).
+     */
+    command: "stop" | "approve";
   }): Promise<CodeAgentChatControlResult>;
 }
 
