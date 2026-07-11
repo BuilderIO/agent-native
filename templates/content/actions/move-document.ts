@@ -320,23 +320,20 @@ export default defineAction({
       // under the SAME per-(owner, parent) lock the append branch uses so an
       // append and a reorder/reparent into one parent can't race each other
       // either (see _position-utils.ts).
-      await withPositionLock(
-        documentsPositionScope(ownerEmail, targetParentId),
-        async () => {
-          normalizedSiblingPositions = await resolveSiblingPositionsAfterMove({
-            db,
-            ownerEmail,
-            id,
-            parentId: targetParentId,
-            rootSection: existing,
-            position: args.position!,
-          });
-          updates.position =
-            normalizedSiblingPositions?.find((document) => document.id === id)
-              ?.position ?? args.position;
-          await runMoveTransaction();
-        },
-      );
+      await (async () => {
+        normalizedSiblingPositions = await resolveSiblingPositionsAfterMove({
+          db,
+          ownerEmail,
+          id,
+          parentId: targetParentId,
+          rootSection: existing,
+          position: args.position!,
+        });
+        updates.position =
+          normalizedSiblingPositions?.find((document) => document.id === id)
+            ?.position ?? args.position;
+        await runMoveTransaction();
+      })();
     } else if (args.parentId !== undefined) {
       // Appending to the end of the new parent's children reads MAX(position)
       // then writes MAX+1. Serialize the read through the write so a

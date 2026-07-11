@@ -24,12 +24,14 @@ vi.mock("./auth.js", () => ({
 
 const resolveSecret = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const gatewayBaseUrl = vi.hoisted(() => ({
+  value: "https://api.builder.io/agent-native/gateway/v1",
+}));
 vi.mock("./credential-provider.js", () => ({
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
   resolveBuilderCredentials: (...args: unknown[]) =>
     resolveBuilderCredentials(...args),
-  getBuilderGatewayBaseUrl: () =>
-    "https://api.builder.io/agent-native/gateway/v1",
+  getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
 vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
@@ -148,6 +150,7 @@ function toolEvent(body: unknown, headers: Record<string, string> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  gatewayBaseUrl.value = "https://api.builder.io/agent-native/gateway/v1";
   getSession.mockResolvedValue({
     email: "person@example.com",
     orgId: "org-session",
@@ -435,6 +438,30 @@ describe("realtime voice session route", () => {
         tool_choice: "auto",
       },
     });
+  });
+
+  it("honors a local Builder gateway base URL", async () => {
+    gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "bpk-private-test",
+      publicKey: "space-public-test",
+      userId: "builder-user-test",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 200,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount();
+
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8181/agent-native/gateway/v1/realtime/calls?apiKey=space-public-test",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });
 
