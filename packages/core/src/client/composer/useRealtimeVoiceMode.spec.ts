@@ -3,8 +3,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createRealtimeVoiceGreetingEvent,
   createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceSession,
+  createRealtimeVoiceTranscriptSequencer,
   createRealtimeVoiceConnectionTimeout,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
@@ -277,6 +279,87 @@ describe("extractCompletedRealtimeVoiceTranscript", () => {
         transcript: "   ",
       }),
     ).toBeNull();
+  });
+});
+
+describe("Realtime voice startup and transcript ordering", () => {
+  it("requests one brief spoken greeting when the live session starts", () => {
+    expect(createRealtimeVoiceGreetingEvent()).toEqual({
+      type: "response.create",
+      response: {
+        output_modalities: ["audio"],
+        instructions:
+          'Say exactly: "How can I help you?" Do not add anything else.',
+        max_output_tokens: 12,
+      },
+    });
+  });
+
+  it("publishes in conversation order when user ASR finishes after the assistant", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-1",
+      response_id: "response-1",
+      transcript: "I can help with that.",
+    });
+
+    expect(published).toEqual([]);
+
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Can you help me?",
+    });
+
+    expect(published).toEqual([
+      expect.objectContaining({ role: "user", text: "Can you help me?" }),
+      expect.objectContaining({
+        role: "assistant",
+        text: "I can help with that.",
+      }),
+    ]);
+  });
+
+  it("does not deadlock later turns when input transcription fails", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle({
+      type: "conversation.item.created",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.created",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.done",
+      item_id: "assistant-1",
+      transcript: "Still here.",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.failed",
+      item_id: "user-1",
+    });
+
+    expect(published).toEqual([
+      expect.objectContaining({ role: "assistant", text: "Still here." }),
+    ]);
   });
 });
 

@@ -399,6 +399,14 @@ function useChatPanelTranslation(chatVisible: boolean): number {
         return;
       }
 
+      // A fullscreen chat has no unobscured side to move into. Keep the dock
+      // at its normal edge so it stays reachable instead of pinning it to the
+      // opposite side of the same overlay.
+      if (panel.dataset.agentSidebarLayout === "fullscreen") {
+        setTranslation(0);
+        return;
+      }
+
       const rect = panel.getBoundingClientRect();
       const overlap =
         inlineEnd === "right"
@@ -415,14 +423,30 @@ function useChatPanelTranslation(chatVisible: boolean): number {
 
     const resizeObserver =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    document
-      .querySelectorAll<HTMLElement>(".agent-sidebar-panel")
-      .forEach((panel) => resizeObserver?.observe(panel));
+    const observedPanels = new WeakSet<HTMLElement>();
+    const observePanels = () => {
+      document
+        .querySelectorAll<HTMLElement>(".agent-sidebar-panel")
+        .forEach((panel) => {
+          if (!observedPanels.has(panel)) {
+            observedPanels.add(panel);
+            resizeObserver?.observe(panel);
+          }
+        });
+    };
+    observePanels();
 
-    const mutationObserver = new MutationObserver(update);
+    const mutationObserver = new MutationObserver(() => {
+      observePanels();
+      update();
+    });
     mutationObserver.observe(document.body, {
       attributes: true,
-      attributeFilter: ["data-agent-sidebar-state", "style"],
+      attributeFilter: [
+        "data-agent-sidebar-layout",
+        "data-agent-sidebar-state",
+        "style",
+      ],
       childList: true,
       subtree: true,
     });
@@ -723,7 +747,7 @@ export function RealtimeVoiceModeDock({
               aria-controls={controlsId}
               aria-expanded={controlsVisible}
               className={cn(
-                "relative isolate size-16 overflow-visible rounded-full ring-4 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
+                "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
               )}
             >

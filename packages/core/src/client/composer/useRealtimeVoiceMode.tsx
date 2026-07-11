@@ -211,6 +211,123 @@ export interface CompletedRealtimeVoiceTranscript {
   providerId?: string;
 }
 
+export interface RealtimeVoiceTranscriptSequencer {
+  handle: (event: RealtimeServerEvent) => void;
+  reset: () => void;
+}
+
+interface SequencedRealtimeVoiceTranscript {
+  status: "pending" | "completed" | "skipped";
+  transcript?: CompletedRealtimeVoiceTranscript;
+}
+
+/**
+ * Input transcription is produced by a separate ASR model and can finish after
+ * the assistant response. Reserve each message's position when OpenAI adds it
+ * to the conversation, then publish only the contiguous completed prefix.
+ */
+export function createRealtimeVoiceTranscriptSequencer(
+  publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
+): RealtimeVoiceTranscriptSequencer {
+  const order: string[] = [];
+  const items = new Map<string, SequencedRealtimeVoiceTranscript>();
+
+  const reserve = (id: string) => {
+    if (items.has(id)) return;
+    order.push(id);
+    items.set(id, { status: "pending" });
+  };
+
+  const drain = () => {
+    while (order.length > 0) {
+      const id = order[0]!;
+      const entry = items.get(id);
+      if (!entry || entry.status === "pending") return;
+      order.shift();
+      items.delete(id);
+      if (entry.status === "completed" && entry.transcript) {
+        publish(entry.transcript);
+      }
+    }
+  };
+
+  const skip = (id: unknown) => {
+    if (typeof id !== "string" || !id) return;
+    reserve(id);
+    const entry = items.get(id)!;
+    if (entry.status === "pending") entry.status = "skipped";
+  };
+
+  return {
+    handle(event) {
+      if (
+        event.type === "conversation.item.added" ||
+        event.type === "conversation.item.created"
+      ) {
+        const item = event.item;
+        if (item && typeof item === "object") {
+          const record = item as Record<string, unknown>;
+          if (
+            record.type === "message" &&
+            (record.role === "user" || record.role === "assistant") &&
+            typeof record.id === "string"
+          ) {
+            reserve(record.id);
+          }
+        }
+      }
+
+      const transcript = extractCompletedRealtimeVoiceTranscript(event);
+      if (transcript) {
+        const itemId =
+          typeof event.item_id === "string" ? event.item_id : undefined;
+        if (!itemId) {
+          // Older providers may omit item_id. Preserve the completed utterance
+          // even though they cannot provide conversation-order guarantees.
+          publish(transcript);
+        } else {
+          reserve(itemId);
+          items.set(itemId, { status: "completed", transcript });
+        }
+      } else if (
+        event.type === "conversation.item.input_audio_transcription.failed" ||
+        event.type === "conversation.item.deleted"
+      ) {
+        skip(event.item_id);
+      } else if (event.type === "response.done") {
+        const response = event.response;
+        const output =
+          response && typeof response === "object"
+            ? (response as { output?: unknown }).output
+            : undefined;
+        if (Array.isArray(output)) {
+          for (const item of output) {
+            if (!item || typeof item !== "object") continue;
+            const record = item as Record<string, unknown>;
+            if (record.type === "message") skip(record.id);
+          }
+        }
+      }
+      drain();
+    },
+    reset() {
+      order.length = 0;
+      items.clear();
+    },
+  };
+}
+
+export function createRealtimeVoiceGreetingEvent(): Record<string, unknown> {
+  return {
+    type: "response.create",
+    response: {
+      output_modalities: ["audio"],
+      instructions: 'Say exactly: "How can I help you?" Do not add anything else.',
+      max_output_tokens: 12,
+    },
+  };
+}
+
 /**
  * Voice mode owns the chat only temporarily. Restore the captured transcript
  * when it is still the user's active thread (or the chat has no active thread)
@@ -522,6 +639,7 @@ function useRealtimeVoiceModeController(
   const stateRef = useRef(state);
   const preferencesRef = useRef(preferences);
   const hasOutputAudioRef = useRef(false);
+  const greetingStartedRef = useRef(false);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -819,11 +937,10 @@ function useRealtimeVoiceModeController(
     [browserTabId, transition],
   );
 
-  const persistCompletedTranscript = useCallback(
-    (event: RealtimeServerEvent) => {
-      const transcript = extractCompletedRealtimeVoiceTranscript(event);
+  const publishCompletedTranscript = useCallback(
+    (transcript: CompletedRealtimeVoiceTranscript) => {
       const threadId = transcriptThreadIdRef.current;
-      if (!transcript || !threadId) return;
+      if (!threadId) return;
       const sessionIdentity =
         sessionIdRef.current ?? startedAtRef.current ?? "pending";
       const providerIdentity =
@@ -839,8 +956,14 @@ function useRealtimeVoiceModeController(
     [],
   );
 
+  const transcriptSequencer = useMemo(
+    () => createRealtimeVoiceTranscriptSequencer(publishCompletedTranscript),
+    [publishCompletedTranscript],
+  );
+
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
+      transcriptSequencer.handle(event);
       if (event.type === "session.created") {
         const session = event.session;
         if (session && typeof session === "object") {
@@ -848,7 +971,14 @@ function useRealtimeVoiceModeController(
           if (typeof id === "string") sessionIdRef.current = id;
         }
         updateLivePreferences(preferencesRef.current, true);
-        transition("listening");
+        if (!greetingStartedRef.current) {
+          greetingStartedRef.current = true;
+          sendDataChannelEvent(
+            channelRef.current,
+            createRealtimeVoiceGreetingEvent(),
+          );
+        }
+        transition("working");
       } else if (event.type === "input_audio_buffer.speech_started") {
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
@@ -869,7 +999,6 @@ function useRealtimeVoiceModeController(
         if (typeof event.transcript === "string") {
           lastAssistantTextRef.current = event.transcript;
         }
-        persistCompletedTranscript(event);
         syncAppState("speaking");
       } else if (
         event.type === "conversation.item.input_audio_transcription.completed"
@@ -877,7 +1006,6 @@ function useRealtimeVoiceModeController(
         if (typeof event.transcript === "string") {
           lastUserTextRef.current = event.transcript;
         }
-        persistCompletedTranscript(event);
         syncAppState("working");
       } else if (event.type === "response.done") {
         const response = event.response;
@@ -918,8 +1046,8 @@ function useRealtimeVoiceModeController(
       copy,
       fail,
       handleFunctionCall,
-      persistCompletedTranscript,
       syncAppState,
+      transcriptSequencer,
       transition,
       updateLivePreferences,
     ],
@@ -943,10 +1071,12 @@ function useRealtimeVoiceModeController(
     lastAssistantTextRef.current = "";
     sessionIdRef.current = undefined;
     hasOutputAudioRef.current = false;
+    greetingStartedRef.current = false;
     setVoiceChangePending(false);
     transcriptThreadIdRef.current =
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
+    transcriptSequencer.reset();
     transition("connecting");
     setChatVisible(false);
     window.dispatchEvent(new Event("agent-panel:close"));
@@ -958,11 +1088,10 @@ function useRealtimeVoiceModeController(
     abortRef.current = abortController;
     const isCurrentAttempt = () =>
       abortRef.current === abortController && !abortController.signal.aborted;
-    const markConnected = () => {
+    const markTransportReady = () => {
       if (!isCurrentAttempt()) return;
       cancelConnectionTimeoutRef.current?.();
       cancelConnectionTimeoutRef.current = null;
-      transition("listening");
     };
     cancelConnectionTimeoutRef.current = createRealtimeVoiceConnectionTimeout(
       () => {
@@ -1001,7 +1130,7 @@ function useRealtimeVoiceModeController(
 
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
-      channel.onopen = markConnected;
+      channel.onopen = markTransportReady;
       channel.onmessage = (messageEvent) => {
         if (!isCurrentAttempt()) return;
         try {
@@ -1019,7 +1148,7 @@ function useRealtimeVoiceModeController(
       };
       peer.onconnectionstatechange = () => {
         if (!isCurrentAttempt()) return;
-        if (peer.connectionState === "connected") markConnected();
+        if (peer.connectionState === "connected") markTransportReady();
         if (peer.connectionState === "failed") {
           fail(
             copy?.errors.connectionFailed ??
@@ -1067,6 +1196,7 @@ function useRealtimeVoiceModeController(
     fail,
     handleServerEvent,
     hydratePreferences,
+    transcriptSequencer,
     transition,
   ]);
 
