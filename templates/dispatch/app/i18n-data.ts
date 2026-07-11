@@ -280,8 +280,6 @@ const enUS = {
       also: "Also",
       monitoring: "Monitoring",
       database: "Database",
-      askTab: "Ask",
-      chatViewsAria: "Dispatch chat views",
       chatAcrossApps: "Chat across your apps",
       chatAcrossAppsDescription:
         "Route work, inspect status, or create something new from one place.",
@@ -666,8 +664,6 @@ export const messagesByLocale = {
         also: "还有",
         monitoring: "监控",
         database: "数据库",
-        askTab: "询问",
-        chatViewsAria: "Dispatch 聊天视图",
         chatAcrossApps: "跨应用聊天",
         chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
         overviewPromptPlaceholder: "向 Dispatch 提问...",
@@ -987,8 +983,6 @@ export const messagesByLocale = {
         also: "También",
         monitoring: "Monitorización",
         database: "Base de datos",
-        askTab: "Preguntar",
-        chatViewsAria: "Vistas de chat de Dispatch",
         chatAcrossApps: "Chatea con todas tus aplicaciones",
         chatAcrossAppsDescription:
           "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
@@ -1313,8 +1307,6 @@ export const messagesByLocale = {
         also: "Aussi",
         monitoring: "Surveillance",
         database: "Base de données",
-        askTab: "Demander",
-        chatViewsAria: "Vues de discussion Dispatch",
         chatAcrossApps: "Discutez avec toutes vos applications",
         chatAcrossAppsDescription:
           "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
@@ -1628,8 +1620,6 @@ export const messagesByLocale = {
         also: "Außerdem",
         monitoring: "Überwachung",
         database: "Datenbank",
-        askTab: "Fragen",
-        chatViewsAria: "Dispatch-Chatansichten",
         chatAcrossApps: "App-übergreifend chatten",
         chatAcrossAppsDescription:
           "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
@@ -1940,8 +1930,6 @@ export const messagesByLocale = {
         also: "その他",
         monitoring: "監視",
         database: "データベース",
-        askTab: "質問",
-        chatViewsAria: "Dispatch のチャット表示",
         chatAcrossApps: "アプリを横断してチャット",
         chatAcrossAppsDescription:
           "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
@@ -2247,8 +2235,6 @@ export const messagesByLocale = {
         also: "또한",
         monitoring: "모니터링",
         database: "데이터베이스",
-        askTab: "질문",
-        chatViewsAria: "Dispatch 채팅 보기",
         chatAcrossApps: "앱 전체에서 채팅",
         chatAcrossAppsDescription:
           "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
@@ -2566,8 +2552,6 @@ export const messagesByLocale = {
         also: "Também",
         monitoring: "Monitoramento",
         database: "Banco de dados",
-        askTab: "Perguntar",
-        chatViewsAria: "Visualizações de chat do Dispatch",
         chatAcrossApps: "Converse entre seus apps",
         chatAcrossAppsDescription:
           "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
@@ -2869,8 +2853,6 @@ export const messagesByLocale = {
         also: "और भी",
         monitoring: "निगरानी",
         database: "डेटाबेस",
-        askTab: "पूछें",
-        chatViewsAria: "Dispatch चैट दृश्य",
         chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
         chatAcrossAppsDescription:
           "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
@@ -3208,8 +3190,6 @@ export const messagesByLocale = {
         also: "أيضًا",
         monitoring: "المراقبة",
         database: "قاعدة البيانات",
-        askTab: "اسأل",
-        chatViewsAria: "طرق عرض دردشة Dispatch",
         chatAcrossApps: "تحدث عبر تطبيقاتك",
         chatAcrossAppsDescription:
           "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",

@@ -8,18 +8,22 @@
 @source "../hooks/**/*.{js,mjs,ts,tsx}";
 @source "../routes/**/*.{js,mjs,ts,tsx}";
 
+.dispatch-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: center;
+  padding-bottom: clamp(4rem, 12vh, 8rem);
+}
+
 .dispatch-chat-intro {
+  display: none;
+}
+
+.dispatch-chat-panel [data-agent-empty-state="centered"] .dispatch-chat-intro {
   display: grid;
   width: 100%;
   max-width: min(760px, 90%);
   gap: 0.5rem;
-  margin: 0 auto 0.875rem;
-  padding-inline: 0.75rem;
+  margin: 0 auto 1rem;
   text-align: center;
-}
-
-.dispatch-chat-panel .agent-empty-state > div:first-child {
-  display: none;
 }
 
 .dispatch-chat-intro h1 {
@@ -38,13 +42,67 @@
   line-height: 1.5;
 }
 
+.dispatch-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.dispatch-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+  width: 100%;
+  max-width: min(760px, 90%);
+  padding: 0;
+}
+
+.dispatch-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+  min-height: 10.5rem;
+  border-color: hsl(var(--border));
+  border-radius: 1rem;
+  background: hsl(var(--card));
+  box-shadow: none;
+}
+
+.dark
+  .dispatch-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-root {
+  box-shadow: none;
+}
+
+.dispatch-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-prosemirror {
+  min-height: 6.75rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
+}
+
 @media (max-width: 767px) {
-  .dispatch-chat-intro {
+  .dispatch-chat-panel [data-agent-empty-state="centered"] {
+    padding: 1rem;
+    padding-bottom: 5rem;
+  }
+
+  .dispatch-chat-panel
+    [data-agent-empty-state="centered"]
+    .dispatch-chat-intro {
     width: 100%;
     margin-bottom: 0.875rem;
   }
 
   .dispatch-chat-intro h1 {
     font-size: 1.75rem;
+  }
+
+  .dispatch-chat-panel
+    [data-agent-empty-state="centered"]
+    .agent-composer-area {
+    width: 100%;
+  }
+
+  .dispatch-chat-panel
+    [data-agent-empty-state="centered"]
+    .agent-composer-root {
+    min-height: 9rem;
   }
 }

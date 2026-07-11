@@ -2665,192 +2665,188 @@ const prototypeScreenPatchSchema = z
  * instead of duplicating this whole 20-branch union.
  */
 const planContentPatchUnion = z.discriminatedUnion("op", [
-    z
-      .object({
-        op: z.literal("set-metadata"),
-        title: z.string().trim().min(1).max(240).optional(),
-        brief: z.string().trim().max(4_000).optional(),
-      })
-      .refine(
-        (patch) => patch.title !== undefined || patch.brief !== undefined,
-        {
-          message: "Metadata patch must include title or brief.",
-        },
+  z
+    .object({
+      op: z.literal("set-metadata"),
+      title: z.string().trim().min(1).max(240).optional(),
+      brief: z.string().trim().max(4_000).optional(),
+    })
+    .refine((patch) => patch.title !== undefined || patch.brief !== undefined, {
+      message: "Metadata patch must include title or brief.",
+    }),
+  z.object({
+    op: z.literal("set-prototype"),
+    prototype: prototypeSchema,
+  }),
+  z.object({
+    op: z.literal("remove-prototype"),
+  }),
+  z.object({
+    op: z.literal("update-prototype-screen"),
+    screenId: idSchema,
+    patch: prototypeScreenPatchSchema,
+  }),
+  z.object({
+    op: z.literal("patch-prototype-html"),
+    screenId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+            message:
+              "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
+          }),
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z
+    .object({
+      op: z.literal("update-design-element-style"),
+      elementId: z.string().trim().min(1).max(160),
+      frameId: idSchema.optional(),
+      blockId: idSchema.optional(),
+      styles: z.record(
+        z.string().trim().min(1).max(80),
+        z.union([z.string().max(400), z.null()]),
       ),
-    z.object({
-      op: z.literal("set-prototype"),
-      prototype: prototypeSchema,
+    })
+    .refine((patch) => Boolean(patch.frameId || patch.blockId), {
+      message: "Provide frameId or blockId for update-design-element-style.",
+    })
+    .refine((patch) => Object.keys(patch.styles).length > 0, {
+      message: "Provide at least one style to update.",
+      path: ["styles"],
     }),
-    z.object({
-      op: z.literal("remove-prototype"),
-    }),
-    z.object({
-      op: z.literal("update-prototype-screen"),
-      screenId: idSchema,
-      patch: prototypeScreenPatchSchema,
-    }),
-    z.object({
-      op: z.literal("patch-prototype-html"),
-      screenId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
-              message:
-                "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
-            }),
-            all: z.boolean().optional(),
-          }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z
-      .object({
-        op: z.literal("update-design-element-style"),
-        elementId: z.string().trim().min(1).max(160),
-        frameId: idSchema.optional(),
-        blockId: idSchema.optional(),
-        styles: z.record(
-          z.string().trim().min(1).max(80),
-          z.union([z.string().max(400), z.null()]),
-        ),
+  z.object({
+    op: z.literal("replace-block"),
+    blockId: idSchema,
+    block: planBlockSchema,
+  }),
+  z.object({
+    op: z.literal("update-block"),
+    blockId: idSchema,
+    patch: blockUpdatePatchSchema,
+  }),
+  z.object({
+    op: z.literal("replace-blocks"),
+    blocks: z.array(planBlockSchema).max(200),
+  }),
+  z.object({
+    op: z.literal("update-rich-text"),
+    blockId: idSchema,
+    title: z.string().trim().min(1).max(180).optional(),
+    markdown: z.string().max(100_000).optional(),
+  }),
+  z.object({
+    op: z.literal("update-custom-html"),
+    blockId: idSchema,
+    title: z.string().trim().min(1).max(180).optional(),
+    html: z
+      .string()
+      .max(100_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
       })
-      .refine((patch) => Boolean(patch.frameId || patch.blockId), {
-        message: "Provide frameId or blockId for update-design-element-style.",
+      .optional(),
+    css: z
+      .string()
+      .max(50_000)
+      .refine(noFullHtmlDocument, {
+        message: "Custom CSS blocks must not include document or script tags.",
       })
-      .refine((patch) => Object.keys(patch.styles).length > 0, {
-        message: "Provide at least one style to update.",
-        path: ["styles"],
-      }),
-    z.object({
-      op: z.literal("replace-block"),
-      blockId: idSchema,
-      block: planBlockSchema,
-    }),
-    z.object({
-      op: z.literal("update-block"),
-      blockId: idSchema,
-      patch: blockUpdatePatchSchema,
-    }),
-    z.object({
-      op: z.literal("replace-blocks"),
-      blocks: z.array(planBlockSchema).max(200),
-    }),
-    z.object({
-      op: z.literal("update-rich-text"),
-      blockId: idSchema,
-      title: z.string().trim().min(1).max(180).optional(),
-      markdown: z.string().max(100_000).optional(),
-    }),
-    z.object({
-      op: z.literal("update-custom-html"),
-      blockId: idSchema,
-      title: z.string().trim().min(1).max(180).optional(),
-      html: z
-        .string()
-        .max(100_000)
-        .refine(noFullHtmlDocument, {
-          message:
-            "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
-        })
-        .optional(),
-      css: z
-        .string()
-        .max(50_000)
-        .refine(noFullHtmlDocument, {
-          message:
-            "Custom CSS blocks must not include document or script tags.",
-        })
-        .nullable()
-        .optional(),
-      caption: z.string().trim().max(400).nullable().optional(),
-    }),
-    z.object({
-      op: z.literal("patch-diagram-html"),
-      blockId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noActiveDiagramHtml, {
-              message:
-                "Diagram html replacement must be an inert fragment; SVG is allowed, scripts/events are not.",
-            }),
-            all: z.boolean().optional(),
+      .nullable()
+      .optional(),
+    caption: z.string().trim().max(400).nullable().optional(),
+  }),
+  z.object({
+    op: z.literal("patch-diagram-html"),
+    blockId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noActiveDiagramHtml, {
+            message:
+              "Diagram html replacement must be an inert fragment; SVG is allowed, scripts/events are not.",
           }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z.object({
-      op: z.literal("update-wireframe-node"),
-      blockId: idSchema,
-      nodeId: idSchema,
-      patch: wireframeNodePatchSchema,
-    }),
-    z.object({
-      op: z.literal("replace-wireframe-screen"),
-      blockId: idSchema,
-      screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
-    }),
-    z.object({
-      op: z.literal("patch-wireframe-html"),
-      blockId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
-              message:
-                "Wireframe html replacement must be a bounded fragment without html/head/body/script/style tags.",
-            }),
-            all: z.boolean().optional(),
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z.object({
+    op: z.literal("update-wireframe-node"),
+    blockId: idSchema,
+    nodeId: idSchema,
+    patch: wireframeNodePatchSchema,
+  }),
+  z.object({
+    op: z.literal("replace-wireframe-screen"),
+    blockId: idSchema,
+    screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
+  }),
+  z.object({
+    op: z.literal("patch-wireframe-html"),
+    blockId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+            message:
+              "Wireframe html replacement must be a bounded fragment without html/head/body/script/style tags.",
           }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z.object({
-      op: z.literal("update-canvas-frame"),
-      frameId: idSchema,
-      patch: canvasFramePatchSchema,
-    }),
-    z.object({
-      op: z.literal("update-canvas-annotation"),
-      annotationId: idSchema,
-      patch: canvasAnnotationPatchSchema,
-    }),
-    z.object({
-      op: z.literal("append-canvas-annotation"),
-      annotation: annotationSchema,
-    }),
-    z.object({
-      op: z.literal("append-block"),
-      block: planBlockSchema,
-      afterBlockId: idSchema.optional(),
-      parent: z
-        .union([
-          z.object({
-            tabBlockId: idSchema,
-            tabId: idSchema,
-          }),
-          z.object({
-            columnBlockId: idSchema,
-            columnId: idSchema,
-          }),
-        ])
-        .optional(),
-    }),
-    z.object({
-      op: z.literal("remove-block"),
-      blockId: idSchema,
-    }),
-    z.object({
-      op: z.literal("set-notion-sync"),
-      value: z.boolean(),
-    }),
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z.object({
+    op: z.literal("update-canvas-frame"),
+    frameId: idSchema,
+    patch: canvasFramePatchSchema,
+  }),
+  z.object({
+    op: z.literal("update-canvas-annotation"),
+    annotationId: idSchema,
+    patch: canvasAnnotationPatchSchema,
+  }),
+  z.object({
+    op: z.literal("append-canvas-annotation"),
+    annotation: annotationSchema,
+  }),
+  z.object({
+    op: z.literal("append-block"),
+    block: planBlockSchema,
+    afterBlockId: idSchema.optional(),
+    parent: z
+      .union([
+        z.object({
+          tabBlockId: idSchema,
+          tabId: idSchema,
+        }),
+        z.object({
+          columnBlockId: idSchema,
+          columnId: idSchema,
+        }),
+      ])
+      .optional(),
+  }),
+  z.object({
+    op: z.literal("remove-block"),
+    blockId: idSchema,
+  }),
+  z.object({
+    op: z.literal("set-notion-sync"),
+    value: z.boolean(),
+  }),
 ]);
 
 export const planContentPatchSchema: z.ZodType<PlanContentPatch> =

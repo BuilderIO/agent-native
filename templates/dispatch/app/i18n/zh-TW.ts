@@ -262,8 +262,6 @@ const messages = {
       also: "還有",
       monitoring: "監控",
       database: "資料庫",
-      askTab: "詢問",
-      chatViewsAria: "Dispatch 聊天檢視",
       chatAcrossApps: "跨應用程式聊天",
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "向 Dispatch 提問...",

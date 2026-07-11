@@ -79,6 +79,9 @@ describe("DispatchControlPlane", () => {
 
     expect(container.textContent).toContain("Chat across your apps");
     expect(container.textContent).not.toContain("Open chat");
+    expect(container.textContent).not.toContain("Also");
+    expect(container.textContent).not.toContain("active");
+    expect(container.querySelector("nav")).toBeNull();
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();

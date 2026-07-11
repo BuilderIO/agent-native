@@ -663,7 +663,11 @@ export function defineAction(options: any) {
   // affects the top-level "Expected: { ... }" hint text and gateway string
   // coercion, both of which only look at top-level property names/types —
   // unaffected by trimming a nested union, so this stays safe either way.
-  if (hasSchema && options.agentInputSchema && "~standard" in options.agentInputSchema) {
+  if (
+    hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+  ) {
     toolParameters = schemaToJsonSchema(
       options.agentInputSchema,
       options.description,

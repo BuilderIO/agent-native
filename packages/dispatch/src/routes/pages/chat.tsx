@@ -181,23 +181,32 @@ export default function ChatRoute() {
           defaultValue:
             "Route work, inspect status, or create something new from one place.",
         })}
+        emptyStateDisplay="hidden"
+        {...(!prompt?.message
+          ? {
+              centerComposerWhenEmpty: true,
+              composerLayoutVariant: "hero" as const,
+            }
+          : {})}
         composerPlaceholder={t("dispatch.pages.chatPromptPlaceholder", {
           defaultValue: "Ask Dispatch...",
         })}
-        emptyStateAddon={
-          <div className="dispatch-chat-intro">
-            <h1>
-              {t("dispatch.pages.chatAcrossApps", {
-                defaultValue: "Chat across your apps",
-              })}
-            </h1>
-            <p>
-              {t("dispatch.pages.chatAcrossAppsDescription", {
-                defaultValue:
-                  "Route work, inspect status, or create something new from one place.",
-              })}
-            </p>
-          </div>
+        composerSlot={
+          !prompt?.message ? (
+            <div className="dispatch-chat-intro">
+              <h1>
+                {t("dispatch.pages.chatAcrossApps", {
+                  defaultValue: "Chat across your apps",
+                })}
+              </h1>
+              <p>
+                {t("dispatch.pages.chatAcrossAppsDescription", {
+                  defaultValue:
+                    "Route work, inspect status, or create something new from one place.",
+                })}
+              </p>
+            </div>
+          ) : null
         }
       />
     </div>

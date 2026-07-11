@@ -76,7 +76,10 @@ const createUiPlanSchema = z.object({
   currentFocus: z.string().optional().describe("Current UI plan focus"),
   status: planStatusSchema.optional().default("review"),
   content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
-  markdown: z.string().optional().describe("Markdown/text fallback or source UI plan"),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Markdown/text fallback or source UI plan"),
   states: z
     .array(uiPlanStateSchema)
     .optional()
@@ -110,9 +113,12 @@ const createUiPlanSchema = z.object({
 export default defineAction({
   description:
     "Create a UI-first plan whose centerpiece is wireframed screens/states on a canvas. For a document-first plan use create-visual-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Publish via this tool; never deliver the plan as inline chat text.",
-  schema: createUiPlanSchema.refine((args) => Boolean(args.brief || args.goal), {
-    message: "Either brief or goal is required.",
-  }),
+  schema: createUiPlanSchema.refine(
+    (args) => Boolean(args.brief || args.goal),
+    {
+      message: "Either brief or goal is required.",
+    },
+  ),
   // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
   // per-block-type union for a compact `type`-enum stand-in. Runtime
   // validation always runs the full schema above — see the `actions` skill.

@@ -13,11 +13,13 @@ const clientState = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     clientState.surfaceProps = props;
-    return <>{props.emptyStateAddon as ReactNode}</>;
+    return <>{props.composerSlot as ReactNode}</>;
   },
   appBasePath: () => "",
   appPath: (path: string) => path,
+  isInBuilderFrame: () => false,
   markAgentChatHomeHandoff: vi.fn(),
+  sendToAgentChat: vi.fn(),
   useT: () => (key: string, values?: { defaultValue?: string }) =>
     values?.defaultValue ?? key,
 }));
@@ -40,7 +42,7 @@ describe("Dispatch ChatRoute", () => {
     vi.unstubAllGlobals();
   });
 
-  it("starts in the bottom-composer layout without the centered hero snap", async () => {
+  it("keeps the centered hero layout for a direct new Chat", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat"]}>
@@ -52,14 +54,41 @@ describe("Dispatch ChatRoute", () => {
     expect(clientState.surfaceProps).toMatchObject({
       mode: "page",
       chatViewTransition: true,
+      centerComposerWhenEmpty: true,
+      composerLayoutVariant: "hero",
       composerPlaceholder: "Ask Dispatch...",
     });
+    expect(container.textContent).toContain("Chat across your apps");
+  });
+
+  it("starts bottom-pinned when an Overview prompt is transitioning in", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: "/chat",
+              state: {
+                dispatchPrompt: {
+                  id: "overview-prompt",
+                  message: "Route this across my apps",
+                  selectedModel: "auto",
+                },
+              },
+            },
+          ]}
+        >
+          <ChatRoute />
+        </MemoryRouter>,
+      );
+    });
+
     expect(clientState.surfaceProps).not.toHaveProperty(
       "centerComposerWhenEmpty",
     );
     expect(clientState.surfaceProps).not.toHaveProperty(
       "composerLayoutVariant",
     );
-    expect(container.textContent).toContain("Chat across your apps");
+    expect(container.textContent).not.toContain("Chat across your apps");
   });
 });

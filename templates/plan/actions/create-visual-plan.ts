@@ -89,7 +89,10 @@ const createVisualPlanSchema = z.object({
       "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
     ),
   content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
-  markdown: z.string().optional().describe("Markdown/text fallback or source plan"),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Markdown/text fallback or source plan"),
   sections: z
     .array(sectionInputSchema)
     .optional()

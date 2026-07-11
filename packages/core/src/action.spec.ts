@@ -332,8 +332,14 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
         // Pretend this is a deep block-type union like the plan actions.
         blocks: z.array(
           z.discriminatedUnion("type", [
-            z.object({ type: z.literal("a"), data: z.object({ a: z.string() }) }),
-            z.object({ type: z.literal("b"), data: z.object({ b: z.number() }) }),
+            z.object({
+              type: z.literal("a"),
+              data: z.object({ a: z.string() }),
+            }),
+            z.object({
+              type: z.literal("b"),
+              data: z.object({ b: z.number() }),
+            }),
           ]),
         ),
       }),
@@ -344,7 +350,9 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
             z.object({
               type: z
                 .enum(["a", "b"])
-                .describe("Block type — call get-blocks for full field shapes."),
+                .describe(
+                  "Block type — call get-blocks for full field shapes.",
+                ),
             }),
           )
           .describe("Call get-blocks before authoring blocks."),
@@ -384,9 +392,10 @@ describe("defineAction schema mode — agentInputSchema (advertised-only overrid
     expect(run).not.toHaveBeenCalled();
 
     // A call satisfying the full schema still succeeds and reaches run().
-    await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual(
-      { title: "x", count: 2 },
-    );
+    await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual({
+      title: "x",
+      count: 2,
+    });
   });
 
   it("falls back to the full schema when agentInputSchema is not set", () => {
