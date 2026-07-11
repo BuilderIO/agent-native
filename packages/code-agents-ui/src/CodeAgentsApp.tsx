@@ -1,5 +1,6 @@
 import {
   AssistantChat,
+  ChatHistoryList,
   PromptComposer,
   buildRepositoryFromCodeAgentTranscript,
   createCodeAgentChatAdapter,
@@ -7,6 +8,7 @@ import {
   isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
   readAgentPromptAttachment,
+  type ChatHistoryItem,
   type CodeAgentChatController,
   type PromptComposerFile,
   type SlashCommand,
@@ -23,14 +25,10 @@ import {
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
-  IconDots,
   IconFolder,
   IconFolderPlus,
   IconLink,
   IconLockAccess,
-  IconPencil,
-  IconPinned,
-  IconPinnedOff,
   IconPlus,
   IconPlayerPlay,
   IconPlayerStop,
@@ -112,12 +110,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from "./ui/dialog.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu.js";
 import {
   Select,
   SelectContent,
@@ -412,6 +404,31 @@ export default function CodeAgentsApp({
   const remoteRelayUrl = useMemo(
     () => remoteConnectorStatus?.relayUrl ?? defaultRemoteRelayUrl(apps),
     [apps, remoteConnectorStatus?.relayUrl],
+  );
+  const railItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      sortRunsForRail(runs).map((run) => ({
+        id: run.id,
+        title: getRunTitle(run),
+        titleText: getRunTitle(run) ?? undefined,
+        pinned: isRunPinned(run),
+        timestamp: isRunActive(run) ? (
+          <span
+            className="code-agents-run-status-spinner"
+            aria-label="Running"
+            title="Running"
+          />
+        ) : !viewedRunIds.has(run.id) ? (
+          <span
+            className="code-agents-run-status-dot"
+            aria-label="Done — unread"
+            title="Done"
+          />
+        ) : (
+          formatRelativeTime(run.updatedAt)
+        ),
+      })),
+    [runs, viewedRunIds],
   );
   const newPromptRef = useRef<TiptapComposerHandle | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -1508,25 +1525,31 @@ export default function CodeAgentsApp({
               <p>No chats yet.</p>
             </div>
           ) : (
-            <GroupedRunList
-              runs={runs}
-              selectedRunId={selectedRunId}
-              viewedRunIds={viewedRunIds}
-              onSelect={(run) => {
-                markRunsViewed([run.id]);
-                setSelectedRunId(run.id);
+            <ChatHistoryList
+              items={railItems}
+              activeId={selectedRunId}
+              onSelect={(id) => {
+                markRunsViewed([id]);
+                setSelectedRunId(id);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
-              onOpen={(run) => {
-                markRunsViewed([run.id]);
-                setSelectedRunId(run.id);
+              onOpen={(id) => {
+                markRunsViewed([id]);
+                setSelectedRunId(id);
                 setWorkbenchOpen(true);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
-              onTogglePin={toggleRunPinned}
-              onRename={renameRun}
+              onTogglePin={(id) => {
+                const run = runs.find((item) => item.id === id);
+                if (run) toggleRunPinned(run);
+              }}
+              onRename={(id, nextTitle) => {
+                const run = runs.find((item) => item.id === id);
+                if (run) renameRun(run, nextTitle);
+              }}
+              variant="rail"
             />
           )}
         </div>
@@ -2652,42 +2675,6 @@ function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
 }
 
-function GroupedRunList({
-  runs,
-  selectedRunId,
-  viewedRunIds,
-  onSelect,
-  onOpen,
-  onTogglePin,
-  onRename,
-}: {
-  runs: CodeAgentRun[];
-  selectedRunId: string | null;
-  viewedRunIds: Set<string>;
-  onSelect: (run: CodeAgentRun) => void;
-  onOpen: (run: CodeAgentRun) => void;
-  onTogglePin: (run: CodeAgentRun) => void;
-  onRename: (run: CodeAgentRun, newTitle: string) => void;
-}) {
-  const sortedRuns = sortRunsForRail(runs);
-  return (
-    <div className="code-agents-run-group code-agents-run-group--flat">
-      {sortedRuns.map((run) => (
-        <RunRailItem
-          key={run.id}
-          run={run}
-          selected={run.id === selectedRunId}
-          unread={!viewedRunIds.has(run.id) && !isRunActive(run)}
-          onSelect={() => onSelect(run)}
-          onOpen={() => onOpen(run)}
-          onTogglePin={() => onTogglePin(run)}
-          onRename={(newTitle) => onRename(run, newTitle)}
-        />
-      ))}
-    </div>
-  );
-}
-
 function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
   const pinned = sortPinnedRuns(runs.filter(isRunPinned));
   const unpinned = [...runs]
@@ -2836,144 +2823,6 @@ function getRunStatusText(run: CodeAgentRun): string {
   return run.phase ?? run.status;
 }
 
-function RunRailItem({
-  run,
-  selected,
-  unread,
-  onSelect,
-  onOpen,
-  onTogglePin,
-  onRename,
-}: {
-  run: CodeAgentRun;
-  selected: boolean;
-  unread: boolean;
-  onSelect: () => void;
-  onOpen: () => void;
-  onTogglePin: () => void;
-  onRename: (newTitle: string) => void;
-}) {
-  const pinned = isRunPinned(run);
-  const active = isRunActive(run);
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-
-  function startRename() {
-    setRenameValue(getRunTitle(run) ?? "");
-    setRenaming(true);
-    window.requestAnimationFrame(() => {
-      renameInputRef.current?.select();
-    });
-  }
-
-  function commitRename() {
-    const trimmed = renameValue.trim();
-    setRenaming(false);
-    if (trimmed && trimmed !== getRunTitle(run)) {
-      onRename(trimmed);
-    }
-  }
-
-  function handleRenameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commitRename();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setRenaming(false);
-    }
-  }
-
-  return (
-    <div
-      className={`code-agents-run-row${
-        selected ? " code-agents-run-row--active" : ""
-      }${pinned ? " code-agents-run-row--pinned" : ""}${
-        renaming ? " code-agents-run-row--renaming" : ""
-      }`}
-    >
-      {renaming ? (
-        <div className="code-agents-run code-agents-run--rename">
-          <input
-            ref={renameInputRef}
-            className="code-agents-run__rename-input"
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onKeyDown={handleRenameKeyDown}
-            onBlur={commitRename}
-            autoFocus
-            aria-label="Rename chat"
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="code-agents-run"
-          onClick={onSelect}
-          onDoubleClick={onOpen}
-          title={getRunTitle(run) ?? undefined}
-        >
-          <div className="code-agents-run__topline">
-            <span className="code-agents-run__name">{getRunTitle(run)}</span>
-            <span className="code-agents-run__time">
-              {active ? (
-                <span
-                  className="code-agents-run-status-spinner"
-                  aria-label="Running"
-                  title="Running"
-                />
-              ) : unread ? (
-                <span
-                  className="code-agents-run-status-dot"
-                  aria-label="Done — unread"
-                  title="Done"
-                />
-              ) : (
-                formatRelativeTime(run.updatedAt)
-              )}
-            </span>
-          </div>
-        </button>
-      )}
-      {!renaming && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={`code-agents-run-menu${
-                pinned ? " code-agents-run-menu--pinned" : ""
-              }`}
-              aria-label="Chat options"
-              title="Chat options"
-            >
-              {pinned ? (
-                <IconPinned size={13} strokeWidth={1.8} />
-              ) : (
-                <IconDots size={14} strokeWidth={1.8} />
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="right" sideOffset={8}>
-            <DropdownMenuItem onSelect={startRename}>
-              <IconPencil size={14} strokeWidth={1.8} />
-              <span>Rename</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onTogglePin}>
-              {pinned ? (
-                <IconPinnedOff size={14} strokeWidth={1.8} />
-              ) : (
-                <IconPinned size={14} strokeWidth={1.8} />
-              )}
-              <span>{pinned ? "Unpin from top" : "Pin to top"}</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </div>
-  );
-}
-
 function SearchChatsPanel({
   query,
   results,
@@ -3005,6 +2854,22 @@ function SearchChatsPanel({
       : hasQuery
         ? `${results.length} matches`
         : `${Math.min(results.length, totalRuns)} recent chats`;
+  const historyItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      results.map((result) => ({
+        id: result.run.id,
+        title: getRunTitle(result.run),
+        timestamp: formatRelativeTime(result.run.updatedAt),
+        subtitle: (
+          <span className="code-agents-search-result__meta">
+            <span>{result.matchType}</span>
+            <span>{getSearchResultMeta(result.run)}</span>
+          </span>
+        ),
+        detail: result.match,
+      })),
+    [results],
+  );
 
   return (
     <div className="code-agents-search-panel">
@@ -3054,35 +2919,32 @@ function SearchChatsPanel({
             <div className="code-agents-run-skeleton" />
             <div className="code-agents-run-skeleton" />
           </>
-        ) : results.length === 0 ? (
-          <div className="code-agents-detail code-agents-detail--empty">
-            <IconSearch size={30} strokeWidth={1.5} />
-            <h3>{hasQuery ? "No chats found" : "No chats yet"}</h3>
-            <p>
-              {hasQuery
-                ? "Try a title, folder, command, or phrase from the conversation."
-                : "Start a chat and it will show up here."}
-            </p>
-          </div>
         ) : (
-          results.map((result) => (
-            <button
-              key={result.run.id}
-              type="button"
-              className="code-agents-search-result"
-              onClick={() => onSelectRun(result.run)}
-            >
-              <div className="code-agents-search-result__topline">
-                <span>{getRunTitle(result.run)}</span>
-                <em>{formatRelativeTime(result.run.updatedAt)}</em>
+          <ChatHistoryList
+            items={historyItems}
+            searchValue={query}
+            onSelect={(id) => {
+              const result = results.find((item) => item.run.id === id);
+              if (result) onSelectRun(result.run);
+            }}
+            emptyLabel={
+              <div className="code-agents-detail code-agents-detail--empty">
+                <IconSearch size={30} strokeWidth={1.5} />
+                <h3>No chats yet</h3>
+                <p>Start a chat and it will show up here.</p>
               </div>
-              <div className="code-agents-search-result__meta">
-                <span>{result.matchType}</span>
-                <span>{getSearchResultMeta(result.run)}</span>
+            }
+            emptySearchLabel={
+              <div className="code-agents-detail code-agents-detail--empty">
+                <IconSearch size={30} strokeWidth={1.5} />
+                <h3>No chats found</h3>
+                <p>
+                  Try a title, folder, command, or phrase from the
+                  conversation.
+                </p>
               </div>
-              <p>{result.match}</p>
-            </button>
-          ))
+            }
+          />
         )}
       </div>
     </div>

@@ -1,4 +1,5 @@
 @import "@agent-native/core/styles/agent-conversation.css";
+@import "@agent-native/core/styles/chat-history-list.css";
 
 /* ─── Agent-Native Code shadcn/template alignment ───────────────
    Light is the default palette (matches the scaffolded template's

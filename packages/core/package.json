@@ -220,6 +220,7 @@
     "./tailwind": "./dist/tailwind.preset.js",
     "./styles/agent-native.css": "./dist/styles/agent-native.css",
     "./styles/agent-conversation.css": "./dist/styles/agent-conversation.css",
+    "./styles/chat-history-list.css": "./dist/styles/chat-history-list.css",
     "./agent/engine": "./dist/agent/engine/index.js",
     "./agent/harness": "./dist/agent/harness/index.js",
     "./eval": "./dist/eval/index.js",

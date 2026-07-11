@@ -448,6 +448,8 @@ function HistoryPopover({
   onClose,
   onLoadMore,
   onSearch,
+  onTogglePin,
+  onRename,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
@@ -460,6 +462,11 @@ function HistoryPopover({
   onClose: () => void;
   onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
+  /** Presence enables the pin/unpin row action. Receives the thread's
+   * current pinned state so the caller can flip it. */
+  onTogglePin?: (id: string, pinned: boolean) => void;
+  /** Presence enables the inline rename row action. */
+  onRename?: (id: string, nextTitle: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<
@@ -516,18 +523,26 @@ function HistoryPopover({
       )
     : visibleThreads;
 
-  // When scope is set we split history into two sections so the user can
-  // see "this deck's chats" first without losing access to general /
+  // Pinned threads always float to the top of `threads` already (see
+  // `sortThreadSummaries` in use-chat-threads.ts and the matching server
+  // ORDER BY), but pulling them into their own labeled section — instead of
+  // just relying on sort order within "All chats" — makes the pin affordance
+  // visible at a glance, matching common chat-history UX.
+  const pinnedThreads = filtered.filter((t) => t.pinnedAt != null);
+  const unpinnedThreads = filtered.filter((t) => t.pinnedAt == null);
+
+  // When scope is set we split (unpinned) history into two sections so the
+  // user can see "this deck's chats" first without losing access to general /
   // other-deck chats. Section labels intentionally use the current
   // resource type (deck/design/dashboard) instead of a generic phrase.
   const sectionedThreads = currentScope
     ? {
-        scoped: filtered.filter(
+        scoped: unpinnedThreads.filter(
           (t) =>
             t.scope?.type === currentScope.type &&
             t.scope?.id === currentScope.id,
         ),
-        other: filtered.filter(
+        other: unpinnedThreads.filter(
           (t) =>
             !t.scope ||
             t.scope.type !== currentScope.type ||
@@ -538,9 +553,11 @@ function HistoryPopover({
 
   const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
     const isActive = thread.id === activeThreadId;
+    const title = thread.title || thread.preview || "Chat";
     return {
       id: thread.id,
-      title: thread.title || thread.preview || "Chat",
+      title,
+      titleText: title,
       subtitle:
         thread.preview && thread.title !== thread.preview
           ? thread.preview
@@ -551,23 +568,35 @@ function HistoryPopover({
         : openTabIds.has(thread.id)
           ? "Open"
           : formatThreadTime(thread.updatedAt),
+      pinned: thread.pinnedAt != null,
     };
   };
 
-  const historySections: ChatHistorySection[] = sectionedThreads
-    ? [
-        {
-          id: "scoped",
-          label: `This ${currentScope!.type}`,
-          items: sectionedThreads.scoped.map(toHistoryItem),
-        },
-        {
-          id: "other",
-          label: "All chats",
-          items: sectionedThreads.other.map(toHistoryItem),
-        },
-      ]
-    : [{ id: "all", items: filtered.map(toHistoryItem) }];
+  const historySections: ChatHistorySection[] = [
+    ...(pinnedThreads.length > 0
+      ? [
+          {
+            id: "pinned",
+            label: "Pinned",
+            items: pinnedThreads.map(toHistoryItem),
+          },
+        ]
+      : []),
+    ...(sectionedThreads
+      ? [
+          {
+            id: "scoped",
+            label: `This ${currentScope!.type}`,
+            items: sectionedThreads.scoped.map(toHistoryItem),
+          },
+          {
+            id: "other",
+            label: "All chats",
+            items: sectionedThreads.other.map(toHistoryItem),
+          },
+        ]
+      : [{ id: "all", items: unpinnedThreads.map(toHistoryItem) }]),
+  ];
 
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
@@ -591,6 +620,16 @@ function HistoryPopover({
             onSelect(id);
             onClose();
           }}
+          onTogglePin={
+            onTogglePin
+              ? (id) => {
+                  const isPinned =
+                    threads.find((t) => t.id === id)?.pinnedAt != null;
+                  onTogglePin(id, !isPinned);
+                }
+              : undefined
+          }
+          onRename={onRename}
           searchValue={search}
           onSearchChange={setSearch}
           searchPlaceholder="Search chats..."
@@ -1056,6 +1095,8 @@ export function MultiTabAssistantChat({
     isLoadingMoreThreads,
     threadsLoadError,
     isNewThread,
+    pinThread,
+    renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
     routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
@@ -2678,6 +2719,8 @@ export function MultiTabAssistantChat({
             onClose={() => setShowHistory(false)}
             onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
+            onTogglePin={pinThread}
+            onRename={renameThread}
           />
         )}
 
