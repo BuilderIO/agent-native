@@ -37,3 +37,12 @@ export const SHOW_DESIGN_CODE_LEFT_PANEL = true;
 
 /** Zoom percentage applied when entering single-screen (focused) editor mode. */
 export const FOCUSED_SCREEN_ZOOM = 100;
+
+export interface DesignFile {
+  id: string;
+  filename: string;
+  fileType: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}

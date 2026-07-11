@@ -7,7 +7,13 @@ import {
   IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import {
+  type MouseEvent,
+  useEffect,
+  useId,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
   Popover,
@@ -334,9 +340,7 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const orbScale = reducedMotion ? 1 : 1 + Math.min(activityLevel, 1) * 0.07;
 
-  const closeControlsUnlessFocused = (
-    event: React.MouseEvent<HTMLDivElement>,
-  ) => {
+  const closeControlsUnlessFocused = (event: MouseEvent<HTMLDivElement>) => {
     if (!event.currentTarget.contains(document.activeElement)) {
       setControlsOpen(false);
     }

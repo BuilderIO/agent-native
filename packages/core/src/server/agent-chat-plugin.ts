@@ -12,21 +12,13 @@ import {
   type H3Event,
 } from "h3";
 
-import {
-  appendA2AArtifactLinks,
-  buildA2ARecoverableArtifactMessage,
-  type A2AArtifactResponseOptions,
-  type A2AToolResultSummary,
-} from "../a2a/artifact-response.js";
+import { buildA2ARecoverableArtifactMessage } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
   isLoopbackAddress,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
-import {
-  applyAgentTextEventToBuffer,
-  collectFinalResponseTextFromAgentEvents,
-} from "../a2a/response-text.js";
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
 import type { ActionHttpConfig } from "../action.js";
@@ -59,13 +51,11 @@ import {
 import type {
   AgentEngine,
   EngineMessage,
-  EngineTool,
 } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
   executeAgentToolCall,
-  filterInitialEngineTools,
   getActiveRunForThreadAsync,
   abortRunDurably,
   subscribeToRun,
@@ -183,7 +173,6 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { withConfiguredAppBasePath } from "./app-base-path.js";
 import { getSession } from "./auth.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
@@ -634,7 +623,9 @@ function wrapCliScript(
 import {
   filterReadOnlyActions,
   filterAgentTools,
+  filterPublicAgentActions,
   buildPublicAgentA2ASkills,
+  resolveArtifactBaseUrl,
   assembleA2AFinalResponse,
 } from "./agent-chat/action-filters-a2a.js";
 

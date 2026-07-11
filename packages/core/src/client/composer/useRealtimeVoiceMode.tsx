@@ -269,6 +269,16 @@ function openOpenAiKeySettings(): void {
   );
 }
 
+function openMicrophoneSettings(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event("agent-panel:open"));
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open-settings", {
+      detail: { section: "voice" },
+    }),
+  );
+}
+
 function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
   return {
     entryButtonLabel: t("agentPanel.voiceMode.entryButtonLabel"),
@@ -284,6 +294,7 @@ function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
     showChat: t("agentPanel.voiceMode.showChat"),
     hideChat: t("agentPanel.voiceMode.hideChat"),
     endVoiceMode: t("agentPanel.voiceMode.end"),
+    microphoneSettings: t("agentPanel.voiceMode.microphoneSettings"),
     status: {
       connecting: t("agentPanel.voiceMode.status.connecting"),
       listening: t("agentPanel.voiceMode.status.listening"),
@@ -854,6 +865,7 @@ export function RealtimeVoiceModeProvider({
               audioLevels={voice.audioLevels}
               onToggleChat={voice.toggleChat}
               onEndVoiceMode={voice.end}
+              onOpenMicrophoneSettings={openMicrophoneSettings}
               errorMessage={voice.errorMessage}
             />,
             document.body,

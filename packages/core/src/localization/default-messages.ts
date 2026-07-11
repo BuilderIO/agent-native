@@ -227,6 +227,7 @@ const messages = {
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
+      microphoneSettings: "Microphone settings",
       status: {
         connecting: "Connecting",
         listening: "Listening",
