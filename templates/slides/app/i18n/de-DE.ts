@@ -556,7 +556,8 @@ const messages = {
   },
   home: {
     loadFailed: "Inhalte konnten nicht geladen werden",
-    loadFailedDescription: "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
+    loadFailedDescription:
+      "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     retry: "Erneut versuchen",
     decksTitle: "Decks",
     newDeck: "Neues Deck",

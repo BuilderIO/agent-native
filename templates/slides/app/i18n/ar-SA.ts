@@ -562,7 +562,8 @@ const messages = {
   },
   home: {
     loadFailed: "تعذر تحميل المحتوى",
-    loadFailedDescription: "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
+    loadFailedDescription:
+      "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
     retry: "إعادة المحاولة",
     decksTitle: "العروض",
     newDeck: "عرض جديد",

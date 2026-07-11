@@ -69,19 +69,13 @@ export default function IndexPage() {
     }).catch(() => {});
   }, [dateStr]);
 
-  const mealsQuery = useActionQuery(
-    "list-meals",
-    { date: dateStr },
-  );
+  const mealsQuery = useActionQuery("list-meals", { date: dateStr });
   const { data: rawMeals, isLoading: mealsLoading } = mealsQuery;
   const serverMeals = Array.isArray(rawMeals) ? rawMeals : [];
   const { rows: meals, hasOptimisticRows: hasOptimisticMeals } =
     useOptimisticLogRows("meal", serverMeals, dateStr);
 
-  const exercisesQuery = useActionQuery(
-    "list-exercises",
-    { date: dateStr },
-  );
+  const exercisesQuery = useActionQuery("list-exercises", { date: dateStr });
   const { data: rawExercises, isLoading: exercisesLoading } = exercisesQuery;
   const serverExercises = Array.isArray(rawExercises) ? rawExercises : [];
   const { rows: exercises, hasOptimisticRows: hasOptimisticExercises } =

@@ -19,8 +19,8 @@ import {
   Area,
 } from "recharts";
 
-import { Button } from "@/components/ui/button";
 import { QueryErrorState } from "@/components/QueryErrorState";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -98,7 +98,8 @@ export function DailyProgress({
     { startDate, endDate },
     { enabled: activeChart === "weight" },
   );
-  const { data: rawWeightHistory, isLoading: weightLoading } = weightHistoryQuery;
+  const { data: rawWeightHistory, isLoading: weightLoading } =
+    weightHistoryQuery;
   const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
   const calorieHistoryQuery = useActionQuery(

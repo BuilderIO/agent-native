@@ -14,6 +14,7 @@ import {
   ReferenceLine,
 } from "recharts";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -25,7 +26,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
-import { QueryErrorState } from "@/components/QueryErrorState";
 import messages from "@/i18n/en-US";
 import { formatLocalDate } from "@/lib/utils";
 
@@ -85,11 +85,12 @@ export default function AnalyticsPage() {
   const { data: rawHistory, isLoading } = historyQuery;
   const history = Array.isArray(rawHistory) ? rawHistory : [];
 
-  const weightHistoryQuery = useActionQuery(
-    "weights-history",
-    { startDate, endDate },
-  );
-  const { data: rawWeightHistory, isLoading: weightLoading } = weightHistoryQuery;
+  const weightHistoryQuery = useActionQuery("weights-history", {
+    startDate,
+    endDate,
+  });
+  const { data: rawWeightHistory, isLoading: weightLoading } =
+    weightHistoryQuery;
   const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
   const weightStats = {
