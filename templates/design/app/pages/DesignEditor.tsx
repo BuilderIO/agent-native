@@ -653,6 +653,17 @@ import {
 import { verifyPendingStructuresRuntime } from "./design-editor/pending-structure-verification";
 import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
 import {
+  blurActiveDesignEditableTarget,
+  cropCanvasToRect,
+  PngCaptureError,
+  removeEditorChromeOverlays,
+  renderExportDocumentCanvas,
+  resolveExportCropRect,
+  sanitizeSerializedXmlForSvg,
+  type PngCaptureErrorCode,
+} from "./design-editor/png-export-render";
+import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
+import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
   elementAtPortableStylePath,
