@@ -18,6 +18,7 @@ import { submitOverviewPrompt } from "../lib/overview-chat";
 import type { WorkspaceAppSummary } from "../lib/workspace-apps";
 import { CreateAppPopover } from "./create-app-popover";
 import { DispatchShell } from "./dispatch-shell";
+import { ActionQueryError } from "./action-query-error";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { WorkspaceAppCard } from "./workspace-app-card";
@@ -209,9 +210,10 @@ function AppsPanel({
 }
 
 export function DispatchControlPlane() {
-  const { data: workspaceApps = [], isLoading: appsLoading } = useActionQuery<
+  const appsQuery = useActionQuery<
     WorkspaceAppSummary[]
   >("list-workspace-apps", { includeAgentCards: false, includeArchived: true });
+  const { data: workspaceApps = [], isLoading: appsLoading } = appsQuery;
 
   return (
     <DispatchShell
@@ -221,7 +223,14 @@ export function DispatchControlPlane() {
       <div className="flex flex-col gap-6">
         <CommandPanel />
         <WorkspaceLinks />
-        <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
+        {appsQuery.isError ? (
+          <ActionQueryError
+            error={appsQuery.error}
+            onRetry={() => void appsQuery.refetch()}
+          />
+        ) : (
+          <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
+        )}
       </div>
     </DispatchShell>
   );

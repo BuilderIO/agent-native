@@ -5,8 +5,8 @@ import {
 } from "@shared/canvas-frames";
 import { type TweakSelections } from "@shared/resolve-tweaks";
 
-import { frameGeometryEquals } from "./geometry-persistence";
 import { viewportSizeFromFrameGeometry } from "./data-operations";
+import { frameGeometryEquals } from "./geometry-persistence";
 import type { GeometryHistoryEntry } from "./history";
 import type { DesignData } from "./types";
 

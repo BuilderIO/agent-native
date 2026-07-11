@@ -446,11 +446,29 @@ import {
   type AutoLayoutSuggestion,
 } from "./design-editor/auto-layout-suggestion";
 import {
+  appendCanvasPrimitiveToHtml,
+  blankScreenHtml,
+  nextBlankScreenFilename,
+  nextDuplicatedFilename,
+  normalizedDesignFileType,
+  reassignDuplicatedNodeIds,
+  uniqueLayerId,
+} from "./design-editor/canvas-primitive-insert";
+import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   createPrimitiveInsertFromSpec,
   defaultCanvasTextColor,
   parsePenPathFromSerializedD,
 } from "./design-editor/canvas-primitives";
+import {
+  cloneHtmlLayerAtPosition,
+  extractLayerPosition,
+  getElementOuterHtml,
+  insertClonedHtmlLayer,
+  insertClonedHtmlLayers,
+  setPenNodesAttributeOnElement,
+  writeBackVectorEditedPenPath,
+} from "./design-editor/clone-and-pen-edit";
 import { reassignClonedAuthoredIds } from "./design-editor/clone-idrefs";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -502,61 +520,18 @@ import {
   type PendingDesignDataOperations,
   viewportSizeFromFrameGeometry,
 } from "./design-editor/data-operations";
+import {
+  areTweakSelectionsEqual,
+  buildAuthoritativeTweakSelections,
+  cloneCanvasFrameGeometry,
+  getCanvasFrameGeometry,
+  getDesignDataRecord,
+  isDesignData,
+  parseDesignDataJson,
+  staleGeometryFrameIds,
+  viewportChangedFrameIds,
+} from "./design-editor/design-data-geometry-utils";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
-import {
-  designGenerationDirectives,
-  designIntakeQuestionDirectives,
-  designTemplateRefinementDirectives,
-  designVariantGenerationDirectives,
-  formatTweakDefinitionsContext,
-  formatUploadedFileContext,
-  imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext,
-  promptRequestsVariantExploration,
-} from "./design-editor/generation-prompt-directives";
-import {
-  getAbsolutePositioningForNodeInHtml,
-  getBodyInlineStyles,
-  isAbsoluteCodeLayerNode,
-  removeAbsolutePositioningFromNodeInHtml,
-  setAbsolutePositioningForNodeInHtml,
-  setCodeLayerAttributeInHtml,
-  setFlowPositioningOverrideForNodeInHtml,
-  warnIfPoisonedBoardCoordsNormalized,
-} from "./design-editor/html-layer-positioning";
-import {
-  applyInlineStylesToHtml,
-  DEFAULT_STATES_PANEL_BREAKPOINTS,
-  designEditorCommandFromSearchParams,
-  designStatePreviewHtml,
-  findDesignFileByScreenTarget,
-  type DesignStatePreviewRow,
-} from "./design-editor/screen-command-utils";
-import {
-  appendCanvasPrimitiveToHtml,
-  blankScreenHtml,
-  nextBlankScreenFilename,
-  nextDuplicatedFilename,
-  normalizedDesignFileType,
-  reassignDuplicatedNodeIds,
-  uniqueLayerId,
-} from "./design-editor/canvas-primitive-insert";
-import {
-  cloneHtmlLayerAtPosition,
-  extractLayerPosition,
-  getElementOuterHtml,
-  insertClonedHtmlLayer,
-  insertClonedHtmlLayers,
-  setPenNodesAttributeOnElement,
-  writeBackVectorEditedPenPath,
-} from "./design-editor/clone-and-pen-edit";
-import {
-  postShaderFillPreviewClearToPreviewIframes,
-  removeElementFromHtml,
-  sanitizeEditableInnerHtml,
-  scheduleBeginTextEditForScreen,
-  updateElementContentInHtml,
-} from "./design-editor/text-edit-utils";
 import {
   escapeHtmlAttributeValue,
   escapeHtmlText,
@@ -607,6 +582,17 @@ import {
   waitForExportReady,
 } from "./design-editor/export-capture";
 import {
+  designGenerationDirectives,
+  designIntakeQuestionDirectives,
+  designTemplateRefinementDirectives,
+  designVariantGenerationDirectives,
+  formatTweakDefinitionsContext,
+  formatUploadedFileContext,
+  imageAttachmentsFromUploadedFiles,
+  loadDesignSystemGenerationContext,
+  promptRequestsVariantExploration,
+} from "./design-editor/generation-prompt-directives";
+import {
   frameGeometryEquals,
   geometrySnapshotsEqual,
   sanitizeCanvasFrameGeometryForPersist,
@@ -633,6 +619,16 @@ import {
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
 } from "./design-editor/history";
+import {
+  getAbsolutePositioningForNodeInHtml,
+  getBodyInlineStyles,
+  isAbsoluteCodeLayerNode,
+  removeAbsolutePositioningFromNodeInHtml,
+  setAbsolutePositioningForNodeInHtml,
+  setCodeLayerAttributeInHtml,
+  setFlowPositioningOverrideForNodeInHtml,
+  warnIfPoisonedBoardCoordsNormalized,
+} from "./design-editor/html-layer-positioning";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   type AlignableRect,
@@ -735,6 +731,14 @@ import {
   getRuntimeScreenAutoLayoutSubjectIds,
 } from "./design-editor/screen-auto-layout";
 import {
+  applyInlineStylesToHtml,
+  DEFAULT_STATES_PANEL_BREAKPOINTS,
+  designEditorCommandFromSearchParams,
+  designStatePreviewHtml,
+  findDesignFileByScreenTarget,
+  type DesignStatePreviewRow,
+} from "./design-editor/screen-command-utils";
+import {
   buildActiveFileNodeIdSet,
   computeOverviewScreenPickSelectionIds,
   dedupeStringIds,
@@ -759,6 +763,13 @@ import {
   shouldIncludeScreenRenameContentOverride,
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
+import {
+  postShaderFillPreviewClearToPreviewIframes,
+  removeElementFromHtml,
+  sanitizeEditableInnerHtml,
+  scheduleBeginTextEditForScreen,
+  updateElementContentInHtml,
+} from "./design-editor/text-edit-utils";
 import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
@@ -1913,131 +1924,6 @@ function DesignBottomToolbar({
       </div>
     </div>
   );
-}
-
-function isDesignData(
-  data: DesignData | string | undefined,
-): data is DesignData {
-  return !!data && typeof data === "object" && Array.isArray(data.files);
-}
-
-function areTweakSelectionsEqual(
-  a: TweakSelections,
-  b: TweakSelections,
-): boolean {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => Object.is(a[key], b[key]));
-}
-
-function buildAuthoritativeTweakSelections(
-  tweaks: TweakDefinition[],
-  persistedSelections: TweakSelections,
-): TweakSelections {
-  const selections: TweakSelections = {};
-  for (const tweak of tweaks) {
-    selections[tweak.id] =
-      persistedSelections[tweak.id] !== undefined
-        ? persistedSelections[tweak.id]
-        : tweak.defaultValue;
-  }
-  for (const [key, value] of Object.entries(persistedSelections)) {
-    if (/^--[-_a-zA-Z0-9]+$/.test(key)) {
-      selections[key] = value;
-    }
-  }
-  return selections;
-}
-
-function parseDesignDataJson(data?: string | null): Record<string, unknown> {
-  if (!data) return {};
-  try {
-    const parsed = JSON.parse(data);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function getDesignDataRecord(
-  data: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  const value = data[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function getCanvasFrameGeometry(
-  data: Record<string, unknown>,
-): CanvasFrameGeometryById {
-  return parseCanvasFrameGeometryById(data.canvasFrames);
-}
-
-function cloneCanvasFrameGeometry(
-  geometryById: CanvasFrameGeometryById,
-): CanvasFrameGeometryById {
-  return Object.fromEntries(
-    Object.entries(geometryById).map(([frameId, geometry]) => [
-      frameId,
-      { ...geometry },
-    ]),
-  );
-}
-
-/**
- * Freshness guard for geometry undo/redo. Returns the ids of frames that a
- * geometry history entry touched whose LIVE geometry no longer matches what the
- * entry expects (`expected` = the state this entry previously wrote). A
- * non-empty result means a concurrent peer/agent moved those frames since the
- * snapshot was captured, so replaying the entry's stored "before"/"after" would
- * clobber their change. Frames absent from live geometry (deleted) are treated
- * as changed. Only compares the frames the entry itself changed, so unrelated
- * concurrent edits to OTHER frames don't block this undo.
- */
-function staleGeometryFrameIds(
-  entry: GeometryHistoryEntry,
-  live: CanvasFrameGeometryById,
-  expected: CanvasFrameGeometryById,
-): string[] {
-  // A frame is "touched" when ANY geometry field differs between before and
-  // after — moves (x/y), rotation, and z-order count, not just viewport size.
-  const touched = new Set<string>(
-    [...Object.keys(entry.before), ...Object.keys(entry.after)].filter(
-      (frameId) =>
-        !frameGeometryEquals(entry.before[frameId], entry.after[frameId]),
-    ),
-  );
-  const stale: string[] = [];
-  for (const frameId of touched) {
-    const expectedGeo = expected[frameId];
-    const liveGeo = live[frameId];
-    if (!expectedGeo) continue; // entry didn't establish this frame's geometry
-    if (!liveGeo || JSON.stringify(liveGeo) !== JSON.stringify(expectedGeo)) {
-      stale.push(frameId);
-    }
-  }
-  return stale;
-}
-
-function viewportChangedFrameIds(
-  before: CanvasFrameGeometryById,
-  after: CanvasFrameGeometryById,
-) {
-  const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
-  return [...ids].filter((frameId) => {
-    const beforeSize = viewportSizeFromFrameGeometry(before[frameId]);
-    const afterSize = viewportSizeFromFrameGeometry(after[frameId]);
-    if (!beforeSize || !afterSize) return false;
-    return (
-      beforeSize.width !== afterSize.width ||
-      beforeSize.height !== afterSize.height
-    );
-  });
 }
 
 /**

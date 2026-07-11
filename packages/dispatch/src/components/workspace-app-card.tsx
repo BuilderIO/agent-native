@@ -44,6 +44,7 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack";
+import { ActionQueryError } from "./action-query-error";
 
 export function WorkspaceAppCard({
   app,
@@ -290,11 +291,12 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
   const [inspectedResourceId, setInspectedResourceId] = useState<string | null>(
     null,
   );
-  const { data, isLoading } = useActionQuery(
+  const query = useActionQuery(
     "list-workspace-resources-for-app",
     { appId: app.id },
     { enabled: open },
   );
+  const { data, isLoading } = query;
 
   const resources = ((data as any)?.resources ?? []) as any[];
   const counts = (data as any)?.counts;
@@ -349,7 +351,12 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
             </Badge>
           </div>
 
-          {isLoading ? (
+          {query.isError ? (
+            <ActionQueryError
+              error={query.error}
+              onRetry={() => void query.refetch()}
+            />
+          ) : isLoading ? (
             <div className="space-y-2">
               <div className="h-14 rounded-lg border bg-muted/30" />
               <div className="h-14 rounded-lg border bg-muted/30" />

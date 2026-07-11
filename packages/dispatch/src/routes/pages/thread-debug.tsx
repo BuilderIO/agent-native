@@ -7,8 +7,8 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
-import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -430,7 +430,7 @@ export default function ThreadDebugRoute() {
     ownerEmail?: string;
   } | null>(null);
 
-  const { data: sourcesData, isLoading: sourcesLoading } = useActionQuery<{
+  const sourcesQuery = useActionQuery<{
     access: {
       viewerEmail: string;
       orgId: string | null;
@@ -441,6 +441,7 @@ export default function ThreadDebugRoute() {
     };
     sources: ThreadDebugSource[];
   }>("list-agent-thread-sources", {});
+  const { data: sourcesData, isLoading: sourcesLoading } = sourcesQuery;
 
   const sources: ThreadDebugSource[] = sourcesData?.sources ?? [];
   const searchParams = useMemo(
@@ -480,6 +481,7 @@ export default function ThreadDebugRoute() {
     data: detail,
     isLoading: detailLoading,
     error: detailError,
+    refetch: refetchDetail,
   } = useActionQuery<ThreadDebugResponse>(
     "get-agent-thread-debug",
     detailParams,
@@ -515,6 +517,12 @@ export default function ThreadDebugRoute() {
       description="Inspect persisted agent chat threads, run events, and AI internals."
     >
       <div className="space-y-4">
+        {sourcesQuery.isError ? (
+          <ActionQueryError
+            error={sourcesQuery.error}
+            onRetry={() => void sourcesQuery.refetch()}
+          />
+        ) : null}
         <section className="rounded-lg border bg-card p-4">
           <div className="grid gap-3 lg:grid-cols-[220px_1fr_260px_auto]">
             <Select value={sourceId} onValueChange={setSourceId}>
@@ -600,10 +608,10 @@ export default function ThreadDebugRoute() {
         </section>
 
         {searchError ? (
-          <Alert variant="destructive">
-            <AlertTitle>Search failed</AlertTitle>
-            <AlertDescription>{String(searchError.message)}</AlertDescription>
-          </Alert>
+          <ActionQueryError
+            error={searchError}
+            onRetry={() => void refetchSearch()}
+          />
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
@@ -661,12 +669,10 @@ export default function ThreadDebugRoute() {
 
           <section className="min-w-0">
             {detailError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Thread lookup failed</AlertTitle>
-                <AlertDescription>
-                  {String(detailError.message)}
-                </AlertDescription>
-              </Alert>
+              <ActionQueryError
+                error={detailError}
+                onRetry={() => void refetchDetail()}
+              />
             ) : null}
             {detailLoading ? (
               <div className="rounded-lg border bg-card p-4">

@@ -1226,7 +1226,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reloadDecks = useCallback(async () => {
-    setLoading(true);
     const requestId = ++deckBaselineRequestIdRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     const loaded = await fetchDecksForCurrentRoute();
@@ -1237,14 +1236,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     ) {
       if (requestId === deckBaselineRequestIdRef.current) {
         setLoadError(loaded === null);
-        setLoading(false);
       }
       return;
     }
     lastExternalUpdateRef.current = Date.now();
     resetDeckBaseline(loaded);
     setLoadError(false);
-    setLoading(false);
   }, [resetDeckBaseline]);
 
   // Load decks from API on mount

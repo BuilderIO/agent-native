@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActionQueryError } from "./action-query-error";
 
@@ -14,15 +16,38 @@ vi.mock("@agent-native/core/client", () => ({
 }));
 
 describe("ActionQueryError", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
   it("shows the query error and retries on request", () => {
     const onRetry = vi.fn();
-    render(
-      <ActionQueryError error={new Error("Database unavailable")} onRetry={onRetry} />,
-    );
+    act(() => {
+      root.render(
+        <ActionQueryError
+          error={new Error("Database unavailable")}
+          onRetry={onRetry}
+        />,
+      );
+    });
 
-    expect(screen.getByText("Couldn't load data")).toBeInTheDocument();
-    expect(screen.getByText("Database unavailable")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(container.textContent).toContain("Couldn't load data");
+    expect(container.textContent).toContain("Database unavailable");
+    act(() => {
+      container.querySelector("button")?.click();
+    });
     expect(onRetry).toHaveBeenCalledOnce();
   });
 });

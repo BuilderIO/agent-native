@@ -11,8 +11,8 @@ import {
   type DesignClipboardManagedStyleSnapshot,
 } from "@/lib/design-clipboard-managed-styles";
 
-import { reassignClonedAuthoredIds } from "./clone-idrefs";
 import { uniqueLayerId } from "./canvas-primitive-insert";
+import { reassignClonedAuthoredIds } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
 import {
   applyPortableStyles,

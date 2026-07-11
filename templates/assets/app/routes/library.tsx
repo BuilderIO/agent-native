@@ -24,6 +24,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconCheck,
   IconChevronDown,
@@ -1104,11 +1105,20 @@ function AllAssetsBrowser() {
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
 
-  const { data: assetData, isLoading } = useActionQuery("list-assets", {
+  const {
+    data: assetData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery("list-assets", {
     query: query.trim() || undefined,
   } as any) as {
     data?: { assets?: Asset[] };
     isLoading: boolean;
+    isError: boolean;
+    isFetching: boolean;
+    refetch: () => Promise<unknown>;
   };
 
   const allAssets = assetData?.assets ?? [];
@@ -1273,6 +1283,21 @@ function AllAssetsBrowser() {
             {Array.from({ length: 12 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
             ))}
+          </div>
+        ) : isError ? (
+          <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
+            <IconAlertTriangle className="size-9 text-destructive" />
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {t("audit.unknownError")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {t("library.refresh")}
+            </Button>
           </div>
         ) : assets.length === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
@@ -1886,12 +1911,16 @@ export function LibraryWorkspace({
 }: {
   selectedLibraryId?: string | null;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const routeSelectedLibraryId = useLibraryRouteSelectedId(selectedLibraryId);
   const [createOpen, setCreateOpen] = useState(false);
-  const { data, isLoading } = useActionQuery("list-libraries", {
+  const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
+    "list-libraries",
+    {
     includeFolders: true,
-  } as any);
+    } as any,
+  );
   const libraries = ((data as any)?.libraries ?? []) as ImageLibrarySummary[];
   const foldersByLibraryId = useMemo(() => {
     const result: Record<string, any[]> = {};
@@ -1939,7 +1968,22 @@ export function LibraryWorkspace({
             isLoading={isLoading}
             onCreateKit={() => setCreateOpen(true)}
           />
-          {routeSelectedLibraryId || hasLibraries ? (
+          {isError ? (
+            <div className="flex min-h-80 flex-col items-center justify-center gap-3 px-6 text-center">
+              <IconAlertTriangle className="size-9 text-destructive" />
+              <p className="max-w-sm text-sm text-muted-foreground">
+                {t("audit.unknownError")}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+              >
+                {t("library.refresh")}
+              </Button>
+            </div>
+          ) : routeSelectedLibraryId || hasLibraries ? (
             <>
               <LibraryCandidateStage
                 activeLibraryId={routeSelectedLibraryId}

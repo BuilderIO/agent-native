@@ -5,7 +5,13 @@ import { authoredElementPosition } from "@/components/design/multi-screen/primit
 
 import { escapeHtmlAttributeValue } from "./dom-utils";
 
-const ABS_POSITION_PROPS = ["position", "left", "top", "right", "bottom"] as const;
+const ABS_POSITION_PROPS = [
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+] as const;
 
 // Flex/grid-item-only inline properties. Mirrors FLEX_ITEM_INLINE_PROPS in
 // editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop (the live

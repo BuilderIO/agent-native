@@ -1784,6 +1784,94 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   ]),
 ) as z.ZodType<PlanBlock>;
 
+/**
+ * Every `PlanBlock` `type` literal, kept in sync with the discriminated union
+ * above. Reused by `agentPlanBlockSchema` (the compact advertised stand-in)
+ * so the enum can never silently drift from the real block types.
+ */
+export const PLAN_BLOCK_TYPES = [
+  "rich-text",
+  "callout",
+  "checklist",
+  "table",
+  "code-tabs",
+  "code",
+  "implementation-map",
+  "wireframe",
+  "legacy-wireframe",
+  "diagram",
+  "image",
+  "tabs",
+  "columns",
+  "custom-html",
+  "question-form",
+  "visual-questions",
+  "mermaid",
+  "api-endpoint",
+  "openapi-spec",
+  "data-model",
+  "diff",
+  "file-tree",
+  "json-explorer",
+  "annotated-code",
+] as const satisfies readonly PlanBlock["type"][];
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planBlockSchema`. The real union's
+ * per-type `data` shapes (wireframe kit trees, diagram nodes/edges,
+ * api-endpoint params, data-model entities/fields, diff/annotated-code line
+ * refs, ...) serialize to tens of KB of JSON Schema once embedded in an
+ * action's tool definition — see the `actions` skill and
+ * `agent-native.json`'s "compact agent schemas" note. Plan's own workflow
+ * already mandates calling `get-plan-blocks` / `list-plan-components` before
+ * authoring blocks, so re-teaching every field shape inline is redundant
+ * documentation that costs real context on every request.
+ *
+ * Pass this as `defineAction`'s `agentInputSchema` (never as the real
+ * `schema`) so the model only sees a `type` enum plus a pointer to the
+ * lookup tool; runtime validation still runs the full `planBlockSchema` via
+ * `planContentSchema` / `planContentPatchSchema`, so an invalid `data` shape
+ * still fails loudly with the real, actionable zod error.
+ */
+export const agentPlanBlockSchema = z.object({
+  id: idSchema
+    .optional()
+    .describe("Stable block id; omit to auto-generate one."),
+  type: z
+    .enum(PLAN_BLOCK_TYPES)
+    .describe(
+      "Block type — one of: rich-text (markdown prose/heading), callout " +
+        "(tone-colored note: info/decision/risk/warning/success), checklist " +
+        "(checkable to-do items), table (rows/columns), code-tabs (multiple " +
+        "labeled code snippets), code (one code snippet), implementation-map " +
+        "(file list with notes), wireframe (semantic-HTML UI screen — current " +
+        "format), legacy-wireframe (region-based UI screen — legacy fallback " +
+        "only, do not author new), diagram (HTML/SVG flow diagram with " +
+        "nodes/edges), image (asset or URL image), tabs (nested block groups " +
+        "in tabs), columns (nested block groups side by side), custom-html " +
+        "(bounded HTML/CSS fragment), question-form (open questions for the " +
+        "reviewer), visual-questions (alias of question-form), mermaid " +
+        "(mermaid diagram source), api-endpoint (one HTTP endpoint spec), " +
+        "openapi-spec (full OpenAPI/Swagger spec), data-model (entities/" +
+        "fields/relations), diff (before/after code diff), file-tree " +
+        "(annotated file tree), json-explorer (collapsible JSON viewer), " +
+        "annotated-code (code with line-anchored annotations). Call " +
+        "get-plan-blocks (or list-plan-components) FIRST for the " +
+        "authoritative per-type `data` field shapes, canvas/wireframe " +
+        "authoring rules, and style tokens — do not author `data` from memory.",
+    ),
+  title: z.string().trim().max(180).optional(),
+  summary: z.string().trim().max(600).optional(),
+  editable: z.boolean().optional(),
+  data: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "Type-specific fields — shape depends on `type`. Call get-plan-blocks " +
+        "for the exact fields before authoring; do not guess from memory. " +
+        "`tabs`/`columns` nest child blocks with this same compact shape.",
+    ),
+});
+
 const annotationPlacementSchema = z.enum([
   "top",
   "right",
@@ -2068,41 +2156,62 @@ function preflightPlanContentInput(input: unknown): unknown {
   };
 }
 
-export const planContentSchema: z.ZodType<PlanContent> = z
-  .preprocess(
-    preflightPlanContentInput,
-    z.object({
-      version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
-      title: z.string().trim().max(240).optional(),
-      brief: z.string().trim().max(4_000).optional(),
-      notionSync: z.boolean().optional(),
-      prototype: prototypeSchema.optional(),
-      canvas: z
+/**
+ * Inner object schema behind `planContentSchema`'s preprocess/superRefine
+ * wrapper, extracted so `agentPlanContentSchema` below can `.extend()` it
+ * with a compact `blocks` field instead of duplicating every other key.
+ */
+const planContentObjectSchema = z.object({
+  version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
+  title: z.string().trim().max(240).optional(),
+  brief: z.string().trim().max(4_000).optional(),
+  notionSync: z.boolean().optional(),
+  prototype: prototypeSchema.optional(),
+  canvas: z
+    .object({
+      mode: visualCanvasModeSchema.optional(),
+      title: z.string().trim().max(180).optional(),
+      design: designMetadataSchema.optional(),
+      viewport: z
         .object({
-          mode: visualCanvasModeSchema.optional(),
-          title: z.string().trim().max(180).optional(),
-          design: designMetadataSchema.optional(),
-          viewport: z
+          zoom: z.number().min(0.05).max(8).optional(),
+          pan: z
             .object({
-              zoom: z.number().min(0.05).max(8).optional(),
-              pan: z
-                .object({
-                  x: z.number().optional(),
-                  y: z.number().optional(),
-                })
-                .optional(),
+              x: z.number().optional(),
+              y: z.number().optional(),
             })
             .optional(),
-          sections: z.array(boardSectionSchema).max(40).optional(),
-          frames: z.array(artboardSchema).max(40).default([]),
-          flow: z.array(connectorSchema).max(80).optional(),
-          annotations: z.array(annotationSchema).max(80).optional(),
-          notes: z.array(legacyNoteSchema).max(80).optional(),
         })
         .optional(),
-      blocks: z.array(planBlockSchema).max(200).default([]),
-    }),
-  )
+      sections: z.array(boardSectionSchema).max(40).optional(),
+      frames: z.array(artboardSchema).max(40).default([]),
+      flow: z.array(connectorSchema).max(80).optional(),
+      annotations: z.array(annotationSchema).max(80).optional(),
+      notes: z.array(legacyNoteSchema).max(80).optional(),
+    })
+    .optional(),
+  blocks: z.array(planBlockSchema).max(200).default([]),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planContentSchema`, for use as
+ * `defineAction`'s `agentInputSchema`. Identical top-level shape — only
+ * `blocks` is swapped for the compact `agentPlanBlockSchema` union. Runtime
+ * validation of `content` always goes through the real `planContentSchema`
+ * (see the `actions` skill: `agentInputSchema` never weakens validation).
+ */
+export const agentPlanContentSchema = planContentObjectSchema.extend({
+  blocks: z
+    .array(agentPlanBlockSchema)
+    .max(200)
+    .default([])
+    .describe(
+      "Plan content blocks, in document order. Call get-plan-blocks first.",
+    ),
+});
+
+export const planContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(preflightPlanContentInput, planContentObjectSchema)
   .superRefine((content, context) => {
     const checkUniqueIds = (
       items: Array<{ id: string }> | undefined,

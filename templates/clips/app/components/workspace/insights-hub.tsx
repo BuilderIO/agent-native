@@ -1,5 +1,10 @@
 import { appBasePath, useActionQuery, useT } from "@agent-native/core/client";
-import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconChartLine,
+  IconDownload,
+  IconUsers,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/library/page-header";
@@ -50,10 +55,11 @@ interface InsightsResponse {
 export function InsightsHub() {
   const t = useT();
   const [days, setDays] = useState("30");
-  const { data, isLoading } = useActionQuery<InsightsResponse>(
-    "get-organization-insights",
-    { days: Number(days) } as any,
-  );
+  const { data, isLoading, isError, isFetching, refetch } =
+    useActionQuery<InsightsResponse>(
+      "get-organization-insights",
+      { days: Number(days) } as any,
+    );
 
   const totals = data?.totals ?? {
     views: 0,
@@ -99,7 +105,24 @@ export function InsightsHub() {
           {t("insightsHub.description", { days })}
         </p>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {isError ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/30 px-6 py-16 text-center">
+            <IconAlertTriangle className="size-9 text-destructive" />
+            <p className="text-sm font-medium">
+              {t("libraryGrid.loadFailedTitle")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {t("libraryGrid.retry")}
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard
             label={t("insightsHub.views")}
             value={totals.views}
@@ -120,9 +143,9 @@ export function InsightsHub() {
             value={totals.recordings}
             loading={isLoading}
           />
-        </div>
+            </div>
 
-        <Card>
+            <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <IconChartLine className="size-4 text-primary" />
@@ -136,9 +159,9 @@ export function InsightsHub() {
               <EngagementChart data={data?.trend ?? []} />
             )}
           </CardContent>
-        </Card>
+            </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">
@@ -191,7 +214,9 @@ export function InsightsHub() {
               <TopCreatorsTable rows={data?.topCreators ?? []} />
             </CardContent>
           </Card>
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   );
