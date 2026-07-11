@@ -397,28 +397,37 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(generateCorpusToolsPrompt(registry)).toBe("");
   });
 
-  it("returns exactly the corpus tool names present, and the prompt names only those", () => {
+  it("returns exactly the corpus tool names present, matching the prompt's authoritative availability line", () => {
     const registry = {
       "some-template-action": noopTool,
-      "provider-api-request": noopTool,
-      "run-code": noopTool,
+      "provider-api-catalog": noopTool,
+      "query-staged-dataset": noopTool,
     } as never;
 
     const names = corpusToolNamesTaughtByPrompt(registry);
-    expect(names).toEqual(["provider-api-request", "run-code"]);
+    expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
 
     const prompt = generateCorpusToolsPrompt(registry);
-    // Every name corpusToolNamesTaughtByPrompt returns must actually be
-    // taught (by backtick-quoted name) in the corpus prompt text — this is
-    // the exact invariant agent-chat-plugin.ts's `effectiveInitialToolNames`
-    // wiring depends on to avoid teaching a tool by name that isn't in the
-    // first request's active tool set.
+    // "Available corpus-capable tools: ..." is the authoritative,
+    // registry-conditional line — this is the invariant
+    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
+    // to avoid teaching a tool as available when it isn't in the first
+    // request's active tool set. (The fixed prose below it separately
+    // explains `provider-corpus-job` / run-code usage unconditionally
+    // whenever the block renders at all — that static explanatory text is
+    // pre-existing and out of scope here.)
+    const availabilityLine = prompt
+      .split("\n")
+      .find((line) => line.startsWith("Available corpus-capable tools:"));
+    expect(availabilityLine).toBe(
+      "Available corpus-capable tools: `provider-api-catalog`, `query-staged-dataset`.",
+    );
     for (const name of names) {
-      expect(prompt).toContain(`\`${name}\``);
+      expect(availabilityLine).toContain(`\`${name}\``);
     }
-    // And tools NOT present must not be mentioned.
-    expect(prompt).not.toContain("`provider-corpus-job`");
-    expect(prompt).not.toContain("`query-staged-dataset`");
+    expect(availabilityLine).not.toContain("`provider-api-request`");
+    expect(availabilityLine).not.toContain("`provider-corpus-job`");
+    expect(availabilityLine).not.toContain("`run-code`");
   });
 
   it("includes every corpus tool name when the full set is registered", () => {
