@@ -113,6 +113,41 @@ describe("delegated A2A tool surface", () => {
     expect(surface.tools).toBe(availableTools);
     expect(surface.availableTools).toBe(availableTools);
   });
+
+  // agent-chat-plugin.ts's MCP `ask_app` inner loop (the `askAgent` closure
+  // passed to `mountMCP`) reuses this exact helper with the same
+  // `effectiveInitialToolNames` the interactive chat path uses, instead of
+  // handing `actionsToEngineTools(mcpActions)` straight to the engine
+  // unfiltered. Before that fix, every external host calling `ask_app` over
+  // MCP triggered a near-full-catalog first request, undermining the compact
+  // MCP catalog this surface exists to keep external callers on. This test
+  // locks in the same compaction guarantee for a registry shaped like the
+  // MCP loop's (template action + a much larger set of framework additions —
+  // resource/docs/chat/fetch/web-search/workspace-files/tool/MCP entries).
+  it("compacts the MCP ask_app inner loop's first request the same way as A2A", () => {
+    const availableTools = [
+      tool("template-app-action"),
+      tool("tool-search"),
+      tool("list-integration-memory"),
+      tool("provider-api-request"),
+      tool("mcp__some-server__some-tool"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, [
+      "template-app-action",
+    ]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "template-app-action",
+      "tool-search",
+    ]);
+    // The full registry is preserved separately so `runAgentLoop`'s mid-run
+    // tool-search expansion (`expandActiveTools` in production-agent.ts,
+    // exercised end-to-end in production-agent.spec.ts's "expands the
+    // provider tool list after tool-search returns matches") can still load
+    // any of these once the model searches for them.
+    expect(surface.availableTools).toBe(availableTools);
+  });
 });
 
 describe("agent-chat A2A public skills", () => {
