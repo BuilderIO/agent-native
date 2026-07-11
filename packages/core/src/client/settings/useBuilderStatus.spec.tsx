@@ -49,7 +49,8 @@ function BuilderConnectProbe({
       </button>
       <output data-testid="status">
         {flow.configured ? "configured" : "not-configured"}{" "}
-        {flow.connecting ? "connecting" : "idle"}
+        {flow.connecting ? "connecting" : "idle"}{" "}
+        {flow.statusResolved ? "resolved" : "unresolved"}
       </output>
       <output>{flow.error ?? ""}</output>
     </div>
@@ -291,6 +292,26 @@ describe("useBuilderConnectFlow", () => {
 
     expect(openSpy).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a failed status request as a resolved disconnection", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle resolved");
   });
 
   it("refreshes an un-timestamped signed prop URL before navigating web popups", async () => {

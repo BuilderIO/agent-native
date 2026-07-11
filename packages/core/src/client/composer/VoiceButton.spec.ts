@@ -4,21 +4,27 @@ import { isRealtimeVoiceSetupRequired } from "./VoiceButton.js";
 
 describe("isRealtimeVoiceSetupRequired", () => {
   it("waits for the voice-specific provider status before prompting setup", () => {
-    expect(isRealtimeVoiceSetupRequired(null)).toBe(false);
+    expect(isRealtimeVoiceSetupRequired(null, false)).toBe(false);
+    expect(
+      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, null),
+    ).toBe(false);
   });
 
   it("accepts either managed Builder voice or an OpenAI key", () => {
-    expect(isRealtimeVoiceSetupRequired({ builder: true, openai: false })).toBe(
-      false,
-    );
-    expect(isRealtimeVoiceSetupRequired({ builder: false, openai: true })).toBe(
-      false,
-    );
+    expect(
+      isRealtimeVoiceSetupRequired({ builder: true, openai: false }, false),
+    ).toBe(false);
+    expect(
+      isRealtimeVoiceSetupRequired({ builder: false, openai: true }, false),
+    ).toBe(false);
+    expect(
+      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, true),
+    ).toBe(false);
   });
 
   it("prompts setup only when neither realtime provider is configured", () => {
     expect(
-      isRealtimeVoiceSetupRequired({ builder: false, openai: false }),
+      isRealtimeVoiceSetupRequired({ builder: false, openai: false }, false),
     ).toBe(true);
   });
 });
