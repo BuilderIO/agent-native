@@ -930,9 +930,11 @@ function useRealtimeVoiceModeController(
     [savePreferences, updateLivePreferences],
   );
 
-  const refreshMicrophones = useCallback(async () => {
+  const refreshMicrophones = useCallback(async (): Promise<
+    RealtimeVoiceMicrophone[] | null
+  > => {
     const mediaDevices = navigator.mediaDevices;
-    if (!mediaDevices?.enumerateDevices) return;
+    if (!mediaDevices?.enumerateDevices) return null;
     try {
       const devices = await mediaDevices.enumerateDevices();
       const inputs = devices
@@ -948,16 +950,10 @@ function useRealtimeVoiceModeController(
           label: device.label || `Microphone ${index + 1}`,
         }));
       setMicrophones(inputs);
-      const selected = readRealtimeVoiceMicrophoneId();
-      if (
-        selected !== "default" &&
-        !inputs.some((device) => device.deviceId === selected)
-      ) {
-        writeRealtimeVoiceMicrophoneId("default");
-        setMicrophoneDeviceId("default");
-      }
+      return inputs;
     } catch {
       // Enumeration is progressive enhancement; system default remains usable.
+      return null;
     }
   }, []);
 
@@ -1339,7 +1335,19 @@ function useRealtimeVoiceModeController(
       }
       streamRef.current = stream;
       attachAudioMeter(stream, "input");
-      void refreshMicrophones();
+      void refreshMicrophones().then((inputs) => {
+        const selected = readRealtimeVoiceMicrophoneId();
+        if (
+          inputs &&
+          selected !== "default" &&
+          !inputs.some((device) => device.deviceId === selected)
+        ) {
+          // The persisted device was only an ideal preference, so getUserMedia
+          // already selected a usable fallback for this new session.
+          writeRealtimeVoiceMicrophoneId("default");
+          setMicrophoneDeviceId("default");
+        }
+      });
 
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
@@ -1487,11 +1495,22 @@ function useRealtimeVoiceModeController(
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices;
     if (!mediaDevices?.addEventListener) return;
-    const handleDeviceChange = () => void refreshMicrophones();
+    const handleDeviceChange = () => {
+      const selected = readRealtimeVoiceMicrophoneId();
+      void refreshMicrophones().then((inputs) => {
+        if (
+          inputs &&
+          selected !== "default" &&
+          !inputs.some((device) => device.deviceId === selected)
+        ) {
+          void setMicrophone("default");
+        }
+      });
+    };
     mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () =>
       mediaDevices.removeEventListener("devicechange", handleDeviceChange);
-  }, [refreshMicrophones]);
+  }, [refreshMicrophones, setMicrophone]);
 
   useEffect(() => {
     const onSidebarState = (event: Event) => {
