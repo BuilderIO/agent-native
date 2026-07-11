@@ -30,11 +30,6 @@
       "import": "./dist/code-agents.js",
       "default": "./dist/code-agents.js"
     },
-    "./ui/select": {
-      "types": "./dist/ui/select.d.ts",
-      "import": "./dist/ui/select.js",
-      "default": "./dist/ui/select.js"
-    },
     "./styles.css": "./dist/styles.css",
     "./types": {
       "types": "./dist/types.d.ts",
