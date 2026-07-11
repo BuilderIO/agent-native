@@ -49,6 +49,7 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -199,7 +200,8 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
-  const { data: documents = [], isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const { data: documents = [], isLoading } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
   const deleteContentDatabase = useDeleteContentDatabase();
@@ -943,6 +945,12 @@ export function DocumentSidebar({
             >
               {isLoading ? (
                 renderTreeSkeleton()
+              ) : documentsQuery.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => void documentsQuery.refetch()}
+                  retrying={documentsQuery.isFetching}
+                />
               ) : nodes.length === 0 ? (
                 <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                   {emptyLabel}
