@@ -1083,13 +1083,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    // Mobile Safari may defer loadeddata/canplay until playback starts. Keep
+    // the paused state actionable even when those readiness events have not
+    // fired yet; once the user asks to play, the pending/buffering states give
+    // them accurate loading feedback.
     const centerOverlayMode =
       activeVideoSrc &&
       !isLoomEmbed &&
       !unsupportedFormat &&
       !showEndCta &&
       (!isPlaying || isPlayPending || isBuffering)
-        ? isPreparing || isPlayPending || isBuffering || !canPlay
+        ? isPlayPending || isBuffering
           ? "loading"
           : "ready"
         : null;
