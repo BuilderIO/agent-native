@@ -1,16 +1,25 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { BuildOnlinePopover } from "./BuilderWaitlistPopover";
 import { TemplateCard, templates } from "./TemplateCard";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 function renderWithProviders(children: ReactNode) {
   return render(
@@ -58,5 +67,30 @@ describe("docs popover controls", () => {
 
     fireEvent.click(editOnline);
     expect(screen.getByText("Join the waitlist")).toBeTruthy();
+  });
+
+  it("submits the selected template with customization waitlist requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<TemplateCard template={templates[0]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize It" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Online" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
+      target: { value: "reader@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      email: "reader@example.com",
+      source: "docs_template_card",
+      template: templates[0].slug,
+      useCase: "docs_edit_online_waitlist",
+    });
   });
 });

@@ -419,6 +419,50 @@ describe("buildBuilderWaitlistFormPayload", () => {
       },
     });
   });
+
+  it("preserves template context for docs customization waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+      _meta: {
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+    });
+  });
+
+  it("normalizes valid template slugs and drops unsafe values", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "  clips  ",
+      }).data.template,
+    ).toBe("clips");
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "clips\n<!channel>",
+      }).data.template,
+    ).toBeUndefined();
+  });
 });
 
 describe("resolveWaitlistEmail", () => {
