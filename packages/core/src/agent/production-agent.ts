@@ -3003,48 +3003,19 @@ export async function runAgentLoop(opts: {
   );
   const repeatedToolErrors = new Map<string, number>();
 
-  // Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
-  // ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
-  // run chunks of this logical turn. A write tool whose exact call already
-  // completed in an earlier interrupted chunk must not re-fire its side effect;
-  // when matched, runToolCall returns the journaled result instead of executing.
-  // Loaded eagerly (not lazily mid-loop) so the current chunk's own
-  // asynchronously-persisted tool_done events can never leak in and make a
-  // same-chunk call wrongly short-circuit. Best-effort: any ledger failure
-  // leaves the journal empty and all calls run normally. Fresh first-turn calls
-  // see an empty journal and are unaffected.
-  let toolCallJournal: ToolCallJournal | null = null;
+  // Tool-call journal hard-block (resume safety). See
+  // `loadPriorTurnToolCallJournal` for the full rationale — snapshotted ONCE
+  // here, before any tool runs in this chunk, and its prior-chunk tool
+  // calls/results are folded into `toolCallHistory` / `toolResultHistory` so
+  // final response guards see evidence from earlier chunks of this turn.
   const consumedJournalKeys = new Set<string>();
-  if (opts.threadId) {
-    try {
-      const priorEvents = await getCurrentTurnEventsForThread(opts.threadId);
-      if (priorEvents.length > 0) {
-        // A logical turn can span multiple background continuation runs. Final
-        // response guards must see successful reads from earlier chunks, not
-        // only tools executed after the latest handoff. Otherwise a guard can
-        // reject a grounded answer (or a successfully-created artifact) after
-        // the evidence-producing query completed in a predecessor run.
-        for (const event of priorEvents) {
-          if (event.type === "tool_start") {
-            toolCallHistory.push({
-              name: event.tool,
-              input: event.input,
-            });
-          } else if (event.type === "tool_done") {
-            toolResultHistory.push({
-              name: event.tool,
-              content: event.result,
-              isError: event.isError === true,
-            });
-          }
-        }
-        toolCallJournal = classifyToolCallJournal(priorEvents);
-      }
-    } catch {
-      // Journal is a hardening layer, never a gate — a failed ledger read just
-      // means no hard-block this turn.
-    }
-  }
+  const {
+    toolCallJournal,
+    priorToolCalls: journaledPriorToolCalls,
+    priorToolResults: journaledPriorToolResults,
+  } = await loadPriorTurnToolCallJournal(opts.threadId);
+  toolCallHistory.push(...journaledPriorToolCalls);
+  toolResultHistory.push(...journaledPriorToolResults);
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;

@@ -1754,13 +1754,6 @@ function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
   return position === "absolute" || position === "fixed";
 }
 
-function escapeHtmlText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 function setCodeLayerAttributeInHtml(
   content: string,
   node: CodeLayerNode,
