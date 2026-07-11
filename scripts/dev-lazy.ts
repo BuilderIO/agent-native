@@ -1034,12 +1034,19 @@ function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   };
 }
 
-export function appLocalEnv(app: Pick<TemplateApp, "dir">): NodeJS.ProcessEnv {
+export function appLocalEnv(
+  app: Pick<TemplateApp, "id" | "dir">,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
+  const appPrefix = `${app.id.toUpperCase().replace(/-/g, "_")}_`;
   for (const fileName of [".env", ".env.local"]) {
     const envPath = path.join(app.dir, fileName);
     if (!fs.existsSync(envPath)) continue;
-    Object.assign(env, parseEnv(fs.readFileSync(envPath, "utf8")));
+    for (const [key, value] of Object.entries(
+      parseEnv(fs.readFileSync(envPath, "utf8")),
+    )) {
+      if (key.startsWith(appPrefix)) env[key] = value;
+    }
   }
   return env;
 }
@@ -1102,8 +1109,9 @@ function startApp(app: TemplateApp): void {
         ...process.env,
         ...appDatabaseEnv(app),
         // Vite loads these files for import.meta.env, but Nitro server code
-        // reads process.env. Pass them into the child explicitly so app-local
-        // database, auth, and encryption settings work in the lazy gateway.
+        // reads process.env. Bridge only app-scoped values into the child;
+        // generic DATABASE_URL/BETTER_AUTH_SECRET remain workspace-owned so
+        // one template cannot silently change shared local auth or storage.
         ...appLocalEnv(app),
         ...appGoogleOAuthEnv(app),
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors

@@ -16,7 +16,7 @@ import {
 } from "./dev-lazy";
 
 describe("dev-lazy app-local environment", () => {
-  it("passes app env files to server processes with local overrides", () => {
+  it("passes only app-scoped env values with local overrides", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-lazy-env-"));
     try {
       fs.writeFileSync(
@@ -25,12 +25,11 @@ describe("dev-lazy app-local environment", () => {
       );
       fs.writeFileSync(
         path.join(dir, ".env.local"),
-        "ANALYTICS_DATABASE_URL=postgres://local\nANALYTICS_SECRETS_ENCRYPTION_KEY=local-key\n",
+        "ANALYTICS_DATABASE_URL=postgres://local\nANALYTICS_SECRETS_ENCRYPTION_KEY=local-key\nBETTER_AUTH_SECRET=app-auth\n",
       );
 
-      assert.deepEqual(appLocalEnv({ dir }), {
+      assert.deepEqual(appLocalEnv({ id: "analytics", dir }), {
         ANALYTICS_DATABASE_URL: "postgres://local",
-        SHARED_ONLY: "from-env",
         ANALYTICS_SECRETS_ENCRYPTION_KEY: "local-key",
       });
     } finally {
