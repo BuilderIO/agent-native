@@ -77,7 +77,7 @@
     "@react-router/fs-routes": "^8.1.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-query": "5.101.2",
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

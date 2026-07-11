@@ -660,10 +660,41 @@ export default function CodeAgentsApp({
       }
       await loadHostMetadata();
       const modelResult = await host.listModels?.();
+      let retrySelection = selectedModelSelection;
       if (modelResult?.status === "ok" && modelResult.models.length > 0) {
         setModelOptions(modelResult.models);
-        if (!modelSelection.model && modelResult.selected) {
+        if (
+          modelResult.selected &&
+          (!modelSelection.model || modelSelection.model === "auto")
+        ) {
           setModelSelection(modelResult.selected);
+          retrySelection = {
+            ...modelResult.selected,
+            effort: selectedModelSelection.effort,
+          };
+        }
+      }
+      if (
+        result.ok &&
+        selectedRun &&
+        hasMissingCredentialSignal(selectedRun, transcriptEvents) &&
+        host.retryRun
+      ) {
+        const retryResult = await host.retryRun({
+          goalId: selectedGoal.id,
+          runId: selectedRun.id,
+          permissionMode: selectedPermissionMode,
+          engine: retrySelection.engine,
+          model: retrySelection.model,
+          effort: retrySelection.effort,
+        });
+        if (retryResult.run) {
+          setRuns((current) => [
+            retryResult.run!,
+            ...current.filter((run) => run.id !== retryResult.run!.id),
+          ]);
+          setSelectedRunId(retryResult.run.id);
+          await loadTranscript(retryResult.run.id, true);
         }
       }
       await loadRuns(true);
@@ -674,7 +705,19 @@ export default function CodeAgentsApp({
     } finally {
       setBuilderConnecting(false);
     }
-  }, [host, loadHostMetadata, loadRuns, modelSelection.model, onOpenSettings]);
+  }, [
+    host,
+    loadHostMetadata,
+    loadRuns,
+    loadTranscript,
+    modelSelection.model,
+    onOpenSettings,
+    selectedGoal.id,
+    selectedModelSelection,
+    selectedPermissionMode,
+    selectedRun,
+    transcriptEvents,
+  ]);
 
   useEffect(() => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
@@ -1139,7 +1182,7 @@ export default function CodeAgentsApp({
 
   async function controlRun(command: CodeAgentControlCommand) {
     if (!selectedRunId) {
-      toast("Select a task first", { duration: 1800 });
+      toast("Select a chat first", { duration: 1800 });
       return;
     }
     if (command === "resume" && selectedRunUsesAppSurface) {
@@ -1155,7 +1198,7 @@ export default function CodeAgentsApp({
         selectedPermissionMode,
       );
     } catch (err) {
-      toast("Could not control the task", {
+      toast("Could not control the response", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1195,7 +1238,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not retry the task", {
+      toast("Could not retry the response", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1231,7 +1274,7 @@ export default function CodeAgentsApp({
         description: result.error,
       });
     } catch (err) {
-      toast("Could not re-run the task", {
+      toast("Could not restart the chat", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1300,7 +1343,7 @@ export default function CodeAgentsApp({
       }
       await loadTranscript(result.run.id, true);
     } catch (err) {
-      toast("Could not start the task", {
+      toast("Could not start the chat", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3600,
       });
@@ -1407,14 +1450,14 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast(pinned ? "Task unpinned" : "Task pinned", {
+      toast(pinned ? "Chat unpinned" : "Chat pinned", {
         duration: 1600,
       });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast(pinned ? "Could not unpin task" : "Could not pin task", {
+      toast(pinned ? "Could not unpin chat" : "Could not pin chat", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1448,12 +1491,12 @@ export default function CodeAgentsApp({
           ),
         );
       }
-      toast("Task renamed", { duration: 1600 });
+      toast("Chat renamed", { duration: 1600 });
     } catch (err) {
       setRuns((current) =>
         current.map((item) => (item.id === run.id ? run : item)),
       );
-      toast("Could not rename task", {
+      toast("Could not rename chat", {
         description: err instanceof Error ? err.message : String(err),
         duration: 3200,
       });
@@ -1470,7 +1513,7 @@ export default function CodeAgentsApp({
     <section className="code-agents-surface" aria-label="Agent workspace">
       <aside
         className="code-agents-rail"
-        aria-label="Agent tasks and navigation"
+        aria-label="Agent chats and navigation"
       >
         <div className="code-agents-rail__header">
           <div className="code-agents-title-block">
@@ -1530,13 +1573,13 @@ export default function CodeAgentsApp({
         </div>
 
         <div className="code-agents-run-list">
-          <p className="code-agents-rail-label">Tasks</p>
+          <p className="code-agents-rail-label">Chats</p>
           {loading ? (
             <RunListSkeleton />
           ) : runs.length === 0 ? (
             <div className="code-agents-empty-rail">
               <IconClock size={18} strokeWidth={1.7} />
-              <p>No tasks yet.</p>
+              <p>No chats yet.</p>
             </div>
           ) : (
             <GroupedRunList
@@ -1568,11 +1611,11 @@ export default function CodeAgentsApp({
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
               <div>
-                <p className="code-agents-kicker">Task</p>
+                <p className="code-agents-kicker">Chat</p>
                 <h2>
                   {getRunTitle(selectedRun) ??
                     (selectedRunId
-                      ? `Task ${selectedRunId}`
+                      ? `Chat ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
                 <AgentCapabilitySummary
@@ -2383,7 +2426,7 @@ function ProviderGateNotice({
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
-      secondaryActionLabel="Settings"
+      secondaryActionLabel="API keys"
       onOpenSettings={onOpenSettings}
     />
   );
@@ -3528,18 +3571,13 @@ function RunDetailCard({
   permissionMode,
   modelSelection,
   modelOptions,
-  updatingPermissionMode,
   onPermissionModeChange,
   onModelSelectionChange,
-  onOpenWorkbench,
-  onOpenTerminal,
-  onResume,
   onStop,
   onApprove,
   onApproveAlways,
   onDeny,
-  onRetry,
-  onRerun,
+  providerBlocked,
   builderConnecting,
   builderConnectMessage,
   onConnectBuilder,
@@ -3556,18 +3594,13 @@ function RunDetailCard({
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
-  updatingPermissionMode: boolean;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onOpenWorkbench: () => void;
-  onOpenTerminal?: () => void;
-  onResume: () => void;
   onStop: () => void;
   onApprove: () => void;
   onApproveAlways: () => void;
   onDeny: () => void;
-  onRetry?: () => void;
-  onRerun?: () => void;
+  providerBlocked: boolean;
   builderConnecting: boolean;
   builderConnectMessage: string | null;
   onConnectBuilder: () => void;
@@ -3591,88 +3624,22 @@ function RunDetailCard({
     return (
       <div className="code-agents-detail code-agents-detail--empty">
         <IconRoute size={30} strokeWidth={1.5} />
-        <h3>{selectedRunId ? "Task link ready" : "No task selected"}</h3>
+        <h3>{selectedRunId ? "Chat link ready" : "No chat selected"}</h3>
         <p>
           {selectedRunId
-            ? `Open ${goal.surfaceLabel} to load the linked task.`
-            : `Start ${goal.slashCommand} or select a task to review progress, outcomes, and follow-ups.`}
+            ? `Open ${goal.surfaceLabel} to load the linked chat.`
+            : "Start a new chat or choose one from the sidebar."}
         </p>
-        <button
-          type="button"
-          className="code-agents-button code-agents-button--primary"
-          onClick={onOpenWorkbench}
-        >
-          <IconExternalLink size={14} strokeWidth={1.8} />
-          Open {goal.surfaceLabel}
-        </button>
       </div>
     );
   }
 
-  const progress = getRunProgressPercent(run);
-  const details = getRunDetails(run, goal);
-  const sourceLabel = getRunSourceLabel(run);
-  const hasCredentialGap = hasMissingCredentialSignal(run, transcriptEvents);
+  const hasCredentialGap =
+    providerBlocked && hasMissingCredentialSignal(run, transcriptEvents);
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
-  const controlButtons = runControlButtons({
-    goal,
-    onRetry,
-    onRerun,
-    onOpenWorkbench,
-    onOpenTerminal,
-  });
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
-      <div className="code-agents-chat-header">
-        <div>
-          <h3>{getRunTitle(run)}</h3>
-          <p>{getSessionMeta(run, sourceLabel)}</p>
-        </div>
-        <details className="code-agents-session-details">
-          <summary>
-            <IconDots size={15} strokeWidth={1.8} />
-            <span>Details</span>
-          </summary>
-          <div className="code-agents-session-details__body">
-            <div className="code-agents-session-details__header">
-              <span>{getRunStatusText(run)}</span>
-            </div>
-
-            <div className="code-agents-progress">
-              <div className="code-agents-progress__label">
-                <span>{run.progress?.label ?? "Progress"}</span>
-                <span>{progress}%</span>
-              </div>
-              <div className="code-agents-progress__track">
-                <span style={{ width: `${progress}%` }} />
-              </div>
-            </div>
-
-            <div className="code-agents-detail-grid">
-              {details.map((detail) => (
-                <Field
-                  key={detail.label}
-                  label={detail.label}
-                  value={detail.value}
-                />
-              ))}
-            </div>
-
-            <RunModeSelect
-              value={permissionMode}
-              onChange={onPermissionModeChange}
-              disabled={updatingPermissionMode}
-              title="Mode"
-            />
-
-            <div className="code-agents-detail__footer">
-              {controlButtons.map(renderControlButton)}
-            </div>
-          </div>
-        </details>
-      </div>
-
       {hasCredentialGap && (
         <CodeProviderNotice
           className="code-agents-credential-callout"
@@ -3686,7 +3653,7 @@ function RunDetailCard({
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
-          secondaryActionLabel="Settings"
+          secondaryActionLabel="API keys"
           onOpenSettings={onOpenSettings}
         />
       )}
@@ -3729,27 +3696,6 @@ function RunDetailCard({
           </div>
         </div>
       )}
-
-      {!pendingApproval &&
-        (run.status === "paused" || run.phase === "paused") && (
-          <div className="code-agents-approval-callout">
-            <IconPlayerPlay size={16} strokeWidth={1.8} />
-            <div>
-              <strong>Task paused</strong>
-              <span>Resume when you are ready for Agent to continue.</span>
-            </div>
-            <button
-              type="button"
-              className="code-agents-button code-agents-button--primary"
-              onClick={onResume}
-            >
-              <IconPlayerPlay size={14} strokeWidth={1.8} />
-              Resume
-            </button>
-          </div>
-        )}
-
-      <TokenUsageMeter run={run} />
 
       <TranscriptPanel
         host={host}

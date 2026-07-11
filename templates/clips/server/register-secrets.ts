@@ -212,7 +212,7 @@ registerRequiredSecret({
   key: "SLACK_BOT_TOKEN",
   label: "Slack Bot Token (legacy)",
   description:
-    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Slack OAuth connect flow.",
+    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Clips Slack workspace connection; new messaging automations should connect Slack in Settings > Messaging.",
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",

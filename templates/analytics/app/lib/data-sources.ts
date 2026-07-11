@@ -747,15 +747,16 @@ export const dataSources: DataSource[] = [
   // --- Communication ---
   {
     id: "slack",
-    name: "Slack",
-    description: "Channel messages and workspace search",
+    name: "Slack (legacy token)",
+    description:
+      "Legacy token access for Analytics channel history and workspace search. For new messaging automations, connect Slack in Settings > Messaging.",
     category: "communication",
     icon: IconMessage,
     envKeys: ["SLACK_BOT_TOKEN"],
     docsUrl: "https://api.slack.com/methods",
     walkthroughSteps: [
       {
-        title: "Create a Slack App",
+        title: "Create a legacy Slack App",
         description:
           "Go to api.slack.com/apps, create a new app, and add OAuth scopes: channels:read, channels:history, search:read.",
         url: "https://api.slack.com/apps",
@@ -767,10 +768,10 @@ export const dataSources: DataSource[] = [
           'Under "OAuth & Permissions", install the app and copy the Bot User OAuth Token.',
       },
       {
-        title: "Enter your Bot Token",
+        title: "Enter your legacy Bot Token",
         description: 'Paste the Bot User OAuth Token (starts with "xoxb-").',
         inputKey: "SLACK_BOT_TOKEN",
-        inputLabel: "Bot Token",
+        inputLabel: "Bot Token (legacy)",
         inputPlaceholder: "xoxb-...",
         inputType: "password",
       },
