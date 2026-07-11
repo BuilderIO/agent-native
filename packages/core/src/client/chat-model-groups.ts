@@ -21,6 +21,12 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
+const HIDDEN_CHAT_MODEL_ENGINES = new Set([
+  "ai-sdk:groq",
+  "ai-sdk:mistral",
+  "ai-sdk:cohere",
+]);
+
 function addCurrentModel(
   models: readonly string[],
   engineName: string,
@@ -93,11 +99,21 @@ function shouldShowDirectEngine(
   engine: ChatModelEngineEntry,
   currentEngineName?: string,
 ): boolean {
+  if (HIDDEN_CHAT_MODEL_ENGINES.has(engine.name)) return false;
   if (engine.name === currentEngineName) return true;
   if (engine.name === "builder") return false;
   if (engine.name === "ai-sdk:anthropic") return false;
   if (engine.requiredEnvVars?.length === 0) return false;
   return true;
+}
+
+function putOpenRouterLast(
+  a: ChatModelEngineEntry,
+  b: ChatModelEngineEntry,
+): number {
+  if (a.name === "ai-sdk:openrouter") return 1;
+  if (b.name === "ai-sdk:openrouter") return -1;
+  return 0;
 }
 
 export function buildChatModelGroups({
@@ -123,6 +139,7 @@ export function buildChatModelGroups({
   return engines
     .filter((engine) => engine.packageInstalled !== false)
     .filter((engine) => shouldShowDirectEngine(engine, currentEngineName))
+    .sort(putOpenRouterLast)
     .map((engine) => {
       const requiredEnvVars = engine.requiredEnvVars ?? [];
       return {
