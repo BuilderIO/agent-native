@@ -85,6 +85,7 @@ import {
   resolveMaxOutputTokensForEngine,
 } from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
+import { loadPriorTurnToolCallJournal } from "./engine/tool-call-journal-seed.js";
 import {
   backfillEngineMessagesToolResults,
   stringifyToolUseInputForGateway,

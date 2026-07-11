@@ -179,6 +179,10 @@ import {
 } from "../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import {
+  handleSharedThreadRequest,
+  type SharedThreadRouteDependencies,
+} from "./agent-chat/shared-thread.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOwnerContext,
@@ -223,10 +227,6 @@ import {
   ensureRequestRunContext,
 } from "./request-context.js";
 import { loadSchemaPromptBlock } from "./schema-prompt.js";
-import {
-  handleSharedThreadRequest,
-  type SharedThreadRouteDependencies,
-} from "./agent-chat/shared-thread.js";
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
