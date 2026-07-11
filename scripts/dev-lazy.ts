@@ -1653,15 +1653,32 @@ async function main(): Promise<void> {
     );
   }
 
-  const coreWatchCompiler = "tsc";
-  startBackgroundProcess("core", "pnpm", [
-    "--filter",
-    "@agent-native/core",
-    "exec",
-    coreWatchCompiler,
-    "--watch",
-    "--preserveWatchOutput",
-  ]);
+  // The monorepo Vite plugin aliases @agent-native/core runtime imports to
+  // packages/core/src, so each active template already receives core HMR
+  // directly. A second full `tsc --watch` used to type-check and regenerate
+  // thousands of JS/declaration/map artifacts during agent edit bursts, which
+  // starved the Vite/Nitro servers serving the browser. Keep dist watching as
+  // an explicit escape hatch for workflows that truly consume dist, and make
+  // that watcher emit-only; the startup prebuild still performs the full check.
+  if (shouldWatchCoreDist) {
+    startBackgroundProcess("core", "pnpm", [
+      "--filter",
+      "@agent-native/core",
+      "exec",
+      "tsc",
+      "--watch",
+      "--preserveWatchOutput",
+      "--noCheck",
+      "--declaration",
+      "false",
+      "--declarationMap",
+      "false",
+      "--sourceMap",
+      "false",
+      "--inlineSources",
+      "false",
+    ]);
+  }
 
   const server = createGateway();
   gatewayServer = server;

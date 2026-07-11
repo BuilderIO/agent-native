@@ -7,6 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { DispatchShell } from "../../components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
 import { TaskQueueHealth } from "../../components/task-queue-health";
 import {
   AlertDialog,
@@ -78,7 +79,8 @@ function QuickSendRow({
 
 export default function DestinationsRoute() {
   const t = useT();
-  const { data } = useActionQuery("list-destinations", {});
+  const destinationsQuery = useActionQuery("list-destinations", {});
+  const { data } = destinationsQuery;
   const [form, setForm] = useState({
     name: "",
     platform: "slack",
@@ -115,7 +117,14 @@ export default function DestinationsRoute() {
             <h2 className="text-lg font-semibold text-foreground">
               {t("dispatch.pages.savedDestinations")}
             </h2>
-            <div className="mt-4 space-y-3">
+            {destinationsQuery.isError ? (
+              <ActionQueryError
+                className="mt-4"
+                error={destinationsQuery.error}
+                onRetry={() => void destinationsQuery.refetch()}
+              />
+            ) : (
+              <div className="mt-4 space-y-3">
               {(data || []).map((destination: any) => (
                 <div
                   key={destination.id}
@@ -178,7 +187,8 @@ export default function DestinationsRoute() {
                   {t("dispatch.pages.noDestinations")}
                 </div>
               )}
-            </div>
+              </div>
+            )}
           </section>
 
           <section className="rounded-2xl border bg-card p-5">

@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { DispatchShell } from "../../components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import {
@@ -319,14 +320,16 @@ function PerAppDetailRow({ app }: { app: CatalogApp }) {
 }
 
 export default function ConnectionsRoute() {
-  const { data: catalog, isLoading } = useActionQuery(
+  const catalogQuery = useActionQuery(
     "list-integrations-catalog",
     {},
   );
-  const { data: accessSettings } = useActionQuery(
+  const accessQuery = useActionQuery(
     "get-vault-access-settings",
     {},
   );
+  const { data: catalog, isLoading } = catalogQuery;
+  const { data: accessSettings } = accessQuery;
   const apps = (catalog as CatalogApp[]) || [];
   const accessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
@@ -365,13 +368,23 @@ export default function ConnectionsRoute() {
       title="Connections"
       description="Connect services once. Apps that need them pick up the key automatically."
     >
-      {isLoading && services.length === 0 && (
+      {catalogQuery.isError || accessQuery.isError ? (
+        <ActionQueryError
+          error={catalogQuery.error ?? accessQuery.error}
+          onRetry={() => {
+            void catalogQuery.refetch();
+            void accessQuery.refetch();
+          }}
+        />
+      ) : null}
+
+      {!catalogQuery.isError && isLoading && services.length === 0 && (
         <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
           Discovering apps and credentials…
         </div>
       )}
 
-      {!isLoading && services.length === 0 && (
+      {!catalogQuery.isError && !isLoading && services.length === 0 && (
         <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
           No apps with declared integrations are reachable yet.
         </div>

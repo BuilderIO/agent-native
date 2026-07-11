@@ -3,6 +3,7 @@ import { useOrg } from "@agent-native/core/client/org";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -13,8 +14,10 @@ export function meta() {
 }
 
 export default function ApprovalsRoute() {
-  const { data: settings } = useActionQuery("get-dispatch-settings", {});
-  const { data: approvals } = useActionQuery("list-dispatch-approvals", {});
+  const settingsQuery = useActionQuery("get-dispatch-settings", {});
+  const approvalsQuery = useActionQuery("list-dispatch-approvals", {});
+  const { data: settings } = settingsQuery;
+  const { data: approvals } = approvalsQuery;
   const { data: org } = useOrg();
   const hasOrg = !!org?.orgId;
   const [emails, setEmails] = useState("");
@@ -51,7 +54,14 @@ export default function ApprovalsRoute() {
           <h2 className="text-lg font-semibold text-foreground">
             Approval policy
           </h2>
-          <div className="mt-4 space-y-4">
+          {settingsQuery.isError ? (
+            <ActionQueryError
+              className="mt-4"
+              error={settingsQuery.error}
+              onRetry={() => void settingsQuery.refetch()}
+            />
+          ) : (
+            <div className="mt-4 space-y-4">
             <label className="flex items-center justify-between rounded-xl border px-4 py-3">
               <div>
                 <div className="text-sm font-medium text-foreground">
@@ -98,14 +108,22 @@ export default function ApprovalsRoute() {
                 Save approvers
               </Button>
             </div>
-          </div>
+            </div>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             Pending and recent requests
           </h2>
-          <div className="mt-4 space-y-3">
+          {approvalsQuery.isError ? (
+            <ActionQueryError
+              className="mt-4"
+              error={approvalsQuery.error}
+              onRetry={() => void approvalsQuery.refetch()}
+            />
+          ) : (
+            <div className="mt-4 space-y-3">
             {(approvals || []).map((approval: any) => (
               <div
                 key={approval.id}
@@ -150,7 +168,8 @@ export default function ApprovalsRoute() {
                 No approval requests yet.
               </div>
             )}
-          </div>
+            </div>
+          )}
         </section>
       </div>
     </DispatchShell>

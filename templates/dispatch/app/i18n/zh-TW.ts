@@ -256,6 +256,9 @@ const messages = {
       operations: "營運",
     },
     pages: {
+      dataLoadFailed: "無法載入資料",
+      dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
+      tryAgain: "再試一次",
       also: "還有",
       monitoring: "監控",
       database: "資料庫",

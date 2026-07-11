@@ -20,6 +20,7 @@ import {
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -92,18 +93,21 @@ export function DailyProgress({
   const endDate = formatLocalDate(new Date());
   const startDate = formatLocalDate(subDays(new Date(), 30));
 
-  const { data: rawWeightHistory, isLoading: weightLoading } = useActionQuery(
+  const weightHistoryQuery = useActionQuery(
     "weights-history",
     { startDate, endDate },
     { enabled: activeChart === "weight" },
   );
+  const { data: rawWeightHistory, isLoading: weightLoading } = weightHistoryQuery;
   const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
-  const { data: rawCalorieHistory, isLoading: calorieLoading } = useActionQuery(
+  const calorieHistoryQuery = useActionQuery(
     "meals-history",
     { startDate, endDate },
     { enabled: activeChart === "activity" },
   );
+  const { data: rawCalorieHistory, isLoading: calorieLoading } =
+    calorieHistoryQuery;
   const calorieHistory = Array.isArray(rawCalorieHistory)
     ? rawCalorieHistory
     : [];
@@ -276,6 +280,11 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {weightLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-muted" />
+                ) : weightHistoryQuery.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => void weightHistoryQuery.refetch()}
+                  />
                 ) : weightHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
@@ -352,6 +361,11 @@ export function DailyProgress({
               <div className="h-[140px] w-full">
                 {calorieLoading ? (
                   <Skeleton className="h-full w-full rounded-xl bg-muted" />
+                ) : calorieHistoryQuery.isError ? (
+                  <QueryErrorState
+                    compact
+                    onRetry={() => void calorieHistoryQuery.refetch()}
+                  />
                 ) : calorieHistory.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart

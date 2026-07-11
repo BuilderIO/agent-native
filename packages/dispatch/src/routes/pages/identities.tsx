@@ -1,4 +1,6 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+
+import { ActionQueryError } from "../../components/action-query-error";
 import { toast } from "sonner";
 
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -9,7 +11,8 @@ export function meta() {
 }
 
 export default function IdentitiesRoute() {
-  const { data } = useActionQuery("list-linked-identities", {});
+  const query = useActionQuery("list-linked-identities", {});
+  const { data } = query;
   const createToken = useActionMutation("create-link-token", {
     onSuccess: () => toast.success("Link token created"),
   });
@@ -19,7 +22,13 @@ export default function IdentitiesRoute() {
       title="Identities"
       description="Link external senders to workspace users."
     >
-      <div className="grid gap-4 xl:grid-cols-2">
+      {query.isError ? (
+        <ActionQueryError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-2">
         <section className="rounded-2xl border bg-card p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-foreground">
@@ -86,7 +95,8 @@ export default function IdentitiesRoute() {
             )}
           </div>
         </section>
-      </div>
+        </div>
+      )}
     </DispatchShell>
   );
 }

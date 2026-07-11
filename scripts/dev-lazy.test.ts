@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { canonicalLoopbackRedirect } from "./dev-lazy";
+import {
+  canonicalLoopbackRedirect,
+  isBrowserAssetDestination,
+} from "./dev-lazy";
 
 describe("dev-lazy canonical loopback origin", () => {
   it("redirects localhost to the advertised 127.0.0.1 origin", () => {
@@ -84,5 +87,24 @@ describe("dev-lazy canonical loopback origin", () => {
       ),
       undefined,
     );
+  });
+});
+
+describe("dev-lazy browser asset classification", () => {
+  it("uses the interactive deadline for Vite module and style requests", () => {
+    assert.equal(isBrowserAssetDestination("script"), true);
+    assert.equal(isBrowserAssetDestination("style"), true);
+    assert.equal(isBrowserAssetDestination("worker"), true);
+    assert.equal(isBrowserAssetDestination("font"), true);
+  });
+
+  it("keeps API requests and document navigations out of the asset deadline", () => {
+    assert.equal(isBrowserAssetDestination("empty"), false);
+    assert.equal(isBrowserAssetDestination("document"), false);
+    assert.equal(isBrowserAssetDestination(undefined), false);
+  });
+
+  it("accepts Node's array-shaped header values", () => {
+    assert.equal(isBrowserAssetDestination(["SCRIPT"]), true);
   });
 });

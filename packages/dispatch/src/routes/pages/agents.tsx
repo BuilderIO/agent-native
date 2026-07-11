@@ -12,6 +12,7 @@ import {
   AgentsPanel,
   type ConnectedAgent,
 } from "../../components/agents-panel";
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -45,7 +46,10 @@ function dispatchMcpUrl(): string {
 
 function DispatchMcpAccessPanel() {
   const t = useT();
-  const { data, isLoading } = useActionQuery("list-mcp-app-access", {});
+  const { data, isLoading, isError, error, refetch } = useActionQuery(
+    "list-mcp-app-access",
+    {},
+  );
   const [optimistic, setOptimistic] = useState<McpAccessState | null>(null);
   const saveAccess = useActionMutation("set-mcp-app-access", {
     onSuccess: () => {
@@ -149,7 +153,13 @@ function DispatchMcpAccessPanel() {
         </Button>
       </div>
 
-      {access.mode === "selected-apps" ? (
+      {isError ? (
+        <ActionQueryError
+          className="mt-4"
+          error={error}
+          onRetry={() => void refetch()}
+        />
+      ) : access.mode === "selected-apps" ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {apps.map((app) => {
             const isSelected = selected.has(app.id);
@@ -193,7 +203,7 @@ function DispatchMcpAccessPanel() {
 
 export default function AgentsRoute() {
   const t = useT();
-  const { data, refetch } = useActionQuery("list-connected-agents", {});
+  const agentsQuery = useActionQuery("list-connected-agents", {});
 
   return (
     <DispatchShell
@@ -202,10 +212,17 @@ export default function AgentsRoute() {
     >
       <div className="space-y-4">
         <DispatchMcpAccessPanel />
-        <AgentsPanel
-          agents={(data || []) as ConnectedAgent[]}
-          onRefresh={refetch}
-        />
+        {agentsQuery.isError ? (
+          <ActionQueryError
+            error={agentsQuery.error}
+            onRetry={() => void agentsQuery.refetch()}
+          />
+        ) : (
+          <AgentsPanel
+            agents={(agentsQuery.data || []) as ConnectedAgent[]}
+            onRefresh={agentsQuery.refetch}
+          />
+        )}
       </div>
     </DispatchShell>
   );

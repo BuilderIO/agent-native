@@ -274,6 +274,9 @@ const enUS = {
       operations: "Operations",
     },
     pages: {
+      dataLoadFailed: "Couldn't load data",
+      dataLoadFailedDescription: "Dispatch couldn't load this data.",
+      tryAgain: "Try again",
       also: "Also",
       monitoring: "Monitoring",
       database: "Database",

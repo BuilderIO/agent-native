@@ -15,6 +15,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { DispatchShell } from "../../components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -736,17 +737,22 @@ function RequestRow({ request }: { request: any }) {
 }
 
 export default function VaultRoute() {
-  const { data: secrets, isLoading: secretsLoading } = useActionQuery(
+  const secretsQuery = useActionQuery(
     "list-vault-secrets",
     {},
   );
-  const { data: grants } = useActionQuery("list-vault-grants", {});
-  const { data: requests } = useActionQuery("list-vault-requests", {});
-  const { data: audit } = useActionQuery("list-vault-audit", { limit: 20 });
-  const { data: accessSettings } = useActionQuery(
+  const grantsQuery = useActionQuery("list-vault-grants", {});
+  const requestsQuery = useActionQuery("list-vault-requests", {});
+  const auditQuery = useActionQuery("list-vault-audit", { limit: 20 });
+  const accessQuery = useActionQuery(
     "get-vault-access-settings",
     {},
   );
+  const { data: secrets, isLoading: secretsLoading } = secretsQuery;
+  const { data: grants } = grantsQuery;
+  const { data: requests } = requestsQuery;
+  const { data: audit } = auditQuery;
+  const { data: accessSettings } = accessQuery;
   const accessMode: VaultAccessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
@@ -788,6 +794,18 @@ export default function VaultRoute() {
         </TabsList>
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
+          {secretsQuery.isError || grantsQuery.isError || accessQuery.isError ? (
+            <ActionQueryError
+              error={
+                secretsQuery.error ?? grantsQuery.error ?? accessQuery.error
+              }
+              onRetry={() => {
+                void secretsQuery.refetch();
+                void grantsQuery.refetch();
+                void accessQuery.refetch();
+              }}
+            />
+          ) : null}
           <VaultAccessSettingsCard mode={accessMode} />
 
           <div className="flex items-center justify-between">
@@ -804,7 +822,7 @@ export default function VaultRoute() {
             <AddSecretDialog />
           </div>
 
-          {secretsLoading && (secrets ?? []).length === 0
+          {!secretsQuery.isError && secretsLoading && (secrets ?? []).length === 0
             ? Array.from({ length: 3 }).map((_, index) => (
                 <div
                   key={index}
@@ -823,7 +841,7 @@ export default function VaultRoute() {
                 />
               ))}
 
-          {!secretsLoading && (secrets?.length || 0) === 0 && (
+          {!secretsQuery.isError && !secretsLoading && (secrets?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
               <IconKey size={32} className="mx-auto text-muted-foreground/50" />
               <h3 className="mt-3 text-sm font-medium text-foreground">
@@ -838,10 +856,16 @@ export default function VaultRoute() {
         </TabsContent>
 
         <TabsContent value="requests" className="mt-4 space-y-3">
+          {requestsQuery.isError ? (
+            <ActionQueryError
+              error={requestsQuery.error}
+              onRetry={() => void requestsQuery.refetch()}
+            />
+          ) : null}
           {(requests || []).map((request: any) => (
             <RequestRow key={request.id} request={request} />
           ))}
-          {(requests?.length || 0) === 0 && (
+          {!requestsQuery.isError && (requests?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
               No secret requests yet.
             </div>
@@ -849,6 +873,12 @@ export default function VaultRoute() {
         </TabsContent>
 
         <TabsContent value="audit" className="mt-4 space-y-2">
+          {auditQuery.isError ? (
+            <ActionQueryError
+              error={auditQuery.error}
+              onRetry={() => void auditQuery.refetch()}
+            />
+          ) : null}
           {(audit || []).map((event: any) => (
             <div
               key={event.id}
@@ -862,7 +892,7 @@ export default function VaultRoute() {
               </div>
             </div>
           ))}
-          {(audit?.length || 0) === 0 && (
+          {!auditQuery.isError && (audit?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
               No vault activity yet.
             </div>

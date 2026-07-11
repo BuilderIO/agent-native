@@ -19,6 +19,7 @@ import { AddMealDialog } from "@/components/AddMealDialog";
 import { DailyProgress } from "@/components/DailyProgress";
 import { ExerciseCard } from "@/components/ExerciseCard";
 import { MealCard } from "@/components/MealCard";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VoiceDictation } from "@/components/VoiceDictation";
@@ -68,18 +69,20 @@ export default function IndexPage() {
     }).catch(() => {});
   }, [dateStr]);
 
-  const { data: rawMeals, isLoading: mealsLoading } = useActionQuery(
+  const mealsQuery = useActionQuery(
     "list-meals",
     { date: dateStr },
   );
+  const { data: rawMeals, isLoading: mealsLoading } = mealsQuery;
   const serverMeals = Array.isArray(rawMeals) ? rawMeals : [];
   const { rows: meals, hasOptimisticRows: hasOptimisticMeals } =
     useOptimisticLogRows("meal", serverMeals, dateStr);
 
-  const { data: rawExercises, isLoading: exercisesLoading } = useActionQuery(
+  const exercisesQuery = useActionQuery(
     "list-exercises",
     { date: dateStr },
   );
+  const { data: rawExercises, isLoading: exercisesLoading } = exercisesQuery;
   const serverExercises = Array.isArray(rawExercises) ? rawExercises : [];
   const { rows: exercises, hasOptimisticRows: hasOptimisticExercises } =
     useOptimisticLogRows("exercise", serverExercises, dateStr);
@@ -156,6 +159,13 @@ export default function IndexPage() {
         <section>
           {isLoading ? (
             <Skeleton className="h-[280px] w-full rounded-2xl" />
+          ) : mealsQuery.isError || exercisesQuery.isError ? (
+            <QueryErrorState
+              onRetry={() => {
+                void mealsQuery.refetch();
+                void exercisesQuery.refetch();
+              }}
+            />
           ) : (
             <DailyProgress
               totalCalories={mealTotals.calories}
@@ -196,6 +206,8 @@ export default function IndexPage() {
                   <Skeleton className="h-16 w-full rounded-xl" />
                   <Skeleton className="h-16 w-full rounded-xl" />
                 </>
+              ) : mealsQuery.isError ? (
+                <QueryErrorState onRetry={() => void mealsQuery.refetch()} />
               ) : meals.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-card border border-dashed border-border">
                   <div className="p-3 rounded-full bg-emerald-500/10 mb-3">
@@ -254,6 +266,10 @@ export default function IndexPage() {
             <div className="space-y-2">
               {exercisesLoading && !hasOptimisticExercises ? (
                 <Skeleton className="h-16 w-full rounded-xl" />
+              ) : exercisesQuery.isError ? (
+                <QueryErrorState
+                  onRetry={() => void exercisesQuery.refetch()}
+                />
               ) : exercises.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center rounded-2xl bg-card border border-dashed border-border">
                   <div className="p-3 rounded-full bg-orange-500/10 mb-3">
