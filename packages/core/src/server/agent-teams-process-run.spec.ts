@@ -234,8 +234,37 @@ vi.mock("../agent/run-store.js", () => ({
 }));
 
 // ── production-agent: scripted agent loop ─────────────────────────────────
+const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
+
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) that this file's narrower mocks don't
+// support. This only needs to prove agent-teams.ts WIRES the filter with the
+// right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: () => [],
+  actionsToEngineTools: (actions: any) => actionsToEngineToolsMock(actions),
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
   appendAgentLoopContinuation: vi.fn(),
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
 }));

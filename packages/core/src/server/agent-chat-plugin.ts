@@ -188,47 +188,78 @@ async function lazyFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
+// ---------------------------------------------------------------------------
+// The bulk of this file's former implementation now lives in focused sibling
+// modules under `./agent-chat/`. This file re-imports them (and re-exports
+// the ones that were already part of the public surface) so
+// `createAgentChatPlugin` below stays a thinner orchestrator.
+// ---------------------------------------------------------------------------
+import {
+  createA2AEngineToolSurface,
+  filterAgentTools,
+  filterPublicAgentActions,
+  filterReadOnlyActions,
+  resolveInitialToolNames,
+  runA2AAgentLoop,
+  assembleA2AFinalResponse,
+  buildPublicAgentA2ASkills,
+  resolveArtifactBaseUrl,
+} from "./agent-chat/action-filters-a2a.js";
+import {
+  createBuilderBrowserTool,
+  createTeamTools,
+} from "./agent-chat/browser-team-tools.js";
+import {
+  createDataWidgetActionEntries,
+  createFrameworkContextEntry,
+  createRefreshScreenEntry,
+  createUrlTools,
+} from "./agent-chat/context-tools.js";
+import {
+  _agentChatPromptSectionsForTests,
+  buildFrameworkPrompts,
+  buildSchemaBlock,
+  collectFiles,
+  generateActionsPrompt,
+  generateCorpusToolsPrompt,
+} from "./agent-chat/framework-prompts.js";
+import {
+  type AgentChatPluginOptions,
+  type NitroPluginDef,
+} from "./agent-chat/plugin-options.js";
+import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
+import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
 import {
-  buildFrameworkPrompts,
-  _agentChatPromptSectionsForTests,
-  buildSchemaBlock,
-  generateActionsPrompt,
-  generateCorpusToolsPrompt,
-  collectFiles,
-} from "./agent-chat/framework-prompts.js";
+  isLocalhost,
+  shouldBlockInProductCodeEditingSurface,
+} from "./agent-chat/request-surface.js";
+import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
+import {
+  createAgentEngineScriptEntries,
+  createAgentLoopSettingsScriptEntries,
+  createCallAgentScriptEntry,
+  createChatScriptEntries,
+  createDbScriptEntries,
+  createDocsScriptEntries,
+  createResourceScriptEntries,
+} from "./agent-chat/script-entries.js";
 import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
 
 export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
-
-import {
-  filterReadOnlyActions,
-  filterAgentTools,
-  filterPublicAgentActions,
-  buildPublicAgentA2ASkills,
-  resolveArtifactBaseUrl,
-  assembleA2AFinalResponse,
-} from "./agent-chat/action-filters-a2a.js";
-
 export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
-
-/**
- * Creates the `get-framework-context` tool. Returns detailed instructions
- * for framework capabilities that are summarized in the compact prompt.
- * The agent calls this on-demand when it needs specifics about embeds,
- * agent teams, recurring jobs, etc.
- */
-import {
-  createFrameworkContextEntry,
-  createRefreshScreenEntry,
-  createUrlTools,
-  createDataWidgetActionEntries,
-} from "./agent-chat/context-tools.js";
+export type { AgentChatPluginOptions };
+export { runA2AAgentLoop };
+export { createA2AEngineToolSurface };
+export { shouldBlockInProductCodeEditingSurface };
+export { loadRunCodeToolEntries };
+export { shouldDisableRecurringJobsRuntime };
+export { finalizeClaimedAgentChatProcessRunFailure };
 
 /**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
@@ -240,53 +271,6 @@ const generateTitleRateLimit = new Map<string, number[]>();
 /** Only sweep drained rate-limit entries once the map grows past this size,
  * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
-
-import {
-  createDbScriptEntries,
-  createDocsScriptEntries,
-  createResourceScriptEntries,
-  createChatScriptEntries,
-  createAgentEngineScriptEntries,
-  createAgentLoopSettingsScriptEntries,
-  createCallAgentScriptEntry,
-} from "./agent-chat/script-entries.js";
-
-import {
-  createBuilderBrowserTool,
-  createTeamTools,
-} from "./agent-chat/browser-team-tools.js";
-import {
-  type AgentChatPluginOptions,
-  type NitroPluginDef,
-} from "./agent-chat/plugin-options.js";
-
-export type { AgentChatPluginOptions };
-
-import {
-  runA2AAgentLoop,
-  createA2AEngineToolSurface,
-  resolveInitialToolNames,
-} from "./agent-chat/action-filters-a2a.js";
-
-export { runA2AAgentLoop };
-export { createA2AEngineToolSurface };
-
-
-
-
-
-import {
-  isLocalhost,
-  shouldBlockInProductCodeEditingSurface,
-} from "./agent-chat/request-surface.js";
-import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
-import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
-import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
-
-export { shouldBlockInProductCodeEditingSurface };
-export { loadRunCodeToolEntries };
-export { shouldDisableRecurringJobsRuntime };
-export { finalizeClaimedAgentChatProcessRunFailure };
 
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,

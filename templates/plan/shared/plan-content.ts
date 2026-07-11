@@ -1859,25 +1859,21 @@ export const agentPlanBlockSchema = z.object({
   type: z
     .enum(PLAN_BLOCK_TYPES)
     .describe(
-      "Block type — one of: rich-text (markdown prose/heading), callout " +
-        "(tone-colored note: info/decision/risk/warning/success), checklist " +
-        "(checkable to-do items), table (rows/columns), code-tabs (multiple " +
-        "labeled code snippets), code (one code snippet), implementation-map " +
-        "(file list with notes), wireframe (semantic-HTML UI screen — current " +
-        "format), legacy-wireframe (region-based UI screen — legacy fallback " +
-        "only, do not author new), diagram (HTML/SVG flow diagram with " +
-        "nodes/edges), image (asset or URL image), tabs (nested block groups " +
-        "in tabs), columns (nested block groups side by side), custom-html " +
-        "(bounded HTML/CSS fragment), question-form (open questions for the " +
-        "reviewer), visual-questions (alias of question-form), mermaid " +
-        "(mermaid diagram source), api-endpoint (one HTTP endpoint spec), " +
-        "openapi-spec (full OpenAPI/Swagger spec), data-model (entities/" +
-        "fields/relations), diff (before/after code diff), file-tree " +
-        "(annotated file tree), json-explorer (collapsible JSON viewer), " +
-        "annotated-code (code with line-anchored annotations). Call " +
-        "get-plan-blocks (or list-plan-components) FIRST for the " +
-        "authoritative per-type `data` field shapes, canvas/wireframe " +
-        "authoring rules, and style tokens — do not author `data` from memory.",
+      "Block type: rich-text=prose/heading, callout=toned note, " +
+        "checklist=to-dos, table=rows/cols, code-tabs=multi-snippet tabs, " +
+        "code=one snippet, implementation-map=file list+notes, " +
+        "wireframe=semantic-HTML UI screen, legacy-wireframe=region UI " +
+        "(legacy, do not author new), diagram=HTML/SVG flow diagram, " +
+        "image=asset/URL image, tabs=nested block tabs, " +
+        "columns=nested block columns, custom-html=bounded HTML/CSS, " +
+        "question-form=reviewer questions, visual-questions=alias of " +
+        "question-form, mermaid=mermaid source, api-endpoint=one HTTP " +
+        "endpoint, openapi-spec=full OpenAPI spec, " +
+        "data-model=entities/fields/relations, diff=before/after code diff, " +
+        "file-tree=annotated file tree, json-explorer=JSON viewer, " +
+        "annotated-code=code+line annotations. Call get-plan-blocks (or " +
+        "list-plan-components) FIRST for exact per-type `data` field shapes " +
+        "and authoring rules — do not guess from memory.",
     ),
   title: z.string().trim().max(180).optional(),
   summary: z.string().trim().max(600).optional(),

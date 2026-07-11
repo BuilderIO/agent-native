@@ -10,8 +10,8 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
-import { getGlobalMcpManager } from "./mcp-glue.js";
 import { getRequestUserEmail } from "../request-context.js";
+import { getGlobalMcpManager } from "./mcp-glue.js";
 
 // ---------------------------------------------------------------------------
 // Builder.io browser-connect / built-in MCP toggle tools, and the unified

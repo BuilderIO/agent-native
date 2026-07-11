@@ -11,6 +11,7 @@ import {
   IconTool,
   IconEye,
   IconEyeOff,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useMemo } from "react";
@@ -964,11 +965,27 @@ export function ExtensionsSidebarSection() {
                 side="right"
                 align="start"
                 collisionPadding={8}
-                className="relative z-[360] w-[min(420px,calc(100vw-16px))] p-3"
+                className="relative z-[360] w-[min(420px,calc(100vw-16px))] px-2 pb-2 pt-3"
               >
-                <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                  {copy.newExtension}
-                </p>
+                <div className="flex items-center justify-between gap-2 ps-1 pb-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {copy.newExtension}
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href="https://agent-native.com/docs/extensions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={copy.learnMore}
+                      >
+                        <IconHelpCircle className="size-4" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>{copy.learnMore}</TooltipContent>
+                  </Tooltip>
+                </div>
                 <PromptComposer
                   autoFocus
                   placeholder={copy.createPlaceholder}

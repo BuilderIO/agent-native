@@ -6,8 +6,8 @@ import {
   setThreadArchived,
   setThreadPinned,
 } from "../../chat-threads/store.js";
-import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
+import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import { captureCliOutput } from "../cli-capture.js";
 import {
   getRequestOrgId,
@@ -719,9 +719,8 @@ export async function createAgentEngineScriptEntries(
   appId?: string,
 ): Promise<Record<string, ActionEntry>> {
   try {
-    const mod = await import(
-      "../../scripts/agent-engines/manage-agent-engine.js"
-    );
+    const mod =
+      await import("../../scripts/agent-engines/manage-agent-engine.js");
 
     return {
       "manage-agent-engine": {

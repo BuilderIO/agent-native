@@ -266,9 +266,7 @@ export interface AgentChatPluginOptions {
     | string
     | null
     | undefined
-    | Promise<
-        import("../../a2a/types.js").Message | string | null | undefined
-      >;
+    | Promise<import("../../a2a/types.js").Message | string | null | undefined>;
   /**
    * Optional injectable prompt examples for core rules (rule 5 auto-refresh
    * examples and rule 8 external provider names). When absent, generic

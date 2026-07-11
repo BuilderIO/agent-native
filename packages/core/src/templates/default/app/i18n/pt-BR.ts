@@ -382,6 +382,12 @@ const messages = {
     contentLabel: "Conteúdo",
     previewTitle: "Visualização da extensão",
     previewEmpty: "A visualização aparecerá aqui",
+    loadError: "Não foi possível carregar as extensões.",
+    widgetsLoadError: "Não foi possível carregar os widgets.",
+    widgetAreasLoadError: "Não foi possível carregar as áreas de widgets.",
+    historyLoadError: "Não foi possível carregar o histórico da extensão.",
+    versionLoadError: "Não foi possível carregar esta versão da extensão.",
+    retry: "Tentar novamente",
   },
   org: {
     createTitle: "Crie sua organização",

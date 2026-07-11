@@ -1,4 +1,7 @@
-import { getFrontmatterValue, parseFrontmatter } from "../../resources/metadata.js";
+import {
+  getFrontmatterValue,
+  parseFrontmatter,
+} from "../../resources/metadata.js";
 
 export function parseSkillFrontmatter(content: string): {
   name?: string;

@@ -41,6 +41,12 @@ interface TemplateApp {
   ready?: boolean;
   readinessProbe?: Promise<void>;
   lastActivityAt?: number;
+  // Last time this app returned (or was probed as returning) a non-5xx
+  // response. Initialized to spawn time so a fresh cold boot is never
+  // mistaken for a stuck/stranded server. Drives both the stuck-app restart
+  // cap in `failAppStartupTimeout` and the permanent-503 self-heal in
+  // `dispatch()`.
+  lastNon5xxAt?: number;
   openSockets?: number;
   evicting?: boolean;
 }
@@ -316,7 +322,13 @@ const requestedGatewayPort = Number(
   process.env.WORKSPACE_PORT || process.env.PORT || DEFAULT_GATEWAY_PORT,
 );
 const proxyReadyTimeoutMs = Number(
-  process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+  process.env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 90_000,
+);
+const stuckAppRestartMs = Number(
+  process.env.WORKSPACE_STUCK_APP_RESTART_MS ?? STUCK_APP_RESTART_MS,
+);
+const persistent5xxRestartMs = Number(
+  process.env.WORKSPACE_PERSISTENT_5XX_RESTART_MS ?? PERSISTENT_5XX_RESTART_MS,
 );
 const proxyResponseTimeoutMs = Number(
   process.env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
@@ -837,15 +849,58 @@ async function waitForHttpReady(
   return false;
 }
 
+/**
+ * The single place an app transitions into the "ready" state: readiness-probe
+ * success, a proxied response with a non-5xx status, and upgrade (WebSocket)
+ * readiness all funnel through here. Resetting `restartAttempts` only on an
+ * actual successful serve (rather than on a fixed post-spawn timer) is what
+ * lets backoff keep escalating for an app that fails on every attempt.
+ */
+export function markAppReady(app: TemplateApp): void {
+  app.ready = true;
+  app.lastNon5xxAt = Date.now();
+  app.restartAttempts = 0;
+}
+
+/**
+ * Pure decision for whether a readiness-timeout should escalate all the way to
+ * a tree-kill + restart, versus simply waiting longer. Extracted so the matrix
+ * (dead port always restarts; a live port only restarts once it has been
+ * stuck for `stuckMs` with no non-5xx response) is unit-testable without
+ * spawning real processes.
+ */
+export function shouldRestartStuckApp(input: {
+  portOpen: boolean;
+  lastNon5xxAt: number;
+  now: number;
+  stuckMs: number;
+}): boolean {
+  if (!input.portOpen) return true;
+  return input.now - input.lastNon5xxAt > input.stuckMs;
+}
+
+/**
+ * Pure decision backing the permanent-503 self-heal: once an app has gone
+ * `restartMs` without a single non-5xx response, a run of 5xx responses is
+ * treated as a stranded dev-server runner rather than a transient blip.
+ */
+export function shouldRestartPersistent5xx(input: {
+  lastNon5xxAt: number;
+  now: number;
+  restartMs: number;
+}): boolean {
+  return input.now - input.lastNon5xxAt > input.restartMs;
+}
+
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
   app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
     .then((ready) => {
       if (ready) {
-        app.ready = true;
+        markAppReady(app);
         return;
       }
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
     })
     .finally(() => {
       app.readinessProbe = undefined;
@@ -857,7 +912,7 @@ function ensureReadinessProbe(app: TemplateApp): void {
  * socket past the timeout evicts; within the timeout does not) is testable in
  * isolation. `idleTimeoutMs <= 0` disables eviction entirely.
  */
-function shouldEvict(input: {
+export function shouldEvict(input: {
   lastActivityAt: number;
   openSockets: number;
   now: number;
@@ -1008,6 +1063,11 @@ function startApp(app: TemplateApp): void {
   app.outputTail = undefined;
   app.evicting = false;
   app.lastActivityAt = Date.now();
+  // Seed the persistent-5xx/stuck-app clock at spawn time so a fresh cold
+  // boot (which necessarily has no non-5xx response yet) is never mistaken
+  // for a stranded runner or a stuck compile before it has had a chance to
+  // serve anything.
+  app.lastNon5xxAt = Date.now();
   app.openSockets ??= 0;
 
   const basePath = `/${app.id}`;
@@ -1056,10 +1116,6 @@ function startApp(app: TemplateApp): void {
 
   app.process = child;
   const prefix = colorPrefix(app.id);
-  const stableTimer = setTimeout(() => {
-    app.restartAttempts = 0;
-  }, 5_000);
-  stableTimer.unref();
 
   child.stdout?.on("data", (chunk) => {
     appendAppOutputTail(
@@ -1079,7 +1135,6 @@ function startApp(app: TemplateApp): void {
     );
   });
   child.on("exit", (code) => {
-    clearTimeout(stableTimer);
     const wasEvicting = app.evicting;
     app.process = undefined;
     app.ready = false;
@@ -1118,12 +1173,54 @@ function scheduleAppRestart(
   app.restartTimer.unref();
 }
 
-function failAppStartupTimeout(app: TemplateApp): void {
+/**
+ * Called when a readiness probe (HTTP polling or the WebSocket upgrade's
+ * `waitForPort`) times out without the app ever becoming ready. A naive
+ * tree-kill here is wrong when the child is actually alive and its port is
+ * accepting TCP connections — that almost always means Vite is still deep in
+ * dependency optimization or rebuilding after a concurrent edit, which can
+ * legitimately take minutes under CPU contention. Killing there discards the
+ * warm esbuild/optimize cache and restarts the optimize pass from scratch,
+ * producing an infinite kill/cold-boot loop. So: only tree-kill immediately
+ * when the port is actually dead; otherwise wait longer, and only escalate to
+ * a kill once the app has gone `stuckAppRestartMs` with no non-5xx response at
+ * all (see `shouldRestartStuckApp`).
+ */
+async function failAppStartupTimeout(app: TemplateApp): Promise<void> {
   if (app.ready || app.restartTimer) return;
   const timeout = formatProxyReadyTimeout(proxyReadyTimeoutMs);
+  const portOpen = await probePort(app.port);
+  const stillAlive = Boolean(app.process && !app.process.killed);
+  // Re-check after the async gap: another path may have already marked the
+  // app ready or scheduled a restart while we were probing the port.
+  if (app.ready || app.restartTimer) return;
+
+  if (
+    portOpen &&
+    stillAlive &&
+    !shouldRestartStuckApp({
+      portOpen,
+      lastNon5xxAt: app.lastNon5xxAt ?? Date.now(),
+      now: Date.now(),
+      stuckMs: stuckAppRestartMs,
+    })
+  ) {
+    process.stderr.write(
+      `${colorPrefix(app.id)} still compiling/optimizing after ${timeout} ` +
+        `but 127.0.0.1:${app.port} is accepting connections; waiting instead ` +
+        `of restarting\n`,
+    );
+    ensureReadinessProbe(app);
+    return;
+  }
+
   const message =
-    `Timed out waiting ${timeout} for /${app.id} to return ` +
-    `an HTTP response on 127.0.0.1:${app.port}.`;
+    portOpen && stillAlive
+      ? `/${app.id} has not returned a healthy response for ` +
+        `${formatProxyReadyTimeout(stuckAppRestartMs)} despite an open port ` +
+        `on 127.0.0.1:${app.port}; treating it as stuck.`
+      : `Timed out waiting ${timeout} for /${app.id} to return ` +
+        `an HTTP response on 127.0.0.1:${app.port}.`;
   const output = [message, app.outputTail?.trim()]
     .filter(Boolean)
     .join("\n\nLast child output:\n");
@@ -1134,7 +1231,7 @@ function failAppStartupTimeout(app: TemplateApp): void {
     output,
     logMessage: message,
   });
-  app.process?.kill("SIGTERM");
+  killChildProcessTree(app.process, "SIGTERM");
 }
 
 function proxyHttp(
@@ -1172,6 +1269,18 @@ function proxyHttp(
     let responseTimer: NodeJS.Timeout;
     let bodyTimer: NodeJS.Timeout | undefined;
     let upstreamResponse: http.IncomingMessage | undefined;
+    // Pin the app alive for the lifetime of this response the same way an
+    // open WebSocket does. Long-lived plain-HTTP streams (SSE from
+    // useDbSync/agent chat) used to look idle to the eviction sweep because
+    // only upgrade sockets counted toward `openSockets` — this let the sweep
+    // SIGTERM an app mid-stream. Guarded like `proxyUpgrade`'s
+    // `releaseSocket` so a close+error double-fire can't double-decrement.
+    let streamSocketReleased = true;
+    const releaseStreamSocket = () => {
+      if (streamSocketReleased) return;
+      streamSocketReleased = true;
+      app.openSockets = Math.max(0, (app.openSockets ?? 1) - 1);
+    };
     const browserAsset = isBrowserAssetRequest(req);
     const responseTimeoutMs = selectProxyResponseTimeout(
       { html: wantsHtml(req), browserAsset },
@@ -1219,8 +1328,17 @@ function proxyHttp(
         }
         settled = true;
         clearTimeout(responseTimer);
-        app.ready = true;
         const statusCode = proxyRes.statusCode ?? 502;
+        // Only a non-5xx response proves the app is actually healthy. Nitro's
+        // dev env-runner can get stuck serving 5xx for every request forever
+        // after a few worker crashes; flipping `ready` true here regardless
+        // (as this used to) hid that permanent-failure state from the
+        // gateway entirely. Proxy the response through unchanged either way.
+        if (statusCode < 500) {
+          markAppReady(app);
+        } else {
+          void maybeRecoverPersistent5xx(app, statusCode);
+        }
         const responseHeaders = { ...proxyRes.headers };
         if (statusCode >= 300 && statusCode < 400) {
           const rewritten = rewriteRedirectLocation(
@@ -1231,9 +1349,17 @@ function proxyHttp(
         }
         armBodyTimer();
         proxyRes.on("data", armBodyTimer);
+        proxyRes.on("data", () => {
+          app.lastActivityAt = Date.now();
+        });
         proxyRes.once("end", clearBodyTimer);
         proxyRes.once("close", clearBodyTimer);
         res.writeHead(statusCode, responseHeaders);
+        streamSocketReleased = false;
+        app.openSockets = (app.openSockets ?? 0) + 1;
+        res.once("finish", releaseStreamSocket);
+        res.once("close", releaseStreamSocket);
+        res.once("error", releaseStreamSocket);
         proxyRes.once("error", () => {
           clearBodyTimer();
           if (!res.destroyed) res.destroy();
@@ -1290,7 +1416,7 @@ function proxyHttp(
 
   void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
       if (!res.headersSent) {
         res.writeHead(502, { "content-type": "text/plain" });
         res.end(
@@ -1301,7 +1427,7 @@ function proxyHttp(
       }
       return;
     }
-    app.ready = true;
+    markAppReady(app);
     dispatch();
   });
 }
@@ -1336,12 +1462,12 @@ function proxyUpgrade(
   });
   void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then((ready) => {
     if (!ready) {
-      failAppStartupTimeout(app);
+      void failAppStartupTimeout(app);
       socket.destroy();
       return;
     }
     if (socket.destroyed) return;
-    app.ready = true;
+    markAppReady(app);
     const upstream = net.connect(app.port, "127.0.0.1", () => {
       const headers = Object.entries(proxyHeaders(req, `127.0.0.1:${app.port}`))
         .flatMap(([key, value]) =>

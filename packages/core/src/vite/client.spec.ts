@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
+  _debounceNitroFullReloadHotUpdate,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
@@ -877,6 +878,180 @@ describe("Vite connection reset noise", () => {
     expect(() =>
       socketErrorHandler?.(Object.assign(new Error("real socket failure"), {})),
     ).toThrow("real socket failure");
+  });
+});
+
+describe("Nitro dev full-reload debounce", () => {
+  // These fakes mirror the shape nitro's own `hotUpdate` hook actually uses
+  // (see nitro/dist/vite.mjs): `this.environment.moduleGraph.invalidateModule`
+  // for every changed module, followed by `this.environment.hot.send({ type:
+  // "full-reload" })`. We only need enough of that shape to exercise the
+  // wrapper, not a real Vite dev server.
+  function fakeNitroMainPlugin(
+    handler: (
+      this: { environment: any },
+      options: { modules: string[] },
+    ) => void,
+  ) {
+    return { name: "nitro:main", hotUpdate: handler } as any;
+  }
+
+  it("coalesces a burst of full-reload sends into exactly one after quiescence", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      for (let i = 0; i < 5; i++) {
+        plugin.hotUpdate.call(context, { modules: [] });
+      }
+
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(299);
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ type: "full-reload" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reloads after a single isolated change, just delayed by the debounce window", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      plugin.hotUpdate.call(context, { modules: [] });
+      expect(send).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes non full-reload hot messages through immediately, unbatched", () => {
+    const send = vi.fn();
+    const plugin = _debounceNitroFullReloadHotUpdate(
+      fakeNitroMainPlugin(function () {
+        this.environment.hot.send({ type: "custom", event: "an:ping" });
+      }),
+    );
+    const context = { environment: { name: "ssr", hot: { send } } };
+
+    plugin.hotUpdate.call(context, { modules: [] });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "custom", event: "an:ping" });
+  });
+
+  it("never delays module-graph invalidation, only the reload broadcast", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const invalidateModule = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function (options) {
+          for (const mod of options.modules) {
+            this.environment.moduleGraph.invalidateModule(mod);
+          }
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = {
+        environment: {
+          name: "ssr",
+          hot: { send },
+          moduleGraph: { invalidateModule },
+        },
+      };
+
+      plugin.hotUpdate.call(context, { modules: ["a.ts", "b.ts"] });
+
+      expect(invalidateModule).toHaveBeenCalledTimes(2);
+      expect(invalidateModule).toHaveBeenCalledWith("a.ts");
+      expect(invalidateModule).toHaveBeenCalledWith("b.ts");
+      // The reload itself is still debounced.
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps debounce timers independent per Vite environment", () => {
+    vi.useFakeTimers();
+    try {
+      const sendSsr = vi.fn();
+      const sendWorker = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+
+      plugin.hotUpdate.call(
+        { environment: { name: "ssr", hot: { send: sendSsr } } },
+        { modules: [] },
+      );
+      vi.advanceTimersByTime(150);
+      plugin.hotUpdate.call(
+        { environment: { name: "worker", hot: { send: sendWorker } } },
+        { modules: [] },
+      );
+
+      // 300ms after the "ssr" call, but only 150ms after "worker"'s call.
+      vi.advanceTimersByTime(150);
+      expect(sendSsr).toHaveBeenCalledTimes(1);
+      expect(sendWorker).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(150);
+      expect(sendWorker).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supports object-form ({ handler }) hotUpdate hooks", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const handler = vi.fn(function (this: { environment: any }) {
+        this.environment.hot.send({ type: "full-reload" });
+      });
+      const plugin = _debounceNitroFullReloadHotUpdate({
+        name: "nitro:main",
+        hotUpdate: { order: "post", handler },
+      } as any);
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      expect((plugin.hotUpdate as any).order).toBe("post");
+      (plugin.hotUpdate as any).handler.call(context, { modules: [] });
+      vi.advanceTimersByTime(300);
+
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves plugins without a hotUpdate hook unchanged", () => {
+    const plugin = { name: "nitro:env" } as any;
+    expect(_debounceNitroFullReloadHotUpdate(plugin)).toBe(plugin);
   });
 });
 

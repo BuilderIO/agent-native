@@ -2920,4 +2920,5 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

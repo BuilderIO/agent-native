@@ -365,6 +365,12 @@ const messages = {
     contentLabel: "कॉन्टेंट",
     previewTitle: "एक्सटेंशन पूर्वावलोकन",
     previewEmpty: "पूर्वावलोकन यहां दिखाई देगा",
+    loadError: "एक्सटेंशन लोड नहीं हो सके।",
+    widgetsLoadError: "विजेट लोड नहीं हो सके।",
+    widgetAreasLoadError: "विजेट क्षेत्र लोड नहीं हो सके।",
+    historyLoadError: "एक्सटेंशन इतिहास लोड नहीं हो सका।",
+    versionLoadError: "यह एक्सटेंशन संस्करण लोड नहीं हो सका।",
+    retry: "पुनः प्रयास करें",
   },
   org: {
     createTitle: "अपना संगठन बनाएं",

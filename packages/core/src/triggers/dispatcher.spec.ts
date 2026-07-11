@@ -134,7 +134,7 @@ Respond to the event.`,
     // by other tests in this file (the dispatcher module is a singleton that
     // isn't reset between tests, and skips re-subscribing an event it
     // already tracks).
-    resourceListAllOwnersMock.mockResolvedValueOnce([
+    resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-tool-filter",
         owner: "alice+triggers@agent-native.test",

@@ -2,14 +2,18 @@ import nodePath from "node:path";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
-import { buildFrameworkCore, buildFrameworkCoreCompact, type PromptExamples } from "../prompts/index.js";
+import {
+  buildFrameworkCore,
+  buildFrameworkCoreCompact,
+  type PromptExamples,
+} from "../prompts/index.js";
 import { getRequestOrgId } from "../request-context.js";
 import { loadSchemaPromptBlock } from "../schema-prompt.js";
+import { resolveInitialToolNames } from "./action-filters-a2a.js";
 import {
   createDataWidgetActionEntries,
   FRAMEWORK_CONTEXT_SECTIONS,
 } from "./context-tools.js";
-import { resolveInitialToolNames } from "./action-filters-a2a.js";
 import { lazyFs } from "./lazy-fs.js";
 import { compactPromptLine } from "./prompt-resources.js";
 

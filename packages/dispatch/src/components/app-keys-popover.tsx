@@ -12,6 +12,7 @@ import { ActionQueryError } from "./action-query-error";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Skeleton } from "./ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 interface VaultSecret {
   id: string;
@@ -47,23 +48,30 @@ export function AppKeysPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {trigger ?? (
-          <button
-            type="button"
-            aria-label={`Manage keys for ${appName}`}
-            onClick={(event) => {
-              // Keep parent card click handlers from also firing. Do not
-              // preventDefault here: Radix uses the same click to open the
-              // popover trigger.
-              event.stopPropagation();
-            }}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-transparent text-muted-foreground/70 hover:border-border hover:bg-accent/40 hover:text-foreground"
-          >
-            <IconSettings size={14} />
-          </button>
-        )}
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            {trigger ?? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Manage keys for ${appName}`}
+                onClick={(event) => {
+                  // Keep parent card click handlers from also firing. Do not
+                  // preventDefault here: Radix uses the same click to open the
+                  // popover trigger.
+                  event.stopPropagation();
+                }}
+                className="size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
+              >
+                <IconSettings size={14} />
+              </Button>
+            )}
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Manage keys</TooltipContent>
+      </Tooltip>
       <PopoverContent
         align={align}
         side={side}

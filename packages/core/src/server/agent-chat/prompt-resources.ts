@@ -1,4 +1,8 @@
-import { getFrontmatterValue, getSkillNameFromPath, parseFrontmatter } from "../../resources/metadata.js";
+import {
+  getFrontmatterValue,
+  getSkillNameFromPath,
+  parseFrontmatter,
+} from "../../resources/metadata.js";
 import {
   ensurePersonalDefaults,
   organizationIdFromResourceOwner,
