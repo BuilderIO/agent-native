@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.12
+
+### Patch Changes
+
+- f43d34c: Stage atomic writes inside the data directory so saves work when /tmp is a different filesystem.
+
 ## 0.1.11
 
 ### Patch Changes
