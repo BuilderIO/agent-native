@@ -15,6 +15,11 @@ export default defineConfig({
     tailwindcss(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
-    ...agentNativePlugins({ tailwind: false }),
+    ...agentNativePlugins({
+      tailwind: false,
+      // Warm route data and matched JS on hover/focus/touch, while links marked
+      // with data-an-prefetch="render" continue warming immediately.
+      routeWarmup: { strategy: "intent", data: true, modules: true },
+    }),
   ],
 });
