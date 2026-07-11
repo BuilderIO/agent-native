@@ -7,7 +7,7 @@ import {
 } from "../shared/cache-control.js";
 
 // The login page is the public homepage of every app and is CDN-cached on the
-// same short-fresh / long-SWR policy as the rest of the server shell. Its HTML
+// same long-fresh / long-SWR policy as the rest of the server shell. Its HTML
 // is intentionally env-INDEPENDENT — it always renders the configured sign-in
 // method (e.g. a Google-only app always renders a working Google button), and
 // per-user / per-config state is resolved client-side after load. So a cached

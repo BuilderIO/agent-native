@@ -1,5 +1,4 @@
-export const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=0, must-revalidate";
+export const DEFAULT_SSR_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
 export const DEFAULT_SSR_CDN_CACHE_CONTROL =
   "public, s-maxage=3600, stale-while-revalidate=604800, stale-if-error=3600";
