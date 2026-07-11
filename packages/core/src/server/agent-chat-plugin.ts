@@ -2821,6 +2821,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   engine.defaultModel ??
                   resolvedModel;
                 const model = normalizeModelForEngine(engine, modelCandidate);
+                // Intentionally NOT setting `initialToolNames` here (unlike
+                // schedulerDeps/dispatcher above). `AgentTeamRunConfig.actions`
+                // (buildSubAgentActions()) is already a small curated registry
+                // — it excludes jobTools/automationTools/notificationTools/
+                // progressTools/fetchTool/webSearchTool/toolActions, the exact
+                // bloat those two surfaces needed to defer. There is no larger
+                // catalog behind it for tool-search to expand into: it IS the
+                // sub-agent's entire tool set. Worse, `buildSubAgentSystemPrompt`
+                // (agent-teams.ts) literally lists every key of `actions` as
+                // "Your available actions (...) work directly" — filtering to
+                // anything narrower would contradict what the sub-agent was
+                // just told, and filtering to the full set would only add a
+                // tool-search schema with nothing new for it to find.
                 return {
                   baseSystemPrompt: basePrompt,
                   actions: buildSubAgentActions(),

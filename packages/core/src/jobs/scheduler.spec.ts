@@ -225,6 +225,68 @@ Summarize the inbox.`,
     ]);
   });
 
+  // The agent-chat plugin now wires `getInitialToolNames` for real (it used
+  // to be unset, making the filter above a no-op) to:
+  //   [...template action names, "manage-jobs", "manage-progress"]
+  // "manage-jobs" and "manage-progress" are taught BY NAME in the shared
+  // framework prompt this job runner reuses from interactive chat (see
+  // FRAMEWORK_CORE's "Recurring jobs" bullet and SHARED_RULE_14 in
+  // server/prompts/*.ts) — both must stay visible on the very first job
+  // request even though jobTools/progressTools are merged into getActions()
+  // alongside a much larger framework-addition surface
+  // (automationTools/notificationTools/fetchTool/webSearchTool/toolActions)
+  // that should stay deferred behind tool-search.
+  it("keeps manage-jobs and manage-progress visible on the first request alongside the app's own actions (real plugin wiring shape)", async () => {
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({
+        "template-job-action": noopTool("A job-relevant app action"),
+        "manage-jobs": noopTool("Create/list/update recurring jobs"),
+        "manage-progress": noopTool("Track multi-step progress"),
+        "manage-automations": noopTool("Framework addition — not taught"),
+        "manage-notifications": noopTool("Framework addition — not taught"),
+      }),
+      // Mirrors agent-chat-plugin.ts's schedulerDeps.getInitialToolNames:
+      // template action names plus the two tool names the shared prompt
+      // teaches by name for this surface.
+      getInitialToolNames: () => [
+        "template-job-action",
+        "manage-jobs",
+        "manage-progress",
+      ],
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames: string[] = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "manage-jobs",
+      "manage-progress",
+      "template-job-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("manage-automations");
+    expect(firstRequestToolNames).not.toContain("manage-notifications");
+  });
+
   it("keeps every action visible on the first job request when no initial tool list is supplied (unchanged default)", async () => {
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>

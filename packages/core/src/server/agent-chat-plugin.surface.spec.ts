@@ -5,6 +5,10 @@ import {
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
+  corpusToolNamesTaughtByPrompt,
+  generateCorpusToolsPrompt,
+} from "./agent-chat/framework-prompts.js";
+import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
   FIRST_SESSION_PERSONALIZATION,

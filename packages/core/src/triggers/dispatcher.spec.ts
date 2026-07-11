@@ -208,6 +208,97 @@ Respond to the event.`,
     ]);
   });
 
+  // The agent-chat plugin now wires `getInitialToolNames` for real (it used
+  // to be unset, making the filter above a no-op) to:
+  //   [...template action names, "manage-jobs", "manage-progress"]
+  // "manage-jobs" and "manage-progress" are taught BY NAME in the shared
+  // framework prompt this dispatcher reuses from interactive chat (see
+  // FRAMEWORK_CORE's "Recurring jobs" bullet and SHARED_RULE_14 in
+  // server/prompts/*.ts) — both must stay visible on the very first
+  // automation-trigger request even though jobTools/progressTools are merged
+  // into getActions() alongside a much larger framework-addition surface
+  // (automationTools/notificationTools/fetchTool/webSearchTool/toolActions)
+  // that should stay deferred behind tool-search.
+  it("keeps manage-jobs and manage-progress visible on the first request alongside the app's own actions (real plugin wiring shape)", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-initial-tool-wiring",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/initial-tool-wiring-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: initial-tool-wiring.event.fired
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the event.`,
+      },
+    ]);
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({
+        "template-trigger-action": noopTool("A trigger-relevant app action"),
+        "manage-jobs": noopTool("Create/list/update recurring jobs"),
+        "manage-progress": noopTool("Track multi-step progress"),
+        "manage-automations": noopTool("Framework addition — not taught"),
+        "manage-notifications": noopTool("Framework addition — not taught"),
+      }),
+      // Mirrors agent-chat-plugin.ts's dispatcher deps getInitialToolNames:
+      // template action names plus the two tool names the shared prompt
+      // teaches by name for this surface.
+      getInitialToolNames: () => [
+        "template-trigger-action",
+        "manage-jobs",
+        "manage-progress",
+      ],
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "initial-tool-wiring.event.fired",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-2",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames: string[] = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "manage-jobs",
+      "manage-progress",
+      "template-trigger-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("manage-automations");
+    expect(firstRequestToolNames).not.toContain("manage-notifications");
+  });
+
   it("creates trigger run history threads owned by the trigger user", async () => {
     await initTriggerDispatcher({
       getActions: () => ({}),
