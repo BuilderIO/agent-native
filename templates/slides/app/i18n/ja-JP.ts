@@ -541,6 +541,9 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    loadFailed: "コンテンツを読み込めませんでした",
+    loadFailedDescription: "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
+    retry: "再試行",
     decksTitle: "デッキ",
     newDeck: "新しいデッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",

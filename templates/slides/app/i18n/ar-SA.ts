@@ -561,6 +561,9 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    loadFailed: "تعذر تحميل المحتوى",
+    loadFailedDescription: "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
+    retry: "إعادة المحاولة",
     decksTitle: "العروض",
     newDeck: "عرض جديد",
     deckLengthQuestion: "ما طول هذا العرض؟",

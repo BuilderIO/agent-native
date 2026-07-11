@@ -46,3 +46,16 @@ export interface DesignFile {
   createdAt: string;
   updatedAt: string;
 }
+
+export type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+
+export interface DesignData {
+  id: string;
+  title: string;
+  description?: string;
+  projectType: string;
+  designSystemId?: string | null;
+  data?: string | null;
+  accessRole?: DesignAccessRole;
+  files: DesignFile[];
+}

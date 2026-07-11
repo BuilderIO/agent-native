@@ -127,11 +127,7 @@ function CommandLoadingGroup({
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
-  const rows = await callAction(
-    "list-explorer-configs",
-    {},
-    { method: "GET" },
-  );
+  const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : []) as SavedConfig[];
 }
 
@@ -237,11 +233,11 @@ export function CommandPalette() {
   });
 
   const sqlDashboardsQuery = useQuery({
-      queryKey: ["sql-dashboards-palette", dashboardsSync],
-      queryFn: () => fetchSqlDashboards(t),
-      staleTime: 30_000,
-      enabled: open,
-      placeholderData: (prev) => prev,
+    queryKey: ["sql-dashboards-palette", dashboardsSync],
+    queryFn: () => fetchSqlDashboards(t),
+    staleTime: 30_000,
+    enabled: open,
+    placeholderData: (prev) => prev,
   });
 
   const extensionsQuery = useQuery<ExtensionSearchItem[]>({

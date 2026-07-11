@@ -3652,6 +3652,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "无法访问剪贴板",
       disconnect: "断开连接",
       notConnected: "未连接",
+      loadFailed: "无法加载此数据。",
+      retry: "重试",
       saving: "正在保存...",
     },
     root: {
@@ -3708,6 +3710,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "El acceso al portapapeles no está disponible",
       disconnect: "Desconectar",
       notConnected: "No conectado",
+      loadFailed: "No se pudieron cargar estos datos.",
+      retry: "Reintentar",
       saving: "Guardando...",
     },
     root: {
@@ -3765,6 +3769,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "L’accès au presse-papiers n’est pas disponible",
       disconnect: "Déconnecter",
       notConnected: "Non connecté",
+      loadFailed: "Impossible de charger ces données.",
+      retry: "Réessayer",
       saving: "Enregistrement...",
     },
     root: {
@@ -3824,6 +3830,8 @@ export const messagesByLocale = {
         "Zugriff auf die Zwischenablage ist nicht verfügbar",
       disconnect: "Trennen",
       notConnected: "Nicht verbunden",
+      loadFailed: "Diese Daten konnten nicht geladen werden.",
+      retry: "Erneut versuchen",
       saving: "Speichern...",
     },
     root: {
@@ -3882,6 +3890,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "クリップボードへのアクセスは利用できません",
       disconnect: "切断",
       notConnected: "未接続",
+      loadFailed: "このデータを読み込めませんでした。",
+      retry: "再試行",
       saving: "保存中...",
     },
     root: {
@@ -3938,6 +3948,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
       disconnect: "연결 해제",
       notConnected: "연결되지 않음",
+      loadFailed: "이 데이터를 불러올 수 없습니다.",
+      retry: "다시 시도",
       saving: "저장 중...",
     },
     root: {
@@ -3995,6 +4007,8 @@ export const messagesByLocale = {
         "O acesso à área de transferência não está disponível",
       disconnect: "Desconectar",
       notConnected: "Não conectado",
+      loadFailed: "Não foi possível carregar estes dados.",
+      retry: "Tentar novamente",
       saving: "Salvando...",
     },
     root: {
@@ -4052,6 +4066,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "क्लिपबोर्ड एक्सेस उपलब्ध नहीं है",
       disconnect: "डिस्कनेक्ट करें",
       notConnected: "कनेक्टेड नहीं",
+      loadFailed: "यह डेटा लोड नहीं किया जा सका।",
+      retry: "फिर से प्रयास करें",
       saving: "सहेज रहे हैं...",
     },
     root: {
@@ -4107,6 +4123,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "الوصول إلى الحافظة غير متاح",
       disconnect: "قطع الاتصال",
       notConnected: "غير متصل",
+      loadFailed: "تعذر تحميل هذه البيانات.",
+      retry: "إعادة المحاولة",
       saving: "جارٍ الحفظ...",
     },
     root: {

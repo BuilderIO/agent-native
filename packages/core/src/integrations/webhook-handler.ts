@@ -21,12 +21,14 @@ import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   getOwnerApiKey,
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -113,6 +115,17 @@ export interface WebhookHandlerOptions {
   systemPrompt: string;
   /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
+  /**
+   * Tool names to expose on the FIRST engine request. When provided, every
+   * other name in `actions` (framework additions such as
+   * `list-integration-memory` / `call-agent` merged in by
+   * `createIntegrationsPlugin`) is deferred behind the attached `tool-search`
+   * entry instead of being serialized on every inbound message — the run
+   * loop's mid-run tool expansion (`expandActiveTools` in `runAgentLoop`)
+   * still lets the model discover and call them after a search. Omit to keep
+   * the full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Anthropic API key */
@@ -573,6 +586,7 @@ async function processIncomingMessage(
     adapter,
     systemPrompt,
     actions,
+    initialToolNames,
     model,
     apiKey,
     ownerEmail,
@@ -763,10 +777,20 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   let orgId: string | null | undefined;
+  let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
+  let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
     orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
-    tools = actionsToEngineTools(actions);
+    // Attach tool-search on a shallow copy so framework additions merged in
+    // by `createIntegrationsPlugin` (integration memory, `call-agent`) can be
+    // deferred behind it without mutating the plugin's long-lived registry.
+    // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
+    // after a tool-search call, so anything filtered out of the initial
+    // `tools` list stays reachable.
+    runnableActions = attachToolSearch({ ...actions });
+    availableTools = actionsToEngineTools(runnableActions);
+    tools = filterInitialEngineTools(availableTools, initialToolNames);
   } catch (error) {
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
@@ -855,8 +879,9 @@ async function processIncomingMessage(
               model: resolvedModel,
               systemPrompt: effectiveSystemPrompt,
               tools,
+              availableTools,
               messages,
-              actions,
+              actions: runnableActions,
               send: async (event) => {
                 if (progress) {
                   await Promise.resolve(progress.onEvent(event)).catch(

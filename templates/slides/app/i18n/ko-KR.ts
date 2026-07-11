@@ -536,6 +536,9 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    loadFailed: "콘텐츠를 불러올 수 없습니다",
+    loadFailedDescription: "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
+    retry: "다시 시도",
     decksTitle: "덱",
     newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",

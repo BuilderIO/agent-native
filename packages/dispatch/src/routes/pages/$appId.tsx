@@ -15,6 +15,7 @@ import {
 } from "react-router";
 
 import { DispatchShell } from "../../components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Spinner } from "../../components/ui/spinner";
@@ -96,9 +97,10 @@ export async function clientLoader({
 export default function WorkspaceAppCatchAllRoute() {
   const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery("list-workspace-apps", {
+  const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
   });
+  const { data: apps = [], isLoading } = appsQuery;
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
@@ -115,6 +117,20 @@ export default function WorkspaceAppCatchAllRoute() {
 
   if (isSelfReference) {
     return <Navigate to={appPath("/overview")} replace />;
+  }
+
+  if (appsQuery.isError) {
+    return (
+      <DispatchShell
+        title={t("dispatch.pages.dataLoadFailed")}
+        description={t("dispatch.pages.pageNotFoundDescription")}
+      >
+        <ActionQueryError
+          error={appsQuery.error}
+          onRetry={() => void appsQuery.refetch()}
+        />
+      </DispatchShell>
+    );
   }
 
   if ((isLoading && !app) || (app && app.status !== "pending" && href)) {

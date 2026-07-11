@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,7 +107,13 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
-  const { data: designsData, isLoading } = useActionQuery<{
+  const {
+    data: designsData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery<{
     count: number;
     designs: Design[];
   }>("list-designs", { includePreview: "true" });
@@ -583,6 +590,11 @@ export default function Index() {
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
+        ) : isError ? (
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}

@@ -15,3 +15,4 @@ export type {
 } from "./layout/Layout.js";
 export { CreateAppPopover, CreateAppFlow } from "./create-app-popover.js";
 export { AppKeysPopover } from "./app-keys-popover.js";
+export { ActionQueryError } from "./action-query-error.js";

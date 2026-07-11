@@ -3,7 +3,10 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { DispatchShell } from "@agent-native/dispatch/components";
+import {
+  ActionQueryError,
+  DispatchShell,
+} from "@agent-native/dispatch/components";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2364,6 +2367,17 @@ export default function WorkspaceIntegrationsRoute() {
       description={t("integrations.description")}
     >
       <div className="space-y-6">
+        {connectionsQuery.isError || appsQuery.isError ? (
+          <ActionQueryError
+            error={connectionsQuery.error ?? appsQuery.error}
+            onRetry={() => {
+              void connectionsQuery.refetch();
+              void appsQuery.refetch();
+            }}
+          />
+        ) : null}
+        {!connectionsQuery.isError && !appsQuery.isError ? (
+          <>
         <section
           data-usage-tracked={usageTracked ? "true" : undefined}
           className={cx(
@@ -2514,6 +2528,8 @@ export default function WorkspaceIntegrationsRoute() {
             </div>
           )}
         </section>
+          </>
+        ) : null}
       </div>
 
       <SetupWizard

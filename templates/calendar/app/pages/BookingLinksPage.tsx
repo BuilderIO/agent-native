@@ -1055,6 +1055,21 @@ export default function BookingLinksPage({
 
   // If a link is selected, show the detail/edit view
   if (selectedId) {
+    if (bookingLinksError && !isLoading) {
+      return (
+        <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-sm text-destructive">{t("common.loadFailed")}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void refetchBookingLinks()}
+            disabled={bookingLinksFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:p-6">
         {/* Two-column layout: form left, preview right */}

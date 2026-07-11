@@ -4897,6 +4897,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             <PlansOverview
               plans={plans}
               isLoading={sessionLoading || plansQuery.isLoading}
+              isError={plansQuery.isError}
+              onRetry={() => void plansQuery.refetch()}
               viewerEmail={session?.email ?? null}
               onCreate={requestCreatePlan}
               canCreate={Boolean(session)}
@@ -7495,6 +7497,8 @@ type OverviewFilter = "all" | "plans" | "recaps" | "archived" | "deleted";
 function PlansOverview({
   plans,
   isLoading,
+  isError,
+  onRetry,
   viewerEmail,
   onCreate,
   canCreate,
@@ -7505,6 +7509,8 @@ function PlansOverview({
 }: {
   plans: PlanSummary[];
   isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
   viewerEmail?: string | null;
   onCreate: () => void;
   canCreate: boolean;
@@ -7520,6 +7526,27 @@ function PlansOverview({
 
   if (isLoading) {
     return <PlansOverviewSkeleton />;
+  }
+  if (isError) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/20 p-6">
+        <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+          <IconAlertTriangle className="size-7 text-destructive/70" />
+          <div>
+            <h1 className="font-medium">
+              {t("plansPage.loadError.didNotLoadTitle")}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("plansPage.loadError.genericMessage")}
+            </p>
+          </div>
+          <Button type="button" variant="outline" onClick={onRetry}>
+            <IconRefresh className="size-4" />
+            {t("plansPage.loadError.retry")}
+          </Button>
+        </div>
+      </div>
+    );
   }
   if (plans.length === 0) {
     return <EmptyPlan onCreate={onCreate} canCreate={canCreate} />;

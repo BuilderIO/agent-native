@@ -72,6 +72,7 @@ import {
 
 import type { DesignSystemTemplateId } from "../../shared/design-system-templates";
 import { ProductionDesignSystemShowcase } from "../components/design-system/ProductionDesignSystemShowcase";
+import { QueryErrorState } from "../components/QueryErrorState";
 
 interface DesignSystem {
   id: string;
@@ -125,7 +126,7 @@ export default function DesignSystems() {
   const [pendingTemplateId, setPendingTemplateId] =
     useState<DesignSystemTemplateId | null>(null);
 
-  const { data, isLoading } = useActionQuery<{
+  const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
   }>("list-design-systems");
 
@@ -428,6 +429,11 @@ export default function DesignSystems() {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
           {isLoading ? (
             <LoadingSkeleton />
+          ) : isError ? (
+            <QueryErrorState
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
           ) : designSystems.length === 0 ? (
             <>
               <EmptyState />

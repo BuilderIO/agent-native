@@ -526,6 +526,9 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    loadFailed: "無法載入內容",
+    loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
+    retry: "重試",
     decksTitle: "幻燈片",
     newDeck: "新建幻燈片",
     deckLengthQuestion: "這份幻燈片需要多長？",

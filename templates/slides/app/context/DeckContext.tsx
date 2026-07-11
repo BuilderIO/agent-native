@@ -134,6 +134,7 @@ export interface Deck {
 interface DeckContextType {
   decks: Deck[];
   loading: boolean;
+  loadError: boolean;
   createDeck: (
     title?: string,
     options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
@@ -949,6 +950,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 export function DeckProvider({ children }: { children: ReactNode }) {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const decksRef = useRef<Deck[]>([]);
 
   // Per-user inverse-op undo/redo. `canUndo`/`canRedo` are React state kept in
@@ -1111,6 +1113,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
+    setLoadError(false);
     const pending = pendingCreateIdsRef.current;
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
@@ -1223,6 +1226,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reloadDecks = useCallback(async () => {
+    setLoading(true);
     const requestId = ++deckBaselineRequestIdRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     const loaded = await fetchDecksForCurrentRoute();
@@ -1231,10 +1235,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
       loaded === null
     ) {
+      if (requestId === deckBaselineRequestIdRef.current) {
+        setLoadError(loaded === null);
+        setLoading(false);
+      }
       return;
     }
     lastExternalUpdateRef.current = Date.now();
     resetDeckBaseline(loaded);
+    setLoadError(false);
+    setLoading(false);
   }, [resetDeckBaseline]);
 
   // Load decks from API on mount
@@ -1255,6 +1265,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
       resetDeckBaseline(initial);
+      setLoadError(loaded === null);
       setLoading(false);
     });
   }, [resetDeckBaseline]);
@@ -2012,6 +2023,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       value={{
         decks,
         loading,
+        loadError,
         createDeck,
         ensureDeckPersisted,
         duplicateDeck,

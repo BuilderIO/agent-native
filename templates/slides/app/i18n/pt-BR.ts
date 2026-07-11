@@ -556,6 +556,9 @@ const messages = {
     chooseAnotherFile: "Escolher outro arquivo",
   },
   home: {
+    loadFailed: "Não foi possível carregar seu conteúdo",
+    loadFailedDescription: "Seu conteúdo salvo continua disponível. Verifique a conexão e tente novamente.",
+    retry: "Tentar novamente",
     decksTitle: "Decks",
     newDeck: "Novo deck",
     deckLengthQuestion: "Qual deve ser o tamanho deste deck?",

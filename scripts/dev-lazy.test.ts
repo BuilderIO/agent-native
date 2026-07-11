@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   canonicalLoopbackRedirect,
   isBrowserAssetDestination,
+  selectProxyResponseTimeout,
 } from "./dev-lazy";
 
 describe("dev-lazy canonical loopback origin", () => {
@@ -106,5 +107,24 @@ describe("dev-lazy browser asset classification", () => {
 
   it("accepts Node's array-shaped header values", () => {
     assert.equal(isBrowserAssetDestination(["SCRIPT"]), true);
+  });
+
+  it("keeps long deadlines only for non-browser API traffic", () => {
+    const timeouts = { html: 5_000, browserAsset: 15_000, other: 120_000 };
+    assert.equal(
+      selectProxyResponseTimeout({ html: true, browserAsset: false }, timeouts),
+      5_000,
+    );
+    assert.equal(
+      selectProxyResponseTimeout({ html: false, browserAsset: true }, timeouts),
+      15_000,
+    );
+    assert.equal(
+      selectProxyResponseTimeout(
+        { html: false, browserAsset: false },
+        timeouts,
+      ),
+      120_000,
+    );
   });
 });

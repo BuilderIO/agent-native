@@ -570,6 +570,15 @@ function isBrowserAssetRequest(req: http.IncomingMessage): boolean {
   return isBrowserAssetDestination(req.headers["sec-fetch-dest"]);
 }
 
+export function selectProxyResponseTimeout(
+  request: { html: boolean; browserAsset: boolean },
+  timeouts: { html: number; browserAsset: number; other: number },
+): number {
+  if (request.html) return timeouts.html;
+  if (request.browserAsset) return timeouts.browserAsset;
+  return timeouts.other;
+}
+
 function renderStartingApp(app: TemplateApp): string {
   const escapedName = escapeHtml(app.name);
   const failure = app.lastFailure;
@@ -1153,11 +1162,14 @@ function proxyHttp(
     let bodyTimer: NodeJS.Timeout | undefined;
     let upstreamResponse: http.IncomingMessage | undefined;
     const browserAsset = isBrowserAssetRequest(req);
-    const responseTimeoutMs = wantsHtml(req)
-      ? proxyResponseTimeoutMs
-      : browserAsset
-        ? proxyBrowserAssetResponseTimeoutMs
-        : proxyNonHtmlResponseTimeoutMs;
+    const responseTimeoutMs = selectProxyResponseTimeout(
+      { html: wantsHtml(req), browserAsset },
+      {
+        html: proxyResponseTimeoutMs,
+        browserAsset: proxyBrowserAssetResponseTimeoutMs,
+        other: proxyNonHtmlResponseTimeoutMs,
+      },
+    );
     const clearBodyTimer = () => {
       if (bodyTimer) clearTimeout(bodyTimer);
       bodyTimer = undefined;

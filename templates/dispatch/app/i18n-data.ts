@@ -650,6 +650,9 @@ export const messagesByLocale = {
         operations: "运营",
       },
       pages: {
+        dataLoadFailed: "无法加载数据",
+        dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
+        tryAgain: "重试",
         also: "还有",
         monitoring: "监控",
         database: "数据库",
@@ -959,6 +962,9 @@ export const messagesByLocale = {
         operations: "Operaciones",
       },
       pages: {
+        dataLoadFailed: "No se pudieron cargar los datos",
+        dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
+        tryAgain: "Intentar de nuevo",
         also: "También",
         monitoring: "Monitorización",
         database: "Base de datos",
@@ -1269,6 +1275,9 @@ export const messagesByLocale = {
         operations: "Opérations",
       },
       pages: {
+        dataLoadFailed: "Impossible de charger les données",
+        dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
+        tryAgain: "Réessayer",
         also: "Aussi",
         monitoring: "Surveillance",
         database: "Base de données",
@@ -1568,6 +1577,9 @@ export const messagesByLocale = {
         operations: "Betrieb",
       },
       pages: {
+        dataLoadFailed: "Daten konnten nicht geladen werden",
+        dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
+        tryAgain: "Erneut versuchen",
         also: "Außerdem",
         monitoring: "Überwachung",
         database: "Datenbank",
@@ -1864,6 +1876,9 @@ export const messagesByLocale = {
         operations: "運用",
       },
       pages: {
+        dataLoadFailed: "データを読み込めませんでした",
+        dataLoadFailedDescription: "Dispatch はこのデータを読み込めませんでした。",
+        tryAgain: "もう一度試す",
         also: "その他",
         monitoring: "監視",
         database: "データベース",
@@ -2157,6 +2172,9 @@ export const messagesByLocale = {
         operations: "운영",
       },
       pages: {
+        dataLoadFailed: "데이터를 불러올 수 없습니다",
+        dataLoadFailedDescription: "Dispatch에서 이 데이터를 불러오지 못했습니다.",
+        tryAgain: "다시 시도",
         also: "또한",
         monitoring: "모니터링",
         database: "데이터베이스",
@@ -2462,6 +2480,9 @@ export const messagesByLocale = {
         operations: "Operações",
       },
       pages: {
+        dataLoadFailed: "Não foi possível carregar os dados",
+        dataLoadFailedDescription: "O Dispatch não conseguiu carregar estes dados.",
+        tryAgain: "Tentar novamente",
         also: "Também",
         monitoring: "Monitoramento",
         database: "Banco de dados",
@@ -2750,6 +2771,9 @@ export const messagesByLocale = {
         operations: "संचालन",
       },
       pages: {
+        dataLoadFailed: "डेटा लोड नहीं हो सका",
+        dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
+        tryAgain: "फिर से कोशिश करें",
         also: "और भी",
         monitoring: "निगरानी",
         database: "डेटाबेस",
@@ -3076,6 +3100,9 @@ export const messagesByLocale = {
         operations: "التشغيل",
       },
       pages: {
+        dataLoadFailed: "تعذر تحميل البيانات",
+        dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
+        tryAgain: "حاول مرة أخرى",
         also: "أيضًا",
         monitoring: "المراقبة",
         database: "قاعدة البيانات",

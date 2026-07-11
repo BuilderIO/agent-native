@@ -18,6 +18,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { DispatchShell } from "../../components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1014,11 +1015,13 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
 }
 
 export default function WorkspaceRoute() {
-  const { data: resources, isLoading } = useActionQuery(
+  const resourcesQuery = useActionQuery(
     "list-workspace-resources",
     {},
   );
-  const { data: grants } = useActionQuery("list-workspace-resource-grants", {});
+  const grantsQuery = useActionQuery("list-workspace-resource-grants", {});
+  const { data: resources, isLoading } = resourcesQuery;
+  const { data: grants } = grantsQuery;
 
   const grantsByResource = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -1088,6 +1091,15 @@ export default function WorkspaceRoute() {
       title="Workspace Resources"
       description="Manage inherited workspace skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
     >
+      {resourcesQuery.isError || grantsQuery.isError ? (
+        <ActionQueryError
+          error={resourcesQuery.error ?? grantsQuery.error}
+          onRetry={() => {
+            void resourcesQuery.refetch();
+            void grantsQuery.refetch();
+          }}
+        />
+      ) : null}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           {isLoading ? (
@@ -1101,9 +1113,12 @@ export default function WorkspaceRoute() {
         </div>
       </div>
 
-      <GlobalContextSection resources={resources || []} />
+      {!resourcesQuery.isError ? (
+        <GlobalContextSection resources={resources || []} />
+      ) : null}
 
-      <Tabs defaultValue="skills">
+      {!resourcesQuery.isError && !grantsQuery.isError ? (
+        <Tabs defaultValue="skills">
         <TabsList>
           <TabsTrigger value="skills">
             Skills {skills.length > 0 && `(${skills.length})`}
@@ -1156,7 +1171,8 @@ export default function WorkspaceRoute() {
             emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
           />
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      ) : null}
     </DispatchShell>
   );
 }

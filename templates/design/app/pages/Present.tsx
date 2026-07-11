@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { QueryErrorState } from "@/components/QueryErrorState";
 
 interface DesignFile {
   id: string;
@@ -23,9 +24,13 @@ export default function Present() {
   const navigate = useNavigate();
   const [currentPage, setCurrentPage] = useState(0);
 
-  const { data: design, isLoading } = useActionQuery<DesignData>("get-design", {
-    id: id!,
-  });
+  const {
+    data: design,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery<DesignData>("get-design", { id: id! });
 
   const files: DesignFile[] = design?.files ?? [];
 
@@ -63,6 +68,17 @@ export default function Present() {
     return (
       <div className="h-screen w-screen bg-black flex items-center justify-center p-10">
         <Skeleton className="h-full w-full max-w-5xl rounded-xl bg-white/5" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-black p-10">
+        <QueryErrorState
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
       </div>
     );
   }

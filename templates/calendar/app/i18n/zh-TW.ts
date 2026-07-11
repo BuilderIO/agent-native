@@ -6,6 +6,8 @@ const messages = {
     clipboardUnavailable: "無法存取剪貼簿",
     disconnect: "斷開連線",
     notConnected: "未連線",
+    loadFailed: "無法載入此資料。",
+    retry: "重試",
     saving: "正在儲存...",
   },
   root: {
