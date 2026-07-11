@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   useLegacyAuth: vi.fn(() => {
     throw new Error("Settings must not depend on the template AuthProvider");
   }),
+  useReplayStorageStatus: vi.fn(() => ({
+    data: { configured: false },
+    isLoading: false,
+  })),
 }));
 
 vi.mock("@agent-native/core/client", () => ({
@@ -39,6 +43,12 @@ vi.mock("@/components/auth/AuthProvider", () => ({
 }));
 vi.mock("./settings/AlertRulesSettingsCard", () => ({
   AlertRulesSettingsCard: () => null,
+}));
+vi.mock("../hooks/use-replay-storage-status", () => ({
+  useReplayStorageStatus: mocks.useReplayStorageStatus,
+}));
+vi.mock("./sessions/SessionsPage", () => ({
+  ReplayStorageHint: () => null,
 }));
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,

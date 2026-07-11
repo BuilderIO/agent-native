@@ -24,6 +24,8 @@ import {
 import { Label } from "@/components/ui/label";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
+import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
 
 export default function Settings() {
@@ -34,6 +36,7 @@ export default function Settings() {
   const { session: auth } = useSession();
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  const replayStorageStatus = useReplayStorageStatus();
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -73,6 +76,16 @@ export default function Settings() {
         keywords: "templates catalog dashboards",
         hash: "dashboard-templates",
       },
+      ...(replayStorageStatus.data?.configured
+        ? [
+            {
+              id: "analytics-replay-storage",
+              label: t("sessions.storageSetupTitle"),
+              keywords: "session replay recording storage s3 bucket builder",
+              hash: "replay-storage",
+            },
+          ]
+        : []),
       {
         id: "analytics-language",
         label: t("settings.languageTitle"),
@@ -86,7 +99,7 @@ export default function Settings() {
         hash: "about",
       },
     ],
-    [t],
+    [replayStorageStatus.data?.configured, t],
   );
 
   return (
@@ -156,6 +169,25 @@ export default function Settings() {
               </Button>
             </CardContent>
           </Card>
+
+          {replayStorageStatus.data?.configured ? (
+            <Card
+              id="replay-storage"
+              className="bg-card border-border/50 scroll-mt-16"
+            >
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("sessions.storageSetupTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("sessions.storageSetupDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ReplayStorageHint />
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card id="language" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>

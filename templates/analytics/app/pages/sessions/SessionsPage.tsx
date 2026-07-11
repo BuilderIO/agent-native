@@ -464,7 +464,7 @@ function EmptySessionsState() {
   );
 }
 
-function ReplayStorageHint() {
+export function ReplayStorageHint() {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
