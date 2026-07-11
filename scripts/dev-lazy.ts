@@ -1150,9 +1150,36 @@ function proxyHttp(
     const headers = proxyHeaders(req, `127.0.0.1:${app.port}`);
     let settled = false;
     let responseTimer: NodeJS.Timeout;
+    let bodyTimer: NodeJS.Timeout | undefined;
+    let upstreamResponse: http.IncomingMessage | undefined;
+    const browserAsset = isBrowserAssetRequest(req);
     const responseTimeoutMs = wantsHtml(req)
       ? proxyResponseTimeoutMs
-      : proxyNonHtmlResponseTimeoutMs;
+      : browserAsset
+        ? proxyBrowserAssetResponseTimeoutMs
+        : proxyNonHtmlResponseTimeoutMs;
+    const clearBodyTimer = () => {
+      if (bodyTimer) clearTimeout(bodyTimer);
+      bodyTimer = undefined;
+    };
+    const abortUpstream = () => {
+      clearTimeout(responseTimer);
+      clearBodyTimer();
+      upstreamResponse?.destroy();
+      proxyReq.destroy();
+    };
+    const armBodyTimer = () => {
+      if (!wantsHtml(req) && !browserAsset) return;
+      clearBodyTimer();
+      bodyTimer = setTimeout(() => {
+        process.stderr.write(
+          `${colorPrefix(app.id)} response body stalled for ${formatProxyReadyTimeout(responseTimeoutMs)}: ${req.method ?? "GET"} ${req.url ?? "/"}\n`,
+        );
+        upstreamResponse?.destroy();
+        if (!res.destroyed) res.destroy();
+      }, responseTimeoutMs);
+      bodyTimer.unref();
+    };
     const proxyReq = http.request(
       {
         hostname: "127.0.0.1",
@@ -1162,6 +1189,7 @@ function proxyHttp(
         headers,
       },
       (proxyRes) => {
+        upstreamResponse = proxyRes;
         if (settled) {
           proxyRes.resume();
           return;
@@ -1178,8 +1206,13 @@ function proxyHttp(
           );
           if (rewritten) responseHeaders.location = rewritten;
         }
+        armBodyTimer();
+        proxyRes.on("data", armBodyTimer);
+        proxyRes.once("end", clearBodyTimer);
+        proxyRes.once("close", clearBodyTimer);
         res.writeHead(statusCode, responseHeaders);
         proxyRes.once("error", () => {
+          clearBodyTimer();
           if (!res.destroyed) res.destroy();
         });
         proxyRes.pipe(res);
@@ -1188,9 +1221,9 @@ function proxyHttp(
     proxyReq.once("socket", (socket) => {
       attachGatewaySocketErrorSink(socket);
     });
-    res.once("error", () => {
-      proxyReq.destroy();
-    });
+    req.once("aborted", abortUpstream);
+    res.once("close", abortUpstream);
+    res.once("error", abortUpstream);
     responseTimer = setTimeout(() => {
       if (settled) return;
       settled = true;

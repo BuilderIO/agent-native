@@ -456,6 +456,10 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Advertised-only schema override — not used in this overload (no runtime
+   *  schema to advertise a compact alternative for). See the schema overload
+   *  above. */
+  agentInputSchema?: never;
   /** Optional Standard Schema-compatible schema the action's RETURN value is
    *  validated against AFTER `run()` resolves. See the schema overload above.
    *  When omitted, behavior is byte-for-byte unchanged. */
