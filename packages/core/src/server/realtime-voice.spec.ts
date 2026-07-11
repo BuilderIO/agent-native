@@ -59,6 +59,8 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_MAX_SDP_BYTES,
+  REALTIME_VOICE_MAX_SESSION_BYTES,
+  REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES,
   REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
   REALTIME_VOICE_MAX_TOOLS,
   REALTIME_VOICE_SESSION_PATH,
@@ -275,6 +277,83 @@ describe("realtime voice session route", () => {
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
     expect(request.session.tools[0].name).toBe("tool_0");
     expect(request.session.tools.at(-1).name).toBe("tool_31");
+  });
+
+  it("packs tools within the Builder realtime session byte budget", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: `large_tool_${index}`,
+        description: `Large tool ${index}`,
+        inputSchema: {
+          type: "object",
+          description: "x".repeat(25_000),
+        },
+      })),
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const requestBody = String(init.body);
+    const request = JSON.parse(requestBody);
+    expect(request.session.tools).toHaveLength(2);
+    expect(
+      Buffer.byteLength(JSON.stringify(request.session), "utf8"),
+    ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
+  });
+
+  it("rejects tool schemas over the UTF-8 byte limit", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue([
+      {
+        name: "oversized_multibyte_tool",
+        description: "Too large in UTF-8",
+        inputSchema: {
+          type: "object",
+          description: "🧪".repeat(
+            Math.ceil(REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES / 4),
+          ),
+        },
+      },
+      {
+        name: "small_tool",
+        description: "Fits",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(
+      request.session.tools.map((tool: { name: string }) => tool.name),
+    ).toEqual(["small_tool"]);
   });
 
   it("caps raw SDP before reading it", async () => {
