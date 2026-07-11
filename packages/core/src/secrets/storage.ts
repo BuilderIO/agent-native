@@ -201,6 +201,40 @@ export interface ReadSecretResult {
   updatedAt: number;
 }
 
+type AppSecretsReadQuery = { sql: string; args: unknown[] };
+
+/**
+ * True only when the database says the app_secrets table itself is missing.
+ * Other query failures must propagate unchanged: attempting schema bootstrap
+ * for connectivity, permission, or syntax errors both hides the real failure
+ * and can introduce DDL onto a latency-sensitive read path.
+ */
+function isMissingAppSecretsTableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = String((error as Error & { code?: unknown }).code ?? "");
+  const message = error.message.toLowerCase();
+  const namesAppSecrets = /(?:app_secrets|"app_secrets")/.test(message);
+
+  if (code === "42P01") return namesAppSecrets;
+  return (
+    namesAppSecrets &&
+    (message.includes("no such table") ||
+      (message.includes("relation") && message.includes("does not exist")))
+  );
+}
+
+/** Execute a read without schema probes on the normal path. */
+async function executeAppSecretsRead(query: AppSecretsReadQuery) {
+  const client = getDbExec();
+  try {
+    return await client.execute(query);
+  } catch (error) {
+    if (!isMissingAppSecretsTableError(error)) throw error;
+    await ensureTable();
+    return client.execute(query);
+  }
+}
+
 /**
  * Read a secret's plaintext value. Returns null when not found. The caller
  * is responsible for never logging the returned value.
@@ -208,10 +242,8 @@ export interface ReadSecretResult {
 export async function readAppSecret(
   ref: SecretRef,
 ): Promise<ReadSecretResult | null> {
-  await ensureTable();
   const { key, scope, scopeId } = ref;
-  const client = getDbExec();
-  const { rows } = await client.execute({
+  const { rows } = await executeAppSecretsRead({
     sql: `SELECT encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
@@ -239,10 +271,8 @@ export async function readAppSecrets(args: {
   const keys = [...new Set(args.keys.filter(Boolean))];
   if (keys.length === 0) return new Map();
 
-  await ensureTable();
-  const client = getDbExec();
   const placeholders = keys.map(() => "?").join(", ");
-  const { rows } = await client.execute({
+  const { rows } = await executeAppSecretsRead({
     sql: `SELECT key, encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
