@@ -80,7 +80,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }).catch(() => {});
   }, [location.pathname, isAnalytics, isSettings]);
 
-  // Poll for navigate commands from the agent
+  // useDbSync invalidates this key when the agent writes a navigate command.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
@@ -94,7 +94,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         return null;
       }
     },
-    refetchInterval: 2000,
   });
 
   useEffect(() => {

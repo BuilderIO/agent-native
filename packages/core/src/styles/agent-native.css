@@ -733,7 +733,7 @@
 }
 
 .agent-composer-root--hero {
-  min-height: 7.5rem;
+  min-height: 5.625rem;
   border-radius: 1rem;
   border-color: hsl(var(--border) / 0.75);
   background: hsl(var(--muted) / 0.62);
@@ -751,7 +751,7 @@
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
-  min-height: 4rem;
+  min-height: 3rem;
   font-size: 1rem;
   line-height: 1.75rem;
 }

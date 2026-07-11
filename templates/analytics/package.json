@@ -21,7 +21,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
-    "@rrweb/replay": "2.0.1",
+    "@rrweb/replay": "2.1.0",
     "@sparticuz/chromium-min": "^149.0.0",
     "@tabler/icons-react": "catalog:",
     "drizzle-orm": "^0.45.2",

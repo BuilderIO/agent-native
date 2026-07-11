@@ -367,6 +367,41 @@ describe("browser analytics pageviews", () => {
     expect(result).toBeNull();
   });
 
+  it("drops rrweb autoplay-policy rejections only on session replay pages", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const replayEvent = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value:
+              "NotAllowedError: play() failed because the user didn't interact with the document first. https://goo.gl/xX8pDD",
+            stacktrace: { frames: [] },
+          },
+        ],
+      },
+      tags: {
+        url: "https://analytics.agent-native.com/sessions/sr_example",
+      },
+    };
+
+    expect(options.beforeSend(replayEvent)).toBeNull();
+
+    const appEvent = {
+      ...replayEvent,
+      tags: { url: "https://analytics.agent-native.com/dashboards/example" },
+    };
+    expect(options.beforeSend(appEvent)).toBe(appEvent);
+  });
+
   it("drops bare browser auth noise from Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

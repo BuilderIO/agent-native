@@ -9,7 +9,7 @@ import {
   middleTruncate,
   networkDisplayUrl,
 } from "./session-replay-devtools";
-import { sanitizeReplayEvents } from "./SessionDetailPage";
+import { normalizeReplayEvents } from "./SessionDetailPage";
 
 const REPLAY_START = 1_000_000;
 
@@ -100,8 +100,8 @@ describe("extractReplayDiagnostics", () => {
     expect(diagnostics.network).toHaveLength(0);
   });
 
-  it("still sees diagnostics events after replay sanitization", () => {
-    const sanitized = sanitizeReplayEvents([
+  it("still sees diagnostics events after replay normalization", () => {
+    const normalized = normalizeReplayEvents([
       ...baseEvents,
       consoleEvent(500, {
         level: "warn",
@@ -118,7 +118,7 @@ describe("extractReplayDiagnostics", () => {
       }),
     ]);
 
-    const diagnostics = extractReplayDiagnostics(sanitized);
+    const diagnostics = extractReplayDiagnostics(normalized);
     expect(diagnostics.console).toHaveLength(1);
     expect(diagnostics.console[0].message).toBe("careful");
     expect(diagnostics.network).toHaveLength(1);
@@ -288,17 +288,39 @@ describe("display helpers", () => {
 });
 
 describe("devtools inline expansion layout", () => {
+  it("builds exact and fallback Monitoring links for replay errors", async () => {
+    const { issueDetailPath, issueSearchPath } =
+      await import("./SessionDevToolsPanel");
+
+    expect(issueDetailPath("erriss/123")).toBe(
+      "/monitoring?view=errors&issue=erriss%2F123",
+    );
+    const search = new URL(
+      issueSearchPath("TypeError: x is not a function"),
+      "https://analytics.example.test",
+    );
+    expect(search.pathname).toBe("/monitoring");
+    expect(Object.fromEntries(search.searchParams)).toEqual({
+      view: "errors",
+      status: "all",
+      q: "TypeError: x is not a function",
+    });
+  });
+
   it("reserves taller space for the expanded row without flattening the list", async () => {
     const { buildDevToolsRowOffsets } = await import("./SessionDevToolsPanel");
     const collapsed = buildDevToolsRowOffsets(5, -1);
     expect(collapsed).toEqual([0, 34, 68, 102, 136, 170]);
 
-    const expanded = buildDevToolsRowOffsets(5, 2);
+    const expanded = buildDevToolsRowOffsets(5, 2, 104);
     expect(expanded[2]).toBe(68);
-    expect(expanded[3]).toBe(68 + 220);
-    expect(expanded[5]).toBe(68 + 220 + 34 + 34);
+    expect(expanded[3]).toBe(68 + 104);
+    expect(expanded[5]).toBe(68 + 104 + 34 + 34);
     // Expanding one row must not collapse virtualization math for neighbors.
     expect(expanded[1] - expanded[0]).toBe(34);
     expect(expanded[5] - expanded[4]).toBe(34);
+
+    const tall = buildDevToolsRowOffsets(5, 2, 260);
+    expect(tall[3]).toBe(68 + 260);
   });
 });

@@ -154,9 +154,14 @@ function stripBrackets(title: string): string {
 
 /**
  * Parse a pending `changelog/<file>.md` entry: optional `---` frontmatter
- * (`type:` / `date:`) followed by the markdown description body.
+ * (`type:` / `date:`) followed by the markdown description body. Callers that
+ * know the entry filename can provide its date as a fallback for hand-written
+ * entries that omit `date:`.
  */
-export function parsePendingEntry(content: string): PendingChangelogEntry {
+export function parsePendingEntry(
+  content: string,
+  fallbackDate?: string,
+): PendingChangelogEntry {
   let type: string | undefined;
   let date: string | undefined;
   let body = content;
@@ -176,7 +181,7 @@ export function parsePendingEntry(content: string): PendingChangelogEntry {
 
   return {
     type: normalizeType(type),
-    date,
+    date: date?.match(ISO_DATE)?.[1] ?? fallbackDate?.match(ISO_DATE)?.[1],
     text: body.trim(),
   };
 }

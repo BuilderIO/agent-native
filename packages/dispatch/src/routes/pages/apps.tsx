@@ -1,29 +1,11 @@
-import {
-  useActionMutation,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { useActionQuery, useT } from "@agent-native/core/client";
 import {
   IconApps,
-  IconBrain,
-  IconBrush,
-  IconCalendarMonth,
-  IconChartBar,
   IconChevronDown,
-  IconClipboardList,
   IconEyeOff,
-  IconFileText,
-  IconLoader2,
-  IconMail,
-  IconPhoto,
   IconPlus,
-  IconPresentation,
-  IconScreenShare,
-  IconSparkles,
-  IconStack3,
 } from "@tabler/icons-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { CreateAppPopover } from "../../components/create-app-popover";
@@ -49,33 +31,9 @@ interface WorkspaceInfo {
   appCount: number;
 }
 
-interface AvailableTemplate {
-  name: string;
-  label: string;
-  hint: string;
-  icon: string;
-  color: string;
-  colorRgb: string;
-  core: boolean;
-}
-
-const TEMPLATE_ICONS: Record<string, typeof IconMail> = {
-  Mail: IconMail,
-  CalendarMonth: IconCalendarMonth,
-  FileText: IconFileText,
-  Presentation: IconPresentation,
-  ScreenShare: IconScreenShare,
-  Brain: IconBrain,
-  Photo: IconPhoto,
-  ChartBar: IconChartBar,
-  ClipboardList: IconClipboardList,
-  Brush: IconBrush,
-};
-
 export default function AppsRoute() {
   const t = useT();
   const [showHidden, setShowHidden] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
   const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
     includeArchived: true,
@@ -86,13 +44,6 @@ export default function AppsRoute() {
     {},
     { staleTime: 60_000 },
   );
-  const templatesQuery = useActionQuery(
-    "list-available-workspace-templates",
-    {},
-    { refetchInterval: 5_000 },
-  );
-  const { data: templates = [], isLoading: templatesLoading } = templatesQuery;
-
   const ws = workspace as WorkspaceInfo | undefined;
   const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const allApps = (apps as WorkspaceAppSummary[]).filter(
@@ -100,7 +51,6 @@ export default function AppsRoute() {
   );
   const visibleApps = allApps.filter((app) => !app.archived);
   const archivedApps = allApps.filter((app) => app.archived);
-  const typedTemplates = templates as AvailableTemplate[];
   const showAppSkeletons = appsLoading && allApps.length === 0;
 
   return (
@@ -172,71 +122,6 @@ export default function AppsRoute() {
             <EmptyAppsState />
           )}
         </section>
-
-        {templatesQuery.isError ? (
-          <ActionQueryError
-            error={templatesQuery.error}
-            onRetry={() => void templatesQuery.refetch()}
-          />
-        ) : typedTemplates.length > 0 || templatesLoading ? (
-          <Collapsible open={templatesOpen} onOpenChange={setTemplatesOpen}>
-            <section className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                <div className="flex min-w-0 items-center gap-2">
-                  <IconStack3
-                    size={16}
-                    className="shrink-0 text-muted-foreground"
-                  />
-                  <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-foreground">
-                      {t("dispatch.pages.templates")}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {templatesLoading
-                        ? t("dispatch.pages.checkingTemplates")
-                        : t("dispatch.pages.templatesAvailable", {
-                            count: typedTemplates.length,
-                          })}
-                    </p>
-                  </div>
-                </div>
-                <CollapsibleTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                  >
-                    {templatesOpen
-                      ? t("dispatch.pages.hide")
-                      : t("dispatch.pages.show")}
-                    <IconChevronDown
-                      size={14}
-                      className={cn(
-                        "transition-transform",
-                        templatesOpen && "rotate-180",
-                      )}
-                    />
-                  </Button>
-                </CollapsibleTrigger>
-              </div>
-              <CollapsibleContent>
-                {templatesLoading && typedTemplates.length === 0 ? (
-                  <AppsSkeletonGrid />
-                ) : (
-                  <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {typedTemplates.map((template) => (
-                      <AddTemplateCard
-                        key={template.name}
-                        template={template}
-                      />
-                    ))}
-                  </div>
-                )}
-              </CollapsibleContent>
-            </section>
-          </Collapsible>
-        ) : null}
 
         {archivedApps.length > 0 ? (
           <Collapsible open={showHidden} onOpenChange={setShowHidden}>
@@ -341,68 +226,6 @@ function EmptyAppsState() {
             </Button>
           }
         />
-      </div>
-    </div>
-  );
-}
-
-function AddTemplateCard({ template }: { template: AvailableTemplate }) {
-  const Icon = TEMPLATE_ICONS[template.icon] ?? IconSparkles;
-  const scaffold = useActionMutation("scaffold-workspace-app", {
-    onSuccess: (result: any) => {
-      toast.success(
-        `Scaffolded apps/${result?.appId || template.name}. The gateway will pick it up shortly.`,
-      );
-    },
-    onError: (err) => {
-      toast.error(
-        `Could not scaffold ${template.label}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    },
-  });
-
-  return (
-    <div className="group relative flex h-full min-h-36 items-stretch gap-3 rounded-lg border bg-card p-4 transition hover:border-foreground/30">
-      <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-md"
-        style={{
-          backgroundColor: `rgb(${template.colorRgb} / 0.12)`,
-          color: template.color,
-        }}
-      >
-        <Icon size={18} />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-sm font-semibold text-foreground">
-            {template.label}
-          </h3>
-        </div>
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {template.hint}
-        </p>
-        <div className="mt-auto pt-3">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={scaffold.isPending}
-            onClick={() => scaffold.mutate({ template: template.name })}
-          >
-            {scaffold.isPending ? (
-              <>
-                <IconLoader2 size={14} className="mr-1.5 animate-spin" />
-                Adding...
-              </>
-            ) : (
-              <>
-                <IconPlus size={14} className="mr-1.5" />
-                Add to workspace
-              </>
-            )}
-          </Button>
-        </div>
       </div>
     </div>
   );

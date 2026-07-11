@@ -251,6 +251,19 @@ describe("integration usage budget reservations", () => {
 });
 
 describe("integration usage budget authorization", () => {
+  it("types nullable org guards for Postgres parameter inference", async () => {
+    await listIntegrationUsageBudgets({
+      ownerEmail: "personal@example.com",
+      orgId: null,
+    });
+
+    expect(db.execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("CAST(? AS TEXT) IS NOT NULL"),
+      }),
+    );
+  });
+
   it("keeps user budgets private from other members of the same org", async () => {
     const budget = await saveIntegrationUsageBudget(
       {

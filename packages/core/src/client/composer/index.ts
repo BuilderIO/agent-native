@@ -29,10 +29,14 @@ export {
   type RealtimeVoiceModeCopy,
   type RealtimeVoiceModeDockProps,
   type RealtimeVoiceModeEntryProps,
+  type RealtimeVoiceModeInlineSettings,
+  type RealtimeVoiceModeSelectSetting,
+  type RealtimeVoiceModeSettingOption,
   type RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
 export {
   createRealtimeVoiceSession,
+  createRealtimeVoiceSessionWithCapability,
   executeRealtimeVoiceTool,
   extractRealtimeVoiceFunctionCalls,
   readRealtimeVoiceContext,
@@ -43,6 +47,7 @@ export {
   useRealtimeVoiceModeOptional,
   type RealtimeVoiceModeApi,
   type RealtimeVoiceModeProviderProps,
+  type RealtimeVoiceSessionAnswer,
   type RealtimeVoiceToolResult,
 } from "./useRealtimeVoiceMode.js";
 export {

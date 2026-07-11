@@ -66,7 +66,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <RunsTray />
+        <RunsTray pollMs={0} />
         <AgentToggleButton />
       </div>
     </header>

@@ -618,12 +618,41 @@ function isAgentNativeDocsUrl(url: string): boolean {
   }
 }
 
+function isSessionReplayUrl(url: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return /^\/sessions\/[^/]+\/?$/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   const exceptionValues = event.exception?.values ?? [];
   const taggedUrl =
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
   const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
   const isDocsPage = isAgentNativeDocsUrl(requestUrl);
+  // rrweb 2.1.0 replays recorded media interactions with `void media.play()`.
+  // Browsers may reject that promise when the recorded media was unmuted and
+  // no user activation is still active, which becomes a source-less unhandled
+  // rejection even though the replay player keeps working. Keep this scoped to
+  // the replay detail route and the exact browser autoplay-policy message.
+  if (
+    isSessionReplayUrl(requestUrl) &&
+    exceptionValues.some((value) => {
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
+      return (
+        exceptionValue.includes("notallowederror: play() failed") &&
+        exceptionValue.includes("user didn't interact with the document first")
+      );
+    })
+  ) {
+    return true;
+  }
   // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
   // out of the SSE stream parser when the agent run needs to be
   // auto-continued. It's caught by the chat adapter and is never a real

@@ -88,7 +88,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <RunsTray onOpenThread={openRunThread} />
+        <RunsTray pollMs={0} onOpenThread={openRunThread} />
         <AgentToggleButton />
       </div>
     </header>

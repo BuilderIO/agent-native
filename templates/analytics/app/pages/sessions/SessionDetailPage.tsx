@@ -9,6 +9,11 @@ import {
 } from "@agent-native/core/client";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "@shared/session-replay-diagnostics";
+import {
   IconArrowLeft,
   IconCheck,
   IconChevronRight,
@@ -58,6 +63,7 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { extractReplayDiagnostics } from "./session-replay-devtools";
+import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -156,15 +162,16 @@ type ReplayViewportDimensions = {
 
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
-const MIN_REPLAY_DISPLAY_ASPECT_RATIO = 0.45;
-const MAX_REPLAY_DISPLAY_ASPECT_RATIO = 3;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
-const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_BATCH_MAX_CHUNKS = 20;
+const REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES = 4 * 1024 * 1024;
+const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 3;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
+const SCROLL_MARKER_BURST_MS = 1_000;
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
@@ -174,16 +181,6 @@ const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const SUPPRESS_OVERLAYS_CSS = [
   "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
 ];
-const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
-const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
-
-const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
-  console: [],
-  network: [],
-  consoleErrorCount: 0,
-  networkFailedCount: 0,
-};
-
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -237,17 +234,15 @@ const INCREMENTAL_SOURCE = {
 } as const;
 
 const MOUSE_INTERACTION = {
+  MouseUp: 0,
+  MouseDown: 1,
   Click: 2,
+  ContextMenu: 3,
   DblClick: 4,
   Focus: 5,
+  TouchStart: 7,
+  TouchEnd: 9,
 } as const;
-
-const INTERACTION_SOURCES = new Set<number>([
-  INCREMENTAL_SOURCE.MouseInteraction,
-  INCREMENTAL_SOURCE.Scroll,
-  INCREMENTAL_SOURCE.Input,
-  INCREMENTAL_SOURCE.TouchMove,
-]);
 
 export default function SessionDetailPage() {
   const t = useT();
@@ -506,9 +501,13 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
-  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  // Keep the stage in rrweb's coordinate system. Clamping only this outer
+  // wrapper while rrweb keeps its raw iframe dimensions clips and stretches
+  // wide recordings because the two layers no longer share a viewport.
+  const playerWidth =
+    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight =
+    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -520,13 +519,11 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
-  const diagnostics = useMemo(
-    () => (devToolsOpen ? extractReplayDiagnostics(events) : EMPTY_DIAGNOSTICS),
-    [devToolsOpen, events],
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount = replayDevToolsIssueCount(
+    diagnostics,
+    response.isComplete,
   );
-  const devToolsIssueCount = devToolsOpen
-    ? diagnostics.consoleErrorCount + diagnostics.networkFailedCount
-    : response.recording.errorCount;
 
   // Resolve captured console errors in this replay to their Sentry-style issue
   // groups (one batched, access-scoped call, server-computed fingerprints) so
@@ -572,6 +569,7 @@ function ReplayPlayer({
     if (!el) return;
     const update = () => {
       const next = Math.min(
+        1,
         el.clientWidth / playerWidth,
         el.clientHeight / playerHeight,
       );
@@ -879,10 +877,13 @@ function ReplayPlayer({
 
   return (
     <TooltipProvider>
-      <div ref={playerShellRef} className="flex min-h-0 flex-1 flex-col">
-        <Card className="flex min-h-0 flex-1 overflow-hidden">
-          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-            <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
+      <div
+        ref={playerShellRef}
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
@@ -1042,8 +1043,10 @@ function ReplayPlayer({
                   "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
                   devToolsOpen &&
                     "border-primary/40 bg-primary/10 text-primary",
+                  !response.isComplete && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => setDevToolsOpen((value) => !value)}
+                disabled={!response.isComplete}
                 aria-pressed={devToolsOpen}
                 aria-expanded={devToolsOpen}
               >
@@ -1061,12 +1064,14 @@ function ReplayPlayer({
                 ) : null}
               </button>
 
-              <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
-                {t("sessions.replayEventCount", {
-                  events: String(response.eventCount),
-                })}
-                {response.truncated ? ` ${t("sessions.truncated")}` : ""}
-              </span>
+              {response.isComplete ? (
+                <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
+                  {t("sessions.replayEventCount", {
+                    events: String(response.eventCount),
+                  })}
+                  {response.truncated ? ` ${t("sessions.truncated")}` : ""}
+                </span>
+              ) : null}
             </div>
 
             {devToolsOpen ? (
@@ -1078,6 +1083,7 @@ function ReplayPlayer({
                 onHeightChange={setDevToolsHeight}
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
+                issueMatching={issueMatchQuery.isFetching}
               />
             ) : null}
 
@@ -1464,7 +1470,9 @@ function useSessionReplayPlayback(recordingId: string) {
         let loadedCount = 0;
         let loadedBytes = 0;
         let unavailableChunks = 0;
-        let nextIndex = 0;
+        const chunkIndexBySeq = new Map(
+          manifest.chunks.map((chunk, index) => [chunk.seq, index]),
+        );
 
         const publish = (force = false) => {
           const complete = loadedCount >= manifest.chunks.length;
@@ -1513,31 +1521,20 @@ function useSessionReplayPlayback(recordingId: string) {
 
         publish();
 
-        async function worker() {
-          while (!cancelled && nextIndex < manifest.chunks.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            const chunk = await fetchReplayChunk(manifest.chunks[index], {
-              agentAccessToken,
-            });
-            loadedChunks[index] = chunk;
-            loadedCount += 1;
-            loadedBytes += manifest.chunks[index].byteLength;
-            if (chunk.unavailable) unavailableChunks += 1;
+        await fetchReplayChunks(
+          manifest.chunks,
+          { agentAccessToken },
+          (batch) => {
+            for (const chunk of batch) {
+              const index = chunkIndexBySeq.get(chunk.seq);
+              if (index === undefined || loadedChunks[index]) continue;
+              loadedChunks[index] = chunk;
+              loadedCount += 1;
+              loadedBytes += manifest.chunks[index].byteLength;
+              if (chunk.unavailable) unavailableChunks += 1;
+            }
             if (!cancelled) publish();
-          }
-        }
-
-        await Promise.all(
-          Array.from(
-            {
-              length: Math.min(
-                REPLAY_CHUNK_FETCH_CONCURRENCY,
-                manifest.chunks.length,
-              ),
-            },
-            worker,
-          ),
+          },
         );
         if (!cancelled) publish(true);
       } catch (loadError) {
@@ -1635,25 +1632,116 @@ async function fetchReplayManifest(
 async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
   options: FetchSessionReplayPlaybackOptions,
+  onBatch?: (chunks: ReplayChunkEvents[]) => void,
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
+  const indexBySeq = new Map(chunks.map((chunk, index) => [chunk.seq, index]));
+  const batches = partitionReplayChunkBatches(chunks);
   let nextIndex = 0;
 
   async function worker() {
-    while (nextIndex < chunks.length) {
+    while (nextIndex < batches.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await fetchReplayChunk(chunks[index], options);
+      const loaded = await fetchReplayChunkBatch(batches[index], options);
+      for (const chunk of loaded) {
+        const resultIndex = indexBySeq.get(chunk.seq);
+        if (resultIndex !== undefined) results[resultIndex] = chunk;
+      }
+      onBatch?.(loaded);
     }
   }
 
   await Promise.all(
     Array.from(
-      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      {
+        length: Math.min(REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY, batches.length),
+      },
       worker,
     ),
   );
   return results;
+}
+
+export function partitionReplayChunkBatches(
+  chunks: SessionReplayManifestResponse["chunks"],
+): Array<SessionReplayManifestResponse["chunks"]> {
+  const batches: Array<SessionReplayManifestResponse["chunks"]> = [];
+  let batch: SessionReplayManifestResponse["chunks"] = [];
+  let declaredBytes = 0;
+
+  for (const chunk of chunks) {
+    const exceedsChunkLimit = batch.length >= REPLAY_CHUNK_BATCH_MAX_CHUNKS;
+    const exceedsByteLimit =
+      batch.length > 0 &&
+      declaredBytes + chunk.byteLength > REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES;
+    if (exceedsChunkLimit || exceedsByteLimit) {
+      batches.push(batch);
+      batch = [];
+      declaredBytes = 0;
+    }
+    batch.push(chunk);
+    declaredBytes += chunk.byteLength;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+async function fetchReplayChunkBatch(
+  chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<ReplayChunkEvents[]> {
+  const recordingId = replayRecordingIdFromChunkPath(chunks[0]?.bytesPath);
+  if (!recordingId) {
+    return Promise.all(chunks.map((chunk) => fetchReplayChunk(chunk, options)));
+  }
+  const query = new URLSearchParams({
+    seqs: chunks.map((chunk) => chunk.seq).join(","),
+  });
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(recordingId)}/chunks?${query}`,
+    options.agentAccessToken,
+  );
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 405) {
+      return Promise.all(
+        chunks.map((chunk) => fetchReplayChunk(chunk, options)),
+      );
+    }
+    throw await replayFetchError(response);
+  }
+
+  const payload = (await response.json()) as { chunks?: unknown };
+  const returnedChunks = Array.isArray(payload?.chunks)
+    ? payload.chunks.filter(isReplayChunkEvents)
+    : [];
+  const returnedBySeq = new Map(
+    returnedChunks.map((chunk) => [chunk.seq, chunk]),
+  );
+
+  return Promise.all(
+    chunks.map(async (manifestChunk) => {
+      const loaded = returnedBySeq.get(manifestChunk.seq);
+      return loaded ?? fetchReplayChunk(manifestChunk, options);
+    }),
+  );
+}
+
+function replayRecordingIdFromChunkPath(path: string | undefined): string {
+  if (!path) return "";
+  const match = path.match(/\/recordings\/([^/]+)\/chunks\//);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function isReplayChunkEvents(value: unknown): value is ReplayChunkEvents {
+  return (
+    isRecord(value) &&
+    typeof value.seq === "number" &&
+    typeof value.checksum === "string" &&
+    typeof value.byteLength === "number" &&
+    typeof value.eventCount === "number" &&
+    Array.isArray(value.events)
+  );
 }
 
 async function fetchReplayChunk(
@@ -1758,7 +1846,7 @@ function useReplayEvents(
 ): AnyReplayEvent[] {
   return useMemo(
     () =>
-      sanitizeReplayEvents(
+      normalizeReplayEvents(
         response.chunks
           .flatMap((chunk) => chunk.events)
           .filter((event) => event && typeof event === "object"),
@@ -1767,187 +1855,66 @@ function useReplayEvents(
   );
 }
 
-export function sanitizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
-  return events
-    .map((event) => sanitizeReplayEvent(event))
-    .filter((event): event is AnyReplayEvent => Boolean(event))
-    .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
-}
+const REPLAY_NETWORK_ATTRIBUTES = new Set([
+  "src",
+  "srcset",
+  "poster",
+  "background",
+  "action",
+  "formaction",
+  "data",
+  "ping",
+  "cite",
+  "xlink:href",
+]);
 
-function sanitizeReplayEvent(event: unknown): AnyReplayEvent | null {
-  if (!isRecord(event)) return null;
-  let copy: AnyReplayEvent;
-  try {
-    copy = JSON.parse(JSON.stringify(event));
-  } catch {
-    copy = { ...event };
-  }
-  if (copy.type === RRWEB_EVENT_TYPE.FullSnapshot && isRecord(copy.data)) {
-    const node = sanitizeSerializedNode(copy.data.node);
-    if (!node) return null;
-    copy.data.node = node;
-  }
-  if (
-    copy.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-    copy.data?.source === INCREMENTAL_SOURCE.Mutation &&
-    isRecord(copy.data)
-  ) {
-    copy.data = sanitizeMutationData(copy.data);
-  }
-  return copy;
-}
-
-function sanitizeMutationData(data: AnyRecord): AnyRecord {
-  const next = { ...data };
-  if (Array.isArray(next.adds)) {
-    next.adds = next.adds
-      .map((add) => {
-        if (!isRecord(add)) return add;
-        const node = sanitizeSerializedNode(add.node);
-        if (!node) return null;
-        return { ...add, node };
-      })
-      .filter(Boolean);
-  }
-  if (Array.isArray(next.attributes)) {
-    next.attributes = next.attributes.map((attributeMutation) => {
-      if (
-        !isRecord(attributeMutation) ||
-        !isRecord(attributeMutation.attributes)
-      ) {
-        return attributeMutation;
-      }
-      return {
-        ...attributeMutation,
-        attributes: sanitizeAttributes(attributeMutation.attributes),
-      };
-    });
-  }
-  if (Array.isArray(next.texts)) {
-    next.texts = next.texts.map((textMutation) => {
-      if (!isRecord(textMutation)) return textMutation;
-      const copy = { ...textMutation };
-      if (
-        typeof copy.value === "string" &&
-        containsStylesheetNetworkLoad(copy.value)
-      ) {
-        copy.value = sanitizeCssText(copy.value);
-      }
-      if (
-        typeof copy.textContent === "string" &&
-        containsStylesheetNetworkLoad(copy.textContent)
-      ) {
-        copy.textContent = sanitizeCssText(copy.textContent);
-      }
-      return copy;
-    });
-  }
-  return next;
-}
-
-function sanitizeSerializedNode(node: unknown): AnyRecord | null {
-  if (!isRecord(node)) return node as AnyRecord;
-  const next: AnyRecord = { ...node };
-  const tagName =
-    typeof next.tagName === "string" ? next.tagName.toLowerCase() : "";
-  if (next.type === 2 && tagName === "script") {
-    return {
-      ...next,
-      tagName: "noscript",
-      attributes: {},
-      childNodes: [],
-    };
-  }
-  if (
-    next.type === 3 &&
-    typeof next.textContent === "string" &&
-    containsStylesheetNetworkLoad(next.textContent)
-  ) {
-    next.textContent = sanitizeCssText(next.textContent);
-  }
-  if (
-    next.type === 2 &&
-    tagName === "link" &&
-    isScriptLikeLink(next.attributes)
-  ) {
-    return null;
-  }
-  if (isRecord(next.attributes)) {
-    next.attributes = sanitizeAttributes(next.attributes);
-  }
-  if (Array.isArray(next.childNodes)) {
-    next.childNodes = next.childNodes
-      .map((child) => sanitizeSerializedNode(child))
-      .filter(Boolean);
-  }
-  return next;
-}
-
-function containsStylesheetNetworkLoad(value: string): boolean {
-  return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
-}
-
-function sanitizeCssText(value: string): string {
-  if (!containsStylesheetNetworkLoad(value)) return value;
+function stripReplayCssUrls(value: string): string {
   return value
-    .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
-    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
+    .replace(/@import\s+(?:url\()?[^;)]+(?:\))?\s*;?/gi, "")
+    .replace(/url\(\s*[^)]*\)/gi, "none");
 }
 
-function sanitizeCssUrlToken(match: string, rawValue: string): string {
-  const urlValue = rawValue.trim();
-  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
-  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
-  return "none";
-}
-
-function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
-  const next: AnyRecord = {};
-  for (const [key, value] of Object.entries(attributes)) {
-    const normalized = key.toLowerCase();
-    if (normalized.startsWith("on")) continue;
-    if (normalized === "srcdoc") continue;
-    if (isReplayResourceAttribute(normalized)) continue;
-    if (normalized === "style") {
-      const style = sanitizeCssText(String(value));
-      if (style.trim()) next[key] = style;
-      continue;
-    }
-    if (normalized === "_csstext") {
-      const cssText = sanitizeCssText(String(value));
-      if (cssText.trim()) next[key] = cssText;
-      continue;
-    }
-    next[key] = value;
+function sanitizeReplayValue(value: unknown, key?: string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeReplayValue(item));
   }
-  return next;
-}
+  if (!isRecord(value)) {
+    if (typeof value !== "string") return value;
+    const normalizedKey = key?.toLowerCase();
+    if (
+      normalizedKey === "href" ||
+      REPLAY_NETWORK_ATTRIBUTES.has(normalizedKey ?? "")
+    ) {
+      return "about:blank";
+    }
+    if (
+      normalizedKey === "style" ||
+      normalizedKey === "_csstext" ||
+      normalizedKey === "csstext"
+    ) {
+      return stripReplayCssUrls(value);
+    }
+    return value;
+  }
 
-function isReplayResourceAttribute(name: string): boolean {
-  return (
-    name === "src" ||
-    name === "srcset" ||
-    name === "href" ||
-    name === "xlink:href" ||
-    name === "poster" ||
-    name === "data" ||
-    name === "action" ||
-    name === "formaction" ||
-    name === "background" ||
-    name === "cite"
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      sanitizeReplayValue(entryValue, entryKey),
+    ]),
   );
 }
 
-function isScriptLikeLink(attributes: unknown): boolean {
-  if (!isRecord(attributes)) return false;
-  const rel = String(attributes.rel ?? "").toLowerCase();
-  const as = String(attributes.as ?? "").toLowerCase();
-  const href = String(attributes.href ?? "").toLowerCase();
-  return (
-    rel === "modulepreload" ||
-    (rel === "preload" && as === "script") ||
-    (rel === "prefetch" && href.endsWith(".js"))
-  );
+/**
+ * rrweb's iframe sandbox prevents scripts but permits passive resource loads.
+ * Preserve the captured DOM structure and inline styling while neutralizing
+ * URLs that could contact a recorded page or third-party origin.
+ */
+export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
+  return events
+    .filter((event): event is AnyReplayEvent => isRecord(event))
+    .map((event) => sanitizeReplayValue(event) as AnyReplayEvent)
+    .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
 export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
@@ -2007,6 +1974,23 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
           ["Y", event.data?.y],
         ]),
       });
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
+      event.data?.source === INCREMENTAL_SOURCE.Scroll
+    ) {
+      markers.push({
+        id: `scroll-${timestamp}-${markers.length}`,
+        timestamp,
+        offsetMs: Math.max(0, timestamp - startedAt),
+        kind: "custom",
+        label: "Scroll",
+        detail: pointerDetail(event.data),
+        fields: markerFields([
+          ["Element id", event.data?.id],
+          ["X", event.data?.x],
+          ["Y", event.data?.y],
+        ]),
+      });
     } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
       const marker = customReplayMarker(
         event,
@@ -2017,7 +2001,53 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
       if (marker) markers.push(marker);
     }
   }
-  return markers.sort((a, b) => a.offsetMs - b.offsetMs);
+  return collapseScrollMarkerBursts(
+    markers.sort((a, b) => a.offsetMs - b.offsetMs),
+  );
+}
+
+function collapseScrollMarkerBursts(markers: ReplayMarker[]): ReplayMarker[] {
+  const collapsed: ReplayMarker[] = [];
+  const lastScrollByTarget = new Map<
+    string,
+    { index: number; timestamp: number }
+  >();
+  for (const marker of markers) {
+    if (marker.label !== "Scroll") {
+      collapsed.push(marker);
+      continue;
+    }
+    const target =
+      marker.fields?.find((field) => field.label === "Element id")?.value ??
+      "viewport";
+    const previous = lastScrollByTarget.get(target);
+    if (
+      previous &&
+      marker.timestamp - previous.timestamp <= SCROLL_MARKER_BURST_MS
+    ) {
+      // Keep one marker per continuous scroll gesture, using its final
+      // position while retaining the first marker's stable id/time.
+      collapsed[previous.index] = {
+        ...marker,
+        id: collapsed[previous.index].id,
+        timestamp: collapsed[previous.index].timestamp,
+        offsetMs: collapsed[previous.index].offsetMs,
+      };
+      previous.timestamp = marker.timestamp;
+      continue;
+    }
+    const index = collapsed.push(marker) - 1;
+    lastScrollByTarget.set(target, { index, timestamp: marker.timestamp });
+  }
+  return collapsed;
+}
+
+export function replayDevToolsIssueCount(
+  diagnostics: ReplayDevToolsDiagnostics,
+  isComplete: boolean,
+): number {
+  if (!isComplete) return 0;
+  return diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 }
 
 function customReplayMarker(
@@ -2055,7 +2085,33 @@ function customReplayMarker(
   }
 
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
-    return null;
+    const status = Number(payload.status ?? 0);
+    if (
+      payload.ok !== false &&
+      (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
+    ) {
+      return null;
+    }
+    const method =
+      typeof payload.method === "string" ? payload.method : undefined;
+    const url = typeof payload.url === "string" ? payload.url : undefined;
+    const error = typeof payload.error === "string" ? payload.error : undefined;
+    return {
+      id: `network-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "custom",
+      label: "Network error", // i18n-ignore: timeline protocol label.
+      detail: [method, url].filter(Boolean).join(" ") || error,
+      severity: "error",
+      fields: markerFields([
+        ["Method", method],
+        ["URL", url],
+        ["Status", Number.isFinite(status) ? status : undefined],
+        ["Error", error],
+        ["Duration", payload.durationMs],
+      ]),
+    };
   }
 
   return {
@@ -2068,7 +2124,7 @@ function customReplayMarker(
   };
 }
 
-function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
+export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
   const startedAt = replayStartedAt(events);
   const interactions: number[] = [];
   let lastTimestamp = startedAt;
@@ -2076,13 +2132,7 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     const timestamp = Number(event.timestamp ?? 0);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     lastTimestamp = Math.max(lastTimestamp, timestamp);
-    if (event.type === RRWEB_EVENT_TYPE.Meta) {
-      interactions.push(timestamp);
-    } else if (
-      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-      typeof event.data?.source === "number" &&
-      INTERACTION_SOURCES.has(event.data.source)
-    ) {
+    if (isReplayActivityEvent(event)) {
       interactions.push(timestamp);
     }
   }
@@ -2105,6 +2155,33 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     );
   }
   return ranges;
+}
+
+function isReplayActivityEvent(event: AnyReplayEvent): boolean {
+  if (event.type === RRWEB_EVENT_TYPE.Meta) return true;
+  if (event.type !== RRWEB_EVENT_TYPE.IncrementalSnapshot) return false;
+
+  const source = event.data?.source;
+  if (
+    source === INCREMENTAL_SOURCE.Input ||
+    source === INCREMENTAL_SOURCE.Scroll ||
+    source === INCREMENTAL_SOURCE.TouchMove
+  ) {
+    return true;
+  }
+  if (source !== INCREMENTAL_SOURCE.MouseInteraction) return false;
+
+  const interactionType = event.data?.type;
+  return (
+    interactionType === MOUSE_INTERACTION.MouseUp ||
+    interactionType === MOUSE_INTERACTION.MouseDown ||
+    interactionType === MOUSE_INTERACTION.Click ||
+    interactionType === MOUSE_INTERACTION.ContextMenu ||
+    interactionType === MOUSE_INTERACTION.DblClick ||
+    interactionType === MOUSE_INTERACTION.Focus ||
+    interactionType === MOUSE_INTERACTION.TouchStart ||
+    interactionType === MOUSE_INTERACTION.TouchEnd
+  );
 }
 
 function pushIdleRange(
@@ -2195,26 +2272,6 @@ export function normalizeReplayDimensions(
   };
 }
 
-export function clampReplayDisplayDimensions(
-  dims: ReplayViewportDimensions | null,
-): ReplayViewportDimensions | null {
-  if (!dims) return null;
-  const aspect = dims.width / dims.height;
-  if (aspect > MAX_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: Math.round(dims.height * MAX_REPLAY_DISPLAY_ASPECT_RATIO),
-      height: dims.height,
-    };
-  }
-  if (aspect < MIN_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: dims.width,
-      height: Math.round(dims.width / MIN_REPLAY_DISPLAY_ASPECT_RATIO),
-    };
-  }
-  return dims;
-}
-
 export function filterReplayMarkers(
   markers: ReplayMarker[],
   query: string,
@@ -2237,10 +2294,14 @@ export function filterReplayMarkers(
 }
 
 function replayStartedAt(events: AnyReplayEvent[]): number {
-  const first = events.find((event) =>
-    Number.isFinite(Number(event.timestamp)),
-  );
-  return Number(first?.timestamp ?? 0);
+  let startedAt = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    const timestamp = Number(event.timestamp);
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      startedAt = Math.min(startedAt, timestamp);
+    }
+  }
+  return Number.isFinite(startedAt) ? startedAt : 0;
 }
 
 function replayDuration(events: AnyReplayEvent[]): number {

@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.14.5
+
+### Patch Changes
+
+- ee7b5b3: Prevent sync-driven request storms by preserving in-flight reads, filtering same-tab action echoes, targeting action-query invalidation, refreshing shared run state from change events, and backing idle Dispatch monitoring away from fixed polling.
+- ee7b5b3: Remove the obsolete template cards from the Dispatch Apps page.
+- ee7b5b3: Reduce the width and height of centered full-page chat composers for a more compact starting state.
+
 ## 0.14.4
 
 ### Patch Changes

@@ -1271,7 +1271,7 @@ function AgentPanelInner({
             )}
             {mode === "chat" && (
               <RunsTrayMenuItem
-                pollMs={2000}
+                pollMs={0}
                 limit={12}
                 showRecent={true}
                 onOpenThread={openRunThread}
@@ -1986,7 +1986,7 @@ const SIDEBAR_ANIMATION_MS = 260;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
 /** Max width of the centered chat column in fullscreen mode (Claude-style). */
-const FULLSCREEN_CONTENT_MAX_PX = 760;
+const FULLSCREEN_CONTENT_MAX_PX = 570;
 
 function ResizeHandle({
   position,
@@ -2194,7 +2194,6 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
         return null;
       }
     },
-    refetchInterval: 2_000,
     retry: false,
   });
 
