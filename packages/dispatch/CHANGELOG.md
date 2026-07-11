@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.3
+
+### Patch Changes
+
+- f43d34c: Fence approval/rejection status transitions so concurrent approvals cannot double-apply side effects.
+
 ## 0.14.2
 
 ### Patch Changes

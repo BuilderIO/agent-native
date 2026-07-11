@@ -1,5 +1,17 @@
 # @agent-native/scheduling
 
+## 0.1.24
+
+### Patch Changes
+
+- f43d34c: Add a Microsoft Teams conferencing provider with delegated OAuth and Microsoft Graph meeting creation and cancellation.
+- f43d34c: Batch selected-calendar reads and bound external availability checks to reduce
+  slot lookup latency without overwhelming calendar providers.
+- f43d34c: Add a safe manifest-driven package lifecycle CLI with Scheduling as the first inspectable, installable, and ejectable package.
+- f43d34c: Re-validate availability before creating bookings and make booking writes transactional.
+- Updated dependencies [f43d34c]
+  - @agent-native/toolkit@0.4.6
+
 ## 0.1.23
 
 ### Patch Changes

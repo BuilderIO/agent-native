@@ -1,5 +1,40 @@
 # @agent-native/skills
 
+## 0.2.292
+
+### Patch Changes
+
+- f43d34c: Release the updated skill guidance and portable drawer component types.
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+- Updated dependencies [f43d34c]
+  - @agent-native/core@0.97.0
+
 ## 0.2.291
 
 ### Patch Changes

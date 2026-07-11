@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.4.6
+
+### Patch Changes
+
+- f43d34c: Release the updated skill guidance and portable drawer component types.
+
 ## 0.4.5
 
 ### Patch Changes
