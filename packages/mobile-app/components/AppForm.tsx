@@ -3,15 +3,16 @@ import { generateAppId } from "@agent-native/shared-app-config";
 import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
 import {
-  View,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  Modal,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const ICON_PRESETS: { name: string; icon: keyof typeof Feather.glyphMap }[] = [
   { name: "Globe", icon: "globe" },
@@ -88,8 +89,13 @@ export default function AppForm({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
+      statusBarTranslucent={true}
+      navigationBarTranslucent={true}
+      onRequestClose={()=>{
+        onClose()
+      }}
     >
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose}>
             <Text style={styles.cancelText}>Cancel</Text>
@@ -149,7 +155,7 @@ export default function AppForm({
 
           <View style={{ height: 40 }} />
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }
