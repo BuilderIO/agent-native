@@ -877,10 +877,13 @@ function ReplayPlayer({
 
   return (
     <TooltipProvider>
-      <div ref={playerShellRef} className="flex min-h-0 flex-1 flex-col">
-        <Card className="flex min-h-0 flex-1 overflow-hidden">
-          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-            <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
+      <div
+        ref={playerShellRef}
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
