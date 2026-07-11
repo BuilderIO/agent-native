@@ -218,7 +218,7 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder to use managed voice with credits, or use your own OpenAI API key.",
+        "Connect Builder to use managed voice with free credits, or use your own OpenAI API key.",
       connectBuilder: "Connect Builder",
       useOpenAiKey: "Use OpenAI API key",
       startWithOpenAiKey: "Start with OpenAI key",

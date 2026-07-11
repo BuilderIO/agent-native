@@ -24,6 +24,14 @@ Written 2026-07-11 at commit `f43d34ca24` by the `improve-animations` audit (4 p
 - Concurrent-work exclusions baked into the plans: `packages/toolkit/src/ui/{dialog,command,toast}.tsx` and `packages/code-agents-ui/**` are being edited by another session (a `motion="instant"` dialog opt-out + toast fixes) — no plan touches them.
 - Suggested order by leverage: 001 → 002 → 003 → 005 → 009 → 004 → 010 → 006 → 007 → 008 → 011.
 
+## Feel-check results (2026-07-11, browser-verified)
+
+A live browser pass (slides + analytics; mail inconclusive — needs Gmail OAuth) verified the button press, ease-out exits, the slides toggle/toolbar-menu fixes, and analytics hover fades, and caught two bugs that were then fixed and re-verified live:
+
+- **`origin-[--radix-…]` compiled to an empty CSS rule** (Tailwind v4 removed the bare-custom-property bracket sugar) — this predated the plans (dropdown/hover-card origins never worked) and the plans propagated it. Fixed to `origin-[var(--radix-…)]` across 7 toolkit primitives + PastedTextChip + FeedbackButton; live computed transform-origin now edge-aware.
+- **Tooltip entrance gated on `data-[state=open]`, which Radix tooltips never emit** (`delayed-open`/`instant-open` only) — plan 001 regression. Fixed to `data-[state=delayed-open]:` entrance (instant-open intentionally unanimated per the frequency rule); exit unaffected.
+- Analytics sidebar: `transition-[padding]` was restored on the dashboards/analyses rows — removing it (plan 006 step 3) made the hover padding snap jarringly; the drag-handle grip also got `transition-[opacity,color]` so its declared fade actually runs.
+
 ## Deliberately NOT planned (backlog)
 
 - **Design canvas chrome-settle** (`templates/design/app/components/design/multi-screen/chrome-transitions.ts` + `MultiScreenCanvas.tsx` handle styles): settle transitions animate inset/border/width/height once per zoom-commit (150ms). Real cost, but the file documents deliberate compositor engineering and the fix requires reworking handle geometry to transforms inside a 10k-line canvas — needs a design-editor session with visual regression checks, not a zero-context executor.
