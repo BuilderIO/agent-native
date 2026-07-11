@@ -4,6 +4,7 @@ import {
   buildRepositoryFromCodeAgentTranscript,
   createCodeAgentChatAdapter,
   isCodeAgentRunActive,
+  isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
   readAgentPromptAttachment,
   type CodeAgentChatController,
@@ -3819,8 +3820,13 @@ function hasMissingCredentialSignal(
   return transcriptEvents.some(isCredentialTranscriptEvent);
 }
 
+// Delegates to the shared core helper so this surface and the server-side
+// transcript builders (thread-data-builder.ts, code-agent-transcript.ts)
+// agree on one definition instead of each keeping its own regex. The helper
+// prefers the structured `signal` field and only falls back to matching the
+// legacy hint text for transcripts persisted before that field existed.
 function isCredentialTranscriptEvent(event: CodeAgentTranscriptEvent): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(event.text);
+  return isCredentialGapCodeAgentEvent(event);
 }
 
 function hasPendingApproval(run: CodeAgentRun): boolean {

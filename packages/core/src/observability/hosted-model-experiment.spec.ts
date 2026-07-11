@@ -57,7 +57,9 @@ describe("hosted default model experiment", () => {
   it("assigns approximately twenty percent of users to Luna", () => {
     let treatment = 0;
     for (let index = 0; index < 10_000; index++) {
-      if (hostedDefaultModelExperimentBucket(`user-${index}@example.test`) < 20) {
+      if (
+        hostedDefaultModelExperimentBucket(`user-${index}@example.test`) < 20
+      ) {
         treatment++;
       }
     }

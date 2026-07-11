@@ -6185,13 +6185,14 @@ export function createProductionAgentHandler(
       | "configured"
       | "stored"
       | "default"
-      | "experiment" = requestModel != null
-      ? "request"
-      : configuredModel != null
-        ? "configured"
-        : storedModel != null
-          ? "stored"
-          : "default";
+      | "experiment" =
+      requestModel != null
+        ? "request"
+        : configuredModel != null
+          ? "configured"
+          : storedModel != null
+            ? "stored"
+            : "default";
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;

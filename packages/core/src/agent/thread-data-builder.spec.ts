@@ -1283,6 +1283,25 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 
     expect(repo.messages).toEqual([]);
   });
+
+  it("hides credential events via the structured signal even with neutral message text", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript(
+      [
+        {
+          id: "evt-status",
+          runId: "run-code",
+          kind: "status",
+          message: "Provider unavailable.",
+          createdAt: "2026-05-17T12:00:00.000Z",
+          metadata: { type: "error" },
+          signal: "credential-gap",
+        },
+      ],
+      { hideCredentialMessages: true },
+    );
+
+    expect(repo.messages).toEqual([]);
+  });
 });
 
 describe("upsertUserMessage", () => {

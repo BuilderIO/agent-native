@@ -160,8 +160,7 @@ function emitLlmGenerationTrackingEvent(args: {
       .join(",");
     if (args.experimentAssignments.length === 1) {
       properties.experiment_id = args.experimentAssignments[0].experimentId;
-      properties.experiment_variant =
-        args.experimentAssignments[0].variantId;
+      properties.experiment_variant = args.experimentAssignments[0].variantId;
     }
   }
   if (error) properties.error_message = error;

@@ -49,9 +49,8 @@ function hostnameFromUrl(value: string | undefined): string | null {
 export function isHostedDefaultModelExperimentEnabled(
   env: HostedExperimentEnv = process.env,
 ): boolean {
-  const override = env.AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT
-    ?.trim()
-    .toLowerCase();
+  const override =
+    env.AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT?.trim().toLowerCase();
   if (override && DISABLED_VALUES.has(override)) return false;
   if (override && ENABLED_VALUES.has(override)) return true;
 
@@ -78,8 +77,7 @@ export function isHostedDefaultModelExperimentEnabled(
  * variant in every hosted template for the life of this experiment id.
  */
 export function hostedDefaultModelExperimentBucket(userId: string): number {
-  const input =
-    `${HOSTED_DEFAULT_MODEL_EXPERIMENT_ID}:${userId.trim().toLowerCase()}`;
+  const input = `${HOSTED_DEFAULT_MODEL_EXPERIMENT_ID}:${userId.trim().toLowerCase()}`;
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index++) {
     hash ^= input.charCodeAt(index);
@@ -106,10 +104,7 @@ export function resolveHostedDefaultModelExperiment(args: {
     HOSTED_DEFAULT_MODEL_TREATMENT.weight
       ? HOSTED_DEFAULT_MODEL_TREATMENT
       : HOSTED_DEFAULT_MODEL_CONTROL;
-  if (
-    args.supportedModels &&
-    !args.supportedModels.includes(variant.model)
-  ) {
+  if (args.supportedModels && !args.supportedModels.includes(variant.model)) {
     return null;
   }
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
-import { normalizeCodeAgentTranscript } from "./transcript-normalizer.js";
+import {
+  isCredentialGapCodeAgentEvent,
+  normalizeCodeAgentTranscript,
+} from "./transcript-normalizer.js";
 
 describe("normalizeCodeAgentTranscript", () => {
   it("coalesces legacy runner stdout and suppresses duplicate final assistant text", () => {
@@ -427,6 +430,66 @@ describe("normalizeCodeAgentTranscript", () => {
         text: "Use the dossier with another coding agent.",
       }),
     ]);
+  });
+
+  it("carries the structured credential-gap signal onto the normalized status item", () => {
+    const events = [
+      {
+        ...event("evt-cred", "status", "No LLM provider key was found.", {
+          status: "paused",
+          phase: "missing-credentials",
+        }),
+        signal: "credential-gap" as const,
+      },
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "status",
+        signal: "credential-gap",
+      }),
+    ]);
+  });
+});
+
+describe("isCredentialGapCodeAgentEvent", () => {
+  it("detects the structured signal regardless of message text", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        signal: "credential-gap",
+        message: "some unrelated status text",
+      }),
+    ).toBe(true);
+    expect(
+      isCredentialGapCodeAgentEvent({
+        signal: "credential-gap",
+        text: "some unrelated status text",
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to matching the legacy hint text when no signal is present", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        message: "No LLM provider key was found.",
+      }),
+    ).toBe(true);
+    expect(
+      isCredentialGapCodeAgentEvent({
+        text: "Missing credentials for a provider.",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not flag unrelated status events", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        message: "Agent-Native Code run started.",
+      }),
+    ).toBe(false);
+    expect(isCredentialGapCodeAgentEvent({})).toBe(false);
   });
 });
 
