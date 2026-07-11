@@ -125,7 +125,9 @@ describe("RealtimeVoiceMode", () => {
 
     expect(document.body.textContent).toContain("Talk to your app");
     const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(prompt?.className).toContain("w-[min(22rem,calc(100vw-2rem))]");
+    expect(prompt?.className).toContain(
+      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,22rem),22rem)]",
+    );
     expect(document.body.textContent).toContain("Keep dictating");
     expect(onStartVoiceMode).not.toHaveBeenCalled();
     expect(onKeepDictating).not.toHaveBeenCalled();
