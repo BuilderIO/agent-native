@@ -363,6 +363,22 @@ rendered file के अंदर DOM/code layers edit करने के ल�
 model दिखाता है: screens top-level frames हैं, और active screen के नीचे nested
 DOM/code layers होते हैं।
 
+### Tweaks
+
+Tweaks नाम वाले controls हैं जिनसे source edit किए बिना design की सबसे उपयोगी
+visual properties जल्दी बदली जा सकती हैं। Design accent color, corner radius,
+spacing, density या visibility जैसी properties के लिए color swatches, segmented
+choices, sliders और toggles दे सकता है। हर control rendered design में उपयोग होने
+वाली CSS custom property से जुड़ा होता है, इसलिए adjustment के साथ preview update
+होता है।
+
+Tweaks editor के cascade का पालन करते हैं। Base design में set value responsive
+breakpoints और states को inherit होती है। किसी breakpoint या state के active होने
+पर tweak बदलने से उस context के लिए override बनता है; control reset करने पर override
+हट जाता है और inherited value वापस आती है। Saved values design के साथ रहते हैं।
+ज़रूरी control न हो तो **ट्विक नियंत्रण जोड़ें** का उपयोग करें या agent से कोई दूसरी
+visual property expose करने को कहें।
+
 जब coding agent को standalone prototype HTML बनाने के बजाय running local app को
 Design में खोलना हो, तब `/visual-edit` install करें:
 

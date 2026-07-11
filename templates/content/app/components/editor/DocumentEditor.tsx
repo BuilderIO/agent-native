@@ -50,7 +50,6 @@ import {
 } from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
-  readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
@@ -537,71 +536,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     }
   }, [document, documentId]);
-
-  useEffect(() => {
-    if (!isInitializedRef.current || !isLinkedLocalSourceDocument) {
-      return;
-    }
-
-    let cancelled = false;
-    readDocumentFromLinkedLocalSource(document)
-      .then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          toast.error(t("editor.couldNotReadLocalSourceFile"), {
-            description: result.error,
-          });
-          return;
-        }
-
-        const fileDocument = result.document;
-        setLocalTitle(fileDocument.title);
-        setLocalContent(fileDocument.content);
-        setLocalContentUpdatedAt(result.updatedAt);
-        lastSavedTitleRef.current = {
-          title: fileDocument.title,
-          updatedAt: result.updatedAt,
-        };
-        lastSavedContentRef.current = {
-          content: fileDocument.content,
-          updatedAt: result.updatedAt,
-        };
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          (old: Document | undefined) =>
-            old && typeof old === "object" ? { ...old, ...fileDocument } : old,
-        );
-        queryClient.setQueryData(
-          ["action", "list-documents", undefined],
-          (old: any) => {
-            const docs = old?.documents ?? (Array.isArray(old) ? old : null);
-            if (!Array.isArray(docs)) return old;
-            const nextDocs = docs.map((doc: Document) =>
-              doc.id === documentId ? { ...doc, ...fileDocument } : doc,
-            );
-            return Array.isArray(old)
-              ? nextDocs
-              : { ...old, documents: nextDocs };
-          },
-        );
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        toast.error(t("editor.couldNotReadLocalSourceFile"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    documentId,
-    document.source?.path,
-    isLinkedLocalSourceDocument,
-    queryClient,
-  ]);
 
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the

@@ -358,6 +358,78 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ).toEqual([laterSpinner]);
   });
 
+  it("drops an unrelated-id activity duplicate during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "toolu_live",
+            toolName: "generate-design",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ],
+      },
+    ];
+    const reconnectSpinner = {
+      type: "tool-call" as const,
+      toolCallId: "tc_7",
+      toolName: "generate-design",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [reconnectSpinner],
+        persistedMessages,
+        { suppressToolRepeats: true },
+      ),
+    ).toEqual([]);
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [reconnectSpinner],
+        persistedMessages,
+      ),
+    ).toEqual([reconnectSpinner]);
+  });
+
+  it("keeps distinct stable activity ids during adapter handoff", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "activity-call-1",
+            toolName: "generate-design",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ],
+      },
+    ];
+    const parallelCall = {
+      type: "tool-call" as const,
+      toolCallId: "activity-call-2",
+      toolName: "generate-design",
+      argsText: "",
+      args: {},
+      activity: true,
+    };
+
+    expect(
+      dedupeReconnectContentAgainstMessages([parallelCall], persistedMessages, {
+        suppressToolRepeats: true,
+      }),
+    ).toEqual([parallelCall]);
+  });
+
   it("drops a same-name reconnect spinner when a matching pending call is rendered beside a completed call", () => {
     const persistedMessages = [
       {
@@ -468,7 +540,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
   it("drops stale pending tool-call copies inside the reconnect snapshot", () => {
     const stalePending = {
       type: "tool-call" as const,
-      toolCallId: "tc_stale",
+      toolCallId: "tc_7",
       toolName: "edit-screen",
       argsText: '{"screen":"home"}',
       args: { screen: "home" },
@@ -485,6 +557,29 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     expect(
       dedupeReconnectContentAgainstMessages([stalePending, completed], []),
     ).toEqual([completed]);
+  });
+
+  it("keeps parallel pending calls with distinct stable ids inside one snapshot", () => {
+    const parallelCalls = [
+      {
+        type: "tool-call" as const,
+        toolCallId: "activity-call-1",
+        toolName: "generate-design",
+        argsText: '{"screen":"home"}',
+        args: { screen: "home" },
+      },
+      {
+        type: "tool-call" as const,
+        toolCallId: "activity-call-2",
+        toolName: "generate-design",
+        argsText: '{"screen":"home"}',
+        args: { screen: "home" },
+      },
+    ];
+
+    expect(dedupeReconnectContentAgainstMessages(parallelCalls, [])).toBe(
+      parallelCalls,
+    );
   });
 
   it("drops a pending reconnect duplicate whose call already completed in messages (fingerprint fallback)", () => {
@@ -763,6 +858,102 @@ describe("dedupeReconnectContentAgainstMessages", () => {
     ]);
   });
 
+  it("hides a tail reconnect chunk already rendered as the latest text suffix", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "The earlier paragraph. " },
+          {
+            type: "tool-call",
+            toolCallId: "toolu_done",
+            toolName: "generate-design",
+            argsText: "{}",
+            args: {},
+            result: "done",
+          },
+          { type: "text", text: "The final chunk is already visible." },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [{ type: "text", text: "The final chunk is already visible." }],
+        persistedMessages,
+        { trimTailTextOverlap: true },
+      ),
+    ).toEqual([]);
+  });
+
+  it("trims only a whole-boundary tail overlap before new reconnect text", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "The earlier paragraph. The final chunk",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "text",
+            text: "The final chunk continues with new output.",
+          },
+        ],
+        persistedMessages,
+        { trimTailTextOverlap: true },
+      ),
+    ).toEqual([{ type: "text", text: " continues with new output." }]);
+  });
+
+  it("does not trim a matching reconnect substring away from the rendered tail", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "The final chunk appeared earlier, but this tail is different.",
+          },
+        ],
+      },
+    ];
+    const reconnectContent = [
+      { type: "text" as const, text: "The final chunk continues now." },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+      ),
+    ).toBe(reconnectContent);
+  });
+
+  it("preserves a legitimately repeated tail when this is not a tail replay", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "First pass: Done." }],
+      },
+    ];
+    const reconnectContent = [{ type: "text" as const, text: "Done." }];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+      ),
+    ).toBe(reconnectContent);
+  });
+
   it("does not compare reconnect text against older assistant turns", () => {
     const persistedMessages = [
       {
@@ -994,6 +1185,66 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(true);
   });
 
+  it("hides a specific activity status when its pending tool card is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Writing generate design...",
+        runningActivityTool: "generate-design",
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checking the layout structure." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "generate-design",
+              argsText: "",
+              args: {},
+              activity: true,
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("hides the global status when reconnect fallback already shows a tool card", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Writing generate design...",
+        runningActivityTool: "generate-design",
+        latestMessage: null,
+        reconnectContent: reconnectActivityFallbackContent("generate-design"),
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a specific activity status when only a different tool card is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Writing generate design...",
+        runningActivityTool: "generate-design",
+        latestMessage: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
   it("hides the duplicate status while reconnect reasoning is visible", () => {
     expect(
       shouldShowGlobalRunningStatus({
@@ -1020,6 +1271,20 @@ describe("shouldShowGlobalRunningStatus", () => {
 });
 
 describe("chat submit and stop hardening", () => {
+  it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "useReconnectReaderOwner(\n    reconnectRunIdRef,\n    reconnectAbortRef,\n  )",
+    );
+    expect(source).toContain("!reconnectOwnerMountedRef.current ||");
+    expect(source).toContain(
+      "if (reconnectRunIdRef.current !== runId) return;",
+    );
+  });
+
   it("does not block chat composer submit on the async readiness hook", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

@@ -4,7 +4,11 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
@@ -1051,6 +1055,10 @@ export function useGuidedQuestionFlow({
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
+    // A matching app-state event changes the query key. Preserve the existing
+    // payload while the replacement read is in flight so full-canvas question
+    // forms do not unmount and flash during routine sync updates.
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {

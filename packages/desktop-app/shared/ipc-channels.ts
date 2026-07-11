@@ -90,6 +90,7 @@ export const IPC = {
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
   CODE_AGENTS_RERUN_RUN: "code-agents:rerun-run",
   CODE_AGENTS_GET_HOST_METADATA: "code-agents:get-host-metadata",
+  CODE_AGENTS_COMPUTER_SETUP: "code-agents:computer-setup",
   CODE_AGENTS_LIST_CODE_PACKS: "code-agents:list-code-packs",
   CODE_AGENTS_LIST_PROJECTS: "code-agents:list-projects",
   CODE_AGENTS_SELECT_PROJECT: "code-agents:select-project",
@@ -779,6 +780,22 @@ export interface CodeAgentHostMetadata {
     openTerminal: boolean;
     controlCommands: CodeAgentHostControlCommand[];
   };
+  error?: string;
+}
+
+export type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+export interface CodeAgentComputerSetupResult {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
   error?: string;
 }
 

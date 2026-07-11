@@ -191,6 +191,40 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
   });
 
+  it("keeps active questions visible while a DB-sync refresh is pending", async () => {
+    let reads = 0;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = vi.fn(() => {
+      reads += 1;
+      if (reads === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload)));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveRefresh = () => resolve(new Response(JSON.stringify(payload)));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:guided-questions", 10);
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current().questions).toEqual(payload.questions);
+
+    await act(async () => {
+      resolveRefresh?.();
+      await Promise.resolve();
+    });
+  });
+
   it("DELETEs the scoped key on clear so the card does not reappear", async () => {
     const deleted: string[] = [];
     vi.stubGlobal(

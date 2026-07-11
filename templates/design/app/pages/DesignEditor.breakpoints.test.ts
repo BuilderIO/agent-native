@@ -564,7 +564,32 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleOverviewEditBreakpoint"),
       source.indexOf("// Hooks must not be called conditionally"),
     );
-    expect(editor).toContain("enterSingleScreenInteract(screenId)");
+    expect(editor).toContain("handleOverviewFrameAction(screenId)");
+  });
+
+  it("keeps overview visible when entering Interact and uses the frame action for Full view", () => {
+    const modeHandler = source.slice(
+      source.indexOf("const handleModeChange = useCallback"),
+      source.indexOf("const handleOverviewFrameAction = useCallback"),
+    );
+    expect(modeHandler).not.toContain('setViewMode("single")');
+    expect(source).toContain('interactMode={mode === "interact"}');
+    expect(source).toContain(
+      'currentMode === "interact" ? "interact" : "edit"',
+    );
+
+    const frameActionStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback",
+    );
+    const frameAction = source.slice(
+      frameActionStart,
+      source.indexOf("  useEffect(() => {", frameActionStart),
+    );
+    expect(frameAction).toContain('if (mode === "interact")');
+    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
+    expect(frameAction).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

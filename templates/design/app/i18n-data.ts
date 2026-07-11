@@ -846,6 +846,7 @@ const enUS = {
     closeTweaks: "Close tweaks",
     tweaksHelp:
       "Tweaks are breakpoint- and state-specific visual overrides layered on the base design. Reset a control to return to the inherited value.",
+    tweaksDocs: "Learn more.",
     noTweakControls: "No tweak controls yet.",
     extensions: "Extensions",
     addExtension: "Extension",
@@ -1041,7 +1042,7 @@ const enUS = {
   multiScreenCanvas: {
     duplicate: "Duplicate",
     fork: "Fork",
-    fullView: "Interact",
+    fullView: "Full view",
     preview: "Preview",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
@@ -5339,6 +5340,7 @@ const designRawLiteralOverrides = {
       addTweaks: "添加调整",
       addTweakControls: "添加调整控件",
       closeTweaks: "关闭调整",
+      tweaksDocs: "了解详情。",
       noTweakControls: "还没有调整控件。",
       extensions: "扩展",
       addExtension: "扩展",
@@ -5494,6 +5496,7 @@ const designRawLiteralOverrides = {
       addTweaks: "Agregar ajustes",
       addTweakControls: "Agregar controles de ajuste",
       closeTweaks: "Cerrar ajustes",
+      tweaksDocs: "Más información.",
       noTweakControls: "Aún no hay controles de ajuste.",
       extensions: "Extensiones",
       addExtension: "Extensión",
@@ -5654,6 +5657,7 @@ const designRawLiteralOverrides = {
       addTweaks: "Ajouter des ajustements",
       addTweakControls: "Ajouter des contrôles de réglage",
       closeTweaks: "Fermer les réglages",
+      tweaksDocs: "En savoir plus.",
       noTweakControls: "Pas encore de contrôles de réglage.",
       extensions: "Extensions",
       addExtension: "Extension",
@@ -5814,6 +5818,7 @@ const designRawLiteralOverrides = {
       addTweaks: "Fügen Sie Optimierungen hinzu",
       addTweakControls: "Fügen Sie Optimierungssteuerelemente hinzu",
       closeTweaks: "Enge Optimierungen",
+      tweaksDocs: "Mehr erfahren.",
       noTweakControls: "Noch keine Optimierungssteuerung.",
       extensions: "Erweiterungen",
       addExtension: "Erweiterung",
@@ -5975,6 +5980,7 @@ const designRawLiteralOverrides = {
       addTweaks: "微調整を追加する",
       addTweakControls: "微調整コントロールを追加する",
       closeTweaks: "微調整を閉じる",
+      tweaksDocs: "詳細を見る。",
       noTweakControls: "まだ調整コントロールはありません。",
       extensions: "拡張機能",
       addExtension: "拡張機能",
@@ -6131,6 +6137,7 @@ const designRawLiteralOverrides = {
       addTweaks: "조정 추가",
       addTweakControls: "조정 컨트롤 추가",
       closeTweaks: "조정 닫기",
+      tweaksDocs: "자세히 알아보기.",
       noTweakControls: "아직 조정 컨트롤이 없습니다.",
       extensions: "확장",
       addExtension: "확장",
@@ -6286,6 +6293,7 @@ const designRawLiteralOverrides = {
       addTweaks: "Adicionar ajustes",
       addTweakControls: "Adicionar controles de ajuste",
       closeTweaks: "Fechar ajustes",
+      tweaksDocs: "Saiba mais.",
       noTweakControls: "Nenhum controle de ajuste ainda.",
       extensions: "Extensões",
       addExtension: "Extensão",
@@ -6446,6 +6454,7 @@ const designRawLiteralOverrides = {
       addTweaks: "बदलाव जोड़ें",
       addTweakControls: "ट्विक नियंत्रण जोड़ें",
       closeTweaks: "बदलाव बंद करें",
+      tweaksDocs: "और जानें।",
       noTweakControls: "अभी तक कोई ट्विक नियंत्रण नहीं है.",
       extensions: "एक्सटेंशन",
       addExtension: "एक्सटेंशन",
@@ -6601,6 +6610,7 @@ const designRawLiteralOverrides = {
       addTweaks: "أضف تعديلات",
       addTweakControls: "إضافة الضوابط القرص",
       closeTweaks: "إغلاق القرص",
+      tweaksDocs: "معرفة المزيد.",
       noTweakControls: "لا توجد ضوابط قرص حتى الآن.",
       extensions: "الإضافات",
       addExtension: "إضافة",
@@ -7709,7 +7719,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分支",
-      fullView: "互動",
+      fullView: "完整檢視",
       preview: "預覽",
       openAndDuplicate: "選取 {{display}}。使用互動模式進行聚焦捲動。",
       openAndPreview: "選取 {{display}}。使用互動模式進行聚焦捲動。",
@@ -7873,7 +7883,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "复制",
       fork: "分支",
-      fullView: "互动",
+      fullView: "完整视图",
       preview: "预览",
       openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
       openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
@@ -8038,7 +8048,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Bifurcar",
-      fullView: "Interactuar",
+      fullView: "Vista completa",
       preview: "Vista previa",
       openAndDuplicate:
         "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
@@ -8224,7 +8234,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Dupliquer",
       fork: "Créer une branche",
-      fullView: "Interagir",
+      fullView: "Vue complète",
       preview: "Aperçu",
       openAndDuplicate:
         "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
@@ -8407,7 +8417,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplizieren",
       fork: "Abzweigen",
-      fullView: "Interagieren",
+      fullView: "Vollansicht",
       preview: "Vorschau",
       openAndDuplicate:
         "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
@@ -8595,7 +8605,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "複製",
       fork: "分岐",
-      fullView: "操作",
+      fullView: "全体表示",
       preview: "プレビュー",
       openAndDuplicate:
         "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
@@ -8778,7 +8788,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "복제",
       fork: "분기",
-      fullView: "상호작용",
+      fullView: "전체 보기",
       preview: "미리보기",
       openAndDuplicate:
         "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
@@ -8958,7 +8968,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "Duplicar",
       fork: "Ramificar",
-      fullView: "Interagir",
+      fullView: "Vista completa",
       preview: "Prévia",
       openAndDuplicate:
         "Selecione {{display}}. Use Interagir para rolagem focada.",
@@ -9138,7 +9148,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "डुप्लिकेट",
       fork: "फोर्क",
-      fullView: "इंटरैक्ट करें",
+      fullView: "पूर्ण दृश्य",
       preview: "पूर्वावलोकन",
       openAndDuplicate:
         "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
@@ -9318,7 +9328,7 @@ const designModeFeatureOverrides = {
     multiScreenCanvas: {
       duplicate: "تكرار",
       fork: "تفريع",
-      fullView: "تفاعل",
+      fullView: "عرض كامل",
       preview: "معاينة",
       openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
       openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",

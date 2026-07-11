@@ -28,6 +28,7 @@ import {
   IconFolder,
   IconFolderPlus,
   IconLink,
+  IconLockAccess,
   IconPencil,
   IconPinned,
   IconPinnedOff,
@@ -40,6 +41,7 @@ import {
   IconSearch,
   IconSettings,
   IconShieldCheck,
+  IconScreenShare,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -106,13 +108,15 @@ import type {
   CodeAgentsOpenRequest,
 } from "./types.js";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./ui/dialog.js";
+import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import {
@@ -128,6 +132,9 @@ export interface CodeAgentsHost {
   listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
   listModels?(): Promise<CodeAgentModelListResult>;
   getHostMetadata?(): Promise<CodeAgentHostMetadata>;
+  runComputerSetupAction?(
+    action: CodeAgentComputerSetupAction,
+  ): Promise<CodeAgentComputerSetupResult>;
   listCodePacks?(cwd?: string): Promise<CodeAgentCodePackResult>;
   listProjects?(): Promise<CodeAgentProjectListResult>;
   selectProject?(cwd: string): Promise<CodeAgentProjectSelectResult>;
@@ -217,6 +224,22 @@ interface CodeAgentHostMetadata {
       connected: boolean;
     };
   };
+  error?: string;
+}
+
+export type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+export interface CodeAgentComputerSetupResult {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
   error?: string;
 }
 
@@ -373,6 +396,13 @@ export default function CodeAgentsApp({
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [hostMetadata, setHostMetadata] =
     useState<CodeAgentHostMetadata | null>(null);
+  const [computerSetupOpen, setComputerSetupOpen] = useState(false);
+  const [computerSetupAction, setComputerSetupAction] =
+    useState<CodeAgentComputerSetupAction | null>(null);
+  const [computerSetupRestartRecommended, setComputerSetupRestartRecommended] =
+    useState(false);
+  const [accessibilityPrompted, setAccessibilityPrompted] = useState(false);
+  const [screenRecordingPrompted, setScreenRecordingPrompted] = useState(false);
   const [builderConnecting, setBuilderConnecting] = useState(false);
   const [builderConnectMessage, setBuilderConnectMessage] = useState<
     string | null
@@ -548,8 +578,42 @@ export default function CodeAgentsApp({
     }
   }, [host]);
 
+  const runComputerSetupAction = useCallback(
+    async (action: CodeAgentComputerSetupAction) => {
+      if (!host.runComputerSetupAction) {
+        toast("Computer access setup is not available here");
+        return;
+      }
+      setComputerSetupAction(action);
+      try {
+        const result = await host.runComputerSetupAction(action);
+        if (action === "request-accessibility") {
+          setAccessibilityPrompted(true);
+        }
+        if (action === "request-screen-recording") {
+          setScreenRecordingPrompted(true);
+        }
+        if (result.restartRecommended) {
+          setComputerSetupRestartRecommended(true);
+        }
+        toast(result.ok ? result.message : "Could not update computer access", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+        if (action !== "restart") await loadHostMetadata();
+      } catch (err) {
+        toast("Could not update computer access", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setComputerSetupAction(null);
+      }
+    },
+    [host, loadHostMetadata],
+  );
+
   useEffect(() => {
-    if (!host.getHostMetadata) return;
+    if (!isActive || !host.getHostMetadata) return;
     let cancelled = false;
     const refresh = () => {
       void host.getHostMetadata!()
@@ -571,7 +635,7 @@ export default function CodeAgentsApp({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [host, refreshKey]);
+  }, [host, isActive, refreshKey]);
 
   const connectBuilderProvider = useCallback(async () => {
     setBuilderConnectMessage(null);
@@ -613,19 +677,19 @@ export default function CodeAgentsApp({
   }, [host, loadHostMetadata, loadRuns, modelSelection.model, onOpenSettings]);
 
   useEffect(() => {
-    if (!host.getRemoteConnectorStatus) return;
+    if (!isActive || !host.getRemoteConnectorStatus) return;
     void loadRemoteConnectorStatus();
     const timer = window.setInterval(
       () => void loadRemoteConnectorStatus(),
       5000,
     );
     return () => window.clearInterval(timer);
-  }, [host.getRemoteConnectorStatus, loadRemoteConnectorStatus]);
+  }, [host.getRemoteConnectorStatus, isActive, loadRemoteConnectorStatus]);
 
   useEffect(() => {
-    if (refreshKey <= 0) return;
+    if (!isActive || refreshKey <= 0) return;
     void loadRuns(true);
-  }, [loadRuns, refreshKey]);
+  }, [isActive, loadRuns, refreshKey]);
 
   useEffect(() => {
     if (!openRequest) return;
@@ -728,6 +792,7 @@ export default function CodeAgentsApp({
   }, [host, normalizedSearchQuery, searchPanelOpen, searchRuns]);
 
   useEffect(() => {
+    if (!isActive) return;
     let cancelled = false;
     void host
       .listModels?.()
@@ -744,13 +809,15 @@ export default function CodeAgentsApp({
     return () => {
       cancelled = true;
     };
-  }, [host, modelSelection.model, refreshKey]);
+  }, [host, isActive, modelSelection.model, refreshKey]);
 
   useEffect(() => {
+    if (!isActive) return;
     void loadProjects();
-  }, [loadProjects]);
+  }, [isActive, loadProjects]);
 
   useEffect(() => {
+    if (!isActive) return;
     let cancelled = false;
     void host
       .listCodePacks?.(selectedProjectPath || undefined)
@@ -767,22 +834,24 @@ export default function CodeAgentsApp({
     return () => {
       cancelled = true;
     };
-  }, [host, selectedProjectPath]);
+  }, [host, isActive, selectedProjectPath]);
 
   useEffect(() => {
     writeStoredModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
   useEffect(() => {
+    if (!isActive) return;
     void loadRuns();
     const interval = window.setInterval(
       () => void loadRuns(),
       hasActiveRuns ? 2_000 : 10_000,
     );
     return () => window.clearInterval(interval);
-  }, [hasActiveRuns, loadRuns]);
+  }, [hasActiveRuns, isActive, loadRuns]);
 
   useEffect(() => {
+    if (!isActive) return;
     void loadTranscript(selectedRunId, true);
     if (!selectedRunId) return;
     const unsubscribe = host.subscribeTranscript?.(
@@ -818,6 +887,7 @@ export default function CodeAgentsApp({
     };
   }, [
     host,
+    isActive,
     loadTranscript,
     selectedGoal.id,
     selectedRunId,
@@ -1451,6 +1521,12 @@ export default function CodeAgentsApp({
               onOpen={openMobilePanel}
             />
           )}
+          {hostMetadata?.computerControl && (
+            <ComputerAccessRailItem
+              metadata={hostMetadata}
+              onOpen={() => setComputerSetupOpen(true)}
+            />
+          )}
         </div>
 
         <div className="code-agents-run-list">
@@ -1499,7 +1575,10 @@ export default function CodeAgentsApp({
                       ? `Task ${selectedRunId}`
                       : selectedGoal.primaryActionLabel)}
                 </h2>
-                <AgentCapabilitySummary metadata={hostMetadata} />
+                <AgentCapabilitySummary
+                  metadata={hostMetadata}
+                  onOpenComputerSetup={() => setComputerSetupOpen(true)}
+                />
               </div>
               <div className="code-agents-toolbar-actions">
                 {canOpenTerminal && (
@@ -1674,14 +1753,26 @@ export default function CodeAgentsApp({
           </div>
         )}
       </main>
+      <ComputerAccessDialog
+        open={computerSetupOpen}
+        onOpenChange={setComputerSetupOpen}
+        metadata={hostMetadata}
+        activeAction={computerSetupAction}
+        accessibilityPrompted={accessibilityPrompted}
+        screenRecordingPrompted={screenRecordingPrompted}
+        restartRecommended={computerSetupRestartRecommended}
+        onAction={runComputerSetupAction}
+      />
     </section>
   );
 }
 
 function AgentCapabilitySummary({
   metadata,
+  onOpenComputerSetup,
 }: {
   metadata: CodeAgentHostMetadata | null;
+  onOpenComputerSetup: () => void;
 }) {
   const control = metadata?.computerControl;
   const desktopReady = Boolean(
@@ -1705,28 +1796,239 @@ function AgentCapabilitySummary({
         <IconCode size={13} strokeWidth={1.8} />
         Code ready
       </span>
-      <span
+      <button
+        type="button"
         className={`code-agents-capability${chromeReady ? " code-agents-capability--ready" : ""}`}
         title={
           chromeReady
             ? "The Chrome extension is connected and ready for this task."
             : "Load the bundled Chrome extension to enable browser control."
         }
+        onClick={onOpenComputerSetup}
       >
         <IconBrandChrome size={13} strokeWidth={1.8} />
         {chromeReady ? "Chrome available" : "Chrome setup"}
-      </span>
-      <span
+      </button>
+      <button
+        type="button"
         className={`code-agents-capability${desktopReady ? " code-agents-capability--ready" : ""}`}
         title={
           desktopReady
             ? "Desktop Accessibility and Screen Recording permissions are ready."
             : "Enable Accessibility and Screen Recording for Agent Native in System Settings."
         }
+        onClick={onOpenComputerSetup}
       >
         <IconDeviceDesktop size={13} strokeWidth={1.8} />
         {desktopReady ? "Desktop ready" : "Desktop setup"}
-      </span>
+      </button>
+    </div>
+  );
+}
+
+function computerAccessReadiness(metadata: CodeAgentHostMetadata | null) {
+  const control = metadata?.computerControl;
+  const accessibilityReady = Boolean(control?.desktop.accessibility);
+  const screenRecordingReady = control?.desktop.screenRecording === "granted";
+  const chromeReady = Boolean(
+    control?.browser.nativeHostInstalled &&
+    control.browser.extensionBundled &&
+    control.browser.connected,
+  );
+  return {
+    accessibilityReady,
+    screenRecordingReady,
+    chromeReady,
+    allReady: accessibilityReady && screenRecordingReady && chromeReady,
+  };
+}
+
+function ComputerAccessRailItem({
+  metadata,
+  onOpen,
+}: {
+  metadata: CodeAgentHostMetadata;
+  onOpen: () => void;
+}) {
+  const { allReady } = computerAccessReadiness(metadata);
+  return (
+    <button type="button" className="code-agents-nav-link" onClick={onOpen}>
+      <IconDeviceDesktop size={15} strokeWidth={1.8} />
+      <span>Computer access</span>
+      <span
+        className={`code-agents-mobile-indicator ${
+          allReady
+            ? "code-agents-mobile-indicator--connected"
+            : "code-agents-mobile-indicator--attention"
+        }`}
+        aria-label={allReady ? "Ready" : "Setup needed"}
+      />
+    </button>
+  );
+}
+
+function ComputerAccessDialog({
+  open,
+  onOpenChange,
+  metadata,
+  activeAction,
+  accessibilityPrompted,
+  screenRecordingPrompted,
+  restartRecommended,
+  onAction,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  metadata: CodeAgentHostMetadata | null;
+  activeAction: CodeAgentComputerSetupAction | null;
+  accessibilityPrompted: boolean;
+  screenRecordingPrompted: boolean;
+  restartRecommended: boolean;
+  onAction: (action: CodeAgentComputerSetupAction) => void;
+}) {
+  const readiness = computerAccessReadiness(metadata);
+  const actionButton = (
+    action: CodeAgentComputerSetupAction,
+    label: string,
+  ) => (
+    <button
+      type="button"
+      className="code-agents-button code-agents-computer-step__action"
+      disabled={Boolean(activeAction)}
+      onClick={() => onAction(action)}
+    >
+      {activeAction === action && (
+        <IconRefresh
+          className="code-agents-spinner"
+          size={14}
+          strokeWidth={1.8}
+        />
+      )}
+      {label}
+    </button>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby="computer-access-description">
+        <div className="code-agents-computer-dialog__hero">
+          <span className="code-agents-computer-dialog__hero-icon">
+            <IconShieldCheck size={21} strokeWidth={1.7} />
+          </span>
+          <div>
+            <DialogTitle>Computer access</DialogTitle>
+            <DialogDescription id="computer-access-description">
+              Agent Native only controls Chrome or your desktop while an Auto
+              task is running. Stop releases control immediately.
+            </DialogDescription>
+          </div>
+        </div>
+
+        {readiness.allReady && (
+          <div className="code-agents-computer-ready" role="status">
+            <IconCheck size={17} strokeWidth={2} />
+            <div>
+              <strong>Computer access is ready</strong>
+              <span>
+                Chrome and desktop control are available to Auto tasks.
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="code-agents-computer-steps">
+          <ComputerAccessStep
+            icon={<IconLockAccess size={18} strokeWidth={1.7} />}
+            title="Accessibility"
+            description="Lets the agent click, type, and use keyboard shortcuts."
+            ready={readiness.accessibilityReady}
+            action={
+              readiness.accessibilityReady
+                ? null
+                : accessibilityPrompted
+                  ? actionButton("open-accessibility-settings", "Open Settings")
+                  : actionButton("request-accessibility", "Enable")
+            }
+          />
+          <ComputerAccessStep
+            icon={<IconScreenShare size={18} strokeWidth={1.7} />}
+            title="Screen Recording"
+            description="Lets the agent see what is on screen while it works."
+            ready={readiness.screenRecordingReady}
+            action={
+              readiness.screenRecordingReady
+                ? null
+                : screenRecordingPrompted
+                  ? actionButton(
+                      "open-screen-recording-settings",
+                      "Open Settings",
+                    )
+                  : actionButton("request-screen-recording", "Enable")
+            }
+          />
+          <ComputerAccessStep
+            icon={<IconBrandChrome size={18} strokeWidth={1.7} />}
+            title="Chrome"
+            description={
+              readiness.chromeReady
+                ? "The Agent Native extension is connected."
+                : "Opens Chrome Extensions and reveals the bundled extension folder. Turn on Developer mode, choose Load unpacked, then select that folder."
+            }
+            ready={readiness.chromeReady}
+            action={
+              readiness.chromeReady
+                ? null
+                : actionButton("open-chrome-setup", "Open Chrome setup")
+            }
+          />
+        </div>
+
+        {restartRecommended &&
+          (!readiness.accessibilityReady ||
+            !readiness.screenRecordingReady) && (
+            <div className="code-agents-computer-restart">
+              <div>
+                <strong>Changed a macOS permission?</strong>
+                <span>
+                  Restart once after enabling it so the new access takes effect.
+                </span>
+              </div>
+              {actionButton("restart", "Restart Agent Native")}
+            </div>
+          )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ComputerAccessStep({
+  icon,
+  title,
+  description,
+  ready,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  ready: boolean;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="code-agents-computer-step">
+      <span className="code-agents-computer-step__icon">{icon}</span>
+      <div className="code-agents-computer-step__body">
+        <div className="code-agents-computer-step__title-row">
+          <strong>{title}</strong>
+          <span
+            className={`code-agents-computer-step__status${ready ? " code-agents-computer-step__status--ready" : ""}`}
+          >
+            {ready ? "Ready" : "Needs setup"}
+          </span>
+        </div>
+        <p>{description}</p>
+      </div>
+      {action}
     </div>
   );
 }
@@ -1929,6 +2231,7 @@ function CodeAgentComposer({
   onConnectProvider?: () => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
+  const availableModels = groupCodeAgentModelOptions(modelOptions);
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
@@ -1936,19 +2239,12 @@ function CodeAgentComposer({
     [],
   );
 
-  const advancedControls = (
-    <div className="code-agents-composer-mode-slot">
-      <RunModeSelect
-        value={permissionMode}
-        onChange={onPermissionModeChange}
-        compact
-      />
-      <AgentAdvancedMenu
-        modelSelection={normalizedModel}
-        modelOptions={modelOptions}
-        onModelSelectionChange={onModelSelectionChange}
-      />
-    </div>
+  const modeControl = (
+    <RunModeSelect
+      value={permissionMode}
+      onChange={onPermissionModeChange}
+      compact
+    />
   );
 
   const stopButton =
@@ -1982,8 +2278,22 @@ function CodeAgentComposer({
         promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
       }
       initialTextKey={promptSeed}
-      toolbarSlot={advancedControls}
+      modeControl={modeControl}
       actionButton={stopButton}
+      availableModels={availableModels}
+      selectedModel={normalizedModel.model ?? "auto"}
+      selectedEngine={normalizedModel.engine ?? "auto"}
+      selectedEffort={normalizedModel.effort}
+      onModelChange={(model, engine) =>
+        onModelSelectionChange({
+          engine,
+          model,
+          effort: normalizedModel.effort,
+        })
+      }
+      onEffortChange={(effort) =>
+        onModelSelectionChange({ ...normalizedModel, effort })
+      }
       modelStatusChecksEnabled={false}
       onTextChange={onPromptChange}
       slashCommands={slashCommands}
@@ -2149,6 +2459,31 @@ function normalizeModelSelection(
     model: selected.model,
     effort: normalizeReasoningEffort(value.effort ?? "auto"),
   };
+}
+
+function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
+  const groups = new Map<
+    string,
+    {
+      engine: string;
+      label: string;
+      models: string[];
+      configured: boolean;
+    }
+  >();
+  for (const option of models) {
+    const configured = option.configured !== false;
+    const key = `${option.engine}:${configured ? "ready" : "setup"}`;
+    const group = groups.get(key) ?? {
+      engine: option.engine,
+      label: option.engineLabel,
+      models: [],
+      configured,
+    };
+    if (!group.models.includes(option.model)) group.models.push(option.model);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
@@ -3476,6 +3811,7 @@ function TranscriptPanel({
   const selectedEffort = normalizeReasoningEffort(
     normalizedModel.effort ?? "auto",
   );
+  const availableModels = groupCodeAgentModelOptions(modelOptions);
   const eventsRef = useRef(events);
   eventsRef.current = events;
   const hideCredentialMessagesRef = useRef(hideCredentialMessages);
@@ -3560,6 +3896,20 @@ function TranscriptPanel({
           loadHistoryRepository={loadHistoryRepository}
           historyReloadKey={historyReloadKey}
           externalStreaming={runIsActive}
+          availableModels={availableModels}
+          selectedModel={selectedModel}
+          selectedEngine={selectedEngine}
+          selectedEffort={selectedEffort}
+          onModelChange={(model, engine) =>
+            onModelSelectionChange({
+              engine,
+              model,
+              effort: selectedEffort,
+            })
+          }
+          onEffortChange={(effort) =>
+            onModelSelectionChange({ ...normalizedModel, effort })
+          }
           composerAreaClassName="code-agents-standard-composer"
           composerToolbarSlot={
             <div className="code-agents-chat-composer-slot">
@@ -3567,11 +3917,6 @@ function TranscriptPanel({
                 value={permissionMode}
                 onChange={onPermissionModeChange}
                 compact
-              />
-              <AgentAdvancedMenu
-                modelSelection={normalizedModel}
-                modelOptions={modelOptions}
-                onModelSelectionChange={onModelSelectionChange}
               />
             </div>
           }
@@ -3655,90 +4000,6 @@ function TokenUsageMeter({ run }: { run: CodeAgentRun }) {
         {formatTokenCount(input)} in / {formatTokenCount(output)} out
       </span>
     </div>
-  );
-}
-
-function AgentAdvancedMenu({
-  modelSelection,
-  modelOptions,
-  onModelSelectionChange,
-}: {
-  modelSelection: CodeAgentModelSelection;
-  modelOptions: CodeAgentModelOption[];
-  onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-}) {
-  const selectedModel = modelSelection.model ?? "auto";
-  const selectedEngine = modelSelection.engine ?? "auto";
-  const selectedEffort = normalizeReasoningEffort(
-    modelSelection.effort ?? "auto",
-  );
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="code-agents-composer-advanced-trigger"
-          aria-label="Advanced task settings"
-          title="Advanced task settings"
-        >
-          <IconSettings size={15} strokeWidth={1.8} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        className="code-agents-composer-advanced-menu"
-        align="start"
-        side="top"
-      >
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <span>Model</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
-            {modelOptions.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={`${option.engine}:${option.model}`}
-                checked={
-                  selectedEngine === option.engine &&
-                  selectedModel === option.model
-                }
-                disabled={option.configured === false}
-                onSelect={() =>
-                  onModelSelectionChange({
-                    engine: option.engine,
-                    model: option.model,
-                    effort: selectedEffort,
-                  })
-                }
-              >
-                {option.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <span>Reasoning</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="code-agents-composer-advanced-menu">
-            {CODE_AGENT_REASONING_EFFORTS.map((effort) => (
-              <DropdownMenuCheckboxItem
-                key={effort.id}
-                checked={selectedEffort === effort.id}
-                onSelect={() =>
-                  onModelSelectionChange({
-                    ...modelSelection,
-                    effort: effort.id,
-                  })
-                }
-              >
-                {effort.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

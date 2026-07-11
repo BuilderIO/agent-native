@@ -3776,11 +3776,13 @@ export async function runAgentLoop(opts: {
         const result = sourceSweepGuard.message;
         send({
           type: "tool_start",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -3800,11 +3802,13 @@ export async function runAgentLoop(opts: {
         const result = sourceSweepDelegationGuard;
         send({
           type: "tool_start",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -3826,11 +3830,13 @@ export async function runAgentLoop(opts: {
         );
         send({
           type: "tool_start",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -3875,6 +3881,7 @@ export async function runAgentLoop(opts: {
         if (mustApprove) {
           send({
             type: "tool_start",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
@@ -3913,6 +3920,7 @@ export async function runAgentLoop(opts: {
             `can run. The turn is paused; do not retry.`;
           send({
             type: "tool_done",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, unknown>,
             result,
@@ -3973,11 +3981,13 @@ export async function runAgentLoop(opts: {
             recordedResult;
           send({
             type: "tool_start",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
           send({
             type: "tool_done",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, unknown>,
             result,
@@ -4027,11 +4037,13 @@ export async function runAgentLoop(opts: {
               ledgerResult;
             send({
               type: "tool_start",
+              id: toolCall.id,
               tool: toolCall.name,
               input: toolCall.input as Record<string, string>,
             });
             send({
               type: "tool_done",
+              id: toolCall.id,
               tool: toolCall.name,
               input: toolCall.input as Record<string, unknown>,
               result,
@@ -4056,11 +4068,13 @@ export async function runAgentLoop(opts: {
             `or split the request into smaller pieces.`;
           send({
             type: "tool_start",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
           send({
             type: "tool_done",
+            id: toolCall.id,
             tool: toolCall.name,
             input: toolCall.input as Record<string, unknown>,
             result,
@@ -4107,6 +4121,7 @@ export async function runAgentLoop(opts: {
 
       send({
         type: "tool_start",
+        id: toolCall.id,
         tool: toolCall.name,
         input: toolCall.input as Record<string, string>,
       });
@@ -4122,6 +4137,7 @@ export async function runAgentLoop(opts: {
         );
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -4153,6 +4169,7 @@ export async function runAgentLoop(opts: {
         );
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -4184,6 +4201,7 @@ export async function runAgentLoop(opts: {
           `Previous result:\n${previousResult}`;
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -4213,6 +4231,7 @@ export async function runAgentLoop(opts: {
         const result = planModeBlockedMessage(toolCall.name);
         send({
           type: "tool_done",
+          id: toolCall.id,
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
@@ -4474,6 +4493,7 @@ export async function runAgentLoop(opts: {
 
       send({
         type: "tool_done",
+        id: toolCall.id,
         tool: toolCall.name,
         input: toolCall.input as Record<string, unknown>,
         result,

@@ -24,7 +24,7 @@
     "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
     "build:mac": "pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
-    "test:computer-control": "vitest run src/main/computer-control src/main/browser-control",
+    "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -35,6 +35,7 @@
     "@radix-ui/react-select": "2.2.6",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
+    "@tanstack/react-query": "5.101.2",
     "electron-updater": "^6.8.3",
     "sonner": "^2.0.7",
     "zod": "^4.4.3"

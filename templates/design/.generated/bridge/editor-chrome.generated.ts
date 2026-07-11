@@ -599,10 +599,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
-      if (selectedEl && hit !== selectedEl && selectedEl.contains(hit))
-        return hit;
-      if (hasStableOwnSource(hit)) return hit;
-      return closestStableSourceElement(hit) || hit;
+      return hit;
     }
     function freshRuntimeNodeId(prefix) {
       var random = "";
@@ -1384,7 +1381,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(gradientOverlay);
     var transformBadge = document.createElement("div");
     transformBadge.setAttribute("data-agent-native-transform-badge", "");
-    transformBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid hsl(var(--border));border-radius:4px;background:hsl(var(--background) / 0.96);color:hsl(var(--foreground));font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px color-mix(in srgb, hsl(var(--foreground)) 16%, transparent);";
+    transformBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
     document.body.appendChild(transformBadge);
     var spacingBadge = document.createElement("div");
     spacingBadge.setAttribute("data-agent-native-spacing-badge", "");

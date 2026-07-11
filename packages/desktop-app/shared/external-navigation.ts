@@ -1,6 +1,7 @@
 const MAC_SYSTEM_PREFERENCES_PROTOCOL = "x-apple.systempreferences:";
 const MAC_PRIVACY_PANE = "com.apple.preference.security";
 const ALLOWED_MAC_PRIVACY_SETTINGS = new Set([
+  "Privacy_Accessibility",
   "Privacy_ScreenCapture",
   "Privacy_Camera",
   "Privacy_Microphone",

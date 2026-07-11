@@ -814,13 +814,6 @@ export default function LocalFilesRoute() {
             count: restoredDirectories.length,
           }),
         });
-        await pullDirectories(restoredDirectories, {
-          showToast: false,
-          syncControlResources: false,
-        });
-        await connectLocalComponentWorkspaces(restoredDirectories, {
-          showToast: false,
-        });
         return;
       }
 
@@ -834,13 +827,6 @@ export default function LocalFilesRoute() {
         detail: t("localFiles.linkedCount", {
           count: restoredDirectories.length,
         }),
-      });
-      await pullDirectories(restoredDirectories, {
-        showToast: false,
-        syncControlResources: false,
-      });
-      await connectLocalComponentWorkspaces(restoredDirectories, {
-        showToast: false,
       });
     };
     restoreDirectories()
@@ -943,32 +929,6 @@ export default function LocalFilesRoute() {
     return { directories: nextDirectories, result };
   }
 
-  async function pullDirectories(
-    selectedDirectories: SelectedDirectory[],
-    {
-      showToast = true,
-      syncControlResources = true,
-    }: { showToast?: boolean; syncControlResources?: boolean } = {},
-  ) {
-    let activeDirectories = selectedDirectories;
-    let latestResult: ImportContentSourceResult | null = null;
-    for (const directory of selectedDirectories) {
-      const pulled = await pullDirectoryFiles(directory, activeDirectories, {
-        syncControlResources,
-      });
-      latestResult = pulled.result;
-      activeDirectories = pulled.directories;
-    }
-    if (latestResult) {
-      setStatus({
-        kind: "success",
-        title: t("localFiles.foldersPulled"),
-        detail: resultSummary(latestResult, t),
-      });
-      if (showToast) toast.success(t("localFiles.pulledLocalFiles"));
-    }
-  }
-
   async function connectLocalComponentWorkspaces(
     selectedDirectories: SelectedDirectory[],
     { showToast = true }: { showToast?: boolean } = {},
@@ -1029,7 +989,13 @@ export default function LocalFilesRoute() {
       });
 
       setBusy(`pull:${selected.id}`);
-      await pullDirectories(nextDirectories);
+      const { result } = await pullDirectoryFiles(selected, nextDirectories);
+      setStatus({
+        kind: "success",
+        title: t("localFiles.foldersPulled"),
+        detail: resultSummary(result, t),
+      });
+      toast.success(t("localFiles.pulledLocalFiles"));
       await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
       setStatus({
@@ -1171,12 +1137,6 @@ export default function LocalFilesRoute() {
         title: t("localFiles.folderRemoved"),
         detail: directory.name,
       });
-      if (nextDirectories.length === 1) {
-        await pullDirectories(nextDirectories, {
-          showToast: false,
-          syncControlResources: false,
-        });
-      }
     } catch (err) {
       setStatus({
         kind: "error",

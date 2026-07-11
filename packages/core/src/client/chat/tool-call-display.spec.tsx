@@ -734,10 +734,33 @@ describe("ReasoningCell", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders collapsible plain-English thinking prose", () => {
+  it("renders plain-English thinking prose expanded by default and can collapse", () => {
     act(() => {
       root.render(
         <ReasoningCell text="I should verify the join keys first." />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.textContent).toContain("verify the join keys first.");
+
+    const button = container.querySelector(
+      'button[aria-expanded="true"]',
+    ) as HTMLButtonElement | null;
+    act(() => {
+      button?.click();
+    });
+
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("honors an explicitly collapsed default", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          defaultOpen={false}
+        />,
       );
     });
 
@@ -751,6 +774,7 @@ describe("ReasoningCell", () => {
       button?.click();
     });
 
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
     expect(container.textContent).toContain("verify the join keys first.");
   });
 

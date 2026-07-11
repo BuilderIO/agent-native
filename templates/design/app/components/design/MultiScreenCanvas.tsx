@@ -42,6 +42,7 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 import {
+  IconArrowsMaximize,
   IconCopy,
   IconDots,
   IconHandClick,
@@ -393,6 +394,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
+  interactMode = false,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
   directlyHoveredScreenId,
@@ -7531,8 +7533,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   }}
                   editorChromeScaleX={canvasZoom / 100}
                   editorChromeScaleY={canvasZoom / 100}
-                  editMode={boardEditMode}
-                  interactMode={false}
+                  editMode={boardEditMode && !interactMode}
+                  interactMode={interactMode}
                   scaleMode={boardIsActive && effectiveTool === "scale"}
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={
@@ -7602,6 +7604,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 !isBreakpointSelectionTarget(screen)
               }
               showFullView={fullViewIdSet.has(screen.id)}
+              interactMode={interactMode}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               isFileDragOver={
                 fileDragOverFrameId !== null &&
@@ -8859,6 +8862,7 @@ interface ScreenProps {
   isSelected: boolean;
   isTopScreen: boolean;
   showFullView: boolean;
+  interactMode: boolean;
   isDirectlyHovered: boolean;
   /** True while a native OS file drag is hovering this frame (Figma parity §1). */
   isFileDragOver: boolean;
@@ -8926,6 +8930,7 @@ const Screen = memo(function Screen({
   isSelected,
   isTopScreen,
   showFullView,
+  interactMode,
   isDirectlyHovered,
   isFileDragOver,
   hasHoveredChild,
@@ -9022,9 +9027,12 @@ const Screen = memo(function Screen({
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
   // Keep frame actions inside their own frame so closely spaced screens cannot
-  // cover one another. Narrow frames collapse Interact to its familiar icon;
+  // cover one another. Narrow frames collapse the action to its familiar icon;
   // the accessible name and native tooltip preserve the action's meaning.
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
+  const frameActionLabel = interactMode
+    ? t("multiScreenCanvas.fullView")
+    : t("designEditor.modes.interact");
   const labelInfoMaxWidth = Math.max(
     64,
     frameScreenWidth -
@@ -9157,8 +9165,8 @@ const Screen = memo(function Screen({
             transformOrigin: "right center",
             transition: getChromeLabelTransition(chromeSettling),
           }}
-          aria-label={t("designEditor.modes.interact")}
-          title={t("designEditor.modes.interact")}
+          aria-label={frameActionLabel}
+          title={frameActionLabel}
           onClick={(event) => onEdit(screen.id, event)}
           onMouseDown={(event) => {
             event.preventDefault();
@@ -9167,9 +9175,13 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          <IconHandClick className="size-3 shrink-0" />
+          {interactMode ? (
+            <IconArrowsMaximize className="size-3 shrink-0" />
+          ) : (
+            <IconHandClick className="size-3 shrink-0" />
+          )}
           <span className={cn("truncate", compactFullView && "sr-only")}>
-            {t("designEditor.modes.interact")}
+            {frameActionLabel}
           </span>
         </button>
       </div>
@@ -9394,6 +9406,7 @@ const Screen = memo(function Screen({
           renderBreakpointContent={renderBreakpointContent}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
+          interactMode={interactMode}
           penActive={penActive}
           creationToolActive={creationToolActive}
           cullTier={cullTier}
@@ -9518,6 +9531,7 @@ function BreakpointPreviewRow({
   renderBreakpointContent,
   activeBreakpointWidth,
   isScreenSelected,
+  interactMode,
   penActive,
   creationToolActive,
   cullTier,
@@ -9559,6 +9573,7 @@ function BreakpointPreviewRow({
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
    *  reads as "part of a selected group" the same way the base frame does. */
   isScreenSelected: boolean;
+  interactMode: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   /** Uses the owning screen's exact culling lifecycle: never-seen/evicted
@@ -9595,6 +9610,9 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
+  const frameActionLabel = interactMode
+    ? t("multiScreenCanvas.fullView")
+    : t("designEditor.modes.interact");
   const breakpointWidths = screen.breakpointWidths ?? [];
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
@@ -9884,8 +9902,8 @@ function BreakpointPreviewRow({
                     transform: `scale(${chromeScale})`,
                     transformOrigin: "right center",
                   }}
-                  aria-label={t("designEditor.modes.interact")}
-                  title={t("designEditor.modes.interact")}
+                  aria-label={frameActionLabel}
+                  title={frameActionLabel}
                   onClick={(e) => {
                     e.stopPropagation();
                     activateThisFrame(e);
@@ -9896,7 +9914,11 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  <IconHandClick className="size-3" />
+                  {interactMode ? (
+                    <IconArrowsMaximize className="size-3" />
+                  ) : (
+                    <IconHandClick className="size-3" />
+                  )}
                 </button>
               ) : null}
               <span

@@ -146,6 +146,8 @@ import {
   DesktopComputerMcpBridge,
   EphemeralScreenObserver,
   getComputerPermissionStatus,
+  requestAccessibilityPermission,
+  runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -1683,7 +1685,7 @@ const REMOTE_DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
 const REMOTE_CONNECTOR_INITIAL_BACKOFF_MS = 2_000;
 const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
-let remoteConnectorEnabled = true;
+let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
@@ -1983,18 +1985,6 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
     revokeRemoteConnectorComputerControl();
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
-  }
-  return getRemoteConnectorStatus();
-}
-
-function getRemoteConnectorStatusForUserRequest(): CodeAgentRemoteConnectorStatus {
-  if (
-    remoteConnectorEnabled &&
-    !appIsQuitting &&
-    !remoteConnectorProcess?.pid &&
-    !remoteConnectorNextRestartAt
-  ) {
-    return startRemoteCodeAgentConnector();
   }
   return getRemoteConnectorStatus();
 }
@@ -3249,9 +3239,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
         "out/main/browser-control-host.js",
       )
     : path.resolve(__dirname, "browser-control-host.js");
-  const extensionPath = app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  const extensionPath = getBundledChromeExtensionPath();
   try {
     browserNativeHostManifestPath = installBrowserNativeHost({
       ...browserHost,
@@ -5716,8 +5704,10 @@ function normalizeContentFilesGrant(
   grants: Record<string, ContentFilesGrant>,
 ): ContentFilesGrant | null {
   if (!isObject(value)) return null;
-  const folder = resolveUsableContentFolder(firstStringValue(value.path));
-  if (!folder) return null;
+  const storedPath = firstStringValue(value.path)?.trim();
+  if (!storedPath || storedPath.includes("\0")) return null;
+  const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
+  if (isFilesystemRoot(folder)) return null;
   const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
@@ -7091,11 +7081,13 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
-  const storedCredentials = AppStore.loadCodeAgentProviderCredentials();
-  const codex = getLocalCodexCliStatus();
+  const codex = getLocalCodexCliAvailability();
+  const configuredCredentialKeys = new Set(
+    settings.providers.flatMap((provider) => provider.configuredKeys),
+  );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
-    ...(codex.authenticated ? [codex.label] : []),
+    ...(codex.available ? [codex.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -7104,7 +7096,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     label: configuredProviders[0],
     configuredProviders,
     missingEnvVars: CODE_AGENT_PROVIDER_SETTING_KEYS.filter(
-      (key) => !process.env[key] && !storedCredentials[key],
+      (key) => !process.env[key] && !configuredCredentialKeys.has(key),
     ),
   };
 }
@@ -7211,6 +7203,37 @@ function getLocalCodexCliStatus(): {
   };
 }
 
+function getLocalCodexCliAvailability(): {
+  available: boolean;
+  authenticated: boolean;
+  label: string;
+  version?: string;
+  error?: string;
+} {
+  const versionResult = spawnSync("codex", ["--version"], {
+    encoding: "utf-8",
+    timeout: 1500,
+  });
+  if (versionResult.error || versionResult.status !== 0) {
+    return {
+      available: false,
+      authenticated: false,
+      label: "Codex CLI",
+      error:
+        (versionResult.error as NodeJS.ErrnoException | undefined)?.code ===
+        "ENOENT"
+          ? "Codex CLI was not found."
+          : versionResult.error?.message || "Codex CLI is unavailable.",
+    };
+  }
+  return {
+    available: true,
+    authenticated: false,
+    label: "Codex CLI",
+    version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+  };
+}
+
 function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
   return withLocalCodexProviderStatus(
     AppStore.getCodeAgentProviderSettingsStatus(),
@@ -7220,16 +7243,16 @@ function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
 function withLocalCodexProviderStatus(
   settings: CodeAgentProviderSettings,
 ): CodeAgentProviderSettings {
-  const codex = getLocalCodexCliStatus();
+  const codex = getLocalCodexCliAvailability();
   if (!codex.available) return settings;
   const provider = {
     id: "codex" as const,
     label: "Codex CLI",
-    configured: codex.authenticated,
+    configured: codex.available,
     configuredKeys: [] as CodeAgentProviderCredentialKey[],
     missingKeys: [] as CodeAgentProviderCredentialKey[],
     savedKeys: [] as CodeAgentProviderCredentialKey[],
-    source: codex.authenticated ? ("local-codex" as const) : undefined,
+    source: codex.available ? ("local-codex" as const) : undefined,
   };
   const providers = [
     provider,
@@ -7240,9 +7263,7 @@ function withLocalCodexProviderStatus(
     configured: providers.some((item) => item.configured),
     configuredProviders: providers
       .filter((item) => item.configured)
-      .map((item) =>
-        item.id === "codex" && codex.authMode ? codex.label : item.label,
-      ),
+      .map((item) => item.label),
     providers,
   };
 }
@@ -7322,7 +7343,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
-    const codex = getLocalCodexCliStatus();
+    const codex = getLocalCodexCliAvailability();
     const apiProviderConfigured =
       Boolean(providerStatusById(settings, "anthropic")?.configured) ||
       Boolean(providerStatusById(settings, "openai")?.configured) ||
@@ -7356,7 +7377,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
           label: "Codex CLI default",
           description:
             "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
-          configured: codex.authenticated,
+          configured: codex.available,
         });
       }
       pushCodeAgentModelOptions(models, {
@@ -7391,7 +7412,7 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
             engine: "builder",
             model: BUILDER_MODEL_CONFIG.defaultModel,
           }
-        : codex.authenticated && !apiProviderConfigured
+        : codex.available && !apiProviderConfigured
           ? {
               engine: CODEX_CLI_ENGINE_NAME,
               model: CODEX_CLI_DEFAULT_MODEL,
@@ -7492,9 +7513,7 @@ function getDesktopComputerControlMetadata(): NonNullable<
     process.platform === "darwin"
       ? getComputerPermissionStatus(systemPreferences)
       : { accessibility: false, screenRecording: "unknown" as const };
-  const extensionPath = app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  const extensionPath = getBundledChromeExtensionPath();
   return {
     available: Boolean(desktopComputerMcpBridge),
     desktop: permissions,
@@ -7508,6 +7527,12 @@ function getDesktopComputerControlMetadata(): NonNullable<
         desktopBrowserControlBridge?.status().nativeHostConnected ?? false,
     },
   };
+}
+
+function getBundledChromeExtensionPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
 }
 
 function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
@@ -7873,6 +7898,49 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  IPC.CODE_AGENTS_COMPUTER_SETUP,
+  (_event: IpcMainInvokeEvent, action: unknown) =>
+    runComputerSetupAction(action, {
+      platform: process.platform,
+      requestAccessibility: () =>
+        requestAccessibilityPermission(systemPreferences),
+      requestScreenRecording: async () => {
+        await desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: { width: 1, height: 1 },
+        });
+        return (
+          getComputerPermissionStatus(systemPreferences).screenRecording ===
+          "granted"
+        );
+      },
+      openExternal: (url) => shell.openExternal(url),
+      extensionPath: getBundledChromeExtensionPath,
+      pathExists: fs.existsSync,
+      revealExtensionFolder: async (extensionPath) => {
+        const openError = await shell.openPath(extensionPath);
+        if (openError) throw new Error(openError);
+      },
+      openChromeExtensions: () => {
+        const chrome = spawnSync(
+          "open",
+          ["-a", "Google Chrome", "chrome://extensions/"],
+          { encoding: "utf8", stdio: "ignore" },
+        );
+        if (chrome.error || chrome.status !== 0) {
+          throw chrome.error ?? new Error("Google Chrome could not be opened.");
+        }
+      },
+      restart: () => {
+        setTimeout(() => {
+          app.relaunch();
+          app.exit(0);
+        }, 250);
+      },
+    }),
+);
+
+ipcMain.handle(
   IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
   (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
 );
@@ -7945,8 +8013,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus =>
-    getRemoteConnectorStatusForUserRequest(),
+  (): CodeAgentRemoteConnectorStatus => getRemoteConnectorStatus(),
 );
 
 ipcMain.handle(
@@ -8373,7 +8440,6 @@ ipcMain.handle(
       ok: true,
       folder: contentFilesFolderInfo(grant),
       folders: contentFilesFoldersInfo(grants),
-      controlResources: await collectLocalControlResources(grant.path),
     };
   },
 );
@@ -9702,7 +9768,12 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
+  // Pairing details persist, but background access is opt-in per launch.
+  // A read-only status check must never spawn a process or unlock Keychain.
+  remoteConnectorEnabled = false;
+  if (AppStore.loadRemoteConnectorSettings().enabled) {
+    AppStore.saveRemoteConnectorSettings({ enabled: false });
+  }
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
