@@ -323,7 +323,7 @@ export default (event) =>
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
-  it("preserves explicit no-store cache policies on anonymous Cloudflare worker SSR", async () => {
+  it("overwrites explicit no-store on anonymous Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -332,15 +332,14 @@ export default (event) =>
       {},
     );
 
-    expectRouteCachePolicy(response, "private, no-store");
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
-  it("preserves a route-provided private Cache-Control on authenticated Cloudflare worker SSR HTML responses", async () => {
+  it("overwrites route-provided private Cache-Control on authenticated Cloudflare worker SSR HTML responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // The mock react-router handler returns "private, no-store" for
-    // "/private-html". Routes can opt SSR HTML out of the public cache even
-    // when an auth cookie is present.
+    // Route-level cache hints must not make the shared shell session-dependent
+    // or send authenticated page loads back to origin.
     const response = await worker.fetch(
       new Request("https://app.test/private-html", {
         headers: { cookie: "an_session=active" },
@@ -349,7 +348,7 @@ export default (event) =>
       {},
     );
 
-    expectRouteCachePolicy(response, "private, no-store");
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("hard-caches React Router data responses with the default no-cache policy", async () => {
@@ -378,12 +377,10 @@ export default (event) =>
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
-  it("preserves a route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
+  it("overwrites route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // The mock react-router handler sets "private, no-store" for
-    // "/private.data". Routes can opt .data responses out of the public cache
-    // even when an auth cookie is present.
+    // React Router page data follows the same public-shell invariant as HTML.
     const response = await worker.fetch(
       new Request("https://app.test/private.data", {
         headers: { cookie: "an_session=active" },
@@ -392,7 +389,7 @@ export default (event) =>
       {},
     );
 
-    expectRouteCachePolicy(response, "private, no-store");
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {
