@@ -509,7 +509,9 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
                         {title}
                       </span>
                       <time className="w-8 shrink-0 whitespace-nowrap text-end text-[11px] tabular-nums text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
-                        {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
+                        {isActive
+                          ? ""
+                          : formatThreadAge(threadUpdatedAt(thread))}
                       </time>
                     </button>
                   </TooltipTrigger>

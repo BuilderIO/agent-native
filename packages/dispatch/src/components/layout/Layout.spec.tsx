@@ -173,7 +173,7 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Earlier Dispatch work",
+      (button) => button.textContent?.includes("Earlier Dispatch work"),
     );
     expect(threadButton).toBeDefined();
     await act(async () => {

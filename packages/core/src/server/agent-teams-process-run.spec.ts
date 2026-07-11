@@ -269,6 +269,22 @@ vi.mock("../agent/production-agent.js", () => ({
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
 }));
 
+// Real `attachToolSearch` transitively imports the mcp-client/secrets/db
+// schema chain (for MCP tool visibility checks), which this file's minimal
+// `../db/client.js` mock doesn't support. Only the shape used by
+// agent-teams.ts matters here: stamp a `tool-search` entry onto the given
+// registry and return it.
+vi.mock("../agent/tool-search.js", () => ({
+  TOOL_SEARCH_ACTION_NAME: "tool-search",
+  attachToolSearch: (registry: Record<string, unknown>) => {
+    registry["tool-search"] = {
+      tool: { description: "Discover callable tools.", parameters: {} },
+      run: async () => "{}",
+    };
+    return registry;
+  },
+}));
+
 // ── progress registry: no-op writes ──────────────────────────────────────
 vi.mock("../progress/registry.js", () => ({
   startRun: vi.fn(async () => ({})),

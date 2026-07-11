@@ -1350,6 +1350,21 @@ const legacyWireframeDataSchema: z.ZodType<PlanLegacyWireframeBlock["data"]> =
     regions: z.array(wireframeRegionSchema).max(80).default([]),
   });
 
+/**
+ * Compact ADVERTISED-ONLY stand-in for `legacyWireframeDataSchema`. Only
+ * `regions` changes — this is an old region-based wireframe fallback; new
+ * work should use the `wireframe` block/field (semantic HTML) instead.
+ */
+const agentLegacyWireframeDataSchema = legacyWireframeDataSchema.extend({
+  regions: z
+    .array(z.record(z.string(), z.unknown()))
+    .max(80)
+    .default([])
+    .describe(
+      "Legacy region-based wireframe — do not author new content this way; use the `wireframe` block/field (semantic HTML) instead. Call get-plan-blocks for the region shape before editing an existing one.",
+    ),
+});
+
 const diagramNodeSchema: z.ZodType<PlanDiagramNode> = z.object({
   id: idSchema,
   label: z.string().trim().min(1).max(160),
@@ -1887,6 +1902,30 @@ export const agentPlanBlockSchema = z.object({
     ),
 });
 
+/**
+ * Terser sibling of `agentPlanBlockSchema` for the `replace-block` /
+ * `replace-blocks` / `append-block` content-patch ops. Those ops already sit
+ * next to `content` (which carries the full per-type gloss on `blocks[].type`)
+ * in the same action's advertised schema, so repeating the ~900-character
+ * enum description 3 more times would only burn context for no new
+ * information — a short cross-reference is enough here.
+ */
+const agentPlanBlockSchemaTerse = z.object({
+  id: idSchema.optional(),
+  type: z
+    .enum(PLAN_BLOCK_TYPES)
+    .describe(
+      "Block type — same options as content.blocks. Call get-plan-blocks " +
+        "for the per-type `data` field shapes.",
+    ),
+  title: z.string().trim().max(180).optional(),
+  summary: z.string().trim().max(600).optional(),
+  editable: z.boolean().optional(),
+  data: z
+    .record(z.string(), z.unknown())
+    .describe("Type-specific fields — call get-plan-blocks for the shape."),
+});
+
 const annotationPlacementSchema = z.enum([
   "top",
   "right",
@@ -1931,10 +1970,11 @@ const artboardObjectSchema = z.object({
 
 /**
  * Compact ADVERTISED-ONLY stand-in for `artboardSchema` (a canvas frame).
- * Only `wireframe` changes, to the compact `agentWireframeDataSchema`.
+ * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
  */
 export const agentArtboardSchema = artboardObjectSchema.extend({
   wireframe: agentWireframeDataSchema.optional(),
+  legacyWireframe: agentLegacyWireframeDataSchema.optional(),
 });
 
 const artboardSchema: z.ZodType<PlanArtboard> = artboardObjectSchema
@@ -2555,11 +2595,12 @@ const canvasFramePatchSchema = canvasFramePatchObjectSchema.refine(
 );
 
 /**
- * Compact ADVERTISED-ONLY stand-in for `canvasFramePatchSchema` — only
- * `wireframe` swaps in the compact `agentWireframeDataSchema`.
+ * Compact ADVERTISED-ONLY stand-in for `canvasFramePatchSchema` —
+ * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
  */
 const agentCanvasFramePatchSchema = canvasFramePatchObjectSchema.extend({
   wireframe: agentWireframeDataSchema.optional(),
+  legacyWireframe: agentLegacyWireframeDataSchema.optional(),
 });
 
 const canvasAnnotationPatchSchema = z
