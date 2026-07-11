@@ -4,10 +4,15 @@ import {
   useT,
   type LocalePreference,
 } from "@agent-native/core/client";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconLanguage } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
+
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "./ui/popover";
 
 import {
   DOCS_LOCALE_METADATA,
@@ -122,20 +127,19 @@ export default function DocsLanguageSuggestion() {
   }
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Anchor asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
         <span aria-hidden className="block h-0 w-0 shrink-0" />
-      </PopoverPrimitive.Anchor>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          align="end"
-          side="bottom"
-          sideOffset={8}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          onCloseAutoFocus={(event) => event.preventDefault()}
-          aria-labelledby={titleId}
-          className="z-[60] flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-lg border border-[var(--docs-border)] bg-[var(--header-bg)] p-3 text-sm text-[var(--fg)] shadow-lg backdrop-blur-lg"
-        >
+      </PopoverAnchor>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        aria-labelledby={titleId}
+        className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3 text-sm"
+      >
           <div className="flex items-start gap-2.5">
             <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
               <IconLanguage size={16} stroke={1.5} aria-hidden="true" />
@@ -172,8 +176,7 @@ export default function DocsLanguageSuggestion() {
               {t("language.suggestionKeepEnglish")}
             </button>
           </div>
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+      </PopoverContent>
+    </Popover>
   );
 }

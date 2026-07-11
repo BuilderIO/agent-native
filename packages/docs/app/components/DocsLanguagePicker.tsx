@@ -4,10 +4,15 @@ import {
   useLocale,
   useT,
 } from "@agent-native/core/client";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
 
 import {
   DOCS_LOCALE_METADATA,
@@ -79,8 +84,8 @@ export default function DocsLanguagePicker() {
     ];
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <button
           type="button"
           aria-label={label}
@@ -90,13 +95,12 @@ export default function DocsLanguagePicker() {
           <IconLanguage size={16} stroke={1.5} aria-hidden="true" />
           <span className="sr-only">{label}</span>
         </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          align="end"
-          sideOffset={6}
-          className="z-[60] max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-52 overflow-y-auto rounded-lg border border-[var(--docs-border)] bg-[var(--header-bg)] p-1 shadow-lg backdrop-blur-lg"
-        >
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-52 overflow-y-auto p-1"
+      >
           {options.map((option) => {
             const selected = option.value === preference;
             return (
@@ -122,8 +126,7 @@ export default function DocsLanguagePicker() {
               </Link>
             );
           })}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+      </PopoverContent>
+    </Popover>
   );
 }

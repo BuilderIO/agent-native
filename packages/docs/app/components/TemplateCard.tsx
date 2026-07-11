@@ -1,11 +1,15 @@
 import { trackEvent, useLocale, useT } from "@agent-native/core/client";
-import * as Popover from "@radix-ui/react-popover";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { TemplateDocsLink } from "./template-docs";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
 
 export { trackEvent };
 
@@ -292,31 +296,30 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         </a>
       )}
       <div className="flex gap-2">
-        <Popover.Root
+        <Popover
           open={showCustomize}
           onOpenChange={handleCustomizeOpenChange}
         >
-          <Popover.Trigger asChild>
+          <PopoverTrigger asChild>
             <button
               type="button"
               className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
             >
               {t("common.customizeIt")}
             </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              align="start"
-              sideOffset={6}
-              collisionPadding={16}
-              className={
-                customizeMode === "runLocally"
-                  ? "z-50 w-max max-w-[calc(100vw-32px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] shadow-lg"
-                  : customizeMode === "editOnline"
-                    ? "z-50 w-[min(100vw-32px,360px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] p-4 shadow-lg"
-                    : "z-50 w-[min(100vw-32px,220px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] p-1 shadow-lg"
-              }
-            >
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            collisionPadding={16}
+            className={
+              customizeMode === "runLocally"
+                ? "w-max max-w-[calc(100vw-32px)]"
+                : customizeMode === "editOnline"
+                  ? "w-[min(100vw-32px,360px)] p-4"
+                  : "w-[min(100vw-32px,220px)] p-1"
+            }
+          >
               {customizeMode === "runLocally" ? (
                 <CliPopoverContent template={template} />
               ) : customizeMode === "editOnline" ? (
@@ -344,9 +347,8 @@ function TemplateLaunchButton({ template }: { template: Template }) {
                   </button>
                 </div>
               )}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+          </PopoverContent>
+        </Popover>
         <TemplateDocsLink
           template={template}
           location="card"

@@ -1,7 +1,12 @@
 import { agentNativePath, trackEvent, useT } from "@agent-native/core/client";
-import * as Popover from "@radix-ui/react-popover";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./ui/popover";
 
 export type BuilderWaitlistLocation =
   | "homepage_rail"
@@ -139,7 +144,7 @@ export function BuildOnlinePopover({
   const [open, setOpen] = useState(false);
 
   return (
-    <Popover.Root
+    <Popover
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
@@ -148,21 +153,19 @@ export function BuildOnlinePopover({
         setOpen(nextOpen);
       }}
     >
-      <Popover.Trigger asChild>
+      <PopoverTrigger asChild>
         <button type="button" className={primaryButtonClassName}>
           {t("buildFromScratch.buildOnline")}
         </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          align="center"
-          sideOffset={8}
-          collisionPadding={16}
-          className="z-50 w-[min(100vw-32px,360px)] rounded-lg border border-[var(--code-border)] bg-[var(--bg)] p-4 shadow-lg"
-        >
-          <BuilderWaitlistContent location={location} />
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent
+        align="center"
+        sideOffset={8}
+        collisionPadding={16}
+        className="w-[min(100vw-32px,360px)] p-4"
+      >
+        <BuilderWaitlistContent location={location} />
+      </PopoverContent>
+    </Popover>
   );
 }
