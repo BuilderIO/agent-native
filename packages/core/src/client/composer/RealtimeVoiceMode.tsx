@@ -70,6 +70,9 @@ export interface RealtimeVoiceModeCopy {
   endVoiceMode: string;
   voiceSettings: string;
   settings: {
+    microphone: string;
+    defaultMicrophone: string;
+    microphoneSwitchFailed: string;
     language: string;
     autoLanguage: string;
     languages: Record<
@@ -303,6 +306,8 @@ export interface RealtimeVoiceModeSelectSetting {
 export interface RealtimeVoiceModeInlineSettings {
   dialogLabel: string;
   appliesNextConversationNote?: string;
+  microphoneError?: string;
+  microphone: RealtimeVoiceModeSelectSetting;
   language: RealtimeVoiceModeSelectSetting;
   intelligence: RealtimeVoiceModeSelectSetting;
   voiceStyle: RealtimeVoiceModeSelectSetting;
@@ -493,17 +498,21 @@ function VoiceSettingRow({
         aria-label={`${setting.label}: ${selected?.label ?? setting.value}`}
         className="h-11 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
-        <span className="flex min-w-0 flex-1 items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <Icon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">
+          <span className="shrink-0 text-sm font-medium text-foreground">
             {setting.label}
           </span>
-          <span className="ms-auto truncate text-sm text-muted-foreground">
+          <span className="ms-auto min-w-0 truncate text-end text-sm text-muted-foreground">
             {selected?.label ?? setting.value}
           </span>
-        </span>
+        </div>
       </SelectTrigger>
-      <SelectContent align="end" className="min-w-56">
+      <SelectContent
+        align="end"
+        className="min-w-56"
+        data-realtime-voice-setting-options="true"
+      >
         <SelectGroup>
           {setting.options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
@@ -549,6 +558,14 @@ function VoiceInlineSettings({
       </div>
       <div className="mx-2 mb-2 overflow-hidden rounded-xl border border-border/70 bg-background/70">
         <VoiceSettingRow
+          icon={IconMicrophone}
+          setting={{
+            ...settings.microphone,
+            disabled: disabled || settings.microphone.disabled,
+          }}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
           icon={IconLanguage}
           setting={{
             ...settings.language,
@@ -572,6 +589,11 @@ function VoiceInlineSettings({
           }}
         />
       </div>
+      {settings.microphoneError ? (
+        <p className="px-4 pb-3 text-center text-xs text-destructive">
+          {settings.microphoneError}
+        </p>
+      ) : null}
       {settings.appliesNextConversationNote ? (
         <p className="px-4 pb-3 text-center text-xs text-muted-foreground">
           {settings.appliesNextConversationNote}
@@ -715,7 +737,18 @@ export function RealtimeVoiceModeDock({
                 side="top"
                 align="end"
                 sideOffset={10}
-                className="w-[min(19rem,calc(100vw-2rem))] overflow-hidden p-0"
+                className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden p-0"
+                onInteractOutside={(event) => {
+                  const target = event.target;
+                  if (
+                    target instanceof Element &&
+                    target.closest(
+                      '[data-realtime-voice-setting-options="true"]',
+                    )
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
               >
                 <VoiceInlineSettings settings={settings} disabled={ending} />
               </PopoverContent>

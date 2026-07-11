@@ -230,6 +230,10 @@ const messages = {
       end: "End voice mode",
       voiceSettings: "Voice settings",
       settings: {
+        microphone: "Microphone",
+        defaultMicrophone: "System default",
+        microphoneSwitchFailed:
+          "Could not switch microphones. Your current microphone is still active.",
         language: "Language",
         autoLanguage: "Auto",
         languages: {

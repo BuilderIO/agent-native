@@ -10,6 +10,7 @@ import {
   createRealtimeVoiceTranscriptSequencer,
   createRealtimeVoiceConnectionTimeout,
   createRealtimeVoiceConnectionGate,
+  createRealtimeVoiceAudioConstraints,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
@@ -82,6 +83,12 @@ describe("Realtime voice client transport", () => {
         noiseSuppression: true,
         autoGainControl: true,
       }),
+    );
+    expect(createRealtimeVoiceAudioConstraints("studio", true)).toEqual(
+      expect.objectContaining({ deviceId: { exact: "studio" } }),
+    );
+    expect(createRealtimeVoiceAudioConstraints("studio")).toEqual(
+      expect.objectContaining({ deviceId: { ideal: "studio" } }),
     );
   });
 
@@ -188,16 +195,14 @@ describe("Realtime voice client transport", () => {
   });
 
   it("sends function calls to the authenticated Agent Native tool bridge", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json({
-          callId: "call-1",
-          status: "completed",
-          output: '{"ok":true}',
-        }),
-      ),
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        callId: "call-1",
+        status: "completed",
+        output: '{"ok":true}',
+      }),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       executeRealtimeVoiceTool({
@@ -212,6 +217,22 @@ describe("Realtime voice client transport", () => {
       status: "completed",
       output: '{"ok":true}',
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/realtime-voice/tool",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Browser-Tab": "tab-1",
+        }),
+        body: JSON.stringify({
+          name: "navigate",
+          args: { path: "/inbox" },
+          callId: "call-1",
+          sessionId: "session-1",
+          browserTabId: "tab-1",
+        }),
+      }),
+    );
   });
 });
 

@@ -38,6 +38,8 @@ const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
+const REALTIME_VOICE_MICROPHONE_STORAGE_KEY =
+  "agent-native:realtime-voice-microphone";
 
 export const REALTIME_VOICE_LANGUAGES = [
   "auto",
@@ -112,13 +114,61 @@ export interface RealtimeVoiceModeApi {
   chatVisible: boolean;
   audioLevels: RealtimeVoiceAudioLevelStore;
   preferences: RealtimeVoicePreferences;
+  microphones: readonly RealtimeVoiceMicrophone[];
+  microphoneDeviceId: string;
+  microphoneSwitching: boolean;
+  microphoneError: string | null;
   voiceChangePending: boolean;
   setLanguage: (language: RealtimeVoiceLanguage) => void;
   setIntelligence: (intelligence: RealtimeVoiceIntelligence) => void;
   setVoice: (voice: RealtimeVoice) => void;
+  setMicrophone: (deviceId: string) => Promise<void>;
   start: () => Promise<void>;
   end: () => void;
   toggleChat: () => void;
+}
+
+export interface RealtimeVoiceMicrophone {
+  deviceId: string;
+  label: string;
+}
+
+export function createRealtimeVoiceAudioConstraints(
+  deviceId = "default",
+  exact = false,
+): MediaTrackConstraints {
+  return {
+    ...REALTIME_VOICE_AUDIO_CONSTRAINTS,
+    deviceId:
+      deviceId === "default"
+        ? { ideal: "default" }
+        : exact
+          ? { exact: deviceId }
+          : { ideal: deviceId },
+  };
+}
+
+function readRealtimeVoiceMicrophoneId(): string {
+  if (typeof window === "undefined") return "default";
+  try {
+    return (
+      window.localStorage.getItem(REALTIME_VOICE_MICROPHONE_STORAGE_KEY) ||
+      "default"
+    );
+  } catch {
+    return "default";
+  }
+}
+
+function writeRealtimeVoiceMicrophoneId(deviceId: string): void {
+  try {
+    window.localStorage.setItem(
+      REALTIME_VOICE_MICROPHONE_STORAGE_KEY,
+      deviceId,
+    );
+  } catch {
+    // A remembered local device is optional and must never block voice mode.
+  }
 }
 
 function isOneOf<T extends readonly string[]>(
@@ -669,6 +719,11 @@ function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
         deep: t("agentPanel.voiceMode.settings.intelligenceLevels.deep"),
       },
       voiceStyle: t("agentPanel.voiceMode.settings.voiceStyle"),
+      microphone: t("agentPanel.voiceMode.settings.microphone"),
+      defaultMicrophone: t("agentPanel.voiceMode.settings.defaultMicrophone"),
+      microphoneSwitchFailed: t(
+        "agentPanel.voiceMode.settings.microphoneSwitchFailed",
+      ),
       voiceChangePending: t("agentPanel.voiceMode.settings.voiceChangePending"),
       voiceDescriptions: {
         marin: t("agentPanel.voiceMode.settings.voiceDescriptions.marin"),
@@ -719,6 +774,12 @@ function useRealtimeVoiceModeController(
     DEFAULT_REALTIME_VOICE_PREFERENCES,
   );
   const [voiceChangePending, setVoiceChangePending] = useState(false);
+  const [microphones, setMicrophones] = useState<RealtimeVoiceMicrophone[]>([]);
+  const [microphoneDeviceId, setMicrophoneDeviceId] = useState(
+    readRealtimeVoiceMicrophoneId,
+  );
+  const [microphoneSwitching, setMicrophoneSwitching] = useState(false);
+  const [microphoneError, setMicrophoneError] = useState<string | null>(null);
   const [audioLevels] = useState(createRealtimeVoiceAudioLevelStore);
   const stateRef = useRef(state);
   const preferencesRef = useRef(preferences);
@@ -869,6 +930,37 @@ function useRealtimeVoiceModeController(
     [savePreferences, updateLivePreferences],
   );
 
+  const refreshMicrophones = useCallback(async () => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await mediaDevices.enumerateDevices();
+      const inputs = devices
+        .filter(
+          (device) =>
+            device.kind === "audioinput" &&
+            device.deviceId &&
+            device.deviceId !== "default" &&
+            device.deviceId !== "communications",
+        )
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Microphone ${index + 1}`,
+        }));
+      setMicrophones(inputs);
+      const selected = readRealtimeVoiceMicrophoneId();
+      if (
+        selected !== "default" &&
+        !inputs.some((device) => device.deviceId === selected)
+      ) {
+        writeRealtimeVoiceMicrophoneId("default");
+        setMicrophoneDeviceId("default");
+      }
+    } catch {
+      // Enumeration is progressive enhancement; system default remains usable.
+    }
+  }, []);
+
   const startMeterLoop = useCallback(() => {
     if (meterFrameRef.current !== null) return;
     const sample = (timestamp: number) => {
@@ -938,6 +1030,56 @@ function useRealtimeVoiceModeController(
       }
     },
     [startMeterLoop],
+  );
+
+  const setMicrophone = useCallback(
+    async (deviceId: string) => {
+      if (deviceId === microphoneDeviceId || microphoneSwitching) return;
+      const mediaDevices = navigator.mediaDevices;
+      const peer = peerRef.current;
+      if (!mediaDevices?.getUserMedia || !peer) return;
+
+      setMicrophoneSwitching(true);
+      setMicrophoneError(null);
+      let replacementStream: MediaStream | null = null;
+      try {
+        replacementStream = await mediaDevices.getUserMedia({
+          audio: createRealtimeVoiceAudioConstraints(deviceId, true),
+        });
+        const replacementTrack = replacementStream.getAudioTracks()[0];
+        const sender = peer
+          .getSenders()
+          .find((candidate) => candidate.track?.kind === "audio");
+        if (!replacementTrack || !sender) {
+          throw new Error("No active microphone track is available.");
+        }
+
+        await sender.replaceTrack(replacementTrack);
+        const previousStream = streamRef.current;
+        streamRef.current = replacementStream;
+        replacementStream = null;
+        attachAudioMeter(streamRef.current, "input");
+        for (const track of previousStream?.getTracks() ?? []) track.stop();
+        writeRealtimeVoiceMicrophoneId(deviceId);
+        setMicrophoneDeviceId(deviceId);
+        await refreshMicrophones();
+      } catch {
+        for (const track of replacementStream?.getTracks() ?? []) track.stop();
+        setMicrophoneError(
+          copy?.settings.microphoneSwitchFailed ??
+            "Could not switch microphones. Your current microphone is still active.",
+        );
+      } finally {
+        setMicrophoneSwitching(false);
+      }
+    },
+    [
+      attachAudioMeter,
+      copy,
+      microphoneDeviceId,
+      microphoneSwitching,
+      refreshMicrophones,
+    ],
   );
 
   const cleanupTransport = useCallback(() => {
@@ -1187,7 +1329,9 @@ function useRealtimeVoiceModeController(
     connectionGateRef.current = connectionGate;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: REALTIME_VOICE_AUDIO_CONSTRAINTS,
+        audio: createRealtimeVoiceAudioConstraints(
+          readRealtimeVoiceMicrophoneId(),
+        ),
       });
       if (!isCurrentAttempt()) {
         for (const track of stream.getTracks()) track.stop();
@@ -1195,6 +1339,7 @@ function useRealtimeVoiceModeController(
       }
       streamRef.current = stream;
       attachAudioMeter(stream, "input");
+      void refreshMicrophones();
 
       const peer = new RTCPeerConnection();
       peerRef.current = peer;
@@ -1299,6 +1444,7 @@ function useRealtimeVoiceModeController(
     greetingStarter,
     handleServerEvent,
     hydratePreferences,
+    refreshMicrophones,
     transcriptSequencer,
     transition,
   ]);
@@ -1339,6 +1485,15 @@ function useRealtimeVoiceModeController(
   }, []);
 
   useEffect(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.addEventListener) return;
+    const handleDeviceChange = () => void refreshMicrophones();
+    mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    return () =>
+      mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+  }, [refreshMicrophones]);
+
+  useEffect(() => {
     const onSidebarState = (event: Event) => {
       const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
         .detail;
@@ -1366,10 +1521,15 @@ function useRealtimeVoiceModeController(
     chatVisible,
     audioLevels,
     preferences,
+    microphones,
+    microphoneDeviceId,
+    microphoneSwitching,
+    microphoneError,
     voiceChangePending,
     setLanguage,
     setIntelligence,
     setVoice,
+    setMicrophone,
     start,
     end,
     toggleChat,
@@ -1396,6 +1556,27 @@ export function RealtimeVoiceModeProvider({
       ...(voice.voiceChangePending
         ? { appliesNextConversationNote: copy.settings.voiceChangePending }
         : {}),
+      ...(voice.microphoneError
+        ? { microphoneError: voice.microphoneError }
+        : {}),
+      microphone: {
+        label: copy.settings.microphone,
+        value: voice.microphoneDeviceId,
+        disabled: voice.microphoneSwitching,
+        options: [
+          {
+            value: "default",
+            label: copy.settings.defaultMicrophone,
+          },
+          ...voice.microphones.map((microphone) => ({
+            value: microphone.deviceId,
+            label: microphone.label,
+          })),
+        ],
+        onValueChange: (value: string) => {
+          void voice.setMicrophone(value);
+        },
+      },
       language: {
         label: copy.settings.language,
         value: voice.preferences.language,

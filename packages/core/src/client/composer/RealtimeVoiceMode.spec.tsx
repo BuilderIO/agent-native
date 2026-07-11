@@ -29,6 +29,9 @@ const copy: RealtimeVoiceModeCopy = {
   endVoiceMode: "End voice mode",
   voiceSettings: "Voice settings",
   settings: {
+    microphone: "Microphone",
+    defaultMicrophone: "System default",
+    microphoneSwitchFailed: "Could not switch microphones.",
     language: "Language",
     autoLanguage: "Auto",
     languages: {
@@ -323,6 +326,15 @@ describe("RealtimeVoiceMode", () => {
           dialogLabel: "Voice settings",
           appliesNextConversationNote:
             "Voice changes apply to the next conversation.",
+          microphone: {
+            label: "Microphone",
+            value: "default",
+            options: [
+              { value: "default", label: "System default" },
+              { value: "studio", label: "Studio microphone" },
+            ],
+            onValueChange: vi.fn(),
+          },
           language: {
             label: "Language",
             value: "en",
@@ -376,6 +388,7 @@ describe("RealtimeVoiceMode", () => {
         (element) => element.getAttribute("aria-label"),
       ),
     ).toEqual([
+      "Microphone: System default",
       "Language: English",
       "Intelligence: Instant",
       "Voice style: Marin",
@@ -418,6 +431,10 @@ describe("RealtimeVoiceMode", () => {
     expect(onLanguageChange).toHaveBeenCalledWith("auto");
     expect(onIntelligenceChange).not.toHaveBeenCalled();
     expect(onVoiceChange).not.toHaveBeenCalled();
+    expect(settingsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('[data-realtime-voice-settings="true"]'),
+    ).not.toBeNull();
     expect(
       document.querySelector("[data-realtime-voice-state]"),
     ).not.toBeNull();

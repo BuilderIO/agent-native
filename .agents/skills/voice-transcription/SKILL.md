@@ -56,23 +56,29 @@ action before requesting microphone permission.
   controls contain only settings and the separate end-session action.
 - The orb's compact waveform stays visible for the full session and reflects
   actual microphone or assistant audio activity. At silence it rests at its
-  baseline instead of turning into a loading spinner. While connecting, the
-  bars use a subtle motion-safe pulse; when the session becomes live, the
-  assistant gives one brief spoken greeting so readiness is unambiguous.
+  baseline instead of turning into a loading spinner. While connecting, show a
+  distinct compact spinner; when the session becomes live, the assistant gives
+  one brief spoken greeting so readiness is unambiguous. Do not apply a
+  text-sized `max_output_tokens` cap to that audio greeting because audio tokens
+  can truncate it mid-sentence.
 - The orb settings cog opens in place without ending voice mode or navigating
-  away. Language and intelligence update the active Realtime session; an
-  output-voice change updates immediately only before the assistant has emitted
-  audio and otherwise applies to the next conversation, matching the Realtime
-  API's voice immutability rule.
+  away. Nested pickers must not dismiss the settings popover. Language and
+  intelligence update the active Realtime session; the microphone picker swaps
+  the live WebRTC input track and remembers the browser-local device choice;
+  an output-voice change updates immediately only before the assistant has
+  emitted audio and otherwise applies to the next conversation, matching the
+  Realtime API's voice immutability rule.
 - Semantic VAD keeps listening, starts responses automatically, and supports
   barge-in while the agent is speaking.
 - Function calls must cross the authenticated realtime tool bridge and enter
   `executeAgentToolCall`. Never call `ActionEntry.run` directly: that bypasses
   schema validation, approvals, audit/journal behavior, timeouts, redaction,
   and mutation refreshes.
-- Preserve the active browser-tab id in request context so `set-url`,
+- Preserve the active browser-tab id in request context so `set-url-path`,
   `set-search-params`, `view-screen`, and tab-scoped application state affect
-  the app the user is actually speaking to.
+  the app the user is actually speaking to. Realtime tool manifests are capped,
+  so prioritize `navigate`, `set-url-path`, `set-search-params`, and
+  `view-screen` before packing large template registries.
 - Do not persist audio or interim transcript deltas. Append completed user and
   assistant utterances as ordinary text messages to the exact chat thread
   captured when the session starts. Input transcription completes
