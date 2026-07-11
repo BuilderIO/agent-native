@@ -65,12 +65,6 @@ function expectDefaultWorkerSsrCacheHeaders(response: Response) {
   );
 }
 
-function expectRouteCachePolicy(response: Response, cacheControl: string) {
-  expect(response.headers.get("cache-control")).toBe(cacheControl);
-  expect(response.headers.get("cdn-cache-control")).toBeNull();
-  expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
-}
-
 function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-worker-test-"));
   tempDirs.push(dir);
