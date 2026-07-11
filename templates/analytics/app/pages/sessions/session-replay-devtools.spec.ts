@@ -9,7 +9,7 @@ import {
   middleTruncate,
   networkDisplayUrl,
 } from "./session-replay-devtools";
-import { sanitizeReplayEvents } from "./SessionDetailPage";
+import { normalizeReplayEvents } from "./SessionDetailPage";
 
 const REPLAY_START = 1_000_000;
 
@@ -100,8 +100,8 @@ describe("extractReplayDiagnostics", () => {
     expect(diagnostics.network).toHaveLength(0);
   });
 
-  it("still sees diagnostics events after replay sanitization", () => {
-    const sanitized = sanitizeReplayEvents([
+  it("still sees diagnostics events after replay normalization", () => {
+    const normalized = normalizeReplayEvents([
       ...baseEvents,
       consoleEvent(500, {
         level: "warn",
@@ -118,7 +118,7 @@ describe("extractReplayDiagnostics", () => {
       }),
     ]);
 
-    const diagnostics = extractReplayDiagnostics(sanitized);
+    const diagnostics = extractReplayDiagnostics(normalized);
     expect(diagnostics.console).toHaveLength(1);
     expect(diagnostics.console[0].message).toBe("careful");
     expect(diagnostics.network).toHaveLength(1);

@@ -156,8 +156,6 @@ type ReplayViewportDimensions = {
 
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
-const MIN_REPLAY_DISPLAY_ASPECT_RATIO = 0.45;
-const MAX_REPLAY_DISPLAY_ASPECT_RATIO = 3;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
@@ -506,9 +504,13 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
-  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  // Keep the stage in rrweb's coordinate system. Clamping only this outer
+  // wrapper while rrweb keeps its raw iframe dimensions clips and stretches
+  // wide recordings because the two layers no longer share a viewport.
+  const playerWidth =
+    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight =
+    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -572,6 +574,7 @@ function ReplayPlayer({
     if (!el) return;
     const update = () => {
       const next = Math.min(
+        1,
         el.clientWidth / playerWidth,
         el.clientHeight / playerHeight,
       );
@@ -1758,7 +1761,7 @@ function useReplayEvents(
 ): AnyReplayEvent[] {
   return useMemo(
     () =>
-      sanitizeReplayEvents(
+      normalizeReplayEvents(
         response.chunks
           .flatMap((chunk) => chunk.events)
           .filter((event) => event && typeof event === "object"),
@@ -1767,187 +1770,16 @@ function useReplayEvents(
   );
 }
 
-export function sanitizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
+/**
+ * Match stock rrweb and builder-internal: preserve captured DOM, stylesheet,
+ * resource, and mutation payloads exactly. rrweb rebuilds them inside its
+ * sandboxed iframe; rewriting CSS or resource attributes here changes layout
+ * and makes the replay diverge from what the visitor saw.
+ */
+export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
   return events
-    .map((event) => sanitizeReplayEvent(event))
-    .filter((event): event is AnyReplayEvent => Boolean(event))
+    .filter((event): event is AnyReplayEvent => isRecord(event))
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
-}
-
-function sanitizeReplayEvent(event: unknown): AnyReplayEvent | null {
-  if (!isRecord(event)) return null;
-  let copy: AnyReplayEvent;
-  try {
-    copy = JSON.parse(JSON.stringify(event));
-  } catch {
-    copy = { ...event };
-  }
-  if (copy.type === RRWEB_EVENT_TYPE.FullSnapshot && isRecord(copy.data)) {
-    const node = sanitizeSerializedNode(copy.data.node);
-    if (!node) return null;
-    copy.data.node = node;
-  }
-  if (
-    copy.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-    copy.data?.source === INCREMENTAL_SOURCE.Mutation &&
-    isRecord(copy.data)
-  ) {
-    copy.data = sanitizeMutationData(copy.data);
-  }
-  return copy;
-}
-
-function sanitizeMutationData(data: AnyRecord): AnyRecord {
-  const next = { ...data };
-  if (Array.isArray(next.adds)) {
-    next.adds = next.adds
-      .map((add) => {
-        if (!isRecord(add)) return add;
-        const node = sanitizeSerializedNode(add.node);
-        if (!node) return null;
-        return { ...add, node };
-      })
-      .filter(Boolean);
-  }
-  if (Array.isArray(next.attributes)) {
-    next.attributes = next.attributes.map((attributeMutation) => {
-      if (
-        !isRecord(attributeMutation) ||
-        !isRecord(attributeMutation.attributes)
-      ) {
-        return attributeMutation;
-      }
-      return {
-        ...attributeMutation,
-        attributes: sanitizeAttributes(attributeMutation.attributes),
-      };
-    });
-  }
-  if (Array.isArray(next.texts)) {
-    next.texts = next.texts.map((textMutation) => {
-      if (!isRecord(textMutation)) return textMutation;
-      const copy = { ...textMutation };
-      if (
-        typeof copy.value === "string" &&
-        containsStylesheetNetworkLoad(copy.value)
-      ) {
-        copy.value = sanitizeCssText(copy.value);
-      }
-      if (
-        typeof copy.textContent === "string" &&
-        containsStylesheetNetworkLoad(copy.textContent)
-      ) {
-        copy.textContent = sanitizeCssText(copy.textContent);
-      }
-      return copy;
-    });
-  }
-  return next;
-}
-
-function sanitizeSerializedNode(node: unknown): AnyRecord | null {
-  if (!isRecord(node)) return node as AnyRecord;
-  const next: AnyRecord = { ...node };
-  const tagName =
-    typeof next.tagName === "string" ? next.tagName.toLowerCase() : "";
-  if (next.type === 2 && tagName === "script") {
-    return {
-      ...next,
-      tagName: "noscript",
-      attributes: {},
-      childNodes: [],
-    };
-  }
-  if (
-    next.type === 3 &&
-    typeof next.textContent === "string" &&
-    containsStylesheetNetworkLoad(next.textContent)
-  ) {
-    next.textContent = sanitizeCssText(next.textContent);
-  }
-  if (
-    next.type === 2 &&
-    tagName === "link" &&
-    isScriptLikeLink(next.attributes)
-  ) {
-    return null;
-  }
-  if (isRecord(next.attributes)) {
-    next.attributes = sanitizeAttributes(next.attributes);
-  }
-  if (Array.isArray(next.childNodes)) {
-    next.childNodes = next.childNodes
-      .map((child) => sanitizeSerializedNode(child))
-      .filter(Boolean);
-  }
-  return next;
-}
-
-function containsStylesheetNetworkLoad(value: string): boolean {
-  return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
-}
-
-function sanitizeCssText(value: string): string {
-  if (!containsStylesheetNetworkLoad(value)) return value;
-  return value
-    .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
-    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
-}
-
-function sanitizeCssUrlToken(match: string, rawValue: string): string {
-  const urlValue = rawValue.trim();
-  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
-  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
-  return "none";
-}
-
-function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
-  const next: AnyRecord = {};
-  for (const [key, value] of Object.entries(attributes)) {
-    const normalized = key.toLowerCase();
-    if (normalized.startsWith("on")) continue;
-    if (normalized === "srcdoc") continue;
-    if (isReplayResourceAttribute(normalized)) continue;
-    if (normalized === "style") {
-      const style = sanitizeCssText(String(value));
-      if (style.trim()) next[key] = style;
-      continue;
-    }
-    if (normalized === "_csstext") {
-      const cssText = sanitizeCssText(String(value));
-      if (cssText.trim()) next[key] = cssText;
-      continue;
-    }
-    next[key] = value;
-  }
-  return next;
-}
-
-function isReplayResourceAttribute(name: string): boolean {
-  return (
-    name === "src" ||
-    name === "srcset" ||
-    name === "href" ||
-    name === "xlink:href" ||
-    name === "poster" ||
-    name === "data" ||
-    name === "action" ||
-    name === "formaction" ||
-    name === "background" ||
-    name === "cite"
-  );
-}
-
-function isScriptLikeLink(attributes: unknown): boolean {
-  if (!isRecord(attributes)) return false;
-  const rel = String(attributes.rel ?? "").toLowerCase();
-  const as = String(attributes.as ?? "").toLowerCase();
-  const href = String(attributes.href ?? "").toLowerCase();
-  return (
-    rel === "modulepreload" ||
-    (rel === "preload" && as === "script") ||
-    (rel === "prefetch" && href.endsWith(".js"))
-  );
 }
 
 export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
@@ -2193,26 +2025,6 @@ export function normalizeReplayDimensions(
     width: Math.round(width),
     height: Math.round(height),
   };
-}
-
-export function clampReplayDisplayDimensions(
-  dims: ReplayViewportDimensions | null,
-): ReplayViewportDimensions | null {
-  if (!dims) return null;
-  const aspect = dims.width / dims.height;
-  if (aspect > MAX_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: Math.round(dims.height * MAX_REPLAY_DISPLAY_ASPECT_RATIO),
-      height: dims.height,
-    };
-  }
-  if (aspect < MIN_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: dims.width,
-      height: Math.round(dims.width / MIN_REPLAY_DISPLAY_ASPECT_RATIO),
-    };
-  }
-  return dims;
 }
 
 export function filterReplayMarkers(

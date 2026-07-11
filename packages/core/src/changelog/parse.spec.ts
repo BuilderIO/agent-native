@@ -90,6 +90,27 @@ describe("parsePendingEntry", () => {
       "no frontmatter at all",
     );
   });
+
+  it("uses a dated filename fallback when hand-written frontmatter omits date", () => {
+    expect(
+      parsePendingEntry("---\ntype: fixed\n---\nFixed it.", "2026-07-08"),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
+
+  it("uses the filename fallback when hand-written frontmatter has an invalid date", () => {
+    expect(
+      parsePendingEntry(
+        "---\ntype: fixed\ndate: yesterday\n---\nFixed it.",
+        "2026-07-08",
+      ),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
 });
 
 describe("renderReleaseBody", () => {

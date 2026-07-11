@@ -1034,6 +1034,16 @@ function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   };
 }
 
+export function appLocalEnv(app: Pick<TemplateApp, "dir">): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const fileName of [".env", ".env.local"]) {
+    const envPath = path.join(app.dir, fileName);
+    if (!fs.existsSync(envPath)) continue;
+    Object.assign(env, parseEnv(fs.readFileSync(envPath, "utf8")));
+  }
+  return env;
+}
+
 function appGoogleOAuthEnv(app: TemplateApp): NodeJS.ProcessEnv {
   const appEnvName = app.id.toUpperCase().replace(/-/g, "_");
   const clientIdKey = `${appEnvName}_GOOGLE_CLIENT_ID`;
@@ -1091,6 +1101,10 @@ function startApp(app: TemplateApp): void {
       env: devWatcherEnv({
         ...process.env,
         ...appDatabaseEnv(app),
+        // Vite loads these files for import.meta.env, but Nitro server code
+        // reads process.env. Pass them into the child explicitly so app-local
+        // database, auth, and encryption settings work in the lazy gateway.
+        ...appLocalEnv(app),
         ...appGoogleOAuthEnv(app),
         // Children write to a pipe (not a TTY), so vite/pnpm/chalk/picocolors
         // skip colors by default. FORCE_COLOR=1 re-enables them — the parent's

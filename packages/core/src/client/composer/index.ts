@@ -29,6 +29,9 @@ export {
   type RealtimeVoiceModeCopy,
   type RealtimeVoiceModeDockProps,
   type RealtimeVoiceModeEntryProps,
+  type RealtimeVoiceModeInlineSettings,
+  type RealtimeVoiceModeSelectSetting,
+  type RealtimeVoiceModeSettingOption,
   type RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
 export {

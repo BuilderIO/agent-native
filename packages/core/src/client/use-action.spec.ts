@@ -56,6 +56,7 @@ describe("callAction", () => {
         method: "POST",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
+          "X-Request-Source": expect.any(String),
         }),
         cache: "no-store",
         body: JSON.stringify({ name: "Salad" }),
@@ -81,6 +82,7 @@ describe("callAction", () => {
         method: "GET",
         headers: expect.objectContaining({
           "Content-Type": "application/json",
+          "X-Request-Source": expect.any(String),
         }),
         cache: "no-store",
         signal: expect.any(AbortSignal),

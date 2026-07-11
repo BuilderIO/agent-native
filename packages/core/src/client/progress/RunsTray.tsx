@@ -29,11 +29,13 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useFormatters, useT } from "../i18n.js";
+import { useChangeVersion } from "../use-change-version.js";
 import { usePausingInterval } from "../use-pausing-interval.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
+const RUN_CHANGE_SETTLE_MS = 250;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -77,6 +79,7 @@ function useRunsTrayState({
   const t = useT();
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
+  const runsVersion = useChangeVersion("runs");
 
   const refresh = useCallback(async () => {
     try {
@@ -94,8 +97,17 @@ function useRunsTrayState({
   }, [includeRecent, limit]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (runsVersion <= 0) return;
+    const timeout = window.setTimeout(
+      () => void refresh(),
+      RUN_CHANGE_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [refresh, runsVersion]);
 
   usePausingInterval(refresh, pollMs);
 

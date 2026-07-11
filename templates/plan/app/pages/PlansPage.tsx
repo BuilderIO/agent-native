@@ -2018,7 +2018,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   // Ref that signals the 3-second poll to pause while a comment mutation is
   // in-flight. Prevents poll-driven cache replacement from evicting optimistic
   // comments before the server write commits (Issue 4a).
-  const commentMutationPendingRef = useRef(false);
   const { session, isLoading: sessionLoading } = useSession();
   const localPlanMode = Boolean(localPlanSlug);
   const routeSearchParams = useMemo(
@@ -2217,10 +2216,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   const immersiveReader = Boolean(
     selectedId && (planFullscreen || prototypeOnly),
   );
-  const planQuery = usePlan(
-    localPlanMode ? undefined : selectedId,
-    commentMutationPendingRef,
-  );
+  const planQuery = usePlan(localPlanMode ? undefined : selectedId);
   const bundle = localPlanMode ? localPlanData : planQuery.data;
   const localPlanBundle =
     localPlanMode && bundle && "localOnly" in bundle
@@ -4550,8 +4546,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     };
     clearPendingDocumentRestore();
     pendingDocumentRestoreRef.current = documentStateRef.current;
-    commentMutationPendingRef.current = true;
-    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // Await the cancel so an in-flight sync refresh can't resolve *after* our
     // optimistic write and revert it (the "comment lagged / didn't stick"
     // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
@@ -4588,9 +4583,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         setInlineCommentPosition(
           getPositionFromAnchor(anchor) ?? capturedPosition,
         );
-      })
-      .finally(() => {
-        commentMutationPendingRef.current = false;
       });
   };
 
@@ -4606,7 +4598,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         annotation.anchor.resolutionTarget,
       ),
     };
-    commentMutationPendingRef.current = true;
     void writeComments(
       [
         {
@@ -4629,9 +4620,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       })
       .catch(() => {
         // The mutation hook surfaces the failure toast; just clear pending.
-      })
-      .finally(() => {
-        commentMutationPendingRef.current = false;
       });
   };
 
@@ -4669,8 +4657,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       createdAt: now,
       updatedAt: now,
     };
-    commentMutationPendingRef.current = true;
-    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // Await the cancel so an in-flight sync refresh can't resolve *after* our
     // optimistic write and revert it (the "comment lagged / didn't stick"
     // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
@@ -4709,8 +4696,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           current ? removePlanCommentFromBundle(current, replyId) : current,
       );
       throw new Error("Could not send reply. Try again.");
-    } finally {
-      commentMutationPendingRef.current = false;
     }
   };
 
@@ -4729,8 +4714,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     // popover update without waiting for the server round-trip (Issue 3).
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
-    commentMutationPendingRef.current = true;
-    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // Await the cancel so an in-flight sync refresh can't resolve *after* our
     // optimistic write and revert it (the "comment lagged / didn't stick"
     // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
@@ -4777,9 +4761,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         if (prevBundle !== undefined) {
           queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
         }
-      })
-      .finally(() => {
-        commentMutationPendingRef.current = false;
       });
   };
 
@@ -4802,8 +4783,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const prevBundle =
       queryClient.getQueryData<PlanBundleWithHtml>(selectedPlanQueryKey);
     const commentId = request.commentId;
-    commentMutationPendingRef.current = true;
-    // Await the cancel so an in-flight 3s poll can't resolve *after* our
+    // Await the cancel so an in-flight sync refresh can't resolve *after* our
     // optimistic write and revert it (the "comment lagged / didn't stick"
     // symptom). cancelQueries reverts outstanding fetches before we patch.
     await queryClient.cancelQueries({ queryKey: selectedPlanQueryKey });
@@ -4826,8 +4806,6 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         queryClient.setQueryData(selectedPlanQueryKey, prevBundle);
       }
       setDeleteCommentRequest(request);
-    } finally {
-      commentMutationPendingRef.current = false;
     }
   };
 

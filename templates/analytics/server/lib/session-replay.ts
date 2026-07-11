@@ -1954,7 +1954,16 @@ async function readSessionReplayChunkBytesForRecording(
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)
       throw replayError("Session replay blob reference is invalid", 500);
-    const blob = await readPrivateBlob(ref.handle);
+    const blob = await readPrivateBlob(ref.handle).catch((error) => {
+      console.error(
+        `[session-replay] Failed to decrypt blob chunk ${recording.id}/${row.seq}:`,
+        error,
+      );
+      throw replayError(
+        "Session replay storage could not be decrypted with this environment's encryption key. When using a production Analytics database locally, set ANALYTICS_SECRETS_ENCRYPTION_KEY to the matching production key.",
+        503,
+      );
+    });
     return {
       recording,
       seq: row.seq,

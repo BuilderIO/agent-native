@@ -52,9 +52,16 @@ action before requesting microphone permission.
 - Starting voice mode collapses the chat into a persistent bottom-end speech
   orb. The orb stays visible above the chat even when the chat opens
   automatically. Clicking it shows or hides chat without ending the session;
-  ending the session is a separate, explicit control.
-- The orb's compact waveform must reflect actual microphone or assistant audio
-  activity. It is an audio-level indicator, not a decorative animation.
+  the expanded controls also include an explicit chat toggle for
+  discoverability. Ending the session is a separate, explicit control.
+- The orb's compact waveform stays visible for the full session and reflects
+  actual microphone or assistant audio activity. At silence it rests at its
+  baseline instead of turning into a loading spinner.
+- The orb settings cog opens in place without ending voice mode or navigating
+  away. Language and intelligence update the active Realtime session; an
+  output-voice change updates immediately only before the assistant has emitted
+  audio and otherwise applies to the next conversation, matching the Realtime
+  API's voice immutability rule.
 - Semantic VAD keeps listening, starts responses automatically, and supports
   barge-in while the agent is speaking.
 - Function calls must cross the authenticated realtime tool bridge and enter
@@ -70,6 +77,10 @@ action before requesting microphone permission.
   user can continue over text. Store only compact lifecycle and latest context
   at `application_state["realtime-voice-session"]`; delete it when the session
   ends.
+- Store the user-controlled language, intelligence, and output-voice choices at
+  `application_state["realtime-voice-prefs"]`. Keep this separate from
+  `voice-transcription-prefs`, which configures editable dictation rather than
+  the speech-to-speech session.
 - Missing-key failures should open Settings focused on the user-scoped
   `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 

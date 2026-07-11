@@ -3,15 +3,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceSession,
   createRealtimeVoiceConnectionTimeout,
-  endRealtimeVoiceBeforeNavigation,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
   isRealtimeVoiceAbortError,
   listenForRealtimeVoicePageHide,
+  normalizeRealtimeVoicePreferences,
   REALTIME_VOICE_AUDIO_CONSTRAINTS,
+  realtimeVoiceReasoningEffort,
+  resolveRealtimeVoiceLanguage,
   shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
 
@@ -20,6 +23,52 @@ afterEach(() => {
 });
 
 describe("Realtime voice client transport", () => {
+  it("normalizes persisted preferences and resolves Auto from the browser language", () => {
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "deep",
+        voice: "cedar",
+      }),
+    ).toEqual({ language: "en", intelligence: "deep", voice: "cedar" });
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "xx",
+        intelligence: "maximum",
+        voice: "unknown",
+      }),
+    ).toEqual({ language: "auto", intelligence: "instant", voice: "marin" });
+    expect(resolveRealtimeVoiceLanguage("auto", ["en-US", "fr"])).toBe("en");
+    expect(resolveRealtimeVoiceLanguage("auto", ["nl-NL"])).toBe("en");
+  });
+
+  it("maps inline intelligence and language controls to a safe session update", () => {
+    expect(realtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(realtimeVoiceReasoningEffort("balanced")).toBe("low");
+    expect(realtimeVoiceReasoningEffort("deep")).toBe("medium");
+    expect(
+      createRealtimeVoicePreferenceUpdate(
+        { language: "auto", intelligence: "balanced", voice: "cedar" },
+        { browserLanguages: ["en-US"], includeVoice: true },
+      ),
+    ).toEqual({
+      type: "session.update",
+      session: {
+        type: "realtime",
+        reasoning: { effort: "low" },
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-4o-mini-transcribe",
+              language: "en",
+            },
+          },
+          output: { voice: "cedar" },
+        },
+      },
+    });
+  });
+
   it("prefers the browser and OS default microphone without requiring it", () => {
     expect(REALTIME_VOICE_AUDIO_CONSTRAINTS).toEqual(
       expect.objectContaining({
@@ -64,21 +113,6 @@ describe("Realtime voice client transport", () => {
     );
   });
 
-  it("ends voice synchronously before a hard settings navigation", () => {
-    vi.useFakeTimers();
-    const calls: string[] = [];
-
-    endRealtimeVoiceBeforeNavigation(
-      () => calls.push("end"),
-      () => calls.push("navigate"),
-    );
-
-    expect(calls).toEqual(["end"]);
-    vi.runAllTimers();
-    expect(calls).toEqual(["end", "navigate"]);
-    vi.useRealTimers();
-  });
-
   it("cleans up realtime transport when the page is hidden", () => {
     const cleanup = vi.fn();
     const stopListening = listenForRealtimeVoicePageHide(cleanup);
@@ -102,7 +136,15 @@ describe("Realtime voice client transport", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      createRealtimeVoiceSession("offer-sdp", { browserTabId: "tab-1" }),
+      createRealtimeVoiceSession("offer-sdp", {
+        browserTabId: "tab-1",
+        preferences: {
+          language: "auto",
+          intelligence: "instant",
+          voice: "marin",
+        },
+        browserLanguages: ["en-US"],
+      }),
     ).resolves.toBe("answer-sdp");
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/realtime-voice/session",
@@ -112,6 +154,9 @@ describe("Realtime voice client transport", () => {
         headers: {
           "Content-Type": "application/sdp",
           "X-Agent-Native-Browser-Tab": "tab-1",
+          "X-Agent-Native-Realtime-Language": "en",
+          "X-Agent-Native-Realtime-Intelligence": "instant",
+          "X-Agent-Native-Realtime-Voice": "marin",
         },
       }),
     );

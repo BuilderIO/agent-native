@@ -1,7 +1,17 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+} from "@agent-native/toolkit/ui/select";
+import {
   IconAlertTriangle,
+  IconBrain,
+  IconLanguage,
   IconLoader2,
+  IconMessageCircle,
   IconMicrophone,
   IconPhoneOff,
   IconSettings,
@@ -57,7 +67,29 @@ export interface RealtimeVoiceModeCopy {
   showChat: string;
   hideChat: string;
   endVoiceMode: string;
-  microphoneSettings: string;
+  voiceSettings: string;
+  settings: {
+    language: string;
+    autoLanguage: string;
+    languages: Record<
+      Exclude<
+        import("./useRealtimeVoiceMode.js").RealtimeVoiceLanguage,
+        "auto"
+      >,
+      string
+    >;
+    intelligence: string;
+    intelligenceLevels: Record<
+      import("./useRealtimeVoiceMode.js").RealtimeVoiceIntelligence,
+      string
+    >;
+    voiceStyle: string;
+    voiceChangePending: string;
+    voiceDescriptions: Record<
+      import("./useRealtimeVoiceMode.js").RealtimeVoice,
+      string
+    >;
+  };
   status: Record<RealtimeVoiceModeState, string>;
   errors: {
     unsupported: string;
@@ -227,9 +259,31 @@ export interface RealtimeVoiceModeDockProps {
   audioLevels?: RealtimeVoiceAudioLevelStore;
   onToggleChat: () => void;
   onEndVoiceMode: () => void;
-  onOpenMicrophoneSettings?: () => void;
+  settings?: RealtimeVoiceModeInlineSettings;
   errorMessage?: string | null;
   className?: string;
+}
+
+export interface RealtimeVoiceModeSettingOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface RealtimeVoiceModeSelectSetting {
+  label: string;
+  value: string;
+  options: readonly RealtimeVoiceModeSettingOption[];
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}
+
+export interface RealtimeVoiceModeInlineSettings {
+  dialogLabel: string;
+  appliesNextConversationNote?: string;
+  language: RealtimeVoiceModeSelectSetting;
+  intelligence: RealtimeVoiceModeSelectSetting;
+  voiceStyle: RealtimeVoiceModeSelectSetting;
 }
 
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
@@ -256,7 +310,7 @@ function VoiceWaveform({
 }: {
   level: number;
   reducedMotion: boolean;
-  activity: "user" | "assistant";
+  activity: "idle" | "user" | "assistant";
 }) {
   const visibleLevel = reducedMotion ? 0.45 : level;
   return (
@@ -279,36 +333,125 @@ function VoiceWaveform({
 
 const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
   connecting:
-    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   listening:
-    "bg-primary text-primary-foreground ring-primary/20 hover:bg-primary/90",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   speaking:
-    "bg-foreground text-background ring-foreground/20 hover:bg-foreground/90",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   working:
-    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   error:
-    "bg-destructive text-destructive-foreground ring-destructive/20 hover:bg-destructive/90",
-  ending: "cursor-wait bg-muted text-muted-foreground ring-muted/40",
+    "bg-destructive/20 text-destructive ring-destructive/30 hover:bg-destructive/25",
+  ending: "cursor-wait bg-background/65 text-muted-foreground ring-border/60",
 };
 
-function VoiceStateIcon({ state }: { state: RealtimeVoiceModeState }) {
-  switch (state) {
-    case "connecting":
-      return (
-        <IconLoader2 className="animate-spin motion-reduce:animate-none" />
-      );
-    case "listening":
-      return <IconMicrophone />;
-    case "speaking":
-      return <IconVolume />;
-    case "working":
-    case "ending":
-      return (
-        <IconLoader2 className="animate-spin motion-reduce:animate-none" />
-      );
-    case "error":
-      return <IconAlertTriangle />;
-  }
+function VoiceSettingRow({
+  icon: Icon,
+  setting,
+}: {
+  icon: typeof IconLanguage;
+  setting: RealtimeVoiceModeSelectSetting;
+}) {
+  const selected = setting.options.find(
+    (option) => option.value === setting.value,
+  );
+
+  return (
+    <Select
+      value={setting.value}
+      onValueChange={setting.onValueChange}
+      disabled={setting.disabled}
+    >
+      <SelectTrigger
+        aria-label={`${setting.label}: ${selected?.label ?? setting.value}`}
+        className="h-11 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2.5">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">
+            {setting.label}
+          </span>
+          <span className="ms-auto truncate text-sm text-muted-foreground">
+            {selected?.label ?? setting.value}
+          </span>
+        </span>
+      </SelectTrigger>
+      <SelectContent align="end" className="min-w-56">
+        <SelectGroup>
+          {setting.options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              <span className="grid gap-0.5">
+                <span>{option.label}</span>
+                {option.description ? (
+                  <span className="text-xs text-muted-foreground">
+                    {option.description}
+                  </span>
+                ) : null}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function VoiceInlineSettings({
+  settings,
+  disabled,
+}: {
+  settings: RealtimeVoiceModeInlineSettings;
+  disabled: boolean;
+}) {
+  const selectedVoice = settings.voiceStyle.options.find(
+    (option) => option.value === settings.voiceStyle.value,
+  );
+
+  return (
+    <div data-realtime-voice-settings="true">
+      <h2 className="sr-only">{settings.dialogLabel}</h2>
+      <div className="grid gap-0.5 px-4 pb-3 pt-4 text-center">
+        <div className="truncate text-base font-semibold text-foreground">
+          {selectedVoice?.label ?? settings.voiceStyle.value}
+        </div>
+        {selectedVoice?.description ? (
+          <div className="truncate text-xs text-muted-foreground">
+            {selectedVoice.description}
+          </div>
+        ) : null}
+      </div>
+      <div className="mx-2 mb-2 overflow-hidden rounded-xl border border-border/70 bg-background/70">
+        <VoiceSettingRow
+          icon={IconLanguage}
+          setting={{
+            ...settings.language,
+            disabled: disabled || settings.language.disabled,
+          }}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
+          icon={IconBrain}
+          setting={{
+            ...settings.intelligence,
+            disabled: disabled || settings.intelligence.disabled,
+          }}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
+          icon={IconVolume}
+          setting={{
+            ...settings.voiceStyle,
+            disabled: disabled || settings.voiceStyle.disabled,
+          }}
+        />
+      </div>
+      {settings.appliesNextConversationNote ? (
+        <p className="px-4 pb-3 text-center text-xs text-muted-foreground">
+          {settings.appliesNextConversationNote}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -322,13 +465,14 @@ export function RealtimeVoiceModeDock({
   audioLevels = SILENT_AUDIO_LEVELS,
   onToggleChat,
   onEndVoiceMode,
-  onOpenMicrophoneSettings,
+  settings,
   errorMessage,
   className,
 }: RealtimeVoiceModeDockProps) {
   const statusId = useId();
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const levels = useSyncExternalStore(
     audioLevels.subscribe,
     audioLevels.getSnapshot,
@@ -353,8 +497,10 @@ export function RealtimeVoiceModeDock({
   const ending = state === "ending";
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const orbScale = reducedMotion ? 1 : 1 + Math.min(activityLevel, 1) * 0.07;
+  const controlsVisible = controlsOpen || settingsOpen;
 
   const closeControlsUnlessFocused = (event: MouseEvent<HTMLDivElement>) => {
+    if (settingsOpen) return;
     if (!event.currentTarget.contains(document.activeElement)) {
       setControlsOpen(false);
     }
@@ -394,10 +540,10 @@ export function RealtimeVoiceModeDock({
       >
         <div
           id={controlsId}
-          data-realtime-voice-controls={controlsOpen ? "open" : "closed"}
+          data-realtime-voice-controls={controlsVisible ? "open" : "closed"}
           className={cn(
             "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 ps-3 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
-            controlsOpen
+            controlsVisible
               ? "pointer-events-auto translate-x-0 opacity-100"
               : "pointer-events-none opacity-0 ltr:translate-x-2 rtl:-translate-x-2 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100",
           )}
@@ -413,23 +559,54 @@ export function RealtimeVoiceModeDock({
             {copy.status[state]}
           </div>
 
-          {onOpenMicrophoneSettings ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={ending}
-                  onClick={onOpenMicrophoneSettings}
-                  aria-label={copy.microphoneSettings}
-                  className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
-                >
-                  <IconSettings />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{copy.microphoneSettings}</TooltipContent>
-            </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={ending}
+                onClick={onToggleChat}
+                aria-label={toggleLabel}
+                aria-pressed={chatVisible}
+                data-realtime-voice-chat-toggle="controls"
+                className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
+              >
+                <IconMessageCircle />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{toggleLabel}</TooltipContent>
+          </Tooltip>
+
+          {settings ? (
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={ending}
+                      aria-label={copy.voiceSettings}
+                      aria-expanded={settingsOpen}
+                      className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
+                    >
+                      <IconSettings />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{copy.voiceSettings}</TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                side="top"
+                align="end"
+                sideOffset={10}
+                className="w-[min(19rem,calc(100vw-2rem))] overflow-hidden p-0"
+              >
+                <VoiceInlineSettings settings={settings} disabled={ending} />
+              </PopoverContent>
+            </Popover>
           ) : null}
 
           <Tooltip>
@@ -462,11 +639,12 @@ export function RealtimeVoiceModeDock({
               }}
               aria-label={toggleLabel}
               aria-pressed={chatVisible}
+              data-realtime-voice-chat-toggle="orb"
               aria-describedby={statusId}
               aria-controls={controlsId}
-              aria-expanded={controlsOpen}
+              aria-expanded={controlsVisible}
               className={cn(
-                "relative isolate size-16 overflow-visible rounded-full ring-4 shadow-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
+                "relative isolate size-16 overflow-visible rounded-full ring-4 shadow-lg backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
               )}
             >
@@ -478,27 +656,15 @@ export function RealtimeVoiceModeDock({
                 )}
                 style={{ transform: `scale(${orbScale})` }}
               />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-1 overflow-hidden rounded-full bg-gradient-to-br from-background/70 via-background/15 to-transparent opacity-70"
-              >
-                <span className="absolute start-2.5 top-2 size-3 rounded-full bg-background/70 blur-[1px]" />
-                <span
-                  className="absolute -bottom-2 -end-1 h-8 w-10 rounded-full bg-background/25 blur-md transition-transform duration-150 ease-out motion-reduce:transition-none"
-                  style={{
-                    transform: `scale(${reducedMotion ? 1 : 1 + activityLevel * 0.25})`,
-                  }}
-                />
-              </span>
               <span className="relative z-10 flex items-center justify-center">
-                {activity === "idle" ? (
-                  <VoiceStateIcon state={state} />
-                ) : (
+                {state !== "error" ? (
                   <VoiceWaveform
                     level={activityLevel}
                     reducedMotion={reducedMotion}
                     activity={activity}
                   />
+                ) : (
+                  <IconAlertTriangle />
                 )}
               </span>
             </Button>

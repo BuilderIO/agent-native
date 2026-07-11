@@ -66,6 +66,10 @@ import {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   realtimeVoiceSafetyIdentifier,
+  resolveRealtimeVoiceLanguagePreference,
+  resolveRealtimeVoicePreference,
+  resolveRealtimeVoiceReasoningEffort,
+  resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
 
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
@@ -247,6 +251,39 @@ describe("mountRealtimeVoiceRoutes", () => {
   });
 });
 
+describe("resolveRealtimeVoiceTranscriptionLanguage", () => {
+  it("uses the preferred ISO-639-1 language from Accept-Language", () => {
+    expect(resolveRealtimeVoiceTranscriptionLanguage("en-US,en;q=0.9")).toBe(
+      "en",
+    );
+    expect(
+      resolveRealtimeVoiceTranscriptionLanguage("en;q=0.5, zh-CN;q=0.9"),
+    ).toBe("zh");
+  });
+
+  it("defaults safely to English", () => {
+    expect(resolveRealtimeVoiceTranscriptionLanguage(undefined)).toBe("en");
+    expect(resolveRealtimeVoiceTranscriptionLanguage("*;q=1, invalid")).toBe(
+      "en",
+    );
+  });
+});
+
+describe("realtime voice inline preferences", () => {
+  it("accepts validated language, intelligence, and built-in voice values", () => {
+    expect(resolveRealtimeVoiceLanguagePreference("en", "zh-CN")).toBe("en");
+    expect(resolveRealtimeVoiceLanguagePreference("invalid", "fr-FR")).toBe(
+      "fr",
+    );
+    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
+    expect(resolveRealtimeVoicePreference("cedar", "marin")).toBe("cedar");
+    expect(resolveRealtimeVoicePreference("custom-id", "marin")).toBe("marin");
+  });
+});
+
 describe("realtime voice session route", () => {
   it("caps tools to the Builder realtime gateway contract", async () => {
     resolveBuilderCredentials.mockResolvedValue({
@@ -410,7 +447,12 @@ describe("realtime voice session route", () => {
       resolveOrgId: async () => "org-custom",
       getInstructions,
     });
-    const event = sessionEvent();
+    const event = sessionEvent(undefined, {
+      "accept-language": "zh-CN, en;q=0.9",
+      "x-agent-native-realtime-language": "en",
+      "x-agent-native-realtime-intelligence": "deep",
+      "x-agent-native-realtime-voice": "cedar",
+    });
 
     const result = await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
 
@@ -449,17 +491,21 @@ describe("realtime voice session route", () => {
     expect(realtimeSession).toMatchObject({
       type: "realtime",
       model: "gpt-realtime-2.1",
+      reasoning: { effort: "medium" },
       output_modalities: ["audio"],
       audio: {
         input: {
-          transcription: { model: "gpt-4o-mini-transcribe" },
+          transcription: {
+            model: "gpt-4o-mini-transcribe",
+            language: "en",
+          },
           turn_detection: {
             type: "semantic_vad",
             create_response: true,
             interrupt_response: true,
           },
         },
-        output: { voice: "marin" },
+        output: { voice: "cedar" },
       },
       tool_choice: "auto",
       tools: [
@@ -546,6 +592,14 @@ describe("realtime voice session route", () => {
       session: {
         type: "realtime",
         model: "gpt-realtime-2.1",
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-4o-mini-transcribe",
+              language: "en",
+            },
+          },
+        },
         tool_choice: "auto",
       },
     });

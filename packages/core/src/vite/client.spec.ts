@@ -511,7 +511,7 @@ describe("app changelog raw imports", () => {
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-07-01-new-thing.md"),
-      "---\ntype: added\ndate: 2026-07-01\n---\n\nNew visible thing.\n",
+      "---\ntype: added\n---\n\nNew visible thing.\n",
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-06-23-same-day.md"),
@@ -552,6 +552,7 @@ describe("app changelog raw imports", () => {
         "2026-07-01",
         "2026-06-23",
       ]);
+      expect(entries.map((entry) => entry.title)).not.toContain("Unreleased");
       expect(entries[0].body).toContain("New visible thing.");
       expect(entries[1].body).toContain("Same-day fix.");
       expect(entries[1].body).toContain("Seed entry.");

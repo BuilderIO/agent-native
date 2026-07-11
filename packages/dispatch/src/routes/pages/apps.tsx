@@ -89,7 +89,6 @@ export default function AppsRoute() {
   const templatesQuery = useActionQuery(
     "list-available-workspace-templates",
     {},
-    { refetchInterval: 5_000 },
   );
   const { data: templates = [], isLoading: templatesLoading } = templatesQuery;
 

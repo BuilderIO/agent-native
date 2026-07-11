@@ -37,13 +37,6 @@ vi.mock("@agent-native/core/client/org", () => ({ TeamPage: () => null }));
 vi.mock("@/components/auth/AuthProvider", () => ({
   useAuth: mocks.useLegacyAuth,
 }));
-vi.mock("@/hooks/use-replay-storage-status", () => ({
-  useReplayStorageStatus: () => ({
-    data: null,
-    isLoading: false,
-    refetch: vi.fn(),
-  }),
-}));
 vi.mock("./settings/AlertRulesSettingsCard", () => ({
   AlertRulesSettingsCard: () => null,
 }));
@@ -78,5 +71,13 @@ describe("Analytics Settings", () => {
 
     expect(container.textContent).toContain("settings-user@example.com");
     expect(mocks.useLegacyAuth).not.toHaveBeenCalled();
+  });
+
+  it("keeps optional replay storage out of general settings", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(container.textContent).not.toContain("settings.replayStorage");
   });
 });

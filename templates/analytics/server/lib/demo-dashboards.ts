@@ -104,6 +104,15 @@ function publicState(state: DemoDashboardState): Record<string, unknown> {
   };
 }
 
+function stateContent(state: DemoDashboardState): string {
+  return JSON.stringify({
+    version: state.version,
+    initializedAt: state.initializedAt,
+    dashboards: state.dashboards ?? {},
+    deleted: state.deleted ?? {},
+  });
+}
+
 export function demoDashboardIdForUser(
   email: string,
   demoId: DemoDashboardId,
@@ -291,14 +300,18 @@ export async function ensureDemoDashboardsForUser(
     });
   }
 
-  const updatedState: DemoDashboardState = {
+  const updatedStateContent: DemoDashboardState = {
     version: DEMO_DASHBOARD_VERSION,
     initializedAt: state.initializedAt ?? nowIso(),
-    updatedAt: nowIso(),
     dashboards,
     deleted,
   };
-  await writeDemoState(ctx.email, updatedState);
+  if (reset || stateContent(state) !== stateContent(updatedStateContent)) {
+    await writeDemoState(ctx.email, {
+      ...updatedStateContent,
+      updatedAt: nowIso(),
+    });
+  }
 
   const firstActive = results.find((row) => row.installed && !row.archivedAt);
   return {

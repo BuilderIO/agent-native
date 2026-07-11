@@ -15,7 +15,7 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "../agent-sidebar-state.js";
-import { agentNativePath, appPath } from "../api-path.js";
+import { agentNativePath } from "../api-path.js";
 import { readClientAppState, setClientAppState } from "../application-state.js";
 import { getBrowserTabId } from "../browser-tab-id.js";
 import { useT } from "../i18n.js";
@@ -33,10 +33,58 @@ import {
 } from "./RealtimeVoiceMode.js";
 
 const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
+const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
+
+export const REALTIME_VOICE_LANGUAGES = [
+  "auto",
+  "en",
+  "es",
+  "fr",
+  "de",
+  "it",
+  "pt",
+  "ja",
+  "ko",
+  "zh",
+] as const;
+export const REALTIME_VOICE_INTELLIGENCE_LEVELS = [
+  "instant",
+  "balanced",
+  "deep",
+] as const;
+export const REALTIME_VOICES = [
+  "marin",
+  "cedar",
+  "coral",
+  "sage",
+  "verse",
+  "alloy",
+  "ash",
+  "ballad",
+  "echo",
+  "shimmer",
+] as const;
+
+export type RealtimeVoiceLanguage = (typeof REALTIME_VOICE_LANGUAGES)[number];
+export type RealtimeVoiceIntelligence =
+  (typeof REALTIME_VOICE_INTELLIGENCE_LEVELS)[number];
+export type RealtimeVoice = (typeof REALTIME_VOICES)[number];
+
+export interface RealtimeVoicePreferences {
+  language: RealtimeVoiceLanguage;
+  intelligence: RealtimeVoiceIntelligence;
+  voice: RealtimeVoice;
+}
+
+export const DEFAULT_REALTIME_VOICE_PREFERENCES: RealtimeVoicePreferences = {
+  language: "auto",
+  intelligence: "instant",
+  voice: "marin",
+};
 
 export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   // Prefer the browser/OS-selected input instead of whichever physical device
@@ -63,9 +111,98 @@ export interface RealtimeVoiceModeApi {
   errorMessage: string | null;
   chatVisible: boolean;
   audioLevels: RealtimeVoiceAudioLevelStore;
+  preferences: RealtimeVoicePreferences;
+  voiceChangePending: boolean;
+  setLanguage: (language: RealtimeVoiceLanguage) => void;
+  setIntelligence: (intelligence: RealtimeVoiceIntelligence) => void;
+  setVoice: (voice: RealtimeVoice) => void;
   start: () => Promise<void>;
   end: () => void;
   toggleChat: () => void;
+}
+
+function isOneOf<T extends readonly string[]>(
+  values: T,
+  value: unknown,
+): value is T[number] {
+  return typeof value === "string" && values.includes(value);
+}
+
+export function normalizeRealtimeVoicePreferences(
+  value: unknown,
+): RealtimeVoicePreferences {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    language: isOneOf(REALTIME_VOICE_LANGUAGES, record.language)
+      ? record.language
+      : DEFAULT_REALTIME_VOICE_PREFERENCES.language,
+    intelligence: isOneOf(
+      REALTIME_VOICE_INTELLIGENCE_LEVELS,
+      record.intelligence,
+    )
+      ? record.intelligence
+      : DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
+    voice: isOneOf(REALTIME_VOICES, record.voice)
+      ? record.voice
+      : DEFAULT_REALTIME_VOICE_PREFERENCES.voice,
+  };
+}
+
+export function resolveRealtimeVoiceLanguage(
+  language: RealtimeVoiceLanguage,
+  browserLanguages: readonly string[] = [],
+): Exclude<RealtimeVoiceLanguage, "auto"> {
+  if (language !== "auto") return language;
+  for (const locale of browserLanguages) {
+    const primary = locale.trim().split("-")[0]?.toLowerCase();
+    if (isOneOf(REALTIME_VOICE_LANGUAGES, primary) && primary !== "auto") {
+      return primary;
+    }
+  }
+  return "en";
+}
+
+export function realtimeVoiceReasoningEffort(
+  intelligence: RealtimeVoiceIntelligence,
+): "minimal" | "low" | "medium" {
+  if (intelligence === "balanced") return "low";
+  if (intelligence === "deep") return "medium";
+  return "minimal";
+}
+
+export function createRealtimeVoicePreferenceUpdate(
+  preferences: RealtimeVoicePreferences,
+  options: {
+    browserLanguages?: readonly string[];
+    includeVoice?: boolean;
+  } = {},
+): Record<string, unknown> {
+  return {
+    type: "session.update",
+    session: {
+      type: "realtime",
+      reasoning: {
+        effort: realtimeVoiceReasoningEffort(preferences.intelligence),
+      },
+      audio: {
+        input: {
+          transcription: {
+            model: "gpt-4o-mini-transcribe",
+            language: resolveRealtimeVoiceLanguage(
+              preferences.language,
+              options.browserLanguages,
+            ),
+          },
+        },
+        ...(options.includeVoice
+          ? { output: { voice: preferences.voice } }
+          : {}),
+      },
+    },
+  };
 }
 
 export interface CompletedRealtimeVoiceTranscript {
@@ -148,8 +285,14 @@ async function readErrorResponse(response: Response): Promise<string> {
 
 export async function createRealtimeVoiceSession(
   offerSdp: string,
-  options: { browserTabId?: string; signal?: AbortSignal } = {},
+  options: {
+    browserTabId?: string;
+    signal?: AbortSignal;
+    preferences?: RealtimeVoicePreferences;
+    browserLanguages?: readonly string[];
+  } = {},
 ): Promise<string> {
+  const preferences = options.preferences;
   const response = await fetch(agentNativePath(REALTIME_VOICE_SESSION_PATH), {
     method: "POST",
     credentials: "same-origin",
@@ -157,6 +300,16 @@ export async function createRealtimeVoiceSession(
       "Content-Type": "application/sdp",
       ...(options.browserTabId
         ? { "X-Agent-Native-Browser-Tab": options.browserTabId }
+        : {}),
+      ...(preferences
+        ? {
+            "X-Agent-Native-Realtime-Language": resolveRealtimeVoiceLanguage(
+              preferences.language,
+              options.browserLanguages,
+            ),
+            "X-Agent-Native-Realtime-Intelligence": preferences.intelligence,
+            "X-Agent-Native-Realtime-Voice": preferences.voice,
+          }
         : {}),
     },
     body: offerSdp,
@@ -269,19 +422,6 @@ function openOpenAiKeySettings(): void {
   );
 }
 
-function openMicrophoneSettings(): void {
-  if (typeof window === "undefined") return;
-  window.location.assign(`${appPath("/settings")}#voice`);
-}
-
-export function endRealtimeVoiceBeforeNavigation(
-  end: () => void,
-  navigate: () => void,
-): void {
-  end();
-  window.setTimeout(navigate, 0);
-}
-
 export function listenForRealtimeVoicePageHide(
   cleanup: () => void,
 ): () => void {
@@ -304,7 +444,44 @@ function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
     showChat: t("agentPanel.voiceMode.showChat"),
     hideChat: t("agentPanel.voiceMode.hideChat"),
     endVoiceMode: t("agentPanel.voiceMode.end"),
-    microphoneSettings: t("agentPanel.voiceMode.microphoneSettings"),
+    voiceSettings: t("agentPanel.voiceMode.voiceSettings"),
+    settings: {
+      language: t("agentPanel.voiceMode.settings.language"),
+      autoLanguage: t("agentPanel.voiceMode.settings.autoLanguage"),
+      languages: {
+        en: t("agentPanel.voiceMode.settings.languages.en"),
+        es: t("agentPanel.voiceMode.settings.languages.es"),
+        fr: t("agentPanel.voiceMode.settings.languages.fr"),
+        de: t("agentPanel.voiceMode.settings.languages.de"),
+        it: t("agentPanel.voiceMode.settings.languages.it"),
+        pt: t("agentPanel.voiceMode.settings.languages.pt"),
+        ja: t("agentPanel.voiceMode.settings.languages.ja"),
+        ko: t("agentPanel.voiceMode.settings.languages.ko"),
+        zh: t("agentPanel.voiceMode.settings.languages.zh"),
+      },
+      intelligence: t("agentPanel.voiceMode.settings.intelligence"),
+      intelligenceLevels: {
+        instant: t("agentPanel.voiceMode.settings.intelligenceLevels.instant"),
+        balanced: t(
+          "agentPanel.voiceMode.settings.intelligenceLevels.balanced",
+        ),
+        deep: t("agentPanel.voiceMode.settings.intelligenceLevels.deep"),
+      },
+      voiceStyle: t("agentPanel.voiceMode.settings.voiceStyle"),
+      voiceChangePending: t("agentPanel.voiceMode.settings.voiceChangePending"),
+      voiceDescriptions: {
+        marin: t("agentPanel.voiceMode.settings.voiceDescriptions.marin"),
+        cedar: t("agentPanel.voiceMode.settings.voiceDescriptions.cedar"),
+        coral: t("agentPanel.voiceMode.settings.voiceDescriptions.coral"),
+        sage: t("agentPanel.voiceMode.settings.voiceDescriptions.sage"),
+        verse: t("agentPanel.voiceMode.settings.voiceDescriptions.verse"),
+        alloy: t("agentPanel.voiceMode.settings.voiceDescriptions.alloy"),
+        ash: t("agentPanel.voiceMode.settings.voiceDescriptions.ash"),
+        ballad: t("agentPanel.voiceMode.settings.voiceDescriptions.ballad"),
+        echo: t("agentPanel.voiceMode.settings.voiceDescriptions.echo"),
+        shimmer: t("agentPanel.voiceMode.settings.voiceDescriptions.shimmer"),
+      },
+    },
     status: {
       connecting: t("agentPanel.voiceMode.status.connecting"),
       listening: t("agentPanel.voiceMode.status.listening"),
@@ -337,8 +514,14 @@ function useRealtimeVoiceModeController(
   const [state, setState] = useState<"idle" | RealtimeVoiceModeState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
+  const [preferences, setPreferences] = useState(
+    DEFAULT_REALTIME_VOICE_PREFERENCES,
+  );
+  const [voiceChangePending, setVoiceChangePending] = useState(false);
   const [audioLevels] = useState(createRealtimeVoiceAudioLevelStore);
   const stateRef = useRef(state);
+  const preferencesRef = useRef(preferences);
+  const hasOutputAudioRef = useRef(false);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -361,10 +544,33 @@ function useRealtimeVoiceModeController(
   const lastAssistantTextRef = useRef("");
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
   const transcriptSequenceRef = useRef(0);
+  const preferencesHydratedRef = useRef(false);
+  const preferencesEditedRef = useRef(false);
+  const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
+  const hydratePreferences = useCallback(async () => {
+    if (preferencesHydratedRef.current) return;
+    try {
+      const stored = await readClientAppState(REALTIME_VOICE_PREFERENCES_KEY);
+      if (!preferencesEditedRef.current && stored != null) {
+        const next = normalizeRealtimeVoicePreferences(stored);
+        preferencesRef.current = next;
+        setPreferences(next);
+      }
+    } catch {
+      // Preferences are optional; keep safe defaults when storage is unavailable.
+    } finally {
+      preferencesHydratedRef.current = true;
+    }
+  }, []);
 
   const syncAppState = useCallback(
     (nextState: "idle" | RealtimeVoiceModeState) => {
@@ -378,6 +584,7 @@ function useRealtimeVoiceModeController(
               startedAt: startedAtRef.current,
               sessionId: sessionIdRef.current,
               browserTabId,
+              preferences: preferencesRef.current,
               lastUserText: lastUserTextRef.current || undefined,
               lastAssistantText: lastAssistantTextRef.current || undefined,
             };
@@ -395,6 +602,68 @@ function useRealtimeVoiceModeController(
       syncAppState(nextState);
     },
     [syncAppState],
+  );
+
+  const savePreferences = useCallback((next: RealtimeVoicePreferences) => {
+    preferencesEditedRef.current = true;
+    preferencesHydratedRef.current = true;
+    preferencesRef.current = next;
+    setPreferences(next);
+    preferenceWriteChainRef.current = preferenceWriteChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await setClientAppState(REALTIME_VOICE_PREFERENCES_KEY, next, {
+          requestSource: REALTIME_VOICE_REQUEST_SOURCE,
+        });
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const updateLivePreferences = useCallback(
+    (next: RealtimeVoicePreferences, includeVoice = false) => {
+      sendDataChannelEvent(
+        channelRef.current,
+        createRealtimeVoicePreferenceUpdate(next, {
+          browserLanguages:
+            typeof navigator === "undefined" ? [] : navigator.languages,
+          includeVoice,
+        }),
+      );
+    },
+    [],
+  );
+
+  const setLanguage = useCallback(
+    (language: RealtimeVoiceLanguage) => {
+      const next = { ...preferencesRef.current, language };
+      savePreferences(next);
+      updateLivePreferences(next);
+    },
+    [savePreferences, updateLivePreferences],
+  );
+
+  const setIntelligence = useCallback(
+    (intelligence: RealtimeVoiceIntelligence) => {
+      const next = { ...preferencesRef.current, intelligence };
+      savePreferences(next);
+      updateLivePreferences(next);
+    },
+    [savePreferences, updateLivePreferences],
+  );
+
+  const setVoice = useCallback(
+    (voice: RealtimeVoice) => {
+      const next = { ...preferencesRef.current, voice };
+      savePreferences(next);
+      if (hasOutputAudioRef.current) {
+        setVoiceChangePending(true);
+        updateLivePreferences(next);
+        return;
+      }
+      setVoiceChangePending(false);
+      updateLivePreferences(next, true);
+    },
+    [savePreferences, updateLivePreferences],
   );
 
   const startMeterLoop = useCallback(() => {
@@ -578,15 +847,20 @@ function useRealtimeVoiceModeController(
           const id = (session as { id?: unknown }).id;
           if (typeof id === "string") sessionIdRef.current = id;
         }
+        updateLivePreferences(preferencesRef.current, true);
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_started") {
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
         transition("working");
       } else if (event.type === "response.created") {
+        // From this point onward the response is committed to audio output, so
+        // changing voices risks violating Realtime's per-session voice lock.
+        hasOutputAudioRef.current = true;
         lastAssistantTextRef.current = "";
         transition("working");
       } else if (event.type === "response.output_audio_transcript.delta") {
+        hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
         }
@@ -647,6 +921,7 @@ function useRealtimeVoiceModeController(
       persistCompletedTranscript,
       syncAppState,
       transition,
+      updateLivePreferences,
     ],
   );
 
@@ -667,12 +942,17 @@ function useRealtimeVoiceModeController(
     lastUserTextRef.current = "";
     lastAssistantTextRef.current = "";
     sessionIdRef.current = undefined;
+    hasOutputAudioRef.current = false;
+    setVoiceChangePending(false);
     transcriptThreadIdRef.current =
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
     transition("connecting");
     setChatVisible(false);
     window.dispatchEvent(new Event("agent-panel:close"));
+
+    await hydratePreferences();
+    if ((stateRef.current as string) !== "connecting") return;
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -761,6 +1041,8 @@ function useRealtimeVoiceModeController(
       const answerSdp = await createRealtimeVoiceSession(offer.sdp, {
         browserTabId,
         signal: abortController.signal,
+        preferences: preferencesRef.current,
+        browserLanguages: navigator.languages,
       });
       if (!isCurrentAttempt()) return;
       await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
@@ -784,6 +1066,7 @@ function useRealtimeVoiceModeController(
     copy,
     fail,
     handleServerEvent,
+    hydratePreferences,
     transition,
   ]);
 
@@ -849,6 +1132,11 @@ function useRealtimeVoiceModeController(
     errorMessage: error,
     chatVisible,
     audioLevels,
+    preferences,
+    voiceChangePending,
+    setLanguage,
+    setIntelligence,
+    setVoice,
     start,
     end,
     toggleChat,
@@ -869,6 +1157,56 @@ export function RealtimeVoiceModeProvider({
   );
   const copy = useRealtimeVoiceModeCopy();
   const voice = useRealtimeVoiceModeController(resolvedBrowserTabId, copy);
+  const inlineSettings = useMemo(
+    () => ({
+      dialogLabel: copy.voiceSettings,
+      ...(voice.voiceChangePending
+        ? { appliesNextConversationNote: copy.settings.voiceChangePending }
+        : {}),
+      language: {
+        label: copy.settings.language,
+        value: voice.preferences.language,
+        options: REALTIME_VOICE_LANGUAGES.map((language) => ({
+          value: language,
+          label:
+            language === "auto"
+              ? copy.settings.autoLanguage
+              : copy.settings.languages[language],
+        })),
+        onValueChange: (value: string) => {
+          if (isOneOf(REALTIME_VOICE_LANGUAGES, value)) {
+            voice.setLanguage(value);
+          }
+        },
+      },
+      intelligence: {
+        label: copy.settings.intelligence,
+        value: voice.preferences.intelligence,
+        options: REALTIME_VOICE_INTELLIGENCE_LEVELS.map((intelligence) => ({
+          value: intelligence,
+          label: copy.settings.intelligenceLevels[intelligence],
+        })),
+        onValueChange: (value: string) => {
+          if (isOneOf(REALTIME_VOICE_INTELLIGENCE_LEVELS, value)) {
+            voice.setIntelligence(value);
+          }
+        },
+      },
+      voiceStyle: {
+        label: copy.settings.voiceStyle,
+        value: voice.preferences.voice,
+        options: REALTIME_VOICES.map((voiceName) => ({
+          value: voiceName,
+          label: `${voiceName[0]!.toUpperCase()}${voiceName.slice(1)}`,
+          description: copy.settings.voiceDescriptions[voiceName],
+        })),
+        onValueChange: (value: string) => {
+          if (isOneOf(REALTIME_VOICES, value)) voice.setVoice(value);
+        },
+      },
+    }),
+    [copy, voice],
+  );
 
   return (
     <RealtimeVoiceModeContext.Provider value={voice}>
@@ -882,12 +1220,7 @@ export function RealtimeVoiceModeProvider({
               audioLevels={voice.audioLevels}
               onToggleChat={voice.toggleChat}
               onEndVoiceMode={voice.end}
-              onOpenMicrophoneSettings={() =>
-                endRealtimeVoiceBeforeNavigation(
-                  voice.end,
-                  openMicrophoneSettings,
-                )
-              }
+              settings={inlineSettings}
               errorMessage={voice.errorMessage}
             />,
             document.body,

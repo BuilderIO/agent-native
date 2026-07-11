@@ -257,14 +257,14 @@
   [data-agent-empty-state="centered"]
   .agent-composer-area {
   width: 100%;
-  max-width: min(760px, 90%);
+  max-width: min(570px, 90%);
   padding: 0;
 }
 
 .assets-create-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-root {
-  min-height: 10.5rem;
+  min-height: 7.875rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
   background: hsl(var(--card));
@@ -274,7 +274,7 @@
 .assets-create-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-prosemirror {
-  min-height: 6.75rem;
+  min-height: 5.0625rem;
   font-size: 1rem;
   line-height: 1.625rem;
 }
@@ -305,6 +305,6 @@
   .assets-create-chat-panel
     [data-agent-empty-state="centered"]
     .agent-composer-root {
-    min-height: 9rem;
+    min-height: 6.75rem;
   }
 }

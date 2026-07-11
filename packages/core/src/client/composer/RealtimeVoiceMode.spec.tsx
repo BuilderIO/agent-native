@@ -27,7 +27,42 @@ const copy: RealtimeVoiceModeCopy = {
   showChat: "Show chat",
   hideChat: "Hide chat",
   endVoiceMode: "End voice mode",
-  microphoneSettings: "Microphone settings",
+  voiceSettings: "Voice settings",
+  settings: {
+    language: "Language",
+    autoLanguage: "Auto",
+    languages: {
+      en: "English",
+      es: "Spanish",
+      fr: "French",
+      de: "German",
+      it: "Italian",
+      pt: "Portuguese",
+      ja: "Japanese",
+      ko: "Korean",
+      zh: "Chinese",
+    },
+    intelligence: "Intelligence",
+    intelligenceLevels: {
+      instant: "Instant",
+      balanced: "Balanced",
+      deep: "Deep",
+    },
+    voiceStyle: "Voice style",
+    voiceChangePending: "Voice changes apply to the next conversation.",
+    voiceDescriptions: {
+      marin: "Warm and natural",
+      cedar: "Clear and grounded",
+      coral: "Friendly and bright",
+      sage: "Calm and thoughtful",
+      verse: "Expressive and versatile",
+      alloy: "Balanced and neutral",
+      ash: "Smooth and confident",
+      ballad: "Warm and expressive",
+      echo: "Clear and direct",
+      shimmer: "Light and upbeat",
+    },
+  },
   status: {
     connecting: "Connecting",
     listening: "Listening",
@@ -186,10 +221,17 @@ describe("RealtimeVoiceMode", () => {
       "Listening",
     );
     const toggleChat = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Show chat"]',
+      'button[data-realtime-voice-chat-toggle="orb"]',
     );
+    expect(
+      document.querySelector(
+        'button[data-realtime-voice-chat-toggle="controls"]',
+      ),
+    ).not.toBeNull();
     expect(toggleChat?.getAttribute("aria-pressed")).toBe("false");
     expect(toggleChat?.getAttribute("aria-expanded")).toBe("false");
+    expect(toggleChat?.className).toContain("backdrop-blur-xl");
+    expect(document.querySelector('[class*="bg-gradient"]')).toBeNull();
     expect(
       document
         .querySelector("[data-realtime-voice-controls]")
@@ -208,8 +250,7 @@ describe("RealtimeVoiceMode", () => {
     ).toBe("open");
   });
 
-  it("progressively discloses working microphone and end-session controls", () => {
-    const onOpenMicrophoneSettings = vi.fn();
+  it("progressively discloses the end-session control", () => {
     const onEndVoiceMode = vi.fn();
 
     render(
@@ -219,23 +260,131 @@ describe("RealtimeVoiceMode", () => {
         chatVisible={false}
         onToggleChat={vi.fn()}
         onEndVoiceMode={onEndVoiceMode}
-        onOpenMicrophoneSettings={onOpenMicrophoneSettings}
       />,
     );
 
-    const microphoneSettings = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Microphone settings"]',
-    );
     const endVoiceMode = document.querySelector<HTMLButtonElement>(
       'button[aria-label="End voice mode"]',
     );
 
-    act(() => microphoneSettings?.click());
-    expect(onOpenMicrophoneSettings).toHaveBeenCalledOnce();
-    expect(onEndVoiceMode).not.toHaveBeenCalled();
-
     act(() => endVoiceMode?.click());
     expect(onEndVoiceMode).toHaveBeenCalledOnce();
+  });
+
+  it("opens compact voice settings without leaving or ending the session", () => {
+    const onLanguageChange = vi.fn();
+    const onIntelligenceChange = vi.fn();
+    const onVoiceChange = vi.fn();
+
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+        settings={{
+          dialogLabel: "Voice settings",
+          appliesNextConversationNote:
+            "Voice changes apply to the next conversation.",
+          language: {
+            label: "Language",
+            value: "en",
+            options: [
+              { value: "auto", label: "Auto" },
+              { value: "en", label: "English" },
+            ],
+            onValueChange: onLanguageChange,
+          },
+          intelligence: {
+            label: "Intelligence",
+            value: "instant",
+            options: [
+              { value: "instant", label: "Instant" },
+              { value: "balanced", label: "Balanced" },
+            ],
+            onValueChange: onIntelligenceChange,
+          },
+          voiceStyle: {
+            label: "Voice style",
+            value: "marin",
+            options: [
+              {
+                value: "marin",
+                label: "Marin",
+                description: "Warm and conversational",
+              },
+              { value: "cedar", label: "Cedar" },
+            ],
+            onValueChange: onVoiceChange,
+          },
+        }}
+      />,
+    );
+
+    const settingsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Voice settings"]',
+    );
+    act(() => settingsButton?.click());
+
+    expect(settingsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('[data-realtime-voice-settings="true"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("Warm and conversational");
+    expect(document.body.textContent).toContain(
+      "Voice changes apply to the next conversation.",
+    );
+    expect(
+      Array.from(document.querySelectorAll('[role="combobox"]')).map(
+        (element) => element.getAttribute("aria-label"),
+      ),
+    ).toEqual([
+      "Language: English",
+      "Intelligence: Instant",
+      "Voice style: Marin",
+    ]);
+
+    const language = document.querySelector<HTMLElement>(
+      '[role="combobox"][aria-label="Language: English"]',
+    );
+    expect(language?.className).toContain("focus-visible:ring-2");
+    act(() => {
+      language?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const auto = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Auto"));
+    expect(auto).toBeDefined();
+    act(() => {
+      auto?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      auto?.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+
+    expect(onLanguageChange).toHaveBeenCalledWith("auto");
+    expect(onIntelligenceChange).not.toHaveBeenCalled();
+    expect(onVoiceChange).not.toHaveBeenCalled();
+    expect(
+      document.querySelector("[data-realtime-voice-state]"),
+    ).not.toBeNull();
   });
 
   it("keeps the dock visible when chat opens itself", () => {
@@ -302,7 +451,35 @@ describe("RealtimeVoiceMode", () => {
     ).not.toBeNull();
   });
 
-  it("keeps showing connection progress when microphone audio arrives early", () => {
+  it.each([
+    "connecting",
+    "listening",
+    "speaking",
+    "working",
+    "ending",
+  ] as const)(
+    "keeps the waveform visible while voice mode is %s and silent",
+    (state) => {
+      render(
+        <RealtimeVoiceModeDock
+          state={state}
+          copy={copy}
+          chatVisible={false}
+          onToggleChat={vi.fn()}
+          onEndVoiceMode={vi.fn()}
+        />,
+      );
+
+      expect(
+        document.querySelector(
+          '[data-realtime-voice-waveform-activity="idle"]',
+        ),
+      ).not.toBeNull();
+      expect(document.querySelector(".animate-spin")).toBeNull();
+    },
+  );
+
+  it("keeps early microphone audio visually idle until connected", () => {
     const audioLevels = createRealtimeVoiceAudioLevelStore();
     audioLevels.set({ input: 0.8, output: 0 });
 
@@ -324,8 +501,8 @@ describe("RealtimeVoiceMode", () => {
     ).toBe("idle");
     expect(
       document.querySelector('[data-realtime-voice-waveform="true"]'),
-    ).toBeNull();
-    expect(document.querySelector(".animate-spin")).not.toBeNull();
+    ).not.toBeNull();
+    expect(document.querySelector(".animate-spin")).toBeNull();
   });
 
   it("exposes error details and a separate end-session action", () => {

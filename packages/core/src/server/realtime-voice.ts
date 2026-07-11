@@ -18,6 +18,7 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
+import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
   getBuilderGatewayBaseUrl,
@@ -50,6 +51,24 @@ const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
 const BROWSER_TAB_ID = /^[A-Za-z0-9_-]{1,96}$/;
+const ISO_639_1_LANGUAGE = /^[A-Za-z]{2}$/;
+const REALTIME_VOICE_BUILT_INS = new Set([
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar",
+]);
+const REALTIME_VOICE_REASONING_EFFORT = {
+  instant: "minimal",
+  balanced: "low",
+  deep: "medium",
+} as const;
 
 export interface RealtimeVoiceRequestContext {
   event: H3Event;
@@ -123,6 +142,50 @@ function configuredIdentifier(
   const trimmed = value?.trim();
   return trimmed && /^[A-Za-z0-9_.:-]{1,128}$/.test(trimmed)
     ? trimmed
+    : fallback;
+}
+
+export function resolveRealtimeVoiceTranscriptionLanguage(
+  acceptLanguage: string | null | undefined,
+): string {
+  for (const locale of parseAcceptLanguage(acceptLanguage)) {
+    const primaryLanguage = locale.split("-")[0];
+    if (ISO_639_1_LANGUAGE.test(primaryLanguage)) {
+      return primaryLanguage.toLowerCase();
+    }
+  }
+  return "en";
+}
+
+export function resolveRealtimeVoiceLanguagePreference(
+  value: string | null | undefined,
+  acceptLanguage: string | null | undefined,
+): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && ISO_639_1_LANGUAGE.test(normalized)
+    ? normalized
+    : resolveRealtimeVoiceTranscriptionLanguage(acceptLanguage);
+}
+
+export function resolveRealtimeVoiceReasoningEffort(
+  value: string | null | undefined,
+): "minimal" | "low" | "medium" {
+  const normalized = value?.trim().toLowerCase();
+  return normalized &&
+    Object.hasOwn(REALTIME_VOICE_REASONING_EFFORT, normalized)
+    ? REALTIME_VOICE_REASONING_EFFORT[
+        normalized as keyof typeof REALTIME_VOICE_REASONING_EFFORT
+      ]
+    : "low";
+}
+
+export function resolveRealtimeVoicePreference(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && REALTIME_VOICE_BUILT_INS.has(normalized)
+    ? normalized
     : fallback;
 }
 
@@ -394,14 +457,29 @@ function createSessionHandler(
         }
 
         const instructions = await buildInstructions(auth, options);
+        const transcriptionLanguage = resolveRealtimeVoiceLanguagePreference(
+          readSafeHeader(event, "x-agent-native-realtime-language"),
+          readSafeHeader(event, "accept-language"),
+        );
+        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
+          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+        );
+        const voice = resolveRealtimeVoicePreference(
+          readSafeHeader(event, "x-agent-native-realtime-voice"),
+          configuredIdentifier(options.voice, DEFAULT_VOICE),
+        );
         const sessionBase = {
           type: "realtime",
           model: configuredIdentifier(options.model, DEFAULT_MODEL),
           instructions,
+          reasoning: { effort: reasoningEffort },
           output_modalities: ["audio"],
           audio: {
             input: {
-              transcription: { model: "gpt-4o-mini-transcribe" },
+              transcription: {
+                model: "gpt-4o-mini-transcribe",
+                language: transcriptionLanguage,
+              },
               turn_detection: {
                 type: "semantic_vad",
                 create_response: true,
@@ -410,7 +488,7 @@ function createSessionHandler(
               },
             },
             output: {
-              voice: configuredIdentifier(options.voice, DEFAULT_VOICE),
+              voice,
             },
           },
         };

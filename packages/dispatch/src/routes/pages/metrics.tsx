@@ -643,7 +643,6 @@ export default function MetricsRoute() {
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
     { sinceDays },
-    { refetchInterval: 30_000 },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
   const billing = metrics?.billing ?? USD_BILLING;

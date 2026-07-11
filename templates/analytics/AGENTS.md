@@ -298,19 +298,15 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
-- Keep model cost, token volume, latency, error rate, explicit thumbs feedback,
-  optional inferred message sentiment, sentiment by main model, and expensive
-  agent-run panels in the canonical Agent Native dashboard
-  (`agent-native-templates-first-party`). Generation metrics use first-party
-  `$ai_generation` events; feedback panels use content-free `$ai_feedback`
-  events with `sentiment` (`positive` or `negative`) and model in `$ai_model` or
-  `model`. Treat these as explicit user ratings, never as inferred message
-  sentiment. Inferred panels separately use `$ai_sentiment` events with
-  `method = 'llm'`, `sentiment` (`positive`, `neutral`, or `negative`), the
-  attributed main model in `$ai_model` or `model`, and the classifier in
-  `classifier_model`. Never group the by-main-model panel on
-  `classifier_model`, and never split these panels into a separately installable
-  observability template.
+- Keep the canonical Agent Native dashboard
+  (`agent-native-templates-first-party`) focused: it includes one explicit
+  feedback-sentiment-by-model chart and one optional inferred-message-sentiment
+  chart, not the broader LLM cost, token, latency, or error suite. Explicit
+  feedback uses content-free `$ai_feedback` events with `sentiment` (`positive`
+  or `negative`) and model in `$ai_model` or `model`. Inferred sentiment uses
+  `$ai_sentiment` events with `method = 'llm'` and `sentiment` (`positive`,
+  `neutral`, or `negative`). Keep these panels in the canonical dashboard and
+  do not recreate a separately installable observability template.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already

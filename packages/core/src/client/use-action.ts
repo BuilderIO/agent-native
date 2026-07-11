@@ -28,6 +28,7 @@ import type {
 } from "@tanstack/react-query";
 
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
@@ -264,6 +265,9 @@ async function actionFetch<T>(
     // safe to expose: CORS allows it (see action-routes.ts) and it carries
     // no auth weight — it only narrows the caller tag.
     "X-Agent-Native-Frontend": "1",
+    // The server copies this onto the emitted action sync event. useDbSync can
+    // then ignore the echo in this tab while other tabs still refresh.
+    "X-Request-Source": getBrowserTabId(),
   };
   const tz = resolveUserTimezone();
   if (tz) headers["x-user-timezone"] = tz;

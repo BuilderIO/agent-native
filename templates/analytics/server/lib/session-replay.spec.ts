@@ -667,6 +667,46 @@ describe("session replay ingest parsing", () => {
     expect(JSON.parse(result.json)).toHaveLength(2);
   });
 
+  it("returns actionable setup guidance when a replay blob key does not match", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_blob_mismatch"),
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "encrypted-blob-handle" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 4096,
+          eventCount: 2,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockRejectedValue(
+      new Error("Unsupported state or unable to authenticate data"),
+    );
+
+    await expect(
+      readSessionReplayChunkBytes("sr_blob_mismatch", 0, {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: expect.stringContaining("ANALYTICS_SECRETS_ENCRYPTION_KEY"),
+    });
+  });
+
   it("requires signed-in email identity and replay events in session recording lists", async () => {
     const listDb = createSessionReplayListDbMock([
       {
