@@ -1499,7 +1499,18 @@ export function createAgentChatPlugin(
                   },
             );
 
-            const mcpTools = actionsToEngineTools(mcpActions);
+            // Same compact initial-tool surface as interactive chat and A2A:
+            // template actions + the small framework default set stay visible
+            // on the first request; everything else (provider, MCP, extension
+            // schemas) is reachable through the attached `tool-search` entry
+            // via `runAgentLoop`'s mid-run tool expansion. Without this, every
+            // external host calling `ask_app` (MCP) paid for a near-full
+            // catalog on its very first request, undermining the compact MCP
+            // catalog this surface is supposed to keep external callers on.
+            const mcpToolSurface = createA2AEngineToolSurface(
+              actionsToEngineTools(mcpActions),
+              effectiveInitialToolNames,
+            );
 
             const resources = await loadResourcesForPrompt(
               SHARED_OWNER,
@@ -1544,7 +1555,8 @@ export function createAgentChatPlugin(
                 engine: mcpEngine,
                 model,
                 systemPrompt,
-                tools: mcpTools,
+                tools: mcpToolSurface.tools,
+                availableTools: mcpToolSurface.availableTools,
                 messages: [
                   {
                     role: "user",
