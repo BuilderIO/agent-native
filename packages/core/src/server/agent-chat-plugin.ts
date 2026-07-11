@@ -5839,7 +5839,11 @@ export function createAgentChatPlugin(
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
       const anonymousReadOnlyPrompt =
         (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
-        generateActionsPrompt(filterReadOnlyActions(templateScripts), "tool") +
+        generateActionsPrompt(
+          filterReadOnlyActions(templateScripts),
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        ) +
         "\n\nYou are answering from a public shared page. Treat the visible resource as read-only: do not create, edit, delete, comment on, share, or otherwise mutate app data. If the user asks for a change, describe what you would change or suggest signing in to edit.";
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
