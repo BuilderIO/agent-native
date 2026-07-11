@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildIdleSkipRanges,
   buildReplayMarkers,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
@@ -143,7 +144,7 @@ describe("session replay event normalization", () => {
 });
 
 describe("session replay timeline markers", () => {
-  it("keeps network diagnostics out of the event timeline", () => {
+  it("keeps successful network diagnostics out of the event timeline", () => {
     const markers = buildReplayMarkers([
       {
         type: 4,
@@ -175,6 +176,90 @@ describe("session replay timeline markers", () => {
       "navigation",
       "click",
     ]);
+  });
+
+  it("surfaces failed network diagnostics without exposing successful polling", () => {
+    const markers = buildReplayMarkers([
+      {
+        type: 4,
+        timestamp: 1_000,
+        data: { href: "https://app.example.test/" },
+      },
+      {
+        type: 5,
+        timestamp: 2_000,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "GET",
+            url: "https://api.example.test/poll",
+            status: 200,
+            ok: true,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_000,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "POST",
+            url: "https://api.example.test/action",
+            status: 0,
+            ok: false,
+            error: "Failed to fetch",
+            durationMs: 42,
+          },
+        },
+      },
+    ]);
+
+    expect(markers).toHaveLength(2);
+    expect(markers[1]).toMatchObject({
+      offsetMs: 2_000,
+      kind: "custom",
+      label: "Network error",
+      detail: "POST https://api.example.test/action",
+      severity: "error",
+    });
+    expect(markers[1]?.fields).toEqual(
+      expect.arrayContaining([
+        { label: "Status", value: "0" },
+        { label: "Error", value: "Failed to fetch" },
+      ]),
+    );
+  });
+
+  it("surfaces scroll, input, click, and focus with normalized offsets", () => {
+    const markers = buildReplayMarkers([
+      { type: 3, timestamp: 20_000, data: { source: 3, id: 1, x: 0, y: 640 } },
+      { type: 3, timestamp: 12_000, data: { source: 5, id: 2, text: "query" } },
+      {
+        type: 3,
+        timestamp: 16_000,
+        data: { source: 2, type: 2, id: 3, x: 10, y: 20 },
+      },
+      { type: 3, timestamp: 18_000, data: { source: 2, type: 5, id: 2 } },
+      { type: 3, timestamp: 0, data: { source: 0 } },
+      {
+        type: 4,
+        timestamp: 10_000,
+        data: { href: "https://app.example.test/" },
+      },
+    ]);
+
+    expect(markers.map(({ label, offsetMs }) => ({ label, offsetMs }))).toEqual(
+      [
+        { label: "Navigate", offsetMs: 0 },
+        { label: "Input changed", offsetMs: 2_000 },
+        { label: "Click", offsetMs: 6_000 },
+        { label: "Focus", offsetMs: 8_000 },
+        { label: "Scroll", offsetMs: 10_000 },
+      ],
+    );
   });
 
   it("keeps only warning and error console diagnostics in the event timeline", () => {
@@ -226,6 +311,56 @@ describe("session replay timeline markers", () => {
       "click",
     ]);
     expect(filterReplayMarkers(markers, "missing")).toEqual([]);
+  });
+});
+
+describe("session replay inactivity ranges", () => {
+  it("ignores mutation, mouse-move, and custom diagnostic noise", () => {
+    const ranges = buildIdleSkipRanges([
+      { type: 4, timestamp: 1_000, data: {} },
+      { type: 3, timestamp: 5_000, data: { source: 0 } },
+      { type: 3, timestamp: 10_000, data: { source: 1, positions: [] } },
+      {
+        type: 5,
+        timestamp: 15_000,
+        data: {
+          tag: "agent-native.network",
+          payload: { status: 200, ok: true },
+        },
+      },
+      { type: 3, timestamp: 21_000, data: { source: 5, id: 1, text: "q" } },
+      { type: 3, timestamp: 25_000, data: { source: 3, id: 1, y: 400 } },
+      { type: 3, timestamp: 40_000, data: { source: 0 } },
+      {
+        type: 5,
+        timestamp: 50_000,
+        data: {
+          tag: "agent-native.network",
+          payload: { status: 0, ok: false },
+        },
+      },
+    ]);
+
+    expect(ranges).toEqual([
+      { startMs: 1_200, endMs: 18_800 },
+      { startMs: 25_200, endMs: 47_800 },
+    ]);
+  });
+
+  it("treats real click, input, and scroll events as activity", () => {
+    const ranges = buildIdleSkipRanges([
+      { type: 4, timestamp: 1_000, data: {} },
+      { type: 3, timestamp: 10_000, data: { source: 2, type: 2, id: 1 } },
+      { type: 3, timestamp: 19_000, data: { source: 5, id: 2, text: "q" } },
+      { type: 3, timestamp: 28_000, data: { source: 3, id: 1, y: 400 } },
+      { type: 3, timestamp: 33_000, data: { source: 0 } },
+    ]);
+
+    expect(ranges).toEqual([
+      { startMs: 1_200, endMs: 7_800 },
+      { startMs: 10_200, endMs: 16_800 },
+      { startMs: 19_200, endMs: 25_800 },
+    ]);
   });
 });
 

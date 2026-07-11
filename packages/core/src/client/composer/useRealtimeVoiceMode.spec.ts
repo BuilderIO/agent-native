@@ -4,10 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRealtimeVoiceGreetingEvent,
+  createRealtimeVoiceGreetingStarter,
   createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceSession,
   createRealtimeVoiceTranscriptSequencer,
   createRealtimeVoiceConnectionTimeout,
+  createRealtimeVoiceConnectionGate,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
@@ -100,6 +102,23 @@ describe("Realtime voice client transport", () => {
     expect(onTimeout).toHaveBeenCalledOnce();
 
     cancelSecond();
+    vi.useRealTimers();
+  });
+
+  it("keeps the handshake deadline armed until session.created", () => {
+    vi.useFakeTimers();
+    const onTimeout = vi.fn();
+    const transportOnly = createRealtimeVoiceConnectionGate(onTimeout, 1_000);
+
+    transportOnly.markTransportReady();
+    vi.advanceTimersByTime(1_000);
+    expect(onTimeout).toHaveBeenCalledOnce();
+
+    const liveSession = createRealtimeVoiceConnectionGate(onTimeout, 1_000);
+    liveSession.markTransportReady();
+    liveSession.markSessionCreated();
+    vi.advanceTimersByTime(1_000);
+    expect(onTimeout).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
 
@@ -290,9 +309,22 @@ describe("Realtime voice startup and transcript ordering", () => {
         output_modalities: ["audio"],
         instructions:
           'Say exactly: "How can I help you?" Do not add anything else.',
-        max_output_tokens: 12,
+        max_output_tokens: 32,
       },
     });
+  });
+
+  it("starts the greeting exactly once across duplicate session lifecycle events", () => {
+    const send = vi.fn();
+    const greeting = createRealtimeVoiceGreetingStarter(send);
+
+    expect(greeting.start()).toBe(true);
+    expect(greeting.start()).toBe(false);
+    expect(send).toHaveBeenCalledOnce();
+
+    greeting.reset();
+    expect(greeting.start()).toBe(true);
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("publishes in conversation order when user ASR finishes after the assistant", () => {

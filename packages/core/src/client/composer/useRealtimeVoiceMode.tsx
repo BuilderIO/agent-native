@@ -324,7 +324,24 @@ export function createRealtimeVoiceGreetingEvent(): Record<string, unknown> {
       output_modalities: ["audio"],
       instructions:
         'Say exactly: "How can I help you?" Do not add anything else.',
-      max_output_tokens: 12,
+      max_output_tokens: 32,
+    },
+  };
+}
+
+export function createRealtimeVoiceGreetingStarter(
+  send: (event: Record<string, unknown>) => void,
+): { start: () => boolean; reset: () => void } {
+  let started = false;
+  return {
+    start() {
+      if (started) return false;
+      started = true;
+      send(createRealtimeVoiceGreetingEvent());
+      return true;
+    },
+    reset() {
+      started = false;
     },
   };
 }
@@ -388,6 +405,24 @@ export function createRealtimeVoiceConnectionTimeout(
 ): () => void {
   const timeout = window.setTimeout(onTimeout, timeoutMs);
   return () => window.clearTimeout(timeout);
+}
+
+export function createRealtimeVoiceConnectionGate(
+  onTimeout: () => void,
+  timeoutMs = REALTIME_VOICE_CONNECTION_TIMEOUT_MS,
+): {
+  markTransportReady: () => void;
+  markSessionCreated: () => void;
+  cancel: () => void;
+} {
+  const cancel = createRealtimeVoiceConnectionTimeout(onTimeout, timeoutMs);
+  return {
+    // RTC connectivity alone is not enough: the session may never finish its
+    // Realtime handshake. Keep the deadline armed until session.created.
+    markTransportReady() {},
+    markSessionCreated: cancel,
+    cancel,
+  };
 }
 
 async function readErrorResponse(response: Response): Promise<string> {
@@ -640,7 +675,6 @@ function useRealtimeVoiceModeController(
   const stateRef = useRef(state);
   const preferencesRef = useRef(preferences);
   const hasOutputAudioRef = useRef(false);
-  const greetingStartedRef = useRef(false);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -655,7 +689,9 @@ function useRealtimeVoiceModeController(
   const meterFrameRef = useRef<number | null>(null);
   const lastMeterSampleRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
-  const cancelConnectionTimeoutRef = useRef<(() => void) | null>(null);
+  const connectionGateRef = useRef<ReturnType<
+    typeof createRealtimeVoiceConnectionGate
+  > | null>(null);
   const handledCallsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | undefined>(undefined);
   const startedAtRef = useRef<string | undefined>(undefined);
@@ -857,8 +893,8 @@ function useRealtimeVoiceModeController(
   );
 
   const cleanupTransport = useCallback(() => {
-    cancelConnectionTimeoutRef.current?.();
-    cancelConnectionTimeoutRef.current = null;
+    connectionGateRef.current?.cancel();
+    connectionGateRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
     channelRef.current?.close();
@@ -961,26 +997,27 @@ function useRealtimeVoiceModeController(
     () => createRealtimeVoiceTranscriptSequencer(publishCompletedTranscript),
     [publishCompletedTranscript],
   );
+  const greetingStarter = useMemo(
+    () =>
+      createRealtimeVoiceGreetingStarter((event) => {
+        sendDataChannelEvent(channelRef.current, event);
+      }),
+    [],
+  );
 
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
       transcriptSequencer.handle(event);
       if (event.type === "session.created") {
-        cancelConnectionTimeoutRef.current?.();
-        cancelConnectionTimeoutRef.current = null;
+        connectionGateRef.current?.markSessionCreated();
+        connectionGateRef.current = null;
         const session = event.session;
         if (session && typeof session === "object") {
           const id = (session as { id?: unknown }).id;
           if (typeof id === "string") sessionIdRef.current = id;
         }
         updateLivePreferences(preferencesRef.current, true);
-        if (!greetingStartedRef.current) {
-          greetingStartedRef.current = true;
-          sendDataChannelEvent(
-            channelRef.current,
-            createRealtimeVoiceGreetingEvent(),
-          );
-        }
+        greetingStarter.start();
         transition("working");
       } else if (event.type === "input_audio_buffer.speech_started") {
         transition("listening");
@@ -1048,6 +1085,7 @@ function useRealtimeVoiceModeController(
     [
       copy,
       fail,
+      greetingStarter,
       handleFunctionCall,
       syncAppState,
       transcriptSequencer,
@@ -1074,7 +1112,7 @@ function useRealtimeVoiceModeController(
     lastAssistantTextRef.current = "";
     sessionIdRef.current = undefined;
     hasOutputAudioRef.current = false;
-    greetingStartedRef.current = false;
+    greetingStarter.reset();
     setVoiceChangePending(false);
     transcriptThreadIdRef.current =
       realtimeVoiceTranscriptRegistry.activeThreadId();
@@ -1091,15 +1129,14 @@ function useRealtimeVoiceModeController(
     abortRef.current = abortController;
     const isCurrentAttempt = () =>
       abortRef.current === abortController && !abortController.signal.aborted;
-    cancelConnectionTimeoutRef.current = createRealtimeVoiceConnectionTimeout(
-      () => {
-        if (!isCurrentAttempt()) return;
-        fail(
-          copy?.errors.connectionTimedOut ??
-            "The realtime voice connection timed out.",
-        );
-      },
-    );
+    const connectionGate = createRealtimeVoiceConnectionGate(() => {
+      if (!isCurrentAttempt()) return;
+      fail(
+        copy?.errors.connectionTimedOut ??
+          "The realtime voice connection timed out.",
+      );
+    });
+    connectionGateRef.current = connectionGate;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: REALTIME_VOICE_AUDIO_CONSTRAINTS,
@@ -1128,6 +1165,7 @@ function useRealtimeVoiceModeController(
 
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
+      channel.onopen = connectionGate.markTransportReady;
       channel.onmessage = (messageEvent) => {
         if (!isCurrentAttempt()) return;
         try {
@@ -1145,6 +1183,9 @@ function useRealtimeVoiceModeController(
       };
       peer.onconnectionstatechange = () => {
         if (!isCurrentAttempt()) return;
+        if (peer.connectionState === "connected") {
+          connectionGate.markTransportReady();
+        }
         if (peer.connectionState === "failed") {
           fail(
             copy?.errors.connectionFailed ??
@@ -1190,6 +1231,7 @@ function useRealtimeVoiceModeController(
     browserTabId,
     copy,
     fail,
+    greetingStarter,
     handleServerEvent,
     hydratePreferences,
     transcriptSequencer,
