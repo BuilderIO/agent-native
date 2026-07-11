@@ -91,8 +91,8 @@ export default function AppForm({
       presentationStyle="pageSheet"
       statusBarTranslucent={true}
       navigationBarTranslucent={true}
-      onRequestClose={()=>{
-        onClose()
+      onRequestClose={() => {
+        onClose();
       }}
     >
       <SafeAreaView style={styles.container}>
