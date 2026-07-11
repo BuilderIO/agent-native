@@ -161,7 +161,9 @@ const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
-const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_BATCH_MAX_CHUNKS = 20;
+const REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES = 4 * 1024 * 1024;
+const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 2;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
@@ -1469,7 +1471,9 @@ function useSessionReplayPlayback(recordingId: string) {
         let loadedCount = 0;
         let loadedBytes = 0;
         let unavailableChunks = 0;
-        let nextIndex = 0;
+        const chunkIndexBySeq = new Map(
+          manifest.chunks.map((chunk, index) => [chunk.seq, index]),
+        );
 
         const publish = (force = false) => {
           const complete = loadedCount >= manifest.chunks.length;
@@ -1518,32 +1522,17 @@ function useSessionReplayPlayback(recordingId: string) {
 
         publish();
 
-        async function worker() {
-          while (!cancelled && nextIndex < manifest.chunks.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            const chunk = await fetchReplayChunk(manifest.chunks[index], {
-              agentAccessToken,
-            });
+        await fetchReplayChunks(manifest.chunks, { agentAccessToken }, (batch) => {
+          for (const chunk of batch) {
+            const index = chunkIndexBySeq.get(chunk.seq);
+            if (index === undefined || loadedChunks[index]) continue;
             loadedChunks[index] = chunk;
             loadedCount += 1;
             loadedBytes += manifest.chunks[index].byteLength;
             if (chunk.unavailable) unavailableChunks += 1;
-            if (!cancelled) publish();
           }
-        }
-
-        await Promise.all(
-          Array.from(
-            {
-              length: Math.min(
-                REPLAY_CHUNK_FETCH_CONCURRENCY,
-                manifest.chunks.length,
-              ),
-            },
-            worker,
-          ),
-        );
+          if (!cancelled) publish();
+        });
         if (!cancelled) publish(true);
       } catch (loadError) {
         if (cancelled) return;
@@ -1640,25 +1629,118 @@ async function fetchReplayManifest(
 async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
   options: FetchSessionReplayPlaybackOptions,
+  onBatch?: (chunks: ReplayChunkEvents[]) => void,
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
+  const indexBySeq = new Map(chunks.map((chunk, index) => [chunk.seq, index]));
+  const batches = partitionReplayChunkBatches(chunks);
   let nextIndex = 0;
 
   async function worker() {
-    while (nextIndex < chunks.length) {
+    while (nextIndex < batches.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await fetchReplayChunk(chunks[index], options);
+      const loaded = await fetchReplayChunkBatch(batches[index], options);
+      for (const chunk of loaded) {
+        const resultIndex = indexBySeq.get(chunk.seq);
+        if (resultIndex !== undefined) results[resultIndex] = chunk;
+      }
+      onBatch?.(loaded);
     }
   }
 
   await Promise.all(
     Array.from(
-      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      {
+        length: Math.min(
+          REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY,
+          batches.length,
+        ),
+      },
       worker,
     ),
   );
   return results;
+}
+
+export function partitionReplayChunkBatches(
+  chunks: SessionReplayManifestResponse["chunks"],
+): Array<SessionReplayManifestResponse["chunks"]> {
+  const batches: Array<SessionReplayManifestResponse["chunks"]> = [];
+  let batch: SessionReplayManifestResponse["chunks"] = [];
+  let declaredBytes = 0;
+
+  for (const chunk of chunks) {
+    const exceedsChunkLimit = batch.length >= REPLAY_CHUNK_BATCH_MAX_CHUNKS;
+    const exceedsByteLimit =
+      batch.length > 0 &&
+      declaredBytes + chunk.byteLength >
+        REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES;
+    if (exceedsChunkLimit || exceedsByteLimit) {
+      batches.push(batch);
+      batch = [];
+      declaredBytes = 0;
+    }
+    batch.push(chunk);
+    declaredBytes += chunk.byteLength;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+async function fetchReplayChunkBatch(
+  chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<ReplayChunkEvents[]> {
+  const recordingId = replayRecordingIdFromChunkPath(chunks[0]?.bytesPath);
+  if (!recordingId) {
+    return Promise.all(chunks.map((chunk) => fetchReplayChunk(chunk, options)));
+  }
+  const query = new URLSearchParams({
+    seqs: chunks.map((chunk) => chunk.seq).join(","),
+  });
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(recordingId)}/chunks?${query}`,
+    options.agentAccessToken,
+  );
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 405) {
+      return Promise.all(chunks.map((chunk) => fetchReplayChunk(chunk, options)));
+    }
+    throw await replayFetchError(response);
+  }
+
+  const payload = (await response.json()) as { chunks?: unknown };
+  const returnedChunks = Array.isArray(payload?.chunks)
+    ? payload.chunks.filter(isReplayChunkEvents)
+    : [];
+  const returnedBySeq = new Map(
+    returnedChunks.map((chunk) => [chunk.seq, chunk]),
+  );
+
+  return Promise.all(
+    chunks.map(async (manifestChunk) => {
+      const loaded = returnedBySeq.get(manifestChunk.seq);
+      return loaded ?? fetchReplayChunk(manifestChunk, options);
+    }),
+  );
+}
+
+function replayRecordingIdFromChunkPath(path: string | undefined): string {
+  if (!path) return "";
+  const match = path.match(/\/recordings\/([^/]+)\/chunks\//);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function isReplayChunkEvents(value: unknown): value is ReplayChunkEvents {
+  return (
+    isRecord(value) &&
+    typeof value.seq === "number" &&
+    typeof value.checksum === "string" &&
+    typeof value.byteLength === "number" &&
+    typeof value.eventCount === "number" &&
+    Array.isArray(value.events)
+  );
 }
 
 async function fetchReplayChunk(
