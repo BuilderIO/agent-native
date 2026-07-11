@@ -377,6 +377,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       : {}),
     ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 

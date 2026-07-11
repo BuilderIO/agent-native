@@ -9,12 +9,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "./ui/popover";
-
-import {
   DOCS_LOCALE_METADATA,
   DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
@@ -23,6 +17,7 @@ import {
   sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 
 export const DOCS_LANGUAGE_SUGGESTION_DISMISSED_KEY =
   "agent-native:docs-locale-suggestion-dismissed";
@@ -140,42 +135,42 @@ export default function DocsLanguageSuggestion() {
         aria-labelledby={titleId}
         className="flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3 text-sm"
       >
-          <div className="flex items-start gap-2.5">
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
-              <IconLanguage size={16} stroke={1.5} aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
-              <p id={titleId} className="m-0 text-sm font-medium leading-5">
-                {t("language.suggestionTitle", {
-                  language: targetNativeName,
-                })}
-              </p>
-              <p className="m-0 mt-1 text-xs leading-5 text-[var(--fg-secondary)]">
-                {t("language.suggestionDescription", {
-                  language: targetLabel,
-                })}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link
-              to={href}
-              data-an-prefetch="render"
-              onClick={acceptSuggestion}
-              className="inline-flex min-h-8 flex-1 items-center justify-center rounded-md bg-[var(--fg)] px-3 py-1.5 text-center text-xs font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
-            >
-              {t("language.suggestionSwitch", {
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)]">
+            <IconLanguage size={16} stroke={1.5} aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p id={titleId} className="m-0 text-sm font-medium leading-5">
+              {t("language.suggestionTitle", {
                 language: targetNativeName,
               })}
-            </Link>
-            <button
-              type="button"
-              onClick={dismissSuggestion}
-              className="inline-flex min-h-8 flex-1 items-center justify-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs font-medium text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-            >
-              {t("language.suggestionKeepEnglish")}
-            </button>
+            </p>
+            <p className="m-0 mt-1 text-xs leading-5 text-[var(--fg-secondary)]">
+              {t("language.suggestionDescription", {
+                language: targetLabel,
+              })}
+            </p>
           </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            to={href}
+            data-an-prefetch="render"
+            onClick={acceptSuggestion}
+            className="inline-flex min-h-8 flex-1 items-center justify-center rounded-md bg-[var(--fg)] px-3 py-1.5 text-center text-xs font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
+          >
+            {t("language.suggestionSwitch", {
+              language: targetNativeName,
+            })}
+          </Link>
+          <button
+            type="button"
+            onClick={dismissSuggestion}
+            className="inline-flex min-h-8 flex-1 items-center justify-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs font-medium text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+          >
+            {t("language.suggestionKeepEnglish")}
+          </button>
+        </div>
       </PopoverContent>
     </Popover>
   );

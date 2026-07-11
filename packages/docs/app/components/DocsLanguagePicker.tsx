@@ -9,12 +9,6 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./ui/popover";
-
-import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   DEFAULT_DOCS_LOCALE,
@@ -23,6 +17,7 @@ import {
   sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 function preferenceLabel(preference: string) {
   if (preference in DOCS_LOCALE_METADATA) {
@@ -101,31 +96,31 @@ export default function DocsLanguagePicker() {
         sideOffset={6}
         className="max-h-[min(20rem,var(--radix-popover-content-available-height))] min-w-52 overflow-y-auto p-1"
       >
-          {options.map((option) => {
-            const selected = option.value === preference;
-            return (
-              <Link
-                key={option.value}
-                to={hrefForPreference(option.value)}
-                onClick={() => handleOptionClick(option.value)}
-                data-an-prefetch="render"
-                title={option.description}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm no-underline transition-colors hover:bg-[var(--docs-border)]/60 hover:text-[var(--fg)] hover:no-underline focus-visible:bg-[var(--docs-border)]/60 focus-visible:text-[var(--fg)] focus-visible:outline-none ${
-                  selected
-                    ? "bg-[var(--docs-border)]/35 text-[var(--fg)]"
-                    : "text-[var(--fg-secondary)]"
-                }`}
-              >
-                <IconCheck
-                  size={14}
-                  stroke={2}
-                  className={selected ? "opacity-100" : "opacity-0"}
-                  aria-hidden="true"
-                />
-                <span className="truncate">{option.label}</span>
-              </Link>
-            );
-          })}
+        {options.map((option) => {
+          const selected = option.value === preference;
+          return (
+            <Link
+              key={option.value}
+              to={hrefForPreference(option.value)}
+              onClick={() => handleOptionClick(option.value)}
+              data-an-prefetch="render"
+              title={option.description}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm no-underline transition-colors hover:bg-[var(--docs-border)]/60 hover:text-[var(--fg)] hover:no-underline focus-visible:bg-[var(--docs-border)]/60 focus-visible:text-[var(--fg)] focus-visible:outline-none ${
+                selected
+                  ? "bg-[var(--docs-border)]/35 text-[var(--fg)]"
+                  : "text-[var(--fg-secondary)]"
+              }`}
+            >
+              <IconCheck
+                size={14}
+                stroke={2}
+                className={selected ? "opacity-100" : "opacity-0"}
+                aria-hidden="true"
+              />
+              <span className="truncate">{option.label}</span>
+            </Link>
+          );
+        })}
       </PopoverContent>
     </Popover>
   );

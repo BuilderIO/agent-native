@@ -61,6 +61,16 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
    * it.  Absent on old transcript events — UI must handle both cases.
    */
   structuredMeta?: Record<string, unknown>;
+  /**
+   * Stable approval id extracted from the synthetic "Approval required..."
+   * bash result (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`)
+   * when this exact approval has not yet been resolved elsewhere in the
+   * transcript (approved / denied / allowlisted / forbidden). Consumers attach
+   * this as `approval: { approvalKey }` on the rendered tool-call content part
+   * so the shared `ApprovalAffordance` can render inline. Absent once a later
+   * transcript event records a resolution for this approval id.
+   */
+  pendingApprovalKey?: string;
 }
 
 export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTranscriptBase {
@@ -178,6 +188,7 @@ export function normalizeCodeAgentTranscript(
   hiddenEvents.sort(
     (a, b) => (eventOrder.get(a.id) ?? 0) - (eventOrder.get(b.id) ?? 0),
   );
+  applyPendingCodeAgentApprovalKeys(dedupedItems, events);
 
   return {
     items: dedupedItems,
@@ -185,6 +196,40 @@ export function normalizeCodeAgentTranscript(
     hiddenEvents,
   };
 }
+
+/**
+ * Stamp `pendingApprovalKey` onto completed bash tool events whose synthetic
+ * result carries an "Approval id: {id}" marker (see `requestCodeAgentApproval`
+ * in `cli/code-agent-executor.ts`), unless a later raw event already recorded
+ * a resolution for that same id (approved / denied / allowlisted-and-run /
+ * forbidden — all stamp `metadata.approvalId`).
+ *
+ * Resolution lookup scans the *raw* event stream rather than the normalized
+ * items: resolution status events are intentionally low-signal (they read as
+ * "status: running") and get folded into `hiddenEvents` by
+ * `isLowSignalLifecycleEvent`, so they would not otherwise be visible here.
+ */
+function applyPendingCodeAgentApprovalKeys(
+  items: NormalizedCodeAgentTranscriptItem[],
+  events: readonly CodeAgentTranscriptEvent[],
+): void {
+  const resolvedApprovalIds = new Set<string>();
+  for (const event of events) {
+    const approvalId = stringMetadata(event.metadata, "approvalId");
+    if (approvalId) resolvedApprovalIds.add(approvalId);
+  }
+  for (const item of items) {
+    if (item.type !== "tool" || item.state !== "completed") continue;
+    if (typeof item.result !== "string") continue;
+    const match = CODE_AGENT_APPROVAL_ID_RESULT_PATTERN.exec(item.result);
+    const id = match?.[1];
+    if (id && !resolvedApprovalIds.has(id)) {
+      item.pendingApprovalKey = id;
+    }
+  }
+}
+
+const CODE_AGENT_APPROVAL_ID_RESULT_PATTERN = /Approval id:\s*(\S+)/;
 
 function createUserTurn(
   event: CodeAgentTranscriptEvent,

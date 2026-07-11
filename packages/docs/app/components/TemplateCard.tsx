@@ -5,11 +5,7 @@ import { Link } from "react-router";
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { TemplateDocsLink } from "./template-docs";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export { trackEvent };
 
@@ -296,10 +292,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         </a>
       )}
       <div className="flex gap-2">
-        <Popover
-          open={showCustomize}
-          onOpenChange={handleCustomizeOpenChange}
-        >
+        <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -320,33 +313,33 @@ function TemplateLaunchButton({ template }: { template: Template }) {
                   : "w-[min(100vw-32px,220px)] p-1"
             }
           >
-              {customizeMode === "runLocally" ? (
-                <CliPopoverContent template={template} />
-              ) : customizeMode === "editOnline" ? (
-                <BuilderWaitlistContent
-                  location="card"
-                  template={template.slug}
-                  source="docs_template_card"
-                  useCase="docs_edit_online_waitlist"
-                />
-              ) : (
-                <div className="flex flex-col">
-                  <button
-                    type="button"
-                    onClick={showEditOnline}
-                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
-                  >
-                    {t("common.editOnline")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={showRunLocally}
-                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
-                  >
-                    {t("common.runLocally")}
-                  </button>
-                </div>
-              )}
+            {customizeMode === "runLocally" ? (
+              <CliPopoverContent template={template} />
+            ) : customizeMode === "editOnline" ? (
+              <BuilderWaitlistContent
+                location="card"
+                template={template.slug}
+                source="docs_template_card"
+                useCase="docs_edit_online_waitlist"
+              />
+            ) : (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={showEditOnline}
+                  className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+                >
+                  {t("common.editOnline")}
+                </button>
+                <button
+                  type="button"
+                  onClick={showRunLocally}
+                  className="rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--fg)] transition hover:bg-[var(--bg-secondary)]"
+                >
+                  {t("common.runLocally")}
+                </button>
+              </div>
+            )}
           </PopoverContent>
         </Popover>
         <TemplateDocsLink

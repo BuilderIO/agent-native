@@ -2,11 +2,7 @@ import { agentNativePath, trackEvent, useT } from "@agent-native/core/client";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export type BuilderWaitlistLocation =
   | "homepage_rail"
