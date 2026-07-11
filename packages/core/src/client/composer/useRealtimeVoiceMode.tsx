@@ -37,6 +37,8 @@ const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
+const REALTIME_VOICE_CAPABILITY_HEADER =
+  "X-Agent-Native-Realtime-Capability";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
 const REALTIME_VOICE_MAX_TOOLS = 32;
 const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
@@ -118,6 +120,11 @@ export interface RealtimeVoiceToolResult {
   output: string;
   approvalKey?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
+}
+
+export interface RealtimeVoiceSessionAnswer {
+  sdp: string;
+  capability?: string;
 }
 
 export interface RealtimeVoiceFunctionTool {
@@ -592,7 +599,7 @@ export async function createRealtimeVoiceSession(
     preferences?: RealtimeVoicePreferences;
     browserLanguages?: readonly string[];
   } = {},
-): Promise<string> {
+): Promise<RealtimeVoiceSessionAnswer> {
   const preferences = options.preferences;
   const response = await fetch(agentNativePath(REALTIME_VOICE_SESSION_PATH), {
     method: "POST",
@@ -622,7 +629,12 @@ export async function createRealtimeVoiceSession(
     (error as { status?: number }).status = response.status;
     throw error;
   }
-  return response.text();
+  const sdp = await response.text();
+  const capability = response.headers.get(REALTIME_VOICE_CAPABILITY_HEADER);
+  return {
+    sdp,
+    ...(capability ? { capability } : {}),
+  };
 }
 
 export async function executeRealtimeVoiceTool(input: {
@@ -631,6 +643,7 @@ export async function executeRealtimeVoiceTool(input: {
   callId: string;
   sessionId?: string;
   browserTabId?: string;
+  capability?: string;
   signal?: AbortSignal;
 }): Promise<RealtimeVoiceToolResult> {
   const response = await fetch(agentNativePath(REALTIME_VOICE_TOOL_PATH), {
@@ -640,6 +653,9 @@ export async function executeRealtimeVoiceTool(input: {
       "Content-Type": "application/json",
       ...(input.browserTabId
         ? { "X-Agent-Native-Browser-Tab": input.browserTabId }
+        : {}),
+      ...(input.capability
+        ? { [REALTIME_VOICE_CAPABILITY_HEADER]: input.capability }
         : {}),
     },
     body: JSON.stringify({
@@ -714,9 +730,11 @@ export function extractRealtimeVoiceSessionTools(
 
 function createRealtimeVoiceToolManifestUpdate(
   tools: RealtimeVoiceFunctionTool[],
+  eventId?: string,
 ): Record<string, unknown> {
   return {
     type: "session.update",
+    ...(eventId ? { event_id: eventId } : {}),
     session: {
       type: "realtime",
       tools,
@@ -763,7 +781,12 @@ export function mergeRealtimeVoiceToolManifest(
     if (packed.length >= REALTIME_VOICE_MAX_TOOLS) break;
     const candidate = [...packed, tool];
     if (
-      jsonByteLength(createRealtimeVoiceToolManifestUpdate(candidate)) <=
+      jsonByteLength(
+        createRealtimeVoiceToolManifestUpdate(
+          candidate,
+          "realtime_tool_manifest_999999999",
+        ),
+      ) <=
       REALTIME_VOICE_MAX_SESSION_BYTES
     ) {
       packed.push(tool);
@@ -794,6 +817,7 @@ function createRealtimeVoiceToolResultEvent(
 export interface RealtimeVoiceToolManifestCoordinator {
   enqueue: (result: RealtimeVoiceToolResult) => void;
   setSessionTools: (tools: readonly RealtimeVoiceFunctionTool[]) => void;
+  handleError: (eventId: string | undefined, message?: string) => boolean;
   reset: () => void;
   getTools: () => readonly RealtimeVoiceFunctionTool[];
 }
@@ -809,20 +833,32 @@ export function createRealtimeVoiceToolManifestCoordinator(
 ): RealtimeVoiceToolManifestCoordinator {
   let currentTools: RealtimeVoiceFunctionTool[] = [];
   const queue: RealtimeVoiceToolResult[] = [];
+  let updateSequence = 0;
   let active:
     | {
         result: RealtimeVoiceToolResult;
         expectedNames: string[];
+        eventId: string;
         timer: ReturnType<typeof setTimeout>;
       }
     | undefined;
 
-  const finish = () => {
+  const finish = (failureMessage?: string) => {
     if (!active) return;
     const { result, timer } = active;
     clearTimeout(timer);
     active = undefined;
-    send(createRealtimeVoiceToolResultEvent(result));
+    send(
+      createRealtimeVoiceToolResultEvent(
+        failureMessage
+          ? {
+              callId: result.callId,
+              status: "failed",
+              output: `${failureMessage} The discovered tools were not added to this voice session.`,
+            }
+          : result,
+      ),
+    );
     send({ type: "response.create" });
     drain();
   };
@@ -855,12 +891,17 @@ export function createRealtimeVoiceToolManifestCoordinator(
       return;
     }
 
+    const eventId = `realtime_tool_manifest_${++updateSequence}`;
     active = {
       result,
       expectedNames,
-      timer: setTimeout(finish, timeoutMs),
+      eventId,
+      timer: setTimeout(
+        () => finish("Timed out while installing the discovered tools."),
+        timeoutMs,
+      ),
     };
-    send(createRealtimeVoiceToolManifestUpdate(merged));
+    send(createRealtimeVoiceToolManifestUpdate(merged, eventId));
   };
 
   return {
@@ -873,6 +914,11 @@ export function createRealtimeVoiceToolManifestCoordinator(
       if (!active) return;
       const names = new Set(currentTools.map((tool) => tool.name));
       if (active.expectedNames.every((name) => names.has(name))) finish();
+    },
+    handleError(eventId, message) {
+      if (!active || !eventId || active.eventId !== eventId) return false;
+      finish(message || "The provider rejected the discovered tool update.");
+      return true;
     },
     reset() {
       if (active) clearTimeout(active.timer);
@@ -1082,6 +1128,8 @@ function useRealtimeVoiceModeController(
   > | null>(null);
   const handledCallsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | undefined>(undefined);
+  const capabilityRef = useRef<string | undefined>(undefined);
+  const transportGenerationRef = useRef(0);
   const startedAtRef = useRef<string | undefined>(undefined);
   const lastUserTextRef = useRef("");
   const lastAssistantTextRef = useRef("");
@@ -1368,6 +1416,8 @@ function useRealtimeVoiceModeController(
   const cleanupTransport = useCallback(() => {
     connectionGateRef.current?.cancel();
     connectionGateRef.current = null;
+    transportGenerationRef.current += 1;
+    capabilityRef.current = undefined;
     abortRef.current?.abort();
     abortRef.current = null;
     channelRef.current?.close();
@@ -1419,6 +1469,7 @@ function useRealtimeVoiceModeController(
     async (call: { name: string; callId: string; argumentsText: string }) => {
       if (handledCallsRef.current.has(call.callId)) return;
       handledCallsRef.current.add(call.callId);
+      const transportGeneration = transportGenerationRef.current;
       transition("working");
       let result: RealtimeVoiceToolResult;
       try {
@@ -1429,6 +1480,7 @@ function useRealtimeVoiceModeController(
           callId: call.callId,
           sessionId: sessionIdRef.current,
           browserTabId,
+          capability: capabilityRef.current,
           signal: abortRef.current?.signal,
         });
       } catch (toolError) {
@@ -1438,6 +1490,7 @@ function useRealtimeVoiceModeController(
           output: errorMessage(toolError),
         };
       }
+      if (transportGeneration !== transportGenerationRef.current) return;
       toolManifestCoordinator.enqueue(result);
     },
     [browserTabId, toolManifestCoordinator, transition],
@@ -1539,6 +1592,20 @@ function useRealtimeVoiceModeController(
             : typeof detail === "string"
               ? detail
               : "";
+        const expansionEventId =
+          detail && typeof detail === "object"
+            ? ((detail as { event_id?: unknown }).event_id ?? event.event_id)
+            : event.event_id;
+        if (
+          toolManifestCoordinator.handleError(
+            typeof expansionEventId === "string"
+              ? expansionEventId
+              : undefined,
+            message,
+          )
+        ) {
+          return;
+        }
         fail(
           message ||
             copy?.errors.sessionFailed ||
@@ -1696,14 +1763,15 @@ function useRealtimeVoiceModeController(
             "The browser did not create an audio offer.",
         );
       }
-      const answerSdp = await createRealtimeVoiceSession(offer.sdp, {
+      const answer = await createRealtimeVoiceSession(offer.sdp, {
         browserTabId,
         signal: abortController.signal,
         preferences: preferencesRef.current,
         browserLanguages: navigator.languages,
       });
       if (!isCurrentAttempt()) return;
-      await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      capabilityRef.current = answer.capability;
+      await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
     } catch (startError) {
       // Ending a connection aborts the SDP request by design. A superseded
       // attempt must never resurrect the dock or surface that cancellation as

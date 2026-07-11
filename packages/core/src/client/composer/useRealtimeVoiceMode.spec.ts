@@ -11,12 +11,15 @@ import {
   createRealtimeVoiceConnectionTimeout,
   createRealtimeVoiceConnectionGate,
   createRealtimeVoiceAudioConstraints,
+  createRealtimeVoiceToolManifestCoordinator,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
+  extractRealtimeVoiceSessionTools,
   isRealtimeVoiceAbortError,
   isRealtimeVoiceSetupRequiredError,
   listenForRealtimeVoicePageHide,
+  mergeRealtimeVoiceToolManifest,
   normalizeRealtimeVoicePreferences,
   REALTIME_VOICE_AUDIO_CONSTRAINTS,
   replaceRealtimeVoiceMicrophone,
@@ -24,10 +27,21 @@ import {
   resolveRealtimeVoiceLanguage,
   shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
+import type { RealtimeVoiceFunctionTool } from "./useRealtimeVoiceMode.js";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+function realtimeTool(name: string): RealtimeVoiceFunctionTool {
+  return {
+    type: "function",
+    name,
+    description: `Call ${name}`,
+    parameters: { type: "object", properties: {} },
+  };
+}
 
 describe("Realtime voice client transport", () => {
   it("normalizes persisted preferences and resolves Auto from the browser language", () => {
@@ -307,6 +321,169 @@ describe("Realtime voice client transport", () => {
         }),
       }),
     );
+  });
+});
+
+describe("Realtime voice dynamic tool manifests", () => {
+  it("reads full tool manifests from session lifecycle events", () => {
+    const tools = [realtimeTool("navigate"), realtimeTool("tool-search")];
+    expect(
+      extractRealtimeVoiceSessionTools({
+        type: "session.created",
+        session: { id: "session-1", tools },
+      }),
+    ).toEqual(tools);
+    expect(
+      extractRealtimeVoiceSessionTools({
+        type: "session.updated",
+        session: { tools },
+      }),
+    ).toEqual(tools);
+    expect(
+      extractRealtimeVoiceSessionTools({
+        type: "response.done",
+        response: {},
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps pinned tools and newest discoveries when the manifest is full", () => {
+    const pinned = [
+      "navigate",
+      "set-url-path",
+      "set-search-params",
+      "view-screen",
+      "tool-search",
+    ].map(realtimeTool);
+    const current = [
+      ...pinned,
+      ...Array.from({ length: 27 }, (_, index) => realtimeTool(`old-${index}`)),
+    ];
+
+    const merged = mergeRealtimeVoiceToolManifest(current, [
+      realtimeTool("open-dashboard"),
+      realtimeTool("list-dashboards"),
+    ]);
+    const names = merged.map((tool) => tool.name);
+
+    expect(merged).toHaveLength(32);
+    expect(names.slice(0, 5)).toEqual(pinned.map((tool) => tool.name));
+    expect(names).toContain("open-dashboard");
+    expect(names).toContain("list-dashboards");
+    expect(names).not.toContain("old-26");
+  });
+
+  it("waits for session.updated before exposing discovered tools to the model", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setSessionTools([
+      realtimeTool("navigate"),
+      realtimeTool("tool-search"),
+    ]);
+    coordinator.enqueue({
+      callId: "call-search",
+      status: "completed",
+      output: '{"matches":["open-dashboard"]}',
+      expandedTools: [realtimeTool("open-dashboard")],
+    });
+
+    expect(sent.map((event) => event.type)).toEqual(["session.update"]);
+    expect(sent[0]?.event_id).toBe("realtime_tool_manifest_1");
+    const updateTools = (
+      sent[0]?.session as { tools: RealtimeVoiceFunctionTool[] }
+    ).tools;
+    coordinator.setSessionTools([realtimeTool("navigate")]);
+    expect(sent.map((event) => event.type)).toEqual(["session.update"]);
+
+    coordinator.setSessionTools(updateTools);
+    expect(sent.map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+    ]);
+    const output = JSON.parse(
+      String(
+        (sent[1]?.item as { output?: unknown } | undefined)?.output ?? "{}",
+      ),
+    ) as Record<string, unknown>;
+    expect(output.output).toBe('{"matches":["open-dashboard"]}');
+    expect(output).not.toHaveProperty("expandedTools");
+  });
+
+  it("handles a rejected manifest update without failing the voice session", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setSessionTools([realtimeTool("tool-search")]);
+    coordinator.enqueue({
+      callId: "call-search",
+      status: "completed",
+      output: "Found open-dashboard",
+      expandedTools: [realtimeTool("open-dashboard")],
+    });
+
+    expect(
+      coordinator.handleError(
+        "realtime_tool_manifest_1",
+        "Invalid session tools",
+      ),
+    ).toBe(true);
+    expect(sent.map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+    ]);
+    const failure = JSON.parse(
+      String((sent[1]?.item as { output: string }).output),
+    ) as Record<string, unknown>;
+    expect(failure.status).toBe("failed");
+    expect(failure.output).toContain("Invalid session tools");
+    expect(
+      coordinator.handleError("some_other_event", "unrelated"),
+    ).toBe(false);
+  });
+
+  it("serializes updates and falls back after a missing confirmation", () => {
+    vi.useFakeTimers();
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator(
+      (event) => sent.push(event),
+      1_000,
+    );
+    coordinator.setSessionTools([realtimeTool("tool-search")]);
+    coordinator.enqueue({
+      callId: "call-1",
+      status: "completed",
+      output: "first",
+      expandedTools: [realtimeTool("first-tool")],
+    });
+    coordinator.enqueue({
+      callId: "call-2",
+      status: "completed",
+      output: "second",
+      expandedTools: [realtimeTool("second-tool")],
+    });
+
+    expect(sent.map((event) => event.type)).toEqual(["session.update"]);
+    vi.advanceTimersByTime(1_000);
+    expect(sent.map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+      "session.update",
+    ]);
+    vi.advanceTimersByTime(1_000);
+    expect(sent.map((event) => event.type)).toEqual([
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+      "session.update",
+      "conversation.item.create",
+      "response.create",
+    ]);
   });
 });
 
