@@ -1855,15 +1855,65 @@ function useReplayEvents(
   );
 }
 
+const REPLAY_NETWORK_ATTRIBUTES = new Set([
+  "src",
+  "srcset",
+  "poster",
+  "background",
+  "action",
+  "formaction",
+  "data",
+  "ping",
+  "cite",
+  "xlink:href",
+]);
+
+function stripReplayCssUrls(value: string): string {
+  return value
+    .replace(/@import\s+(?:url\()?[^;)]+(?:\))?\s*;?/gi, "")
+    .replace(/url\(\s*[^)]*\)/gi, "none");
+}
+
+function sanitizeReplayValue(value: unknown, key?: string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeReplayValue(item));
+  }
+  if (!isRecord(value)) {
+    if (typeof value !== "string") return value;
+    const normalizedKey = key?.toLowerCase();
+    if (
+      normalizedKey === "href" ||
+      REPLAY_NETWORK_ATTRIBUTES.has(normalizedKey ?? "")
+    ) {
+      return "about:blank";
+    }
+    if (
+      normalizedKey === "style" ||
+      normalizedKey === "_csstext" ||
+      normalizedKey === "csstext"
+    ) {
+      return stripReplayCssUrls(value);
+    }
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      sanitizeReplayValue(entryValue, entryKey),
+    ]),
+  );
+}
+
 /**
- * Match stock rrweb and builder-internal: preserve captured DOM, stylesheet,
- * resource, and mutation payloads exactly. rrweb rebuilds them inside its
- * sandboxed iframe; rewriting CSS or resource attributes here changes layout
- * and makes the replay diverge from what the visitor saw.
+ * rrweb's iframe sandbox prevents scripts but permits passive resource loads.
+ * Preserve the captured DOM structure and inline styling while neutralizing
+ * URLs that could contact a recorded page or third-party origin.
  */
 export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
   return events
     .filter((event): event is AnyReplayEvent => isRecord(event))
+    .map((event) => sanitizeReplayValue(event) as AnyReplayEvent)
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 

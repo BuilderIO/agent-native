@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
-  it("preserves rrweb DOM, stylesheet, resource, and mutation payloads", () => {
+  it("preserves rrweb structure while blocking captured resource URLs", () => {
     const events = [
       {
         type: 2,
@@ -74,17 +74,51 @@ describe("session replay event normalization", () => {
       },
     ];
 
-    expect(normalizeReplayEvents(events)).toEqual(events);
+    const normalized = normalizeReplayEvents(events);
+    expect(normalized).toMatchObject([
+      {
+        data: {
+          node: {
+            childNodes: [
+              {
+                attributes: {
+                  rel: "stylesheet",
+                  href: "about:blank",
+                  _cssText: expect.not.stringMatching(/url|@import/i),
+                },
+              },
+              {
+                attributes: {
+                  src: "about:blank",
+                  srcset: "about:blank",
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        data: {
+          attributes: [
+            {
+              attributes: {
+                style: expect.not.stringMatching(/url/i),
+              },
+            },
+          ],
+        },
+      },
+    ]);
   });
 
-  it("filters invalid entries and sorts events without cloning payloads", () => {
+  it("filters invalid entries and sorts sanitized event copies", () => {
     const later = { type: 3, timestamp: 2000, data: { source: 0 } };
     const earlier = { type: 4, timestamp: 1000, data: { width: 1280 } };
     const normalized = normalizeReplayEvents([later, null, "bad", earlier]);
 
     expect(normalized).toEqual([earlier, later]);
-    expect(normalized[0]).toBe(earlier);
-    expect(normalized[1]).toBe(later);
+    expect(normalized[0]).not.toBe(earlier);
+    expect(normalized[1]).not.toBe(later);
   });
 
   it("derives viewport dimensions from the latest meta or resize event", () => {
