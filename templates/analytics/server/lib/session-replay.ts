@@ -16,7 +16,19 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import {
   isFailedSessionReplayNetworkStatus,
@@ -229,6 +241,10 @@ const DEFAULT_REPLAY_EVENTS_READ = 10_000;
 const MAX_REPLAY_EVENTS_READ = 100_000;
 const MAX_REPLAY_EVENTS_RESPONSE_BYTES =
   MAX_BLOB_REPLAY_CHUNK_BYTES + 512 * 1024;
+export const MAX_REPLAY_CHUNK_READ_BATCH_SIZE = 20;
+export const MAX_REPLAY_CHUNK_READ_BATCH_BYTES =
+  MAX_REPLAY_EVENTS_RESPONSE_BYTES;
+const REPLAY_CHUNK_READ_CONCURRENCY = 4;
 const DEFAULT_SESSION_RECORDINGS_LIMIT = 50;
 const MAX_SESSION_RECORDINGS_LIMIT = 100;
 const DEFAULT_REPLAY_RETENTION_DAYS = 30;
