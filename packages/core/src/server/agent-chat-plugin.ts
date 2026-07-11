@@ -264,6 +264,41 @@ export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
 /**
+ * Returns whether `owner` has already finished (or explicitly skipped) the
+ * First-Session Personalization flow, via the owner-scoped
+ * `application_state` "personalization" flag the agent itself writes
+ * (`writeAppState("personalization", { done: true })` — see
+ * FIRST_SESSION_PERSONALIZATION in prompts/framework-core.ts).
+ *
+ * This used to be gated on "does this thread have prior messages", which
+ * flips false the instant a second request comes in for the SAME thread —
+ * making turn 2's system prompt diverge from turn 1's and invalidating the
+ * prompt-cache prefix on every thread's second request. The flow itself
+ * spans two turns (turn 1 asks the personalization questions and waits;
+ * turn 2 answers them and only then writes the "done" flag), so this flag
+ * is still false when BOTH turns' system prompts are assembled — turn 1
+ * and turn 2 come out byte-identical. It only flips once the flow
+ * completes, and it never flips back, so every later turn (and every
+ * later thread the same owner creates) stays consistent from then on. As
+ * a bonus, it also fixes a latent waste: the old gate re-included the
+ * ~1.5KB block on turn 1 of every new thread a user ever created, even
+ * long after they'd completed personalization once.
+ */
+export async function hasCompletedFirstSessionPersonalization(
+  owner: string,
+): Promise<boolean> {
+  try {
+    const state = await appStateGet(owner, "personalization");
+    return state?.done === true;
+  } catch {
+    // Fail open to "not done" — same default as a brand-new user (block
+    // shown) rather than silently skipping personalization because of a
+    // transient appstate read error.
+    return false;
+  }
+}
+
+/**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
  * value is recent invocation timestamps within the rolling window. Stale
  * entries are pruned on read.
@@ -2231,42 +2266,6 @@ export function createAgentChatPlugin(
         const model = runCtx?.model;
         if (!model) return "";
         return getModelFamilyOverlay(model);
-      };
-
-      /**
-       * Returns whether `owner` has already finished (or explicitly skipped)
-       * the First-Session Personalization flow, via the owner-scoped
-       * `application_state` "personalization" flag the agent itself writes
-       * (`writeAppState("personalization", { done: true })` — see
-       * FIRST_SESSION_PERSONALIZATION in prompts/framework-core.ts).
-       *
-       * This used to be gated on "does this thread have prior messages",
-       * which flips false the instant a second request comes in for the
-       * SAME thread — making turn 2's system prompt diverge from turn 1's
-       * and invalidating the prompt-cache prefix on every thread's second
-       * request. The flow itself spans two turns (turn 1 asks the
-       * personalization questions and waits; turn 2 answers them and only
-       * then writes the "done" flag), so this flag is still false when BOTH
-       * turns' system prompts are assembled — turn 1 and turn 2 come out
-       * byte-identical. It only flips once the flow completes, and it never
-       * flips back, so every later turn (and every later thread the same
-       * owner creates) stays consistent from then on. As a bonus, it also
-       * fixes a latent waste: the old gate re-included the ~1.5KB block on
-       * turn 1 of every new thread a user ever created, even long after
-       * they'd completed personalization once.
-       */
-      const hasCompletedFirstSessionPersonalization = async (
-        owner: string,
-      ): Promise<boolean> => {
-        try {
-          const state = await appStateGet(owner, "personalization");
-          return state?.done === true;
-        } catch {
-          // Fail open to "not done" — same default as a brand-new user
-          // (block shown) rather than silently skipping personalization
-          // because of a transient appstate read error.
-          return false;
-        }
       };
 
       const runtimeContextForEvent = (event: any): string => {

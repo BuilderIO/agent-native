@@ -384,6 +384,64 @@ describe("render-data-widget framework action", () => {
   });
 });
 
+describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency", () => {
+  const noopTool = {
+    tool: { description: "noop", parameters: { type: "object" as const, properties: {} } },
+    run: async () => "ok",
+  } as never;
+
+  it("returns no names and no prompt text for a registry with none of the corpus tools", () => {
+    const registry = { "some-template-action": noopTool } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([]);
+    expect(generateCorpusToolsPrompt(registry)).toBe("");
+  });
+
+  it("returns exactly the corpus tool names present, and the prompt names only those", () => {
+    const registry = {
+      "some-template-action": noopTool,
+      "provider-api-request": noopTool,
+      "run-code": noopTool,
+    } as never;
+
+    const names = corpusToolNamesTaughtByPrompt(registry);
+    expect(names).toEqual(["provider-api-request", "run-code"]);
+
+    const prompt = generateCorpusToolsPrompt(registry);
+    // Every name corpusToolNamesTaughtByPrompt returns must actually be
+    // taught (by backtick-quoted name) in the corpus prompt text — this is
+    // the exact invariant agent-chat-plugin.ts's `effectiveInitialToolNames`
+    // wiring depends on to avoid teaching a tool by name that isn't in the
+    // first request's active tool set.
+    for (const name of names) {
+      expect(prompt).toContain(`\`${name}\``);
+    }
+    // And tools NOT present must not be mentioned.
+    expect(prompt).not.toContain("`provider-corpus-job`");
+    expect(prompt).not.toContain("`query-staged-dataset`");
+  });
+
+  it("includes every corpus tool name when the full set is registered", () => {
+    const registry = {
+      "provider-api-catalog": noopTool,
+      "provider-api-docs": noopTool,
+      "provider-api-request": noopTool,
+      "provider-corpus-job": noopTool,
+      "query-staged-dataset": noopTool,
+      "run-code": noopTool,
+    } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([
+      "provider-api-catalog",
+      "provider-api-docs",
+      "provider-api-request",
+      "provider-corpus-job",
+      "query-staged-dataset",
+      "run-code",
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Snapshot test — full assembled prompt at default config
 // Run `vitest --update` to regenerate after intentional changes.
