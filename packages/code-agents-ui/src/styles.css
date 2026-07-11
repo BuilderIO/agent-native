@@ -2607,6 +2607,12 @@ button.code-agents-capability:focus-visible {
   color: hsl(142 55% 68%);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-capability--ready {
+    color: hsl(142 55% 68%);
+  }
+}
+
 /* Dialog also portals to `document.body` (see ui/dialog.tsx), so it needs
    its own light/dark token copy like the other portal roots above. */
 .code-agents-dialog-overlay,
