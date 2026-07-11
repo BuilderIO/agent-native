@@ -36,10 +36,9 @@ import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
 const DEFAULT_SSR_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 const DEFAULT_SSR_CDN_CACHE_CONTROL =
-  "public, s-maxage=3600, stale-while-revalidate=604800, stale-if-error=3600";
+  "public, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, s-maxage=3600, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_NETLIFY_VARY = "query=_routes";
+  "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -64,7 +63,12 @@ function expectDefaultWorkerSsrCacheHeaders(response: Response) {
   expect(response.headers.get("netlify-cdn-cache-control")).toBe(
     DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   );
-  expect(response.headers.get("netlify-vary")).toBe(DEFAULT_SSR_NETLIFY_VARY);
+}
+
+function expectRouteCachePolicy(response: Response, cacheControl: string) {
+  expect(response.headers.get("cache-control")).toBe(cacheControl);
+  expect(response.headers.get("cdn-cache-control")).toBeNull();
+  expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
 }
 
 function makeTempDir(): string {
@@ -319,25 +323,23 @@ export default (event) =>
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
-  it("overwrites explicit no-store cache policies on anonymous Cloudflare worker SSR", async () => {
+  it("preserves explicit no-store cache policies on anonymous Cloudflare worker SSR", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // Anonymous request: the public SWR default overrides route-level no-store.
     const response = await worker.fetch(
       new Request("https://app.test/private-html"),
       {},
       {},
     );
 
-    expectDefaultWorkerSsrCacheHeaders(response);
+    expectRouteCachePolicy(response, "private, no-store");
   });
 
-  it("overrides a route-provided private Cache-Control on authenticated Cloudflare worker SSR HTML responses", async () => {
+  it("preserves a route-provided private Cache-Control on authenticated Cloudflare worker SSR HTML responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     // The mock react-router handler returns "private, no-store" for
-    // "/private-html". Routes can no longer opt SSR HTML out of the public
-    // hard-cache — the framework overrides it to the public SWR policy even
+    // "/private-html". Routes can opt SSR HTML out of the public cache even
     // when an auth cookie is present.
     const response = await worker.fetch(
       new Request("https://app.test/private-html", {
@@ -347,10 +349,10 @@ export default (event) =>
       {},
     );
 
-    expectDefaultWorkerSsrCacheHeaders(response);
+    expectRouteCachePolicy(response, "private, no-store");
   });
 
-  it("replaces React Router's default no-cache policy on Cloudflare worker data responses", async () => {
+  it("preserves React Router's default no-cache policy on Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -359,14 +361,12 @@ export default (event) =>
       {},
     );
 
-    expectDefaultWorkerSsrCacheHeaders(response);
+    expectRouteCachePolicy(response, "no-cache");
   });
 
-  it("hard-caches .data responses for authenticated Cloudflare worker requests just like anonymous ones", async () => {
+  it("preserves no-cache .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // An auth cookie must make no difference for React Router .data responses
-    // either: they get the same public SWR headers as anonymous requests.
     const response = await worker.fetch(
       new Request("https://app.test/docs/inbox.data", {
         headers: { cookie: "an_session=active" },
@@ -375,15 +375,14 @@ export default (event) =>
       {},
     );
 
-    expectDefaultWorkerSsrCacheHeaders(response);
+    expectRouteCachePolicy(response, "no-cache");
   });
 
-  it("overrides a route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
+  it("preserves a route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     // The mock react-router handler sets "private, no-store" for
-    // "/private.data". Routes can no longer opt .data responses out of the
-    // public hard-cache — the framework overrides it to the public SWR policy
+    // "/private.data". Routes can opt .data responses out of the public cache
     // even when an auth cookie is present.
     const response = await worker.fetch(
       new Request("https://app.test/private.data", {
@@ -393,7 +392,7 @@ export default (event) =>
       {},
     );
 
-    expectDefaultWorkerSsrCacheHeaders(response);
+    expectRouteCachePolicy(response, "private, no-store");
   });
 
   it("does not replace no-cache on non-React Router Cloudflare worker data responses", async () => {

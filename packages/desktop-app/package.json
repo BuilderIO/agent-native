@@ -22,7 +22,7 @@
     "build": "electron-vite build",
     "build:native:mac": "bash native/build-macos-helper.sh",
     "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
-    "build:mac": "pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
+    "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
     "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
     "typecheck": "tsc --noEmit"
