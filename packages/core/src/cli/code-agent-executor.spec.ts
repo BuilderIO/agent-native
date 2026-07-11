@@ -131,9 +131,11 @@ describe("executeCodeAgentRun", () => {
       phase: "missing-credentials",
       needsApproval: false,
     });
-    expect(listCodeAgentTranscriptEvents(run.id).at(-1)?.message).toContain(
-      "No LLM provider key was found",
-    );
+    const lastEvent = listCodeAgentTranscriptEvents(run.id).at(-1);
+    expect(lastEvent?.message).toContain("No LLM provider key was found");
+    // Structured marker so UI consumers don't have to regex-match the hint
+    // text (see isCredentialGapCodeAgentEvent).
+    expect(lastEvent?.signal).toBe("credential-gap");
   });
 
   it("runs a Codex CLI-backed session without provider API keys", async () => {

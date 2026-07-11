@@ -21,8 +21,20 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
 vi.mock("./credential-provider.js", () => ({
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
+  resolveBuilderCredentials: (...args: unknown[]) =>
+    resolveBuilderCredentials(...args),
+  getBuilderGatewayBaseUrl: () =>
+    "https://api.builder.io/agent-native/gateway/v1",
+}));
+
+vi.mock("../agent/engine/builder-gateway-headers.js", () => ({
+  getBuilderGatewayRequestHeaders: () => ({
+    "x-client-name": "@agent-native/core",
+    "x-client-version": "test",
+  }),
 }));
 
 const runWithRequestContext = vi.hoisted(() => vi.fn());
@@ -139,6 +151,11 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
+  resolveBuilderCredentials.mockResolvedValue({
+    privateKey: null,
+    publicKey: null,
+    userId: null,
+  });
   runWithRequestContext.mockImplementation(
     async (_context: unknown, callback: () => Promise<unknown>) => callback(),
   );
@@ -319,7 +336,10 @@ describe("realtime voice session route", () => {
     const missingKeyResult = await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
       missingKeyEvent,
     );
-    expect(missingKeyEvent.statusCode).toBe(400);
+    expect(missingKeyEvent.statusCode).toBe(409);
+    expect(missingKeyResult).toMatchObject({
+      code: "realtime_voice_setup_required",
+    });
     expect(JSON.stringify(missingKeyResult)).not.toContain("sk-test-example");
 
     resolveSecret.mockResolvedValueOnce("sk-test-example");
@@ -339,6 +359,48 @@ describe("realtime voice session route", () => {
     expect(JSON.stringify(failedResult)).not.toContain("sk-test-example");
     expect(failedResult).toMatchObject({
       error: expect.stringContaining("[REDACTED]"),
+    });
+  });
+
+  it("uses Builder managed realtime automatically when connected", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "bpk-private-test",
+      publicKey: "space-public-test",
+      userId: "builder-user-test",
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=builder\r\n", {
+        status: 200,
+        headers: { "content-type": "application/sdp" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount();
+    const event = sessionEvent();
+
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event)).toBe(
+      "v=0\r\ns=builder\r\n",
+    );
+    expect(resolveSecret).not.toHaveBeenCalled();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.builder.io/agent-native/gateway/v1/realtime/calls?apiKey=space-public-test",
+    );
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer bpk-private-test",
+      "Content-Type": "application/json",
+      "x-builder-api-key": "space-public-test",
+      "x-builder-user-id": "builder-user-test",
+      "x-client-name": "@agent-native/core",
+    });
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      sdp: "v=0\r\ns=agent-native\r\n",
+      session: {
+        type: "realtime",
+        model: "gpt-realtime-2.1",
+        tool_choice: "auto",
+      },
     });
   });
 });

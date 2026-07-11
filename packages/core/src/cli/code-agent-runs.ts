@@ -77,6 +77,17 @@ export type CodeAgentTranscriptEventKind =
   | "artifact"
   | "status";
 
+/**
+ * Structured, machine-checkable marker for transcript events that need
+ * special handling in the UI beyond free-text matching. `"credential-gap"`
+ * marks the status event the executor appends when no LLM provider key (or
+ * Codex CLI login) is available; consumers should prefer this field over
+ * regex-matching `message` (see `isCredentialGapCodeAgentEvent` in
+ * `../code-agents/transcript-normalizer.js`). Optional so older, already
+ * persisted JSONL transcripts without the field keep parsing unchanged.
+ */
+export type CodeAgentTranscriptEventSignal = "credential-gap";
+
 export interface CodeAgentTranscriptEvent {
   schemaVersion: 1;
   id: string;
@@ -85,6 +96,7 @@ export interface CodeAgentTranscriptEvent {
   message: string;
   createdAt: string;
   metadata?: Record<string, unknown>;
+  signal?: CodeAgentTranscriptEventSignal;
 }
 
 export interface CreateCodeAgentRunInput {
@@ -109,6 +121,7 @@ export interface AppendCodeAgentTranscriptEventInput {
   message: string;
   createdAt?: string;
   metadata?: Record<string, unknown>;
+  signal?: CodeAgentTranscriptEventSignal;
 }
 
 export interface QueueCodeAgentFollowUpInput {
@@ -294,6 +307,7 @@ export function appendCodeAgentTranscriptEvent(
     message: input.message,
     createdAt,
     metadata: input.metadata,
+    ...(input.signal ? { signal: input.signal } : {}),
   };
 
   fs.mkdirSync(codeAgentTranscriptsDir(), { recursive: true });

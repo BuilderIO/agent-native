@@ -54,11 +54,16 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import type {
+  AgentEngine,
+  EngineMessage,
+  EngineTool,
+} from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
   executeAgentToolCall,
+  filterInitialEngineTools,
   getActiveRunForThreadAsync,
   abortRunDurably,
   subscribeToRun,
@@ -1903,6 +1908,11 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
               description: "Output format",
               enum: ["json", "text"],
             },
+            includeArchived: {
+              type: "boolean",
+              description:
+                "Also include archived chats in the results. Archived chats are excluded by default.",
+            },
           },
         },
       },
@@ -1952,6 +1962,11 @@ async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
                 type: "string",
                 description: "(search) Output format",
                 enum: ["json", "text"],
+              },
+              includeArchived: {
+                type: "boolean",
+                description:
+                  "(search) Also include archived chats in the results. Archived chats are excluded by default, matching the 'archive' action's effect on the chat list.",
               },
               id: {
                 type: "string",
@@ -2941,6 +2956,22 @@ export function runA2AAgentLoop(
 }
 
 /**
+ * Keep delegated A2A turns on the same compact initial tool surface as
+ * interactive chat. `tool-search` remains in the initial set, while the
+ * complete registry is supplied separately so the run loop can load a matched
+ * schema after a tool-search result.
+ */
+export function createA2AEngineToolSurface(
+  availableTools: EngineTool[],
+  initialToolNames?: string[],
+): { tools: EngineTool[]; availableTools: EngineTool[] } {
+  return {
+    tools: filterInitialEngineTools(availableTools, initialToolNames),
+    availableTools,
+  };
+}
+
+/**
  * Verbose framework sections returned by the `get-framework-context` tool.
  * Keyed by topic so the agent can request specific sections.
  * Not template-specific — lives outside buildFrameworkPrompts().
@@ -2971,9 +3002,9 @@ Use for charts, visualizations, previews. Don't use for simple text/tables or ex
   "chat-history": `### Chat History
 
 You can search and restore previous chat conversations using \`chat-history\`:
-- \`chat-history\` (action: "search") — Search or list past chat threads by keyword
+- \`chat-history\` (action: "search") — Search or list past chat threads by keyword. Archived threads are excluded by default; pass \`includeArchived: true\` to also see them.
 - \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
-- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
+- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID. Archiving a thread hides it from the default chat list and search.
 
 When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
 
@@ -5077,7 +5108,10 @@ export function createAgentChatPlugin(
                 },
           );
 
-          const a2aTools = actionsToEngineTools(a2aActions);
+          const a2aToolSurface = createA2AEngineToolSurface(
+            actionsToEngineTools(a2aActions),
+            options?.initialToolNames,
+          );
 
           // Precise current time rides the user message (not the cached
           // system-prompt prefix) — same pattern as the interactive handler.
@@ -5098,7 +5132,7 @@ export function createAgentChatPlugin(
           const controller = new AbortController();
 
           console.log(
-            `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
+            `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
           await runA2AAgentLoop(
@@ -5106,7 +5140,8 @@ export function createAgentChatPlugin(
               engine: a2aEngine,
               model,
               systemPrompt,
-              tools: a2aTools,
+              tools: a2aToolSurface.tools,
+              availableTools: a2aToolSurface.availableTools,
               messages: a2aMessages,
               actions: a2aActions,
               send: (event) => {

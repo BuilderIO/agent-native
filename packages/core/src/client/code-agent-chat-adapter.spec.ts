@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   codeAgentTranscriptEventsToContent,
+  codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   type CodeAgentChatController,
   type CodeAgentChatTranscriptEvent,
@@ -13,11 +14,15 @@ async function drain(iterable: AsyncIterable<unknown>) {
   return results;
 }
 
-function runOptions(message: any, abortSignal = new AbortController().signal) {
+function runOptions(
+  message: any,
+  abortSignal = new AbortController().signal,
+  runConfig: Record<string, unknown> = {},
+) {
   return {
     messages: [message],
     abortSignal,
-    runConfig: {},
+    runConfig,
     context: {},
     config: {},
     unstable_getMessage: () => message,
@@ -93,6 +98,123 @@ describe("codeAgentTranscriptEventsToContent", () => {
       { type: "text", text: "Corrected answer" },
     ]);
   });
+
+  it("attaches an approval key to a bash tool-call still awaiting approval", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: [
+          "Approval required before running this command: destructive recursive delete.",
+          "Approval id: approval-20260710120000",
+          "Command: rm -rf tmp",
+          "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
+        ].join("\n"),
+      }),
+    ]);
+
+    expect(content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "bash",
+        approval: { approvalKey: "approval-20260710120000" },
+      }),
+    ]);
+  });
+
+  it("does not attach an approval key once the approval has been resolved", () => {
+    const content = codeAgentTranscriptEventsToContent([
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: [
+          "Approval required before running this command: destructive recursive delete.",
+          "Approval id: approval-20260710120000",
+          "Command: rm -rf tmp",
+        ].join("\n"),
+      }),
+      event("evt-denied", "status", "User denied command.", {
+        status: "running",
+        phase: "approval-denied",
+        approvalId: "approval-20260710120000",
+      }),
+    ]);
+
+    expect(content[0]).toEqual(
+      expect.objectContaining({ type: "tool-call", toolName: "bash" }),
+    );
+    expect((content[0] as { approval?: unknown }).approval).toBeUndefined();
+  });
+});
+
+describe("codeAgentTranscriptHasPendingApproval", () => {
+  it("is true while a bash tool-call's approval is unresolved", () => {
+    const hasPending = codeAgentTranscriptHasPendingApproval([
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result:
+          "Approval required before running this command: destructive recursive delete.\nApproval id: approval-1\nCommand: rm -rf tmp",
+      }),
+    ]);
+
+    expect(hasPending).toBe(true);
+  });
+
+  it("is false once the approval has been resolved", () => {
+    const hasPending = codeAgentTranscriptHasPendingApproval([
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result:
+          "Approval required before running this command: destructive recursive delete.\nApproval id: approval-1\nCommand: rm -rf tmp",
+      }),
+      event("evt-approved", "status", "Approved command; running now.", {
+        status: "running",
+        phase: "approval-running",
+        approvalId: "approval-1",
+      }),
+    ]);
+
+    expect(hasPending).toBe(false);
+  });
+
+  it("is false for a transcript with no approval activity", () => {
+    const hasPending = codeAgentTranscriptHasPendingApproval([
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "pnpm test" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: "1 passed",
+      }),
+    ]);
+
+    expect(hasPending).toBe(false);
+  });
 });
 
 describe("createCodeAgentChatAdapter", () => {
@@ -159,6 +281,48 @@ describe("createCodeAgentChatAdapter", () => {
       content: [{ type: "text", text: "Done" }],
       metadata: { custom: { runId: "run-1" } },
     });
+  });
+
+  it('resolves a paused approval through control("approve") instead of sending a follow-up', async () => {
+    const sendFollowUp = vi.fn(async () => ({ ok: true }));
+    const control = vi.fn(async () => ({ ok: true }));
+    const controller: CodeAgentChatController = {
+      get: vi.fn(async () => ({ status: "needs-approval" })),
+      transcript: vi.fn(async () => []),
+      sendFollowUp,
+      control,
+    };
+    const adapter = createCodeAgentChatAdapter({
+      controller,
+      runIdRef: { current: "run-1" },
+      pollIntervalMs: 1,
+      idlePollIntervalMs: 1,
+      terminalIdlePolls: 1,
+    });
+
+    await drain(
+      adapter.run(
+        runOptions(
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Approved. Go ahead and run the requested action.",
+              },
+            ],
+          },
+          new AbortController().signal,
+          { custom: { approvedToolCalls: ["approval-1"] } },
+        ),
+      ) as AsyncIterable<unknown>,
+    );
+
+    expect(control).toHaveBeenCalledWith({
+      runId: "run-1",
+      command: "approve",
+    });
+    expect(sendFollowUp).not.toHaveBeenCalled();
   });
 
   it("yields an empty snapshot when a hosted agent clear marker arrives alone", async () => {

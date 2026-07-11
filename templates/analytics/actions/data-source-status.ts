@@ -190,7 +190,25 @@ export default defineAction({
           workspaceConnection,
         };
       });
+    const configuredDataSources = providers
+      .filter((provider) => provider.configured)
+      .map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        via:
+          provider.configuredKeys.length > 0 &&
+          provider.workspaceConnection.grantState === "connected"
+            ? "credentials-and-workspace"
+            : provider.workspaceConnection.grantState === "connected"
+              ? "workspace"
+              : "credentials",
+      }));
     return {
+      // Keep a compact, explicit summary first so models do not infer source
+      // availability from the much larger per-credential list below.
+      hasConfiguredDataSources: configuredDataSources.length > 0,
+      configuredDataSourceCount: configuredDataSources.length,
+      configuredDataSources,
       credentials: results,
       providers,
       total: results.length,

@@ -67,11 +67,23 @@ export const ChatRunningContext = React.createContext(false);
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
  * re-issues the turn approving a specific paused tool call (opt-in
  * `needsApproval` actions). When null, the Approve button is not rendered.
- * Deny is handled locally in the affordance, so it needs no bridge.
+ * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
+ * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
+ * — both are additive so existing action-approval consumers are unaffected.
  */
 export type ApprovalContextValue = {
   /** Re-issue the turn so the server runs the approved call. */
   onApprove: (approvalKey: string) => void;
+  /**
+   * Optional host hook invoked in addition to the local "denied" state, e.g.
+   * so a Code session can also resolve its own pending approval as denied.
+   */
+  onDeny?: (approvalKey: string) => void;
+  /**
+   * Optional host hook that persists this exact call so future occurrences
+   * skip the approval gate. When absent, no "Always allow" button renders.
+   */
+  onAlwaysAllow?: (approvalKey: string) => void;
 };
 export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
@@ -476,7 +488,9 @@ function ApprovalAffordance({
       </div>
     );
   }
-  // Deny is local-only: the action simply stays un-run.
+  // Deny defaults to local-only (the action simply stays un-run). When the
+  // host also provided `onDeny` (e.g. a Code session resolving its own
+  // pending approval), it fires alongside the local state.
   if (denied) {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
@@ -506,9 +520,29 @@ function ApprovalAffordance({
           Approve
         </button>
       )}
+      {ctx?.onAlwaysAllow && (
+        <button
+          type="button"
+          onClick={() => {
+            setApproved(true);
+            ctx.onAlwaysAllow?.(approval.approvalKey);
+          }}
+          title="Approve and always allow this exact command"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "text-foreground hover:bg-muted",
+          )}
+        >
+          <IconShieldCheck className="h-3.5 w-3.5" />
+          Always allow
+        </button>
+      )}
       <button
         type="button"
-        onClick={() => setDenied(true)}
+        onClick={() => {
+          setDenied(true);
+          ctx?.onDeny?.(approval.approvalKey);
+        }}
         className={cn(
           "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",

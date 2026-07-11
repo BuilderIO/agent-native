@@ -551,6 +551,13 @@ export async function callAgent(
     /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
     /**
+     * Return receiver-verified artifact text from the last polled task when
+     * the call times out. Defaults to true for backwards compatibility.
+     * Callers that can continue polling the remote task separately should set
+     * this to false so the A2ATaskTimeoutError (and its taskId) is preserved.
+     */
+    returnRecoverableArtifactsOnTimeout?: boolean;
+    /**
      * Called with each successfully polled task while an async call is still
      * in flight (see `A2AClient.sendAndWait`). Fires once per real poll
      * round-trip that returns a task — including the terminal poll — so
@@ -614,7 +621,10 @@ export async function callAgent(
 
       return "";
     } catch (err) {
-      if (err instanceof A2ATaskTimeoutError) {
+      if (
+        opts?.returnRecoverableArtifactsOnTimeout !== false &&
+        err instanceof A2ATaskTimeoutError
+      ) {
         const recoverableText = extractRecoverableArtifactText(err.lastTask);
         if (recoverableText) return recoverableText;
       }

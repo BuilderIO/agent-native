@@ -1266,6 +1266,96 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
     expect(repo.headId).toBe(repo.messages[1]?.message.id);
   });
 
+  it("attaches an approval key to a historical bash tool-call still awaiting approval", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript([
+      {
+        id: "evt-tool-start",
+        runId: "run-code",
+        kind: "status",
+        message: "Running bash.",
+        createdAt: "2026-05-17T12:00:02.000Z",
+        metadata: {
+          type: "tool_start",
+          tool: "bash",
+          input: { command: "rm -rf tmp" },
+        },
+      },
+      {
+        id: "evt-tool-done",
+        runId: "run-code",
+        kind: "status",
+        message: "Finished bash.",
+        createdAt: "2026-05-17T12:00:03.000Z",
+        metadata: {
+          type: "tool_done",
+          tool: "bash",
+          result: [
+            "Approval required before running this command: destructive recursive delete.",
+            "Approval id: approval-20260710120000",
+            "Command: rm -rf tmp",
+          ].join("\n"),
+        },
+      },
+    ]);
+
+    expect(repo.messages[0]?.message.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "bash",
+        approval: { approvalKey: "approval-20260710120000" },
+      }),
+    ]);
+  });
+
+  it("does not attach an approval key to a historical tool-call once resolved", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript([
+      {
+        id: "evt-tool-start",
+        runId: "run-code",
+        kind: "status",
+        message: "Running bash.",
+        createdAt: "2026-05-17T12:00:02.000Z",
+        metadata: {
+          type: "tool_start",
+          tool: "bash",
+          input: { command: "rm -rf tmp" },
+        },
+      },
+      {
+        id: "evt-tool-done",
+        runId: "run-code",
+        kind: "status",
+        message: "Finished bash.",
+        createdAt: "2026-05-17T12:00:03.000Z",
+        metadata: {
+          type: "tool_done",
+          tool: "bash",
+          result: [
+            "Approval required before running this command: destructive recursive delete.",
+            "Approval id: approval-20260710120000",
+            "Command: rm -rf tmp",
+          ].join("\n"),
+        },
+      },
+      {
+        id: "evt-approved",
+        runId: "run-code",
+        kind: "status",
+        message: "Approved command; running now.",
+        createdAt: "2026-05-17T12:00:04.000Z",
+        metadata: {
+          status: "running",
+          phase: "approval-running",
+          approvalId: "approval-20260710120000",
+        },
+      },
+    ]);
+
+    const toolPart = repo.messages[0]?.message.content?.[0];
+    expect(toolPart).toMatchObject({ type: "tool-call", toolName: "bash" });
+    expect(toolPart.approval).toBeUndefined();
+  });
+
   it("can hide credential status messages from imported Code history", () => {
     const repo = buildRepositoryFromCodeAgentTranscript(
       [
@@ -1276,6 +1366,25 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
           message: "Missing credentials for a provider.",
           createdAt: "2026-05-17T12:00:00.000Z",
           metadata: { type: "error" },
+        },
+      ],
+      { hideCredentialMessages: true },
+    );
+
+    expect(repo.messages).toEqual([]);
+  });
+
+  it("hides credential events via the structured signal even with neutral message text", () => {
+    const repo = buildRepositoryFromCodeAgentTranscript(
+      [
+        {
+          id: "evt-status",
+          runId: "run-code",
+          kind: "status",
+          message: "Provider unavailable.",
+          createdAt: "2026-05-17T12:00:00.000Z",
+          metadata: { type: "error" },
+          signal: "credential-gap",
         },
       ],
       { hideCredentialMessages: true },

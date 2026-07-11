@@ -157,6 +157,8 @@ export default function SlidesTemplate() {
             <img
               src={template.screenshot}
               alt={t("templateLanding.slides.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>

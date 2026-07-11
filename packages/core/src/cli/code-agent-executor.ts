@@ -215,6 +215,7 @@ export async function executeCodeAgentRun(
       runId: existing.id,
       kind: "status",
       message,
+      signal: "credential-gap",
       metadata: { status: "paused", phase: "missing-credentials" },
     });
     return updateCodeAgentRunRecord(existing.id, {

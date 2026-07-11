@@ -4,6 +4,7 @@ import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
 } from "../agent/engine/credential-errors.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
@@ -457,15 +458,44 @@ function formatContinuationFailureMessage(
   continuation: A2AContinuation,
   reason: string,
 ): string {
-  if (isLlmCredentialError(reason)) {
-    return formatLlmCredentialErrorMessage({
-      agentName: continuation.agentName,
-    });
+  const explicitCode = extractFailureCode(reason);
+  const diagnostics = formatContinuationFailureDiagnostics(
+    continuation,
+    reason,
+  );
+  if (isLlmCredentialError(reason, explicitCode)) {
+    return (
+      formatLlmCredentialErrorMessage({
+        agentName: continuation.agentName,
+      }) + diagnostics
+    );
   }
 
   return `The ${continuation.agentName} agent could not finish this request: ${sanitizeFailureReason(
     reason,
-  )}`;
+  )}${diagnostics}`;
+}
+
+function formatContinuationFailureDiagnostics(
+  continuation: A2AContinuation,
+  reason: string,
+): string {
+  return `\n\nError code: \`${continuationFailureCode(reason)}\`\nRequest ID: \`${continuation.integrationTaskId}\`\nContinuation ID: \`${continuation.id}\`\nDownstream task ID: \`${continuation.a2aTaskId}\``;
+}
+
+function continuationFailureCode(reason: string): string {
+  const explicitCode = extractFailureCode(reason);
+  if (explicitCode) return explicitCode;
+  if (isLlmCredentialError(reason, explicitCode)) {
+    return LLM_MISSING_CREDENTIALS_ERROR_CODE;
+  }
+  if (/\btimed out polling\b/i.test(reason)) return "a2a_remote_timeout";
+  return "a2a_downstream_error";
+}
+
+function extractFailureCode(reason: string): string | null {
+  const match = /\bcode\s*[:=]\s*[`"']?([a-z][a-z0-9_]{0,79})\b/i.exec(reason);
+  return match?.[1]?.toLowerCase() ?? null;
 }
 
 function isRemoteWorkExpired(continuation: A2AContinuation): boolean {

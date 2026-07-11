@@ -176,6 +176,43 @@ describe("A2AClient", () => {
     await assertion;
   });
 
+  it("preserves the timeout task when recoverable artifacts are disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-deck-continuation");
+        }
+        return workingResponse(body, "task-deck-continuation", {
+          message: {
+            role: "agent",
+            metadata: { agentNativeRecoverableArtifacts: true },
+            parts: [
+              {
+                type: "text",
+                text: "Artifacts:\n- Deck: https://slides.agent.test/deck/deck-real (ID: deck-real)",
+              },
+            ],
+          },
+        });
+      }),
+    );
+
+    await expect(
+      callAgent("https://slides.agent.test", "make a deck", {
+        timeoutMs: 3,
+        pollIntervalMs: 1,
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-deck-continuation",
+    });
+  });
+
   it("does not treat unmarked timeout text as a recoverable artifact", async () => {
     vi.stubGlobal(
       "fetch",

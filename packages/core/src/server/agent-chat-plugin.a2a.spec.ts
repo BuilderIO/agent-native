@@ -4,6 +4,7 @@ import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  createA2AEngineToolSurface,
   runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
 
@@ -71,6 +72,46 @@ describe("delegated A2A final response guards", () => {
       12_345,
       { backgroundFunction: true },
     );
+  });
+});
+
+describe("delegated A2A tool surface", () => {
+  const tool = (name: string) => ({
+    name,
+    description: `${name} description`,
+    inputSchema: { type: "object" as const },
+  });
+
+  it("starts with configured tools plus tool-search and retains the full registry for discovery", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("tool-search"),
+      tool("rare-analytics-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+    ]);
+    // `runAgentLoop` uses this full list to load a matched schema after the
+    // initial `tool-search` call, rather than forcing the whole registry into
+    // the first model request.
+    expect(surface.availableTools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+      "rare-analytics-action",
+    ]);
+  });
+
+  it("keeps the existing full A2A tool surface without an initial allow-list", () => {
+    const availableTools = [tool("starter"), tool("tool-search"), tool("rare")];
+
+    const surface = createA2AEngineToolSurface(availableTools);
+
+    expect(surface.tools).toBe(availableTools);
+    expect(surface.availableTools).toBe(availableTools);
   });
 });
 

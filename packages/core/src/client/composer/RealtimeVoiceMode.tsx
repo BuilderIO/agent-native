@@ -40,6 +40,11 @@ export interface RealtimeVoiceModeCopy {
   entryButtonLabel: string;
   promptTitle: string;
   promptDescription: string;
+  setupTitle: string;
+  setupDescription: string;
+  connectBuilder: string;
+  useOpenAiKey: string;
+  startWithOpenAiKey: string;
   startVoiceMode: string;
   keepDictating: string;
   showChat: string;
@@ -63,6 +68,11 @@ export interface RealtimeVoiceModeEntryProps {
   onOpenChange?: (open: boolean) => void;
   onStartVoiceMode: () => void;
   onKeepDictating: () => void;
+  setupRequired?: boolean;
+  openAiConfigured?: boolean;
+  connectingBuilder?: boolean;
+  onConnectBuilder?: () => void;
+  onUseOpenAiKey?: () => void;
   className?: string;
 }
 
@@ -78,6 +88,11 @@ export function RealtimeVoiceModeEntry({
   onOpenChange,
   onStartVoiceMode,
   onKeepDictating,
+  setupRequired = false,
+  openAiConfigured = false,
+  connectingBuilder = false,
+  onConnectBuilder,
+  onUseOpenAiKey,
   className,
 }: RealtimeVoiceModeEntryProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -130,17 +145,17 @@ export function RealtimeVoiceModeEntry({
         <div className="grid gap-3">
           <div className="grid gap-1">
             <h2 id={titleId} className="text-sm font-semibold text-foreground">
-              {copy.promptTitle}
+              {setupRequired ? copy.setupTitle : copy.promptTitle}
             </h2>
             <p
               id={descriptionId}
               className="text-sm leading-relaxed text-muted-foreground"
             >
-              {copy.promptDescription}
+              {setupRequired ? copy.setupDescription : copy.promptDescription}
             </p>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button
               type="button"
               variant="ghost"
@@ -149,14 +164,40 @@ export function RealtimeVoiceModeEntry({
             >
               {copy.keepDictating}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => choose(onStartVoiceMode)}
-            >
-              <IconMicrophone />
-              {copy.startVoiceMode}
-            </Button>
+            {setupRequired ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => choose(onUseOpenAiKey ?? onStartVoiceMode)}
+                >
+                  {openAiConfigured
+                    ? copy.startWithOpenAiKey
+                    : copy.useOpenAiKey}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={connectingBuilder}
+                  onClick={() => choose(onConnectBuilder ?? onStartVoiceMode)}
+                >
+                  {connectingBuilder ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : null}
+                  {copy.connectBuilder}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => choose(onStartVoiceMode)}
+              >
+                <IconMicrophone />
+                {copy.startVoiceMode}
+              </Button>
+            )}
           </div>
         </div>
       </PopoverContent>

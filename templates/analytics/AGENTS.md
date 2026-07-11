@@ -20,6 +20,13 @@ details live in `.agents/skills/`.
   status) and the injected `<data-dictionary>` to learn what exists and which
   table/columns/join paths to use. Don't fan out blind queries when the catalog
   already answers where a fact lives.
+- Simple time-bounded metric fast path: when the data dictionary or a known
+  canonical source already identifies the metric, run one bounded aggregate.
+  Once that query returns a valid result, answer immediately with the source,
+  time window, row count, and only necessary caveats. Do not schema-discover,
+  retry, enrich, or add breakdowns unless the query fails or its result
+  conflicts with the known metric definition. This never waives the real-data
+  requirement: do not answer from a guess, stale value, or unverified result.
 - Clarify-first for ambiguous ad-hoc work: when the metric definition, date
   range, or grain is ambiguous and a wrong guess would change the numbers, use
   the `ask-question` clarifying tool (multiple-choice) before computing. Ask at

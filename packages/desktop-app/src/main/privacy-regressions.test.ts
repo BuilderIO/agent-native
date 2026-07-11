@@ -121,6 +121,21 @@ describe("desktop passive-access regressions", () => {
     expect(agent).toContain("hideCredentialMessages={hasCredentialHistory}");
   });
 
+  it("detects credential-gap transcript events through the shared core helper", () => {
+    const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
+
+    expect(agent).toContain("isCredentialGapCodeAgentEvent,");
+    expect(agent).toContain('} from "@agent-native/core/client";');
+    const detector = between(
+      agent,
+      "function isCredentialTranscriptEvent(",
+      "function hasPendingApproval(",
+    );
+    expect(detector).toContain("isCredentialGapCodeAgentEvent(event)");
+    // No local regex duplicate — the shared helper owns the fallback match.
+    expect(detector).not.toContain("No LLM provider key was found");
+  });
+
   it("does not treat unreadable saved provider blobs as a runtime provider", () => {
     const main = source("./index.ts");
     const runtimeCheck = between(

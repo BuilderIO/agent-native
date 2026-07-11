@@ -114,6 +114,17 @@ describe("data-source-status", () => {
       configuredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
       missingRequiredKeys: [],
     });
+    expect(result).toMatchObject({
+      hasConfiguredDataSources: true,
+      configuredDataSourceCount: 1,
+      configuredDataSources: [
+        {
+          provider: "hubspot",
+          label: "HubSpot",
+          via: "credentials",
+        },
+      ],
+    });
   });
 
   it("treats a legacy HubSpot access token as configured", async () => {
@@ -178,5 +189,12 @@ describe("data-source-status", () => {
         connectionCount: 1,
       },
     });
+    expect(result.configuredDataSources).toEqual([
+      {
+        provider: "hubspot",
+        label: "HubSpot",
+        via: "workspace",
+      },
+    ]);
   });
 });

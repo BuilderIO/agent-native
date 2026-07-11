@@ -81,6 +81,8 @@ function AssetPreview({
         <img
           src={asset.src}
           alt=""
+          loading="lazy"
+          decoding="async"
           className={asset.previewClassName}
           aria-hidden="true"
         />

@@ -1067,7 +1067,8 @@ export function useGuidedQuestionFlow({
         if (
           prev &&
           guidedQuestionsFingerprint(prev.questions) ===
-            guidedQuestionsFingerprint(data.questions)
+            guidedQuestionsFingerprint(data.questions) &&
+          prev.clientResolveId === data.clientResolveId
         ) {
           return prev;
         }

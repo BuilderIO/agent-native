@@ -15,6 +15,8 @@ import {
   normalizeModelForEngine,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { resolveHostedDefaultModelExperiment } from "../../observability/hosted-model-experiment.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -82,13 +84,23 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         ? current?.model
         : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
-  const currentModel =
+  let currentModel =
     currentEntry && !envUnavailable
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
+  const hostedExperiment =
+    currentEntry && !currentModelCandidate
+      ? resolveHostedDefaultModelExperiment({
+          userId: getRequestUserEmail(),
+          engineName: currentEntry.name,
+          isDefaultModelSelection: true,
+          supportedModels: currentEntry.supportedModels,
+        })
+      : null;
+  if (hostedExperiment) currentModel = hostedExperiment.model;
 
   const result = {
     engines: engines.map((e) => ({
@@ -107,6 +119,12 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : {
           engine: currentEngineName,
           model: currentModel,
+          ...(hostedExperiment
+            ? {
+                modelSelectionSource: "experiment",
+                experimentAssignment: hostedExperiment.assignment,
+              }
+            : {}),
         },
   };
 

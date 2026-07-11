@@ -22,7 +22,7 @@ export function registerFrameworkSecrets(): void {
       key: "OPENAI_API_KEY",
       label: "OpenAI API key",
       description:
-        "Enables realtime voice conversations with your app and optional OpenAI transcription.",
+        "Optional fallback for realtime voice when Builder is not connected, and for OpenAI transcription.",
       docsUrl: "https://platform.openai.com/api-keys",
       scope: "user",
       kind: "api-key",

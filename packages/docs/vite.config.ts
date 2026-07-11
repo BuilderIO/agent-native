@@ -15,6 +15,11 @@ export default defineConfig({
     tailwindcss(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
-    ...agentNativePlugins({ tailwind: false }),
+    ...agentNativePlugins({
+      tailwind: false,
+      // Warm every internal route's data and matched JS after hydration so
+      // clicks stay instant without adding those modules to the initial HTML.
+      routeWarmup: "render",
+    }),
   ],
 });

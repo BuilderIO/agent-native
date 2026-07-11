@@ -219,4 +219,31 @@ describe("normalizeCodeAgentTranscriptForConversation", () => {
     expect(visible[1]?.notices?.[0]?.tone).toBe("warning");
     expect(hidden).toHaveLength(1);
   });
+
+  it("hides credential notices via the structured signal even with neutral message text", () => {
+    const events: CodeAgentConversationTranscriptEvent[] = [
+      {
+        id: "user-1",
+        runId: "run-1",
+        type: "user",
+        text: "Continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "credentials-1",
+        runId: "run-1",
+        type: "status",
+        text: "Provider unavailable.",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        signal: "credential-gap",
+      },
+    ];
+
+    const hidden = normalizeCodeAgentTranscriptForConversation(events, {
+      hideCredentialMessages: true,
+    });
+
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0]?.role).toBe("user");
+  });
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
-const mockResolveHasBuilderPrivateKey = vi.fn();
+const mockResolveHasCompleteBuilderConnection = vi.fn();
 const mockResolveSecret = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockResolveGoogleRealtimeCredentials = vi.fn();
@@ -21,8 +21,8 @@ vi.mock("./auth.js", () => ({
 }));
 
 vi.mock("./credential-provider.js", () => ({
-  resolveHasBuilderPrivateKey: (...args: any[]) =>
-    mockResolveHasBuilderPrivateKey(...args),
+  resolveHasCompleteBuilderConnection: (...args: any[]) =>
+    mockResolveHasCompleteBuilderConnection(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
 }));
 
@@ -54,7 +54,7 @@ describe("voice providers status route", () => {
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
     mockResolveSecret.mockResolvedValue(null);
-    mockResolveHasBuilderPrivateKey.mockResolvedValue(false);
+    mockResolveHasCompleteBuilderConnection.mockResolvedValue(false);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
   });
@@ -68,7 +68,7 @@ describe("voice providers status route", () => {
   });
 
   it("reports user secrets and fallback credentials without returning key material", async () => {
-    mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
+    mockResolveHasCompleteBuilderConnection.mockResolvedValue(true);
     mockResolveSecret.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY"
         ? "sk-openai-secret"

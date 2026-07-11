@@ -2724,6 +2724,10 @@ function normalizeCodeAgentTranscriptEvent(
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
   if (fallback.source) metadata.source = fallback.source;
+  // Prefer the structured signal the executor stamps on credential-gap
+  // events; carry it through so the renderer can detect the condition
+  // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
+  const signal = row.signal === "credential-gap" ? "credential-gap" : undefined;
 
   return {
     id:
@@ -2739,6 +2743,7 @@ function normalizeCodeAgentTranscriptEvent(
     artifactPath,
     artifactUrl,
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    ...(signal ? { signal } : {}),
   };
 }
 

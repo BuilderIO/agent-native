@@ -170,6 +170,52 @@ describe("call-agent action", () => {
     );
   });
 
+  it("returns receiver-verified artifacts when continuation enqueue fails", async () => {
+    process.env.NETLIFY = "true";
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    insertA2AContinuationMock.mockRejectedValueOnce(
+      new Error("database temporarily unavailable"),
+    );
+    const timeout = Object.assign(
+      new Error("A2A task remote-task-artifact did not complete within 2000ms"),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-artifact",
+        lastTask: {
+          id: "remote-task-artifact",
+          status: {
+            state: "working",
+            timestamp: "",
+            message: {
+              role: "agent",
+              metadata: { agentNativeRecoverableArtifacts: true },
+              parts: [
+                {
+                  type: "text",
+                  text: "Artifacts:\n- Deck: /deck/deck-real (ID: deck-real)",
+                },
+              ],
+            },
+          },
+        },
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "slides", message: "create the QA deck" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(result).toContain("https://slides.agent-native.test/deck/deck-real");
+    expect(result).not.toContain("[agent-native:a2a-continuation-queued]");
+    expect(dispatchA2AContinuationMock).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   describe("poll-driven progress", () => {
     // Minimal A2A Task shaped like what callAgent()'s poll passes to onUpdate.
     const makeTask = (state: string, detailText?: string): any => ({
@@ -401,6 +447,7 @@ describe("call-agent action", () => {
         expect.objectContaining({
           timeoutMs: 2_000,
           onUpdate: expect.any(Function),
+          returnRecoverableArtifactsOnTimeout: false,
         }),
       );
     });

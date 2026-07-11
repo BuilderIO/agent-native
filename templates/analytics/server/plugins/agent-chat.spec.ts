@@ -1,11 +1,17 @@
 import type { ActionEntry } from "@agent-native/core/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 
 import {
   applyAnalyticsPlanModePolicy,
   PLAN_MODE_ACT_ONLY_TOOLS,
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
+import {
+  analyticsSourceGuidanceOpening,
+  SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE,
+} from "./agent-chat";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
 
@@ -21,6 +27,16 @@ function action(readOnly = true): ActionEntry {
 }
 
 describe("Analytics agent Plan mode policy", () => {
+  it("injects the simple, time-bounded metric fast path into source guidance", () => {
+    const guidance = analyticsSourceGuidanceOpening();
+
+    expect(guidance).toContain("<data-source-guidance>");
+    expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
+    expect(guidance).toContain("run one bounded aggregate");
+    expect(guidance).toContain("Once it returns a valid result");
+    expect(guidance).toContain("does not waive the real-data requirement");
+  });
+
   it("marks substantive data-analysis tools as Act-only without changing lightweight planning tools", () => {
     const actions = applyAnalyticsPlanModePolicy({
       "data-source-status": action(),

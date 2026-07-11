@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
-import { normalizeCodeAgentTranscript } from "./transcript-normalizer.js";
+import {
+  isCredentialGapCodeAgentEvent,
+  normalizeCodeAgentTranscript,
+} from "./transcript-normalizer.js";
 
 describe("normalizeCodeAgentTranscript", () => {
   it("coalesces legacy runner stdout and suppresses duplicate final assistant text", () => {
@@ -269,6 +272,80 @@ describe("normalizeCodeAgentTranscript", () => {
     ]);
   });
 
+  it("stamps pendingApprovalKey on a completed bash call whose result carries an Approval id marker", () => {
+    const events = [
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: [
+          "Approval required before running this command: destructive recursive delete.",
+          "Approval id: approval-20260710120000",
+          "Command: rm -rf tmp",
+          "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
+        ].join("\n"),
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "tool",
+        tool: "bash",
+        state: "completed",
+        pendingApprovalKey: "approval-20260710120000",
+      }),
+    ]);
+  });
+
+  it("does not stamp pendingApprovalKey once a later event resolves the same approval id", () => {
+    const events = [
+      event("evt-tool-start", "status", "Running bash.", {
+        type: "tool_start",
+        tool: "bash",
+        input: { command: "rm -rf tmp" },
+      }),
+      event("evt-tool-done", "status", "Finished bash.", {
+        type: "tool_done",
+        tool: "bash",
+        result: [
+          "Approval required before running this command: destructive recursive delete.",
+          "Approval id: approval-20260710120000",
+          "Command: rm -rf tmp",
+          "The run is paused; approve from the Agent-Native Code UI/CLI if this command is intentional.",
+        ].join("\n"),
+      }),
+      // Mirrors executePendingCodeAgentApproval's resolution event in
+      // cli/code-agent-executor.ts — folded into hiddenEvents (status:
+      // "running" reads as low-signal lifecycle noise) but still visible to
+      // the raw-event resolution scan.
+      event(
+        "evt-approval-running",
+        "status",
+        "Approved command; running now.",
+        {
+          status: "running",
+          phase: "approval-running",
+          approvalId: "approval-20260710120000",
+          command: "rm -rf tmp",
+        },
+      ),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    const toolItem = transcript.items.find((item) => item.type === "tool");
+    expect(toolItem).toMatchObject({ type: "tool", tool: "bash" });
+    expect(
+      (toolItem as { pendingApprovalKey?: string }).pendingApprovalKey,
+    ).toBeUndefined();
+  });
+
   it("propagates structuredMeta from tool_start and tool_done into the normalized tool event", () => {
     const bashMeta = {
       toolKind: "bash",
@@ -427,6 +504,66 @@ describe("normalizeCodeAgentTranscript", () => {
         text: "Use the dossier with another coding agent.",
       }),
     ]);
+  });
+
+  it("carries the structured credential-gap signal onto the normalized status item", () => {
+    const events = [
+      {
+        ...event("evt-cred", "status", "No LLM provider key was found.", {
+          status: "paused",
+          phase: "missing-credentials",
+        }),
+        signal: "credential-gap" as const,
+      },
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toEqual([
+      expect.objectContaining({
+        type: "status",
+        signal: "credential-gap",
+      }),
+    ]);
+  });
+});
+
+describe("isCredentialGapCodeAgentEvent", () => {
+  it("detects the structured signal regardless of message text", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        signal: "credential-gap",
+        message: "some unrelated status text",
+      }),
+    ).toBe(true);
+    expect(
+      isCredentialGapCodeAgentEvent({
+        signal: "credential-gap",
+        text: "some unrelated status text",
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to matching the legacy hint text when no signal is present", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        message: "No LLM provider key was found.",
+      }),
+    ).toBe(true);
+    expect(
+      isCredentialGapCodeAgentEvent({
+        text: "Missing credentials for a provider.",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not flag unrelated status events", () => {
+    expect(
+      isCredentialGapCodeAgentEvent({
+        message: "Agent-Native Code run started.",
+      }),
+    ).toBe(false);
+    expect(isCredentialGapCodeAgentEvent({})).toBe(false);
   });
 });
 

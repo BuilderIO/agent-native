@@ -87,6 +87,7 @@ export {
 } from "./embed-auth.js";
 export {
   codeAgentTranscriptEventsToContent,
+  codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   type CodeAgentChatController,
   type CodeAgentChatControlResult,
@@ -107,6 +108,10 @@ export {
   type CodeAgentRunStateLike,
   type CodeAgentTranscriptOrderEvent,
 } from "../code-agents/transcript-order.js";
+export {
+  CREDENTIAL_GAP_SIGNAL,
+  isCredentialGapCodeAgentEvent,
+} from "../code-agents/transcript-normalizer.js";
 export { useSendToAgentChat } from "./use-send-to-agent-chat.js";
 export {
   useChatModels,
@@ -557,6 +562,12 @@ export {
   type ChatThreadShareState,
   type UseChatThreadsOptions,
 } from "./use-chat-threads.js";
+export {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+  type ChatHistoryListProps,
+} from "./chat/ChatHistoryList.js";
 export { AgentChatHome, type AgentChatHomeProps } from "./AgentChatHome.js";
 export {
   AgentChatSurface,

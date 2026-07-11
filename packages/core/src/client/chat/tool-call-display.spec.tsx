@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
+  ApprovalContext,
   ChatRunningContext,
   ReconnectStreamMessage,
   ToolCallDisplay,
@@ -865,5 +866,140 @@ describe("ReasoningCell", () => {
     });
 
     expect(container.querySelector(".reasoning-cell-tail")).toBe(null);
+  });
+});
+
+describe("ApprovalAffordance", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Deny local-only and hides Approve/Always-allow with no ApprovalContext", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="bash"
+          args={{}}
+          approval={{ approvalKey: "approval-1" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Approve to run bash?");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Deny"]);
+
+    const denyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Deny",
+    ) as HTMLButtonElement;
+    act(() => denyButton.click());
+
+    expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("keeps the default two-button layout when only onApprove is provided", () => {
+    const onApprove = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Deny"]);
+
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+    act(() => approveButton.click());
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Approved. Re-running bash...");
+  });
+
+  it("calls onDeny in addition to the local denied state when provided", () => {
+    const onApprove = vi.fn();
+    const onDeny = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove, onDeny }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const denyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Deny",
+    ) as HTMLButtonElement;
+    act(() => denyButton.click());
+
+    expect(onDeny).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", () => {
+    const onApprove = vi.fn();
+    const onAlwaysAllow = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove, onAlwaysAllow }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Always allow", "Deny"]);
+
+    const alwaysAllowButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find(
+      (button) => button.textContent === "Always allow",
+    ) as HTMLButtonElement;
+    act(() => alwaysAllowButton.click());
+
+    expect(onAlwaysAllow).toHaveBeenCalledWith("approval-1");
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Approved. Re-running bash...");
   });
 });

@@ -1898,6 +1898,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "useCurrentEditor",
     "useEditor",
     "useLocalRuntime",
+    "useMessagePartReasoning",
     "useMessagePartText",
     "useMessageRuntime",
     "useThread",

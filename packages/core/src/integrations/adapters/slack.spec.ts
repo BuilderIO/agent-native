@@ -606,6 +606,20 @@ describe("slackAdapter", () => {
         channel: "C123",
         thread_ts: "111.222",
         task_display_mode: "plan",
+        markdown_text: "I’m looking into this for you.",
+        chunks: [
+          {
+            type: "plan_update",
+            title: "I’m looking into this for you",
+          },
+          {
+            type: "task_update",
+            id: "agent-native:context",
+            title: "Review the request",
+            status: "in_progress",
+            details: "Finding the information needed for an answer",
+          },
+        ],
       },
     });
     expect(
@@ -707,7 +721,7 @@ describe("slackAdapter", () => {
             chunks: [
               expect.objectContaining({
                 type: "task_update",
-                title: "Ask Design",
+                title: "Contact Design",
                 status: "in_progress",
               }),
             ],
@@ -878,7 +892,7 @@ describe("slackAdapter", () => {
       .flatMap((request) => request.body.chunks ?? [])
       .filter(
         (chunk) =>
-          chunk.type === "task_update" && chunk.title === "Ask Analytics",
+          chunk.type === "task_update" && chunk.title === "Contact Analytics",
       );
 
     expect(agentUpdates).toHaveLength(3);
@@ -890,8 +904,12 @@ describe("slackAdapter", () => {
       "in_progress",
       "complete",
     ]);
+    expect(agentUpdates[0]).toMatchObject({
+      details: "I’m contacting Analytics for an answer.",
+    });
     expect(agentUpdates[1]).toMatchObject({
-      details: "Joining HubSpot and BigQuery data",
+      details:
+        "Working · 30s — Joining HubSpot and BigQuery data. This is taking longer than usual, but Analytics is still working. I’ll post the result here.",
     });
   });
 

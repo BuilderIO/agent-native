@@ -1,4 +1,5 @@
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
@@ -38,6 +39,7 @@ export interface CodeAgentConversationTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
+  signal?: CoreCodeAgentTranscriptEvent["signal"];
 }
 
 export interface NormalizeCodeAgentTranscriptOptions {
@@ -160,6 +162,7 @@ function toCoreTranscriptEvent(
       ...(event.artifactPath ? { artifactPath: event.artifactPath } : {}),
       ...(event.artifactUrl ? { artifactUrl: event.artifactUrl } : {}),
     },
+    ...(event.signal ? { signal: event.signal } : {}),
   };
 }
 
@@ -194,7 +197,7 @@ function toConversationNotice(
   item: NormalizedCodeAgentStatusEvent,
   options: NormalizeCodeAgentTranscriptOptions,
 ): AgentConversationNotice | null {
-  if (options.hideCredentialMessages && isCredentialText(item.text))
+  if (options.hideCredentialMessages && isCredentialGapCodeAgentEvent(item))
     return null;
   if (item.level === "info" && item.statusKind !== "note") return null;
   return {
@@ -253,10 +256,6 @@ function stringMetadata(
 ): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isCredentialText(value: string): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 function extractAttachments(

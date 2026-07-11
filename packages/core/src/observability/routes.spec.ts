@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetObservabilityOverview = vi.hoisted(() => vi.fn());
@@ -59,6 +59,10 @@ function createEvent(path: string, method = "GET") {
 }
 
 describe("observability routes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSession.mockResolvedValue({ email: "alice@example.com" });
@@ -89,5 +93,30 @@ describe("observability routes", () => {
       limit: 100,
       userId: "alice@example.com",
     });
+  });
+
+  it("fails closed for platform-wide experiment routes in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS", "");
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/experiments");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Experiment administrator access required",
+    });
+    expect(event._status).toBe(403);
+  });
+
+  it("allows configured experiment administrators in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv(
+      "AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS",
+      "operator@example.com, alice@example.com",
+    );
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/experiments");
+
+    await expect(handler(event)).resolves.toBeUndefined();
+    expect(event._status).toBe(200);
   });
 });

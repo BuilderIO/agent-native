@@ -58,6 +58,8 @@ function TemplateFallbackArt({ template }: { template: Template }) {
       <img
         src={template.screenshot}
         alt={t("templateCard.screenshotAlt", { name: template.name })}
+        loading="lazy"
+        decoding="async"
         className="h-full w-full object-cover object-top"
       />
     );

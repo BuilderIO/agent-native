@@ -1629,6 +1629,17 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /**
+   * Optional host hooks for the inline `needsApproval` affordance beyond the
+   * built-in Approve. Additive: omit entirely to keep today's default
+   * behavior (Deny is local-only, no "Always allow" button). Code sessions
+   * pass these through to the same `host.controlRun` commands their
+   * standalone approval banner already uses (see CodeAgentsApp).
+   */
+  approvalActions?: {
+    onDeny?: (approvalKey: string) => void;
+    onAlwaysAllow?: (approvalKey: string) => void;
+  };
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1852,6 +1863,7 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    approvalActions,
     planModeDisabled,
     planModeDisabledReason,
     selectedModel,
@@ -4640,8 +4652,12 @@ const AssistantChatInner = forwardRef<
           ),
         } as Parameters<typeof threadRuntime.append>[0]);
       },
+      ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
+      ...(approvalActions?.onAlwaysAllow
+        ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
+        : {}),
     }),
-    [appendThreadMessage, execMode, markOptimisticRunning],
+    [appendThreadMessage, execMode, markOptimisticRunning, approvalActions],
   );
 
   return (
@@ -5189,31 +5205,31 @@ const AssistantChatInner = forwardRef<
                             onAttachmentError={setComposerError}
                             extraActionButton={
                               contextXRayEnabled ||
-                              composerExtraActionButton ||
-                              showRunningInUI ? (
+                              composerExtraActionButton ? (
                                 <>
                                   {contextXRayEnabled && (
                                     <ContextMeter threadId={threadId} />
                                   )}
                                   {composerExtraActionButton}
-                                  {showRunningInUI && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <button
-                                          type="button"
-                                          onClick={() => stopActiveRun()}
-                                          aria-label="Stop response"
-                                          className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                        >
-                                          <IconPlayerStopFilled className="h-3 w-3" />
-                                        </button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        Stop response
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
                                 </>
+                              ) : undefined
+                            }
+                            stopButton={
+                              showRunningInUI ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => stopActiveRun()}
+                                      aria-label="Stop response"
+                                      data-agent-composer-slot="stop-button"
+                                      className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    >
+                                      <IconPlayerStopFilled className="h-3 w-3" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Stop response</TooltipContent>
+                                </Tooltip>
                               ) : undefined
                             }
                           />

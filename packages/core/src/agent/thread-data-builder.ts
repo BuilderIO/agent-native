@@ -1,5 +1,6 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
@@ -664,6 +665,7 @@ export interface CodeAgentThreadTranscriptEvent {
   metadata?: Record<string, unknown>;
   artifactPath?: string;
   artifactUrl?: string;
+  signal?: CoreCodeAgentTranscriptEvent["signal"];
 }
 
 export interface BuildRepositoryFromCodeAgentTranscriptOptions {
@@ -1094,6 +1096,7 @@ function toCoreCodeAgentTranscriptEvent(
       ...(event.artifactPath ? { artifactPath: event.artifactPath } : {}),
       ...(event.artifactUrl ? { artifactUrl: event.artifactUrl } : {}),
     },
+    ...(event.signal ? { signal: event.signal } : {}),
   };
 }
 
@@ -1137,6 +1140,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       ? { result: previewCodeAgentTranscriptValue(item.result) ?? "" }
       : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 
@@ -1144,7 +1150,7 @@ function statusTextForCodeAgentTranscriptItem(
   item: NormalizedCodeAgentStatusEvent,
   options: BuildRepositoryFromCodeAgentTranscriptOptions,
 ): string | null {
-  if (options.hideCredentialMessages && isCredentialCodeAgentText(item.text)) {
+  if (options.hideCredentialMessages && isCredentialGapCodeAgentEvent(item)) {
     return null;
   }
   if (item.statusKind === "artifact") {
@@ -1217,10 +1223,6 @@ function stringRecordValue(
 ): string | undefined {
   const value = record?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isCredentialCodeAgentText(value: string): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 export function upsertUserMessage(repo: any, userMsg: UserMessage): any {

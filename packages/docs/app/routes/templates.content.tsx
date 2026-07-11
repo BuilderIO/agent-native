@@ -159,6 +159,8 @@ export default function ContentTemplate() {
             <img
               src={template.screenshot}
               alt={t("templateLanding.content.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>

@@ -172,7 +172,7 @@ export default function Header() {
               alt=""
               className="block h-6 w-6 min-[380px]:hidden dark:hidden"
               aria-hidden="true"
-              fetchPriority="low"
+              loading="lazy"
               decoding="async"
             />
             <img
@@ -180,21 +180,21 @@ export default function Header() {
               alt=""
               className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
               aria-hidden="true"
-              fetchPriority="low"
+              loading="lazy"
               decoding="async"
             />
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
-              fetchPriority="low"
+              loading="lazy"
               decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
-              fetchPriority="low"
+              loading="lazy"
               decoding="async"
             />
           </Link>
@@ -218,15 +218,6 @@ export default function Header() {
               }
             >
               {t("header.templates")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
@@ -323,16 +314,6 @@ export default function Header() {
               onClick={closeMobileMenu}
             >
               {t("header.templates")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"

@@ -37,6 +37,7 @@ const SLACK_API_TIMEOUT_MS = 10_000;
 const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
 const SLACK_CONTEXT_MESSAGE_LIMIT = 15;
 const SLACK_CONTEXT_TEXT_LIMIT = 2_000;
+const SLACK_CALM_PROGRESS_THRESHOLD_SECONDS = 30;
 
 export interface SlackAdapterOptions {
   /** Resolve the bot token for the exact Slack installation. */
@@ -323,12 +324,10 @@ export function slackAdapter(
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
-      // No placeholder reply in the thread — Slack's native assistant
-      // status bar ("agent-native is thinking…", below the composer) is the
-      // loading affordance. A second visible "Working on it…" reply was
-      // redundant and added an extra chunk that we then had to overwrite.
-      // We just set the native status and return null so sendResponse posts
-      // the final reply as a fresh message.
+      // No placeholder reply in the thread — Slack's native assistant status
+      // bar and the task stream are the loading affordance. Keep the status
+      // specific about intent instead of presenting the generic thinking
+      // state while the native plan is opening.
       const token = await resolveBotToken(incoming);
       if (!token) return null;
 
@@ -336,11 +335,16 @@ export function slackAdapter(
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      // Best-effort: flip the native Agent "is thinking…" status bar in the
+      // Best-effort: flip the native Agent status bar in the
       // channel input area. Slack accepts chat:write for this method. The
       // canonical manifest separately requests assistant:write for Agent View
       // and app_context_changed events.
-      setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+      setSlackAssistantStatus(
+        token,
+        channelId,
+        threadTs,
+        "I’m looking into this now…",
+      );
       return null;
     },
 
@@ -1266,6 +1270,42 @@ function shortTaskTitle(value: unknown): string {
   return text.replace(/[-_]/g, " ").slice(0, 200);
 }
 
+function delegatedTaskTitle(agent: unknown): string {
+  return `Contact ${shortTaskTitle(agent)}`;
+}
+
+function formatElapsedSeconds(elapsedSeconds: number): string {
+  const totalSeconds = Math.max(0, Math.round(elapsedSeconds));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function formatProgressState(state: string): string {
+  if (state === "submitted") return "Queued";
+  if (state === "working") return "Working";
+  return shortTaskTitle(state);
+}
+
+function delegatedProgressDetails(
+  agent: unknown,
+  state: string,
+  elapsedSeconds: number,
+  detail?: string,
+): string {
+  const elapsed = formatElapsedSeconds(elapsedSeconds);
+  const progress = `${formatProgressState(state)} · ${elapsed}`;
+  const update = detail ? shortTaskTitle(detail) : "";
+
+  if (elapsedSeconds >= SLACK_CALM_PROGRESS_THRESHOLD_SECONDS) {
+    const agentName = shortTaskTitle(agent);
+    const context = update ? ` — ${update}.` : ".";
+    return `${progress}${context} This is taking longer than usual, but ${agentName} is still working. I’ll post the result here.`;
+  }
+
+  return update ? `${progress} — ${update}` : progress;
+}
+
 async function postSlackJson(
   token: string,
   method: string,
@@ -1315,18 +1355,18 @@ async function startSlackRunProgress(
       ...(incoming.tenantId ? { recipient_team_id: incoming.tenantId } : {}),
       ...(incoming.senderId ? { recipient_user_id: incoming.senderId } : {}),
       task_display_mode: "plan",
-      markdown_text: "Working on your request…",
+      markdown_text: "I’m looking into this for you.",
       chunks: [
         {
           type: "plan_update",
-          title: "Working on your request",
+          title: "I’m looking into this for you",
         },
         {
           type: "task_update",
           id: "agent-native:context",
-          title: "Understand the request",
+          title: "Review the request",
           status: "in_progress",
-          details: "Loading relevant context",
+          details: "Finding the information needed for an answer",
         },
       ],
     });
@@ -1373,7 +1413,7 @@ function createSlackRunProgress(
   const toolTaskIds = new Map<string, string>();
   const agentTaskIds = new Map<string, string>();
   tasks.set("agent-native:context", {
-    title: "Understand the request",
+    title: "Review the request",
     status: "in_progress",
   });
   let sequence = 0;
@@ -1540,9 +1580,19 @@ function createSlackRunProgress(
             : event.status === "done"
               ? "complete"
               : "error";
-        const title = `Ask ${shortTaskTitle(event.agent)}`;
+        const title = delegatedTaskTitle(event.agent);
         tasks.set(id, { title, status });
-        await append({ type: "task_update", id, title, status });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status,
+          ...(event.status === "start"
+            ? {
+                details: `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
+              }
+            : {}),
+        });
       } else if (event.type === "agent_call_progress") {
         // A2A calls can stay healthy for minutes. Keep the same native Slack
         // task card alive with each real downstream poll rather than creating
@@ -1550,10 +1600,13 @@ function createSlackRunProgress(
         const id =
           agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
         agentTaskIds.set(event.agent, id);
-        const title = `Ask ${shortTaskTitle(event.agent)}`;
-        const details = event.detail
-          ? shortTaskTitle(event.detail)
-          : `Still ${event.state} after ${event.elapsedSeconds}s`;
+        const title = delegatedTaskTitle(event.agent);
+        const details = delegatedProgressDetails(
+          event.agent,
+          event.state,
+          event.elapsedSeconds,
+          event.detail,
+        );
         tasks.set(id, { title, status: "in_progress" });
         await append({
           type: "task_update",
@@ -1566,9 +1619,9 @@ function createSlackRunProgress(
         await append({
           type: "task_update",
           id: "agent-native:context",
-          title: "Understand the request",
+          title: "Review the request",
           status: "in_progress",
-          details: shortTaskTitle(event.label),
+          details: `Working · ${shortTaskTitle(event.label)}`,
         });
       }
     },

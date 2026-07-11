@@ -159,6 +159,8 @@ export default function ClipsTemplate() {
             <img
               src={template.screenshot}
               alt={t("templateLanding.clips.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>

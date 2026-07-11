@@ -972,7 +972,10 @@ export async function updateExperiment(
     sets.push("status = ?");
     args.push(updates.status);
     if (updates.status === "running" && !updates.endedAt) {
-      sets.push("started_at = ?");
+      // Preserve the original exposure window when a paused experiment
+      // resumes; resetting it would silently discard the first run period from
+      // the results.
+      sets.push("started_at = COALESCE(started_at, ?)");
       args.push(Date.now());
     }
   }
