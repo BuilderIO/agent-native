@@ -45,8 +45,18 @@ import {
 export type SessionIssueMatch = { issueId: string; status: string };
 
 /** Deep-link from a session error to the Monitoring → Errors issue detail. */
-function issueDetailPath(issueId: string): string {
+export function issueDetailPath(issueId: string): string {
   return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
+}
+
+/** Search Monitoring for all captured issues resembling an unmatched line. */
+export function issueSearchPath(message: string): string {
+  const params = new URLSearchParams({
+    view: "errors",
+    status: "all",
+    q: message,
+  });
+  return `/monitoring?${params.toString()}`;
 }
 
 /** Pause row auto-follow for a while after the user scrolls the list. */
@@ -85,6 +95,7 @@ export function SessionDevToolsPanel({
   onHeightChange,
   onSeek,
   issueMatches,
+  issueMatching = false,
 }: {
   diagnostics: ReplayDevToolsDiagnostics;
   currentTime: number;
@@ -94,6 +105,8 @@ export function SessionDevToolsPanel({
   onSeek: (ms: number) => void;
   /** Resolved error issues by console entry id, for cross-linking to Errors. */
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
+  /** Prevent an unmatched fallback from flashing while issue lookup is active. */
+  issueMatching?: boolean;
 }) {
   const t = useT();
   const [tab, setTab] = useState<"console" | "network">("console");
@@ -264,6 +277,7 @@ export function SessionDevToolsPanel({
                 active={entry.id === activeConsoleId}
                 selected={expanded}
                 issueMatch={issueMatches?.get(entry.id) ?? null}
+                issueMatching={issueMatching}
                 onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
@@ -664,11 +678,27 @@ function ViewIssueLink({
   );
 }
 
+function SearchIssuesLink({ message }: { message: string }) {
+  const et = useErrorsT();
+  return (
+    <Link
+      to={issueSearchPath(message)}
+      title={et.searchIssuesTooltip}
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <IconSearch className="h-3 w-3" />
+      {et.searchIssues}
+    </Link>
+  );
+}
+
 function ConsoleRow({
   entry,
   active,
   selected,
   issueMatch,
+  issueMatching,
   onSelect,
   onSeek,
 }: {
@@ -676,6 +706,7 @@ function ConsoleRow({
   active: boolean;
   selected: boolean;
   issueMatch: SessionIssueMatch | null;
+  issueMatching: boolean;
   onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
@@ -740,6 +771,9 @@ function ConsoleRow({
           />
         </button>
         {issueMatch ? <ViewIssueLink issueId={issueMatch.issueId} /> : null}
+        {!issueMatch && !issueMatching && bucket === "error" ? (
+          <SearchIssuesLink message={entry.message} />
+        ) : null}
         <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
       </div>
       {selected ? (
@@ -773,6 +807,10 @@ function ConsoleRow({
           {issueMatch ? (
             <div className="pt-1">
               <ViewIssueLink issueId={issueMatch.issueId} />
+            </div>
+          ) : !issueMatching && bucket === "error" ? (
+            <div className="pt-1">
+              <SearchIssuesLink message={entry.message} />
             </div>
           ) : null}
         </div>

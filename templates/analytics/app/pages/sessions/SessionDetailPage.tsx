@@ -1080,6 +1080,7 @@ function ReplayPlayer({
                 onHeightChange={setDevToolsHeight}
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
+                issueMatching={issueMatchQuery.isFetching}
               />
             ) : null}
 

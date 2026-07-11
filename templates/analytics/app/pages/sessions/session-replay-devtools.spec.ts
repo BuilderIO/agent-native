@@ -288,6 +288,25 @@ describe("display helpers", () => {
 });
 
 describe("devtools inline expansion layout", () => {
+  it("builds exact and fallback Monitoring links for replay errors", async () => {
+    const { issueDetailPath, issueSearchPath } =
+      await import("./SessionDevToolsPanel");
+
+    expect(issueDetailPath("erriss/123")).toBe(
+      "/monitoring?view=errors&issue=erriss%2F123",
+    );
+    const search = new URL(
+      issueSearchPath("TypeError: x is not a function"),
+      "https://analytics.example.test",
+    );
+    expect(search.pathname).toBe("/monitoring");
+    expect(Object.fromEntries(search.searchParams)).toEqual({
+      view: "errors",
+      status: "all",
+      q: "TypeError: x is not a function",
+    });
+  });
+
   it("reserves taller space for the expanded row without flattening the list", async () => {
     const { buildDevToolsRowOffsets } = await import("./SessionDevToolsPanel");
     const collapsed = buildDevToolsRowOffsets(5, -1);
