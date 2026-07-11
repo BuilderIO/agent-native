@@ -149,11 +149,16 @@ describe("RealtimeVoiceMode", () => {
     const actions = Array.from(prompt?.querySelectorAll("div") ?? []).find(
       (element) => element.className.includes("sm:flex-row"),
     );
-    expect(actions?.className).toContain("sm:flex-nowrap");
-    expect(actions?.className).not.toContain("sm:flex-wrap ");
+    const actionClasses = actions?.className.split(/\s+/) ?? [];
+    expect(actionClasses).toContain("sm:flex-nowrap");
+    expect(actionClasses).not.toContain("sm:flex-wrap");
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
+    expect(
+      buttons.find((button) => button.textContent === "Connect Builder")
+        ?.className,
+    ).toContain("whitespace-nowrap");
     act(() =>
       buttons
         .find((button) => button.textContent === "Connect Builder")

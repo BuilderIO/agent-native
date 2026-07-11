@@ -192,6 +192,7 @@ export function RealtimeVoiceModeEntry({
                 <Button
                   type="button"
                   size="sm"
+                  className="whitespace-nowrap"
                   disabled={connectingBuilder}
                   onClick={() => choose(onConnectBuilder ?? onStartVoiceMode)}
                 >

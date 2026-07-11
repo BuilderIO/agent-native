@@ -1911,7 +1911,9 @@ export const agentPlanBlockSchema = z.object({
  * information — a short cross-reference is enough here.
  */
 const agentPlanBlockSchemaTerse = z.object({
-  id: idSchema.describe("Stable block id (short, unique within the plan) — required."),
+  id: idSchema.describe(
+    "Stable block id (short, unique within the plan) — required.",
+  ),
   type: z
     .enum(PLAN_BLOCK_TYPES)
     .describe(
