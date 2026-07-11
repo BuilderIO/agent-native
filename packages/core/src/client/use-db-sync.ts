@@ -23,7 +23,11 @@ interface QueryClient {
       predicate?: (query: Query) => boolean;
     },
     options?: { cancelRefetch?: boolean },
-  ): void;
+  ): unknown;
+  isFetching?(filters?: {
+    queryKey?: string[];
+    predicate?: (query: Query) => boolean;
+  }): number;
 }
 
 const POLL_ABORT_MIN_MS = 10_000;
@@ -855,9 +859,26 @@ export function useDbSync(
         // in flight, let it finish instead of aborting and immediately
         // launching the same request again. Repeated action events otherwise
         // turn a slow endpoint into a cancel/restart loop that never settles.
-        const invalidateWithoutCancel: QueryClient["invalidateQueries"] = (
-          filters,
-        ) => queryClient.invalidateQueries(filters, { cancelRefetch: false });
+        const invalidateWithoutCancel = (filters?: {
+          queryKey?: string[];
+          predicate?: (query: Query) => boolean;
+        }) => {
+          const needsTrailingRefresh =
+            (queryClient.isFetching?.(filters) ?? 0) > 0;
+          const completion = queryClient.invalidateQueries(filters, {
+            cancelRefetch: false,
+          });
+          // TanStack Query deliberately leaves an in-flight fetch alone when
+          // cancelRefetch is false. Queue one post-settlement invalidation so
+          // a write that landed after that read began cannot be cleared as
+          // fresh by the older response.
+          if (needsTrailingRefresh && completion instanceof Promise) {
+            void completion.then(
+              () => queryClient.invalidateQueries(filters),
+              () => {},
+            );
+          }
+        };
         const hasActionEvent = invalidating.some(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
