@@ -147,6 +147,7 @@ interface RealtimeToolCapability {
   orgId?: string;
   browserTabId?: string;
   expiresAt: number;
+  initialNames: Set<string>;
   names: Set<string>;
 }
 
@@ -377,6 +378,7 @@ function cleanRealtimeToolCapabilities(
 function registerRealtimeToolCapability(
   capabilities: RealtimeToolCapabilityStore,
   auth: AuthenticatedVoiceContext,
+  initialNames: Iterable<string>,
 ): string {
   cleanRealtimeToolCapabilities(capabilities);
   const token = mintRealtimeToolCapability();
@@ -385,6 +387,7 @@ function registerRealtimeToolCapability(
     ...(auth.orgId ? { orgId: auth.orgId } : {}),
     ...(auth.browserTabId ? { browserTabId: auth.browserTabId } : {}),
     expiresAt: Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS,
+    initialNames: new Set(initialNames),
     names: new Set(),
   });
   cleanRealtimeToolCapabilities(capabilities);
@@ -653,9 +656,10 @@ function createSessionHandler(
             },
           },
         };
+        const packedTools = packRealtimeTools(sessionBase, tools);
         const session = {
           ...sessionBase,
-          tools: packRealtimeTools(sessionBase, tools),
+          tools: packedTools,
           tool_choice: "auto",
         };
 
@@ -733,7 +737,11 @@ function createSessionHandler(
         setResponseHeader(
           event,
           REALTIME_VOICE_CAPABILITY_HEADER,
-          registerRealtimeToolCapability(capabilities, auth),
+          registerRealtimeToolCapability(
+            capabilities,
+            auth,
+            packedTools.map((tool) => tool.name),
+          ),
         );
         return answerSdp;
       },
@@ -806,7 +814,6 @@ function normalizeExecutionResult(
 }
 
 function createToolHandler(
-  allowedToolNames: ReadonlySet<string>,
   toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
   capabilities: RealtimeToolCapabilityStore,
   options: MountRealtimeVoiceRoutesOptions,
@@ -871,7 +878,7 @@ function createToolHandler(
       return { error: "Realtime voice browser tab mismatch" };
     }
     if (
-      !allowedToolNames.has(request.name) &&
+      !capability.initialNames.has(request.name) &&
       !capability.names.has(request.name)
     ) {
       setResponseStatus(event, 404);
@@ -907,7 +914,7 @@ function createToolHandler(
             request,
             result,
             toolsByName,
-            initialAllowedNames: allowedToolNames,
+            initialAllowedNames: capability.initialNames,
             capability,
           });
           return {
@@ -944,9 +951,6 @@ export function mountRealtimeVoiceRoutes(
   const tools = buildRealtimeTools(actions);
   const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
   const capabilities: RealtimeToolCapabilityStore = new Map();
-  const allowedToolNames = new Set(
-    tools.slice(0, REALTIME_VOICE_MAX_TOOLS).map((tool) => tool.name),
-  );
   const app = getH3App(nitroApp);
   app.use(
     REALTIME_VOICE_SESSION_PATH,
@@ -954,7 +958,7 @@ export function mountRealtimeVoiceRoutes(
   );
   app.use(
     REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(allowedToolNames, toolsByName, capabilities, options),
+    createToolHandler(toolsByName, capabilities, options),
   );
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,
