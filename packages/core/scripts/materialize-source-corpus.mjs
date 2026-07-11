@@ -300,7 +300,7 @@ function sleepSync(ms) {
 // `corpusDir` is only ever replaced wholesale by a fully-populated temp dir
 // (see swapCorpusDirIntoPlace), so its presence + README.md proves *some*
 // materialize run -- ours or a concurrent one -- finished successfully.
-function looksLikeMaterializedCorpus(dir) {
+export function looksLikeMaterializedCorpus(dir) {
   return existsSync(join(dir, "README.md"));
 }
 
@@ -313,16 +313,16 @@ function looksLikeMaterializedCorpus(dir) {
 // then swap it into place with a small bounded retry that treats "a
 // concurrent run already produced an equivalent corpus" as success rather
 // than a fatal error.
-function swapCorpusDirIntoPlace(tempDir) {
+export function swapCorpusDirIntoPlace(tempDir, targetDir = corpusDir) {
   for (let attempt = 1; attempt <= swapMaxAttempts; attempt += 1) {
     try {
-      rmSync(corpusDir, { recursive: true, force: true });
+      rmSync(targetDir, { recursive: true, force: true });
     } catch {
-      // A concurrent rename may already be repopulating corpusDir; let the
+      // A concurrent rename may already be repopulating targetDir; let the
       // renameSync below decide the outcome instead of failing here.
     }
     try {
-      renameSync(tempDir, corpusDir);
+      renameSync(tempDir, targetDir);
       return true;
     } catch (error) {
       const code = error && error.code;
@@ -332,7 +332,7 @@ function swapCorpusDirIntoPlace(tempDir) {
         code === "ENOENT" ||
         code === "EPERM";
       if (!concurrentWriter) throw error;
-      if (looksLikeMaterializedCorpus(corpusDir)) {
+      if (looksLikeMaterializedCorpus(targetDir)) {
         rmSync(tempDir, { recursive: true, force: true });
         return false;
       }
