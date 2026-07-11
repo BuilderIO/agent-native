@@ -334,12 +334,19 @@ export function RealtimeVoiceModeDock({
     audioLevels.getSnapshot,
   );
   const reducedMotion = usePrefersReducedMotion();
-  const activity =
-    levels.output > AUDIO_ACTIVITY_THRESHOLD
+  // Microphone metering begins while the SDP request is still in flight. Keep
+  // the connecting affordance authoritative until WebRTC is established;
+  // otherwise speaking into the mic replaces the loader with a waveform and
+  // makes a stalled connection look like a live call.
+  const connected =
+    state === "listening" || state === "speaking" || state === "working";
+  const activity = connected
+    ? levels.output > AUDIO_ACTIVITY_THRESHOLD
       ? "assistant"
       : levels.input > AUDIO_ACTIVITY_THRESHOLD
         ? "user"
-        : "idle";
+        : "idle"
+    : "idle";
   const activityLevel = activity === "assistant" ? levels.output : levels.input;
   const toggleLabel = chatVisible ? copy.hideChat : copy.showChat;
   const ending = state === "ending";
