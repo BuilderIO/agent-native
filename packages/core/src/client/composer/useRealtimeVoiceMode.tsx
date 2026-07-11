@@ -38,6 +38,18 @@ const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
+const REALTIME_VOICE_MAX_TOOLS = 32;
+const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
+const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
+const REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS = 5_000;
+const REALTIME_VOICE_PRIORITY_TOOL_NAMES = [
+  "navigate",
+  "set-url-path",
+  "set-search-params",
+  "view-screen",
+  "tool-search",
+] as const;
+const REALTIME_VOICE_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REALTIME_VOICE_MICROPHONE_STORAGE_KEY =
   "agent-native:realtime-voice-microphone";
 
@@ -105,6 +117,14 @@ export interface RealtimeVoiceToolResult {
   status: "completed" | "failed" | "approval_required";
   output: string;
   approvalKey?: string;
+  expandedTools?: RealtimeVoiceFunctionTool[];
+}
+
+export interface RealtimeVoiceFunctionTool {
+  type: "function";
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
 }
 
 export interface RealtimeVoiceModeApi {
@@ -637,6 +657,235 @@ export async function executeRealtimeVoiceTool(input: {
   return (await response.json()) as RealtimeVoiceToolResult;
 }
 
+function jsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function normalizeRealtimeVoiceFunctionTool(
+  value: unknown,
+): RealtimeVoiceFunctionTool | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.type !== "function" ||
+    typeof record.name !== "string" ||
+    !REALTIME_VOICE_TOOL_NAME.test(record.name)
+  ) {
+    return null;
+  }
+  if (
+    record.description !== undefined &&
+    typeof record.description !== "string"
+  ) {
+    return null;
+  }
+  if (
+    record.parameters !== undefined &&
+    (!record.parameters ||
+      typeof record.parameters !== "object" ||
+      Array.isArray(record.parameters))
+  ) {
+    return null;
+  }
+  try {
+    if (jsonByteLength(record) > REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES) {
+      return null;
+    }
+    return JSON.parse(JSON.stringify(record)) as RealtimeVoiceFunctionTool;
+  } catch {
+    return null;
+  }
+}
+
+export function extractRealtimeVoiceSessionTools(
+  event: RealtimeServerEvent,
+): RealtimeVoiceFunctionTool[] | null {
+  if (event.type !== "session.created" && event.type !== "session.updated") {
+    return null;
+  }
+  const session = event.session;
+  if (!session || typeof session !== "object") return null;
+  const tools = (session as { tools?: unknown }).tools;
+  if (!Array.isArray(tools)) return null;
+  return tools
+    .map(normalizeRealtimeVoiceFunctionTool)
+    .filter((tool): tool is RealtimeVoiceFunctionTool => Boolean(tool));
+}
+
+function createRealtimeVoiceToolManifestUpdate(
+  tools: RealtimeVoiceFunctionTool[],
+): Record<string, unknown> {
+  return {
+    type: "session.update",
+    session: {
+      type: "realtime",
+      tools,
+      tool_choice: "auto",
+    },
+  };
+}
+
+/**
+ * Merge search-discovered schemas into the live manifest. Pinned navigation
+ * and discovery tools stay available, then the newest discoveries take the
+ * remaining slots ahead of lower-priority tools from the original manifest.
+ */
+export function mergeRealtimeVoiceToolManifest(
+  currentTools: readonly RealtimeVoiceFunctionTool[],
+  expandedTools: readonly RealtimeVoiceFunctionTool[],
+): RealtimeVoiceFunctionTool[] {
+  const current = new Map<string, RealtimeVoiceFunctionTool>();
+  for (const value of currentTools) {
+    const tool = normalizeRealtimeVoiceFunctionTool(value);
+    if (tool) current.set(tool.name, tool);
+  }
+  const expanded = new Map<string, RealtimeVoiceFunctionTool>();
+  for (const value of expandedTools) {
+    const tool = normalizeRealtimeVoiceFunctionTool(value);
+    if (tool) expanded.set(tool.name, tool);
+  }
+
+  const candidates: RealtimeVoiceFunctionTool[] = [];
+  const seen = new Set<string>();
+  const add = (tool: RealtimeVoiceFunctionTool | undefined) => {
+    if (!tool || seen.has(tool.name)) return;
+    seen.add(tool.name);
+    candidates.push(tool);
+  };
+  for (const name of REALTIME_VOICE_PRIORITY_TOOL_NAMES) {
+    add(expanded.get(name) ?? current.get(name));
+  }
+  for (const tool of expanded.values()) add(tool);
+  for (const tool of current.values()) add(tool);
+
+  const packed: RealtimeVoiceFunctionTool[] = [];
+  for (const tool of candidates) {
+    if (packed.length >= REALTIME_VOICE_MAX_TOOLS) break;
+    const candidate = [...packed, tool];
+    if (
+      jsonByteLength(createRealtimeVoiceToolManifestUpdate(candidate)) <=
+      REALTIME_VOICE_MAX_SESSION_BYTES
+    ) {
+      packed.push(tool);
+    }
+  }
+  return packed;
+}
+
+function createRealtimeVoiceToolResultEvent(
+  result: RealtimeVoiceToolResult,
+): Record<string, unknown> {
+  const modelResult = {
+    callId: result.callId,
+    status: result.status,
+    output: result.output,
+    ...(result.approvalKey ? { approvalKey: result.approvalKey } : {}),
+  };
+  return {
+    type: "conversation.item.create",
+    item: {
+      type: "function_call_output",
+      call_id: result.callId,
+      output: JSON.stringify(modelResult),
+    },
+  };
+}
+
+export interface RealtimeVoiceToolManifestCoordinator {
+  enqueue: (result: RealtimeVoiceToolResult) => void;
+  setSessionTools: (tools: readonly RealtimeVoiceFunctionTool[]) => void;
+  reset: () => void;
+  getTools: () => readonly RealtimeVoiceFunctionTool[];
+}
+
+/**
+ * Realtime treats `session.update.tools` as a full replacement. Serialize
+ * discovery updates and wait for a confirming `session.updated` manifest
+ * before returning the search result and allowing the next model response.
+ */
+export function createRealtimeVoiceToolManifestCoordinator(
+  send: (event: Record<string, unknown>) => void,
+  timeoutMs = REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS,
+): RealtimeVoiceToolManifestCoordinator {
+  let currentTools: RealtimeVoiceFunctionTool[] = [];
+  const queue: RealtimeVoiceToolResult[] = [];
+  let active:
+    | {
+        result: RealtimeVoiceToolResult;
+        expectedNames: string[];
+        timer: ReturnType<typeof setTimeout>;
+      }
+    | undefined;
+
+  const finish = () => {
+    if (!active) return;
+    const { result, timer } = active;
+    clearTimeout(timer);
+    active = undefined;
+    send(createRealtimeVoiceToolResultEvent(result));
+    send({ type: "response.create" });
+    drain();
+  };
+
+  const drain = () => {
+    if (active) return;
+    const result = queue.shift();
+    if (!result) return;
+    const expanded = Array.isArray(result.expandedTools)
+      ? result.expandedTools
+          .map(normalizeRealtimeVoiceFunctionTool)
+          .filter((tool): tool is RealtimeVoiceFunctionTool => Boolean(tool))
+      : [];
+    if (result.status !== "completed" || expanded.length === 0) {
+      send(createRealtimeVoiceToolResultEvent(result));
+      send({ type: "response.create" });
+      drain();
+      return;
+    }
+
+    const merged = mergeRealtimeVoiceToolManifest(currentTools, expanded);
+    const mergedNames = new Set(merged.map((tool) => tool.name));
+    const expectedNames = expanded
+      .map((tool) => tool.name)
+      .filter((name) => mergedNames.has(name));
+    if (expectedNames.length === 0) {
+      send(createRealtimeVoiceToolResultEvent(result));
+      send({ type: "response.create" });
+      drain();
+      return;
+    }
+
+    active = {
+      result,
+      expectedNames,
+      timer: setTimeout(finish, timeoutMs),
+    };
+    send(createRealtimeVoiceToolManifestUpdate(merged));
+  };
+
+  return {
+    enqueue(result) {
+      queue.push(result);
+      drain();
+    },
+    setSessionTools(tools) {
+      currentTools = mergeRealtimeVoiceToolManifest([], tools);
+      if (!active) return;
+      const names = new Set(currentTools.map((tool) => tool.name));
+      if (active.expectedNames.every((name) => names.has(name))) finish();
+    },
+    reset() {
+      if (active) clearTimeout(active.timer);
+      active = undefined;
+      queue.length = 0;
+      currentTools = [];
+    },
+    getTools() {
+      return currentTools;
+    },
+  };
+}
+
 export function extractRealtimeVoiceFunctionCalls(
   event: RealtimeServerEvent,
 ): Array<{ name: string; callId: string; argumentsText: string }> {
@@ -841,6 +1090,13 @@ function useRealtimeVoiceModeController(
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const toolManifestCoordinator = useMemo(
+    () =>
+      createRealtimeVoiceToolManifestCoordinator((event) => {
+        sendDataChannelEvent(channelRef.current, event);
+      }),
+    [],
+  );
   const switchMicrophoneRef = useRef<
     (deviceId: string, force?: boolean) => Promise<void>
   >(async () => undefined);
@@ -1146,7 +1402,8 @@ function useRealtimeVoiceModeController(
     if (audioContext) void audioContext.close().catch(() => undefined);
     audioLevels.reset();
     handledCallsRef.current.clear();
-  }, [audioLevels]);
+    toolManifestCoordinator.reset();
+  }, [audioLevels, toolManifestCoordinator]);
 
   const fail = useCallback(
     (message: string, options?: { openKeySettings?: boolean }) => {
@@ -1181,17 +1438,9 @@ function useRealtimeVoiceModeController(
           output: errorMessage(toolError),
         };
       }
-      sendDataChannelEvent(channelRef.current, {
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: call.callId,
-          output: JSON.stringify(result),
-        },
-      });
-      sendDataChannelEvent(channelRef.current, { type: "response.create" });
+      toolManifestCoordinator.enqueue(result);
     },
-    [browserTabId, transition],
+    [browserTabId, toolManifestCoordinator, transition],
   );
 
   const publishCompletedTranscript = useCallback(
@@ -1228,6 +1477,8 @@ function useRealtimeVoiceModeController(
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
       transcriptSequencer.handle(event);
+      const sessionTools = extractRealtimeVoiceSessionTools(event);
+      if (sessionTools) toolManifestCoordinator.setSessionTools(sessionTools);
       if (event.type === "session.created") {
         connectionGateRef.current?.markSessionCreated();
         connectionGateRef.current = null;
@@ -1310,6 +1561,7 @@ function useRealtimeVoiceModeController(
       syncAppState,
       transcriptSequencer,
       transition,
+      toolManifestCoordinator,
       updateLivePreferences,
     ],
   );

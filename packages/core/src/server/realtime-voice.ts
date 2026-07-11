@@ -18,6 +18,7 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
+import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
@@ -38,6 +39,8 @@ export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
 export const REALTIME_VOICE_MAX_TOOLS = 32;
 export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
+export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 10 * 60 * 1_000;
+export const REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS = 256;
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
@@ -80,6 +83,7 @@ const REALTIME_VOICE_PRIORITY_TOOLS = [
   "set-url-path",
   "set-search-params",
   "view-screen",
+  TOOL_SEARCH_ACTION_NAME,
 ] as const;
 
 export interface RealtimeVoiceRequestContext {
@@ -135,6 +139,13 @@ interface RealtimeFunctionTool {
   description: string;
   parameters: Record<string, unknown>;
 }
+
+interface RealtimeToolGrant {
+  expiresAt: number;
+  names: Set<string>;
+}
+
+type RealtimeToolGrantStore = Map<string, RealtimeToolGrant>;
 
 interface AuthenticatedVoiceContext extends RealtimeVoiceRequestContext {
   timezone?: string;
@@ -331,6 +342,100 @@ function packRealtimeTools(
     }
   }
   return packed;
+}
+
+function realtimeToolGrantKey(
+  auth: AuthenticatedVoiceContext,
+  sessionId: string,
+): string {
+  return `${auth.userEmail.trim().toLowerCase()}\0${auth.orgId ?? ""}\0${sessionId}`;
+}
+
+function cleanRealtimeToolGrants(
+  grants: RealtimeToolGrantStore,
+  now = Date.now(),
+): void {
+  for (const [key, grant] of grants) {
+    if (grant.expiresAt <= now) grants.delete(key);
+  }
+  while (grants.size > REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS) {
+    let oldestKey: string | undefined;
+    let oldestExpiry = Number.POSITIVE_INFINITY;
+    for (const [key, grant] of grants) {
+      if (grant.expiresAt < oldestExpiry) {
+        oldestKey = key;
+        oldestExpiry = grant.expiresAt;
+      }
+    }
+    if (!oldestKey) break;
+    grants.delete(oldestKey);
+  }
+}
+
+function parseSuccessfulToolSearchNames(output: string): string[] {
+  try {
+    const parsed = JSON.parse(output) as { results?: unknown };
+    if (!Array.isArray(parsed.results)) return [];
+    const names: string[] = [];
+    for (const result of parsed.results) {
+      if (!isRecord(result) || typeof result.name !== "string") continue;
+      if (!REALTIME_TOOL_NAME.test(result.name)) continue;
+      if (!names.includes(result.name)) names.push(result.name);
+      if (names.length >= REALTIME_VOICE_MAX_TOOLS) break;
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}
+
+function grantDiscoveredRealtimeTools(input: {
+  auth: AuthenticatedVoiceContext;
+  request: ReturnType<typeof parseToolRequest> & { sessionId: string };
+  result: RealtimeVoiceToolExecutionResult;
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>;
+  initialAllowedNames: ReadonlySet<string>;
+  grants: RealtimeToolGrantStore;
+}): RealtimeFunctionTool[] {
+  const query = input.request.args.query;
+  if (
+    input.request.name !== TOOL_SEARCH_ACTION_NAME ||
+    input.result.status !== "completed" ||
+    typeof query !== "string" ||
+    !query.trim()
+  ) {
+    return [];
+  }
+
+  const candidates = parseSuccessfulToolSearchNames(input.result.output)
+    .filter((name) => !input.initialAllowedNames.has(name))
+    .map((name) => input.toolsByName.get(name))
+    .filter((tool): tool is RealtimeFunctionTool => Boolean(tool));
+  const boundedTools = packRealtimeTools({}, candidates);
+  if (boundedTools.length === 0) return [];
+
+  cleanRealtimeToolGrants(input.grants);
+  const key = realtimeToolGrantKey(input.auth, input.request.sessionId);
+  const grant = input.grants.get(key) ?? {
+    expiresAt: 0,
+    names: new Set<string>(),
+  };
+  const expandedTools: RealtimeFunctionTool[] = [];
+  for (const tool of boundedTools) {
+    if (
+      !grant.names.has(tool.name) &&
+      grant.names.size >= REALTIME_VOICE_MAX_TOOLS
+    ) {
+      continue;
+    }
+    grant.names.add(tool.name);
+    expandedTools.push(tool);
+  }
+  if (expandedTools.length === 0) return [];
+  grant.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
+  input.grants.set(key, grant);
+  cleanRealtimeToolGrants(input.grants);
+  return expandedTools;
 }
 
 function declaredBodyBytes(event: H3Event): number | undefined {
@@ -668,6 +773,8 @@ function normalizeExecutionResult(
 
 function createToolHandler(
   allowedToolNames: ReadonlySet<string>,
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
+  grants: RealtimeToolGrantStore,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -713,7 +820,14 @@ function createToolHandler(
       setResponseStatus(event, 400);
       return { error: "Invalid realtime tool request" };
     }
-    if (!allowedToolNames.has(request.name)) {
+    cleanRealtimeToolGrants(grants);
+    const grant = request.sessionId
+      ? grants.get(realtimeToolGrantKey(auth, request.sessionId))
+      : undefined;
+    if (
+      !allowedToolNames.has(request.name) &&
+      !grant?.names.has(request.name)
+    ) {
       setResponseStatus(event, 404);
       return { error: "Unknown realtime voice tool" };
     }
@@ -743,7 +857,21 @@ function createToolHandler(
               ...(browserTabId ? { browserTabId } : {}),
             }),
           );
-          return { callId: request.callId, ...result };
+          const expandedTools = request.sessionId
+            ? grantDiscoveredRealtimeTools({
+                auth,
+                request: { ...request, sessionId: request.sessionId },
+                result,
+                toolsByName,
+                initialAllowedNames: allowedToolNames,
+                grants,
+              })
+            : [];
+          return {
+            callId: request.callId,
+            ...result,
+            ...(expandedTools.length > 0 ? { expandedTools } : {}),
+          };
         } catch (error) {
           setResponseStatus(event, 500);
           return {
@@ -771,6 +899,8 @@ export function mountRealtimeVoiceRoutes(
   }
 
   const tools = buildRealtimeTools(actions);
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+  const grants: RealtimeToolGrantStore = new Map();
   const allowedToolNames = new Set(
     tools.slice(0, REALTIME_VOICE_MAX_TOOLS).map((tool) => tool.name),
   );
@@ -778,7 +908,7 @@ export function mountRealtimeVoiceRoutes(
   app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
   app.use(
     REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(allowedToolNames, options),
+    createToolHandler(allowedToolNames, toolsByName, grants, options),
   );
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,

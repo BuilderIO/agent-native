@@ -65,6 +65,7 @@ import {
   REALTIME_VOICE_MAX_TOOLS,
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
+  REALTIME_VOICE_TOOL_GRANT_TTL_MS,
   realtimeVoiceSafetyIdentifier,
   resolveRealtimeVoiceLanguagePreference,
   resolveRealtimeVoicePreference,
@@ -97,6 +98,44 @@ const ACTIONS = {
   },
 } satisfies Record<string, ActionEntry>;
 
+function discoveryActions(count = REALTIME_VOICE_MAX_TOOLS + 8) {
+  const actions: Record<string, ActionEntry> = {};
+  for (let index = 0; index < count; index++) {
+    actions[`filler_${index}`] = {
+      tool: {
+        name: `filler_${index}`,
+        description: `Filler ${index}`,
+        parameters: { type: "object", properties: {} },
+      },
+      run: vi.fn(),
+    };
+  }
+  actions["tool-search"] = {
+    tool: {
+      name: "tool-search",
+      description: "Discover tools",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+      },
+    },
+    readOnly: true,
+    run: vi.fn(),
+  };
+  actions["rare-action"] = {
+    tool: {
+      name: "rare-action",
+      description: "Perform a rare action",
+      parameters: {
+        type: "object",
+        properties: { target: { type: "string" } },
+      },
+    },
+    run: vi.fn(),
+  };
+  return actions;
+}
+
 function fakeEvent(options: {
   method?: string;
   headers?: Record<string, string>;
@@ -115,6 +154,7 @@ function fakeEvent(options: {
 }
 
 function mount(options?: {
+  actions?: Record<string, ActionEntry>;
   getInstructions?: (context: any) => string | Promise<string>;
   model?: string;
   voice?: string;
@@ -129,10 +169,11 @@ function mount(options?: {
       },
     },
   };
-  const executeTool = options?.executeTool ?? vi.fn();
-  const routes = mountRealtimeVoiceRoutes(nitroApp, ACTIONS, {
+  const { actions = ACTIONS, ...routeOptions } = options ?? {};
+  const executeTool = routeOptions.executeTool ?? vi.fn();
+  const routes = mountRealtimeVoiceRoutes(nitroApp, actions, {
     executeTool: executeTool as any,
-    ...options,
+    ...routeOptions,
   });
   return { handlers, routes, executeTool };
 }
@@ -317,6 +358,11 @@ describe("realtime voice session route", () => {
         description: "Navigate by URL",
         inputSchema: { type: "object", properties: {} },
       },
+      {
+        name: "tool-search",
+        description: "Discover tools",
+        inputSchema: { type: "object", properties: {} },
+      },
     ]);
     const fetchMock = vi
       .fn()
@@ -330,9 +376,15 @@ describe("realtime voice session route", () => {
     const request = JSON.parse(String(init.body));
     expect(
       request.session.tools
-        .slice(0, 4)
+        .slice(0, 5)
         .map((tool: { name: string }) => tool.name),
-    ).toEqual(["navigate", "set-url-path", "set-search-params", "view-screen"]);
+    ).toEqual([
+      "navigate",
+      "set-url-path",
+      "set-search-params",
+      "view-screen",
+      "tool-search",
+    ]);
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
   });
 
@@ -711,6 +763,161 @@ describe("realtime voice session route", () => {
 });
 
 describe("realtime voice tool route", () => {
+  it("expands only registry-backed tools from a successful specific tool search", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(async (request: { name: string }) => {
+      if (request.name === "tool-search") {
+        return {
+          status: "completed" as const,
+          output: JSON.stringify({
+            query: "rare capability",
+            results: [{ name: "rare-action" }, { name: "invented-action" }],
+          }),
+        };
+      }
+      return { status: "completed" as const, output: "rare action complete" };
+    });
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+
+    const beforeSearch = toolEvent({
+      name: "rare-action",
+      args: { target: "dashboard" },
+      callId: "call_before",
+      sessionId: "voice-session-1",
+    });
+    expect(await handler(beforeSearch)).toEqual({
+      error: "Unknown realtime voice tool",
+    });
+    expect(beforeSearch.statusCode).toBe(404);
+
+    const search = toolEvent({
+      name: "tool-search",
+      args: { query: "rare capability", includeSchemas: true },
+      callId: "call_search",
+      sessionId: "voice-session-1",
+    });
+    expect(await handler(search)).toEqual({
+      callId: "call_search",
+      status: "completed",
+      output: JSON.stringify({
+        query: "rare capability",
+        results: [{ name: "rare-action" }, { name: "invented-action" }],
+      }),
+      expandedTools: [
+        {
+          type: "function",
+          name: "rare-action",
+          description: "Perform a rare action",
+          parameters: actions["rare-action"]!.tool.parameters,
+        },
+      ],
+    });
+
+    const discovered = toolEvent({
+      name: "rare-action",
+      args: { target: "dashboard" },
+      callId: "call_after",
+      sessionId: "voice-session-1",
+    });
+    expect(await handler(discovered)).toEqual({
+      callId: "call_after",
+      status: "completed",
+      output: "rare action complete",
+    });
+    expect(executeTool).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "rare-action" }),
+    );
+
+    const otherSession = toolEvent({
+      name: "rare-action",
+      args: {},
+      callId: "call_other",
+      sessionId: "voice-session-2",
+    });
+    expect(await handler(otherSession)).toEqual({
+      error: "Unknown realtime voice tool",
+    });
+    expect(otherSession.statusCode).toBe(404);
+  });
+
+  it("does not expand menu searches and expires session grants", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
+    try {
+      const actions = discoveryActions();
+      const executeTool = vi.fn(async (request: { name: string }) => ({
+        status: "completed" as const,
+        output:
+          request.name === "tool-search"
+            ? JSON.stringify({ results: [{ name: "rare-action" }] })
+            : "done",
+      }));
+      const { handlers } = mount({ actions, executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+
+      const menu = toolEvent({
+        name: "tool-search",
+        args: {},
+        callId: "call_menu",
+        sessionId: "voice-session-menu",
+      });
+      const menuResult = (await handler(menu)) as Record<string, unknown>;
+      expect(menuResult).not.toHaveProperty("expandedTools");
+
+      const search = toolEvent({
+        name: "tool-search",
+        args: { query: "rare" },
+        callId: "call_search_ttl",
+        sessionId: "voice-session-ttl",
+      });
+      const searchResult = (await handler(search)) as Record<string, unknown>;
+      expect(searchResult).toHaveProperty("expandedTools");
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS + 1);
+      const expired = toolEvent({
+        name: "rare-action",
+        args: {},
+        callId: "call_expired",
+        sessionId: "voice-session-ttl",
+      });
+      expect(await handler(expired)).toEqual({
+        error: "Unknown realtime voice tool",
+      });
+      expect(expired.statusCode).toBe(404);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds expanded tool schemas to the realtime manifest limits", async () => {
+    const actions = discoveryActions(REALTIME_VOICE_MAX_TOOLS + 50);
+    const deferredNames = Array.from(
+      { length: REALTIME_VOICE_MAX_TOOLS + 8 },
+      (_, index) => `filler_${index + REALTIME_VOICE_MAX_TOOLS - 1}`,
+    );
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "completed",
+      output: JSON.stringify({
+        results: deferredNames.map((name) => ({ name })),
+      }),
+    });
+    const { handlers } = mount({ actions, executeTool });
+    const result = (await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent({
+        name: "tool-search",
+        args: { query: "filler" },
+        callId: "call_bounded",
+        sessionId: "voice-session-bounded",
+      }),
+    )) as { expandedTools: Array<{ name: string }> };
+
+    expect(result.expandedTools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(
+      Buffer.byteLength(JSON.stringify(result.expandedTools), "utf8"),
+    ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
+  });
+
   it("validates request shape and only allows advertised registry tools", async () => {
     const executeTool = vi.fn();
     const { handlers } = mount({ executeTool });
