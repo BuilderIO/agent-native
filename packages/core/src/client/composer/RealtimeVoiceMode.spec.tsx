@@ -224,9 +224,9 @@ describe("RealtimeVoiceMode", () => {
       />,
     );
 
-    expect(document.querySelector('[role="status"]')?.textContent).toBe(
-      "Listening",
-    );
+    const status = document.querySelector('[role="status"]');
+    expect(status?.textContent).toBe("Listening");
+    expect(status?.className).toContain("sr-only");
     const toggleChat = document.querySelector<HTMLButtonElement>(
       'button[data-realtime-voice-chat-toggle="orb"]',
     );
@@ -234,10 +234,12 @@ describe("RealtimeVoiceMode", () => {
       document.querySelector(
         'button[data-realtime-voice-chat-toggle="controls"]',
       ),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(toggleChat?.getAttribute("aria-pressed")).toBe("false");
     expect(toggleChat?.getAttribute("aria-expanded")).toBe("false");
     expect(toggleChat?.className).toContain("backdrop-blur-xl");
+    expect(toggleChat?.className).not.toContain("shadow-lg");
+    expect(toggleChat?.querySelector(".blur-md")).toBeNull();
     expect(document.querySelector('[class*="bg-gradient"]')).toBeNull();
     expect(
       document
@@ -392,9 +394,39 @@ describe("RealtimeVoiceMode", () => {
     expect(
       document.querySelector("[data-realtime-voice-state]"),
     ).not.toBeNull();
+
+    act(() => settingsButton?.click());
+    expect(settingsButton?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      document.querySelector('[data-realtime-voice-settings="true"]'),
+    ).toBeNull();
+
+    act(() => settingsButton?.click());
+    expect(settingsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('[data-realtime-voice-settings="true"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the dock visible when chat opens itself", () => {
+    const sidebar = document.createElement("div");
+    sidebar.className = "agent-sidebar-panel";
+    sidebar.dataset.agentSidebarPosition = "right";
+    sidebar.dataset.agentSidebarState = "open";
+    sidebar.getBoundingClientRect = () =>
+      ({
+        bottom: 768,
+        height: 768,
+        left: 704,
+        right: 1024,
+        top: 0,
+        width: 320,
+        x: 704,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(sidebar);
+
     render(
       <RealtimeVoiceModeDock
         state="listening"
@@ -422,9 +454,16 @@ describe("RealtimeVoiceMode", () => {
     ).not.toBeNull();
     expect(
       document
+        .querySelector("[data-realtime-voice-state]")
+        ?.getAttribute("data-realtime-voice-chat-offset"),
+    ).toBe("-320");
+    expect(
+      document
         .querySelector('button[aria-label="Hide chat"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+
+    sidebar.remove();
   });
 
   it("shows a live waveform for user and assistant audio", () => {
@@ -483,6 +522,11 @@ describe("RealtimeVoiceMode", () => {
         ),
       ).not.toBeNull();
       expect(document.querySelector(".animate-spin")).toBeNull();
+      expect(
+        document
+          .querySelector('[data-realtime-voice-waveform="true"]')
+          ?.getAttribute("data-realtime-voice-waveform-connecting"),
+      ).toBe(state === "connecting" ? "true" : "false");
     },
   );
 
@@ -558,8 +602,8 @@ describe("RealtimeVoiceMode", () => {
         'button[aria-label="End voice mode"]',
       )?.disabled,
     ).toBe(true);
-    expect(document.querySelector('[role="status"]')?.textContent).toBe(
-      "Ending voice mode",
-    );
+    const status = document.querySelector('[role="status"]');
+    expect(status?.textContent).toBe("Ending voice mode");
+    expect(status?.className).toContain("sr-only");
   });
 });

@@ -5,6 +5,7 @@ import {
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
+  partitionReplayChunkBatches,
   replayPayloadEvents,
   replayViewportDimensions,
 } from "./SessionDetailPage";
@@ -257,8 +258,10 @@ describe("session replay chunk loading", () => {
           ],
         });
       }
-      if (url.includes("/chunks/1")) {
-        return jsonResponse({ events: [{ type: 4, timestamp: 1000 }] });
+      if (url.includes("/chunks?")) {
+        return jsonResponse({
+          chunks: [replayChunkEvents(1, [{ type: 4, timestamp: 1000 }])],
+        });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
@@ -290,14 +293,13 @@ describe("session replay chunk loading", () => {
           ],
         });
       }
-      if (url.includes("/chunks/1")) {
-        return jsonResponse({ events: [{ type: 4, timestamp: 1000 }] });
-      }
-      if (url.includes("/chunks/2")) {
-        return jsonResponse(
-          { error: "Session replay chunk is unavailable" },
-          { status: 404 },
-        );
+      if (url.includes("/chunks?")) {
+        return jsonResponse({
+          chunks: [
+            replayChunkEvents(1, [{ type: 4, timestamp: 1000 }]),
+            { ...replayChunkEvents(2, []), unavailable: true },
+          ],
+        });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
@@ -331,13 +333,102 @@ describe("session replay chunk loading", () => {
           ],
         });
       }
-      if (url.includes("/chunks/1")) {
+      if (url.includes("/chunks?")) {
         return jsonResponse({ error: message }, { status });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
 
     await expect(fetchSessionReplayPlayback("sr_1")).rejects.toThrow(message);
+  });
+
+  it("partitions chunks by count and declared byte limits", () => {
+    const byCount = partitionReplayChunkBatches(
+      Array.from({ length: 45 }, (_, index) =>
+        replayChunkManifest(index, replayChunkPath(index)),
+      ),
+    );
+    expect(byCount.map((batch) => batch.length)).toEqual([20, 20, 5]);
+
+    const byBytes = partitionReplayChunkBatches([
+      { ...replayChunkManifest(1, replayChunkPath(1)), byteLength: 3_000_000 },
+      { ...replayChunkManifest(2, replayChunkPath(2)), byteLength: 2_000_000 },
+    ]);
+    expect(byBytes.map((batch) => batch.map((chunk) => chunk.seq))).toEqual([
+      [1],
+      [2],
+    ]);
+  });
+
+  it("loads chunk batches two at a time and restores manifest order", async () => {
+    const manifestChunks = Array.from({ length: 45 }, (_, index) =>
+      replayChunkManifest(index, replayChunkPath(index)),
+    );
+    let activeBatches = 0;
+    let maxActiveBatches = 0;
+    let batchRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: manifestChunks,
+        });
+      }
+      if (url.includes("/chunks?")) {
+        batchRequests += 1;
+        activeBatches += 1;
+        maxActiveBatches = Math.max(maxActiveBatches, activeBatches);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        activeBatches -= 1;
+        const seqs = new URL(url, "https://analytics.example.test").searchParams
+          .get("seqs")!
+          .split(",")
+          .map(Number)
+          .reverse();
+        return jsonResponse({
+          chunks: seqs.map((seq) => replayChunkEvents(seq, [{ seq }])),
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1");
+
+    expect(batchRequests).toBe(3);
+    expect(maxActiveBatches).toBe(2);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual(
+      manifestChunks.map((chunk) => chunk.seq),
+    );
+  });
+
+  it("falls back to a single chunk request only when a batch omits it", async () => {
+    const seenUrls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      seenUrls.push(url);
+      if (url.includes("/manifest")) {
+        return jsonResponse({
+          recording: recordingSummary(),
+          chunks: [
+            replayChunkManifest(1, replayChunkPath(1)),
+            replayChunkManifest(2, replayChunkPath(2)),
+          ],
+        });
+      }
+      if (url.includes("/chunks?")) {
+        return jsonResponse({ chunks: [replayChunkEvents(1, [{ seq: 1 }])] });
+      }
+      if (url.includes("/chunks/2")) {
+        return jsonResponse({ events: [{ seq: 2 }] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1");
+
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([1, 2]);
+    expect(seenUrls.filter((url) => url.includes("/chunks/"))).toHaveLength(1);
   });
 });
 
@@ -389,5 +480,19 @@ function replayChunkManifest(seq: number, bytesPath: string) {
     startedAt: "2026-01-01T00:00:00.000Z",
     endedAt: "2026-01-01T00:00:10.000Z",
     bytesPath,
+  };
+}
+
+function replayChunkPath(seq: number): string {
+  return `/api/session-replay/recordings/sr_1/chunks/${seq}`;
+}
+
+function replayChunkEvents(seq: number, events: unknown[]) {
+  return {
+    seq,
+    checksum: `checksum_${seq}`,
+    byteLength: 50,
+    eventCount: events.length,
+    events,
   };
 }

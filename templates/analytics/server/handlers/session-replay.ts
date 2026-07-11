@@ -492,14 +492,10 @@ export const handleSessionReplayChunkBatch = defineEventHandler(
 
     return runApiHandlerWithContext(event, async (ctx) => {
       try {
-        const result = await readSessionReplayChunkBatch(
-          recordingId,
-          seqs,
-          {
-            userEmail: ctx.userEmail,
-            orgId: ctx.orgId ?? null,
-          },
-        );
+        const result = await readSessionReplayChunkBatch(recordingId, seqs, {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+        });
         setResponseHeader(event, "Content-Type", "application/json");
         setResponseHeader(event, "Cache-Control", "no-store");
         return result;

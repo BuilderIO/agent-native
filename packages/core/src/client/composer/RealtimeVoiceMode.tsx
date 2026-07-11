@@ -11,7 +11,6 @@ import {
   IconBrain,
   IconLanguage,
   IconLoader2,
-  IconMessageCircle,
   IconMicrophone,
   IconPhoneOff,
   IconSettings,
@@ -28,6 +27,7 @@ import {
 
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
@@ -322,10 +322,12 @@ function VoiceWaveform({
   level,
   reducedMotion,
   activity,
+  connecting = false,
 }: {
   level: number;
   reducedMotion: boolean;
   activity: "idle" | "user" | "assistant";
+  connecting?: boolean;
 }) {
   const visibleLevel = reducedMotion ? 0.45 : level;
   return (
@@ -334,12 +336,19 @@ function VoiceWaveform({
       className="flex h-6 items-center justify-center gap-0.5"
       data-realtime-voice-waveform="true"
       data-realtime-voice-waveform-activity={activity}
+      data-realtime-voice-waveform-connecting={connecting ? "true" : "false"}
     >
       {WAVEFORM_WEIGHTS.map((weight, index) => (
         <span
           key={index}
-          className="h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none"
-          style={{ transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})` }}
+          className={cn(
+            "h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none",
+            connecting && "animate-pulse motion-reduce:animate-none",
+          )}
+          style={{
+            animationDelay: connecting ? `${index * 120}ms` : undefined,
+            transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})`,
+          }}
         />
       ))}
     </span>
@@ -359,6 +368,75 @@ const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
     "bg-destructive/20 text-destructive ring-destructive/30 hover:bg-destructive/25",
   ending: "cursor-wait bg-background/65 text-muted-foreground ring-border/60",
 };
+
+function useChatPanelTranslation(chatVisible: boolean): number {
+  const [translation, setTranslation] = useState(0);
+
+  useEffect(() => {
+    if (!chatVisible || typeof window === "undefined") {
+      setTranslation(0);
+      return;
+    }
+
+    const direction = window.getComputedStyle(
+      document.documentElement,
+    ).direction;
+    const inlineEnd = direction === "rtl" ? "left" : "right";
+
+    const update = () => {
+      const panels = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          `.agent-sidebar-panel[data-agent-sidebar-position="${inlineEnd}"][data-agent-sidebar-state="open"]`,
+        ),
+      );
+      const panel = panels.find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+
+      if (!panel) {
+        setTranslation(0);
+        return;
+      }
+
+      const rect = panel.getBoundingClientRect();
+      const overlap =
+        inlineEnd === "right"
+          ? Math.max(0, window.innerWidth - rect.left)
+          : Math.max(0, rect.right);
+      const maximumShift = Math.max(0, window.innerWidth - 96);
+      const distance = Math.min(overlap, maximumShift);
+      setTranslation(inlineEnd === "right" ? -distance : distance);
+    };
+
+    update();
+    const frame = window.requestAnimationFrame(update);
+    window.addEventListener("resize", update);
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    document
+      .querySelectorAll<HTMLElement>(".agent-sidebar-panel")
+      .forEach((panel) => resizeObserver?.observe(panel));
+
+    const mutationObserver = new MutationObserver(update);
+    mutationObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["data-agent-sidebar-state", "style"],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", update);
+      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [chatVisible]);
+
+  return translation;
+}
 
 function VoiceSettingRow({
   icon: Icon,
@@ -511,8 +589,8 @@ export function RealtimeVoiceModeDock({
   const toggleLabel = chatVisible ? copy.hideChat : copy.showChat;
   const ending = state === "ending";
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
-  const orbScale = reducedMotion ? 1 : 1 + Math.min(activityLevel, 1) * 0.07;
   const controlsVisible = controlsOpen || settingsOpen;
+  const chatPanelTranslation = useChatPanelTranslation(chatVisible);
 
   const closeControlsUnlessFocused = (event: MouseEvent<HTMLDivElement>) => {
     if (settingsOpen) return;
@@ -524,12 +602,16 @@ export function RealtimeVoiceModeDock({
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-4 end-4 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2",
+        "pointer-events-none fixed bottom-4 end-4 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2 transition-transform duration-200 ease-[var(--ease-collapse)] motion-reduce:transition-none",
         className,
       )}
-      style={{ zIndex: 270 }}
+      style={{
+        zIndex: 270,
+        transform: `translateX(${chatPanelTranslation}px)`,
+      }}
       data-realtime-voice-state={state}
       data-realtime-voice-activity={activity}
+      data-realtime-voice-chat-offset={chatPanelTranslation}
     >
       {errorDetailVisible ? (
         <div
@@ -557,59 +639,41 @@ export function RealtimeVoiceModeDock({
           id={controlsId}
           data-realtime-voice-controls={controlsVisible ? "open" : "closed"}
           className={cn(
-            "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 ps-3 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+            "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
             controlsVisible
               ? "pointer-events-auto translate-x-0 opacity-100"
               : "pointer-events-none opacity-0 ltr:translate-x-2 rtl:-translate-x-2 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100",
           )}
         >
-          <div
+          <span
             id={statusId}
             role={state === "error" && !errorDetailVisible ? "alert" : "status"}
             aria-live={
               state === "error" && !errorDetailVisible ? "assertive" : "polite"
             }
-            className="me-1 whitespace-nowrap text-xs font-medium text-foreground"
+            className="sr-only"
           >
             {copy.status[state]}
-          </div>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={ending}
-                onClick={onToggleChat}
-                aria-label={toggleLabel}
-                aria-pressed={chatVisible}
-                data-realtime-voice-chat-toggle="controls"
-                className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
-              >
-                <IconMessageCircle />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{toggleLabel}</TooltipContent>
-          </Tooltip>
+          </span>
 
           {settings ? (
             <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
+                  <PopoverAnchor asChild>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       disabled={ending}
+                      onClick={() => setSettingsOpen((open) => !open)}
                       aria-label={copy.voiceSettings}
                       aria-expanded={settingsOpen}
                       className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
                     >
                       <IconSettings />
                     </Button>
-                  </PopoverTrigger>
+                  </PopoverAnchor>
                 </TooltipTrigger>
                 <TooltipContent>{copy.voiceSettings}</TooltipContent>
               </Tooltip>
@@ -659,24 +723,17 @@ export function RealtimeVoiceModeDock({
               aria-controls={controlsId}
               aria-expanded={controlsVisible}
               className={cn(
-                "relative isolate size-16 overflow-visible rounded-full ring-4 shadow-lg backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
+                "relative isolate size-16 overflow-visible rounded-full ring-4 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
               )}
             >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "pointer-events-none absolute -inset-2 -z-10 rounded-full bg-current opacity-0 blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
-                  activity !== "idle" && "opacity-20",
-                )}
-                style={{ transform: `scale(${orbScale})` }}
-              />
               <span className="relative z-10 flex items-center justify-center">
                 {state !== "error" ? (
                   <VoiceWaveform
                     level={activityLevel}
                     reducedMotion={reducedMotion}
                     activity={activity}
+                    connecting={state === "connecting"}
                   />
                 ) : (
                   <IconAlertTriangle />

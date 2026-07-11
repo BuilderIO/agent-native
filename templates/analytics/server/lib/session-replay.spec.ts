@@ -749,9 +749,7 @@ describe("session replay ingest parsing", () => {
     expect(resolveAccessMock).toHaveBeenCalledTimes(1);
     expect(db.select).toHaveBeenCalledTimes(1);
     expect(result.chunks.map((chunk) => chunk.seq)).toEqual([2, 1]);
-    expect(result.chunks[0]?.events).toEqual([
-      { type: 4, timestamp: 1000 },
-    ]);
+    expect(result.chunks[0]?.events).toEqual([{ type: 4, timestamp: 1000 }]);
     expect(result.unavailableChunks).toBe(0);
   });
 
@@ -841,7 +839,7 @@ describe("session replay ingest parsing", () => {
     );
 
     expect(maxActiveReads).toBe(4);
-    expect(result.chunks.at(-1)).toMatchObject({
+    expect(result.chunks[result.chunks.length - 1]).toMatchObject({
       seq: 9,
       events: [],
       unavailable: true,

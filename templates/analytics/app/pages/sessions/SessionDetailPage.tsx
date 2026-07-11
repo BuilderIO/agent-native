@@ -1522,17 +1522,21 @@ function useSessionReplayPlayback(recordingId: string) {
 
         publish();
 
-        await fetchReplayChunks(manifest.chunks, { agentAccessToken }, (batch) => {
-          for (const chunk of batch) {
-            const index = chunkIndexBySeq.get(chunk.seq);
-            if (index === undefined || loadedChunks[index]) continue;
-            loadedChunks[index] = chunk;
-            loadedCount += 1;
-            loadedBytes += manifest.chunks[index].byteLength;
-            if (chunk.unavailable) unavailableChunks += 1;
-          }
-          if (!cancelled) publish();
-        });
+        await fetchReplayChunks(
+          manifest.chunks,
+          { agentAccessToken },
+          (batch) => {
+            for (const chunk of batch) {
+              const index = chunkIndexBySeq.get(chunk.seq);
+              if (index === undefined || loadedChunks[index]) continue;
+              loadedChunks[index] = chunk;
+              loadedCount += 1;
+              loadedBytes += manifest.chunks[index].byteLength;
+              if (chunk.unavailable) unavailableChunks += 1;
+            }
+            if (!cancelled) publish();
+          },
+        );
         if (!cancelled) publish(true);
       } catch (loadError) {
         if (cancelled) return;
@@ -1652,10 +1656,7 @@ async function fetchReplayChunks(
   await Promise.all(
     Array.from(
       {
-        length: Math.min(
-          REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY,
-          batches.length,
-        ),
+        length: Math.min(REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY, batches.length),
       },
       worker,
     ),
@@ -1674,8 +1675,7 @@ export function partitionReplayChunkBatches(
     const exceedsChunkLimit = batch.length >= REPLAY_CHUNK_BATCH_MAX_CHUNKS;
     const exceedsByteLimit =
       batch.length > 0 &&
-      declaredBytes + chunk.byteLength >
-        REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES;
+      declaredBytes + chunk.byteLength > REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES;
     if (exceedsChunkLimit || exceedsByteLimit) {
       batches.push(batch);
       batch = [];
@@ -1705,7 +1705,9 @@ async function fetchReplayChunkBatch(
   );
   if (!response.ok) {
     if (response.status === 404 || response.status === 405) {
-      return Promise.all(chunks.map((chunk) => fetchReplayChunk(chunk, options)));
+      return Promise.all(
+        chunks.map((chunk) => fetchReplayChunk(chunk, options)),
+      );
     }
     throw await replayFetchError(response);
   }
