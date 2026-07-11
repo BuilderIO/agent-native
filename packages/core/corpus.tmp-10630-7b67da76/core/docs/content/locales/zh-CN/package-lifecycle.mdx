@@ -1,0 +1,19 @@
+---
+title: 软件包生命周期
+description: 安全检查、添加和弹出由清单驱动的 Agent Native 软件包。
+---
+
+# 软件包生命周期
+
+可复用软件包可以发布带版本的静态 `agent-native.package.json`。CLI 在检查时
+只读取此 JSON，不执行软件包代码。
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+添加和弹出默认仅预览。只有指定 `--apply` 才会写入文件并运行检测到的软件包
+管理器。CLI 会拒绝冲突和未知布局；安装失败时会还原文件和锁文件。试点阶段
+仅支持弹出 Scheduling，Pinpoint 暂不迁移。

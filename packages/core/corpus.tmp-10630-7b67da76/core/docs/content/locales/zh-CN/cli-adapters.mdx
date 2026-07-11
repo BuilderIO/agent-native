@@ -1,0 +1,169 @@
+---
+title: "CLI 适配器"
+description: "通过标准适配器接口（适配器指南中介绍的两个适配器接缝之一）为代理提供对任何 CLI 工具（gh、ffmpeg、stripe）的结构化访问。"
+---
+
+# CLI 适配器
+
+> **适合的位置：** CLI 适配器是
+> 框架。规范指南是 [Adapters](/docs/sandbox-adapters)，
+> 覆盖此接缝和 `run-code` 沙箱接缝 - 包括共享
+> 边缘/无服务器约束。本页是CLI端的快速参考。
+
+CLI 适配器包装单个命令行工具（`gh`、`ffmpeg`、`stripe`、`aws`），以便代理可以发现它，检查它是否已安装，并使用一致的 stdout/stderr/exit-code 结果运行它。如果没有这个接缝，每个脚本都会重新发明如何调用 CLI 并解析其输出。
+
+<Diagram id="doc-block-25sqgq" title={"CLI 适配器 → 注册表 → 操作面"} summary={"ShellCliAdapter 包装二进制文件； CliRegistry 收集适配器以供发现； defineAction 在代理 + UI 操作界面上公开一个调用。"}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · stripe<br /><small class="diagram-muted"
+      >command-line tools</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted"
+      >isAvailable · execute</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    CliRegistry<br /><small class="diagram-muted"
+      >describe() for discovery</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 界面 {#the-interface}
+
+每个 CLI 适配器都实现 `CliAdapter`：
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+## ShellCli适配器 {#shell-adapter}
+
+对于大多数 CLI，您不需要自定义类 - `ShellCliAdapter` 使用合理的默认值包装任何二进制文件：
+
+```ts
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const gh = new ShellCliAdapter({
+  command: "gh",
+  description: "GitHub CLI — manage repos, PRs, issues, and releases",
+});
+
+const ffmpeg = new ShellCliAdapter({
+  command: "ffmpeg",
+  description: "Audio/video processing and transcoding",
+  timeoutMs: 120_000, // 2 min for long encodes
+  env: { STRIPE_API_KEY: process.env.STRIPE_SECRET_KEY! },
+});
+```
+
+选项：`command`（必填）、`description`（必填）、`name`（默认为 `command`）、`env`（与 `process.env` 合并）、`cwd`（默认为 `process.cwd()`）和 `timeoutMs`（默认） `30000`）。
+
+对于自定义身份验证、输出解析或前/后处理，请直接实现 `CliAdapter`，而不是使用 `ShellCliAdapter`。
+
+## 注册表 {#registry}
+
+`CliRegistry` 收集适配器，以便代理可以发现运行时可用的内容：
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({ command: "gh", description: "GitHub CLI" }),
+);
+
+cliRegistry.list(); // all registered
+await cliRegistry.listAvailable(); // only installed
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+## 从actions使用 {#from-actions}
+
+将 CLI 调用包装在 `defineAction` 中以将其公开在操作界面上 - 当代码在服务器操作界面内运行时需要 `defineAction`；否则直接在 `scripts/` 文件中使用适配器。切勿在动作中调用 `process.exit`；相反，会抛出错误。
+
+```ts
+// actions/list-prs.ts
+import { defineAction } from "@agent-native/core/action";
+import { ShellCliAdapter } from "@agent-native/core/adapters/cli";
+import { z } from "zod";
+
+const gh = new ShellCliAdapter({ command: "gh", description: "GitHub CLI" });
+
+export default defineAction({
+  description: "List open pull requests via the GitHub CLI.",
+  schema: z.object({}),
+  async run() {
+    if (!(await gh.isAvailable())) {
+      throw new Error("GitHub CLI not installed. Run: brew install gh");
+    }
+    const result = await gh.execute([
+      "pr",
+      "list",
+      "--json",
+      "title,url,state",
+      "--limit",
+      "10",
+    ]);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || "gh pr list failed");
+    }
+    return JSON.parse(result.stdout);
+  },
+});
+```
+
+## 边缘和无服务器 {#edge-serverless}
+
+CLI 适配器使用 `node:child_process`，它在边缘/工作线程运行时（Cloudflare Workers、Netlify Edge Functions）上不存在。在标准 Node.js 环境中运行 CLI 适配器端点和任务。此约束与沙箱接缝共享 - 请参阅 [Adapters](/docs/sandbox-adapters#edge-serverless) 中的完整讨论。
+
+## 下一步是什么
+
+- [**Adapters**](/docs/sandbox-adapters) — 两个适配器接缝的规范指南。
+- [**Actions**](/docs/actions) — 操作面 CLI 适配器通常被包裹在其中。

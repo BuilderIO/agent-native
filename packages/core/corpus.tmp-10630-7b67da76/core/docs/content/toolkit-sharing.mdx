@@ -1,0 +1,124 @@
+---
+title: "Sharing Kit"
+description: "Ownable resources, share dialogs, visibility badges, and standard share actions for agent-native apps."
+---
+
+# Sharing Kit
+
+The Sharing Kit makes user-authored resources private by default, then gives
+users and agents the same controlled ways to share them: specific people, the
+active organization, public links when allowed, and agent-readable resource
+links.
+
+<WireframeBlock id="doc-block-toolkit-sharing">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 320px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><span class='wf-pill accent'>Org visible</span><div style='flex:1'></div><button><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:50%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:75%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:60%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:92%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:70%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:90%;background:var(--wf-line);border-radius:4px'></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:12px'><strong>Share Q3 Forecast</strong><div style='display:flex;align-items:center;gap:8px'><div class='wf-box' style='flex:1;display:flex;align-items:center;gap:8px;padding:8px 10px'><span data-icon='mail'></span><span class='wf-muted'>Add people or teams</span></div><button class='primary'>Invite</button></div><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Steve Ray</strong><br/><small class='wf-muted'>steve@acme.com</small></div><small class='wf-muted'>Owner</small></div><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Maya Chen</strong><br/><small class='wf-muted'>maya@acme.com</small></div><span class='wf-pill'>Editor <span data-icon='chevronDown'></span></span></div><hr/><div style='display:flex;align-items:center;gap:8px'><span data-icon='user'></span><div style='flex:1'>Anyone at Acme</div><span class='wf-pill'>Can view <span data-icon='chevronDown'></span></span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='lock'></span><div style='flex:1'>Public link</div><span class='wf-muted'>Off</span></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                             | Purpose                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `ownableColumns()`                | Adds owner, organization, visibility, and timestamps to the resource table.            |
+| `createSharesTable()`             | Creates the per-resource grants table.                                                 |
+| `registerShareableResource()`     | Registers the resource type so framework share actions know how to read and mutate it. |
+| `<ShareButton>` / `<ShareDialog>` | Renders the standard share control and calls the share actions.                        |
+| `<VisibilityBadge>`               | Shows private, shared, org, or public state in lists and headers.                      |
+| `share-resource`                  | Grants a user or organization role.                                                    |
+| `unshare-resource`                | Removes a grant.                                                                       |
+| `list-resource-shares`            | Reads current visibility, grants, and policy.                                          |
+| `set-resource-visibility`         | Changes private, org, or public visibility when policy allows it.                      |
+
+## API {#api}
+
+Make every shareable table ownable, register it at server startup, and guard
+reads and writes with the same access helpers the UI and agent actions use.
+
+```ts filename="server/db/schema.ts"
+import { ownableColumns, createSharesTable } from "@agent-native/core/sharing";
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+export const dashboards = table("dashboards", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+
+export const dashboardShares = createSharesTable(
+  "dashboard_shares",
+  dashboards,
+);
+
+registerShareableResource({
+  type: "dashboard",
+  displayName: "Dashboard",
+  table: dashboards,
+  sharesTable: dashboardShares,
+});
+```
+
+Render the standard controls where users decide access:
+
+```tsx
+import { ShareButton, VisibilityBadge } from "@agent-native/core/client";
+
+<VisibilityBadge visibility={dashboard.visibility} />
+<ShareButton resourceType="dashboard" resourceId={dashboard.id} />
+```
+
+## UX Standard {#ux-standard}
+
+- Every resource header should show a visibility badge and a share button.
+- Lists should make private vs shared state scannable.
+- Public access must be an explicit policy choice, not an accidental URL leak.
+- Agents use the same share actions as the UI and cannot bypass resource policy.
+
+## UI components {#ui-components}
+
+`@agent-native/toolkit/sharing` contains presentational sharing UI for badges,
+share rows, role pickers, and base dialogs. It does not perform access checks
+or mutations; core and app wrappers inject data and callbacks.
+
+<WireframeBlock id="doc-block-toolkit-sharing-ui">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:480px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 300px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Roadmap</h2><span class='wf-pill accent'>Org visible</span><div style='flex:1'></div><button><span data-icon='user'></span> Share</button></div><small class='wf-muted'>Visibility badges</small><div style='display:flex;gap:6px'><span class='wf-pill'><span data-icon='lock'></span> Private</span><span class='wf-pill'>Shared</span><span class='wf-pill accent'>Org</span><span class='wf-pill'>Public</span></div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:88%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:72%;background:var(--wf-line);border-radius:4px'></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Share</strong><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Maya Chen</strong><br/><small class='wf-muted'>maya@acme.com</small></div><span class='wf-pill'>Editor <span data-icon='chevronDown'></span></span></div><div class='wf-card' style='display:flex;flex-direction:column;gap:2px;padding:6px'><div style='padding:6px 8px;border-radius:6px;background:var(--wf-accent-soft);display:flex;align-items:center;gap:8px'><span data-icon='check'></span> Editor</div><div style='padding:6px 8px'>Viewer</div><div style='padding:6px 8px'>Remove</div></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='lock'></span><small class='wf-muted'>Public links disabled by policy</small></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+The most common low-level import is:
+
+```tsx
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+```
+
+`<ShareButton>` and `<ShareDialog>` are core-owned rather than Toolkit-owned —
+they call sharing actions directly, so keep importing them from
+`@agent-native/core/client` as shown above. Those imports stay compatible:
+core wrappers keep doing the runtime work and pass data and callbacks into
+Toolkit-owned UI.
+
+### Toolkit vs Core {#toolkit-vs-core}
+
+Toolkit sharing UI renders badges, rows, base dialogs, and role pickers when
+data and callbacks are injected. Core sharing code owns SQL, permissions,
+request context, org membership lookups, share tables, resource registration,
+access filters, visibility changes, invites, roles, and the private access
+tokens that back agent-readable public surfaces.
+
+## What's next
+
+- [**Sharing & Privacy**](/docs/sharing) — the framework-level access model
+  these components render.
+- [**Security**](/docs/security) — how access filters and scoped reads keep
+  shared data safe.
+- [**Audit Log**](/docs/audit-log) — how visibility and grant changes get
+  recorded.
+- [**Collaboration Kit**](/docs/toolkit-collaboration) — the same Toolkit/Core
+  split applied to realtime editing and presence.

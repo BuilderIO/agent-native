@@ -1,0 +1,672 @@
+---
+title: "嵌入 SDK"
+description: "使用頁面脈絡和主機指令將 Agent-Native sidecar 嵌入到現有 SaaS 應用中。"
+---
+
+# 嵌入 SDK
+
+將 Agent-Native 嵌入現有產品：保留您的 SaaS 應用程式，新增耐用的
+代理sidecar，讓該代理檢視使用者所在頁面並進行操作
+已在使用。如果您仍在無頭代理、豐富聊天和
+嵌入式邊車，或完整的應用程式，從
+[Agent Surfaces](/docs/agent-surfaces).
+
+<Diagram id="doc-block-g4vq16" title={"包埋膜"} summary={"主機應用程式提供伺服器端驗證和即時頁面脈絡； Agent-Native 執行持久 sidecar 並透過用戶端操作和主機指令到達開啟的分頁。"}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-box" data-rough>
+    <strong>主機 SaaS 應用</strong
+    ><small class="diagram-muted">你的介面，你的認證</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">getContext &rarr;</div>
+    <div class="diagram-pill">&larr; 用戶端操作</div>
+    <div class="diagram-pill">&larr; 主機指令</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Agent-Native sidecar</strong
+    ><small class="diagram-muted">持久聊天 · 應用狀態 · 擴充功能</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL<br /><small class="diagram-muted">框架表</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 從這裡開始：包含電池的外掛 {#batteries-included}
+
+對於大多數 SaaS 主機，**使用完整的嵌入式執行時** - 伺服器外掛
+`createAgentNativeEmbeddedPlugin` 加上 `<AgentNativeEmbedded>` 用戶端
+元件。這是推薦的預設值：它重用整個框架
+（actions、SQL 支援的應用程式狀態、擴充功能、瀏覽器工作階段工具）並給出
+代理檢視使用者正在使用的頁面並進行操作的能力。
+
+主機將 Agent-Native 伺服器路由掛載到其現有應用程式中，傳遞其
+使用者登入 Agent-Native，並在產品 UI 中渲染 React 側邊欄。
+Agent-Native 使用主機部署、主機工作階段和設定
+`DATABASE_URL` 管理自己的框架表：聊天對話串、設定，
+應用程式狀態、擴充功能、擴充功能資料、機密、瀏覽器工作階段和
+行動路由。
+
+```bash
+pnpm add @agent-native/core
+```
+
+在伺服器上：
+
+```ts
+// server/plugins/agent-native.ts
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
+import { builderActions } from "../agent-native/actions";
+import { getBuilderSession } from "../auth";
+
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.DATABASE_URL,
+  auth: async (event) => {
+    const session = await getBuilderSession(event);
+    if (!session) return null;
+    return {
+      userId: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      orgId: session.organization.id,
+      orgRole: session.organization.role,
+    };
+  },
+  actions: builderActions,
+  agentChat: {
+    appId: "builder",
+    systemPrompt:
+      "You are Builder's embedded agent. Use Builder actions for durable work.",
+  },
+});
+```
+
+在用戶端：
+
+```tsx
+import {
+  AgentNativeEmbedded,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+export function BuilderAppShell({ children, content, editor }) {
+  return (
+    <AgentNativeEmbedded
+      defaultOpen
+      session={{
+        id: browserTabId(),
+        label: "Builder editor",
+      }}
+      getContext={() => ({
+        route: {
+          name: "builder-editor",
+          pathname: window.location.pathname,
+          params: { contentId: content.id },
+        },
+        resource: {
+          type: "content",
+          id: content.id,
+          name: content.name,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction({
+          name: "select-element",
+          description: "Select an element in the visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onRefresh={() => queryClient.invalidateQueries()}
+      onNavigate={(payload) =>
+        router.navigate((payload as { path: string }).path)
+      }
+      onRemount={() => setAppKey((key) => key + 1)}
+    >
+      {children}
+    </AgentNativeEmbedded>
+  );
+}
+```
+
+此模式是建議的預設模式，因為它重用了完整的框架：後端 actions 安裝在 `/_agent-native/actions` 下，代理可以呼叫與 UI 相同的 actions，使用者建立的擴充功能儲存在 SQL 中，`extensionData` 是持久的且具有使用者/組織範圍，瀏覽器工作階段工具允許後端代理檢查或操作目前開啟的分頁。
+
+主機驗證是伺服器端的。不要將瀏覽器的身分作為事實來源傳遞；使用主機的請求/工作階段物件或短期伺服器驗證的權杖。如果主機不公開電子郵件，則返回穩定的 `userId`，Agent-Native 將使用它作為所有者金鑰。
+
+### 資料庫隔離
+
+嵌入模式管理 SQL 中的 Agent-Native 表。對於成熟的 SaaS 產品，最安全的預設設定是**相同的託管和驗證、專用的 Agent-Native 資料庫/架構**：
+
+```ts
+export default createAgentNativeEmbeddedPlugin({
+  databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
+  auth: getHostSession,
+  actions: hostActions,
+});
+```
+
+支援使用主機產品的主要 `DATABASE_URL`，但請明確選取。 Agent-Native 建立 `settings`、`application_state`、`tools`、`tool_data` 等框架表、瀏覽器工作階段表、秘密、聊天對話串和相關索引。專用的資料庫/模式可以避免表名衝突，保持託管表的所有權清晰，並使備份/保留策略更容易推理。如果您有意共用主機資料庫，請首先檢查現有表名稱，並將 Agent-Native 表視為框架擁有的表。
+
+## 其他模式 {#other-modes}
+
+上面的包含電池的外掛是幸福的道路。伸手去拿其中之一
+只有當它更適合您的情況時：
+
+| 模式                     | 什麼時候使用它                                                                        | 包                                      |
+| ------------------------ | ------------------------------------------------------------------------------------- | --------------------------------------- |
+| **嵌入式應用程式選取器** | 啟動完整的 Agent-Native 應用程式作為重點 iframe（資產選取器、表單生成器、核准面板）。 | `@agent-native/embedding`               |
+| **`<AgentNative>` 主橋** | 手動連線頁面脈絡和用戶端 actions 的獨立 sidecar 應用或跨來源 iframe。                 | `@agent-native/core/client`             |
+| **便攜式擴充功能**       | 當 SaaS 已擁有擴充功能儲存/核准時，讓主機使用者建置沙盒迷你應用程式。                 | `@agent-native/core/client`擴充功能插槽 |
+
+較低階別的 `@agent-native/embedding` 包公開：
+
+| 匯入路徑                           | 它提供什麼                                                                        |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `@agent-native/embedding`          | `EmbeddedApp` 選取器元件、`getA2AUrl`、`getMcpUrl`、`sendMessage`（流式傳輸 A2A） |
+| `@agent-native/embedding/react`    | React 特定的鉤子和元件                                                            |
+| `@agent-native/embedding/bridge`   | `announceEmbeddedAppReady`、`sendEmbeddedAppMessage` — 在嵌入式應用內使用         |
+| `@agent-native/embedding/agent`    | 代理端點助手                                                                      |
+| `@agent-native/embedding/protocol` | 協議型別                                                                          |
+
+```bash
+pnpm add @agent-native/embedding
+```
+
+### 嵌入式應用程式和選取器模式
+
+當主機產品想要推出完整的產品時，請使用`@agent-native/embedding`
+Agent-Native 應用程式作為聚焦的 iframe 表面：資產選取器、資產生成器，
+表單建置器、行事曆時段選取器、核准面板或任何其他特定於工作的
+工作流程。這是故意小於下面的 sidecar 主橋：
+iframe 宣布準備就緒，主機可以傳送命名訊息，並且嵌入
+應用程式可以發出域事件，例如 `chooseAsset` 或 `close`。
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+export function AssetPickerDialog({ close }) {
+  return (
+    <EmbeddedApp
+      url="https://assets.agent-native.com/picker"
+      className="h-full w-full"
+      onLoad={(ref) => {
+        ref.postMessage("configure", {
+          prompt: "Editorial blog hero",
+          aspectRatio: "16:9",
+        });
+      }}
+      onMessage={(name, payload) => {
+        if (name === "chooseAsset") {
+          const asset = payload as { url: string; altText?: string };
+          insertAsset(asset.url, asset.altText);
+          close();
+        }
+        if (name === "close") close();
+      }}
+    />
+  );
+}
+```
+
+在嵌入式應用程式內，使用瀏覽器橋宣布準備就緒並傳送
+事件返回主機：
+
+```ts
+import {
+  announceEmbeddedAppReady,
+  sendEmbeddedAppMessage,
+} from "@agent-native/embedding/bridge";
+
+announceEmbeddedAppReady({ app: "assets", mode: "picker" });
+sendEmbeddedAppMessage("chooseAsset", {
+  url: asset.previewUrl,
+  assetId: asset.id,
+  altText: asset.altText,
+});
+```
+
+資產還發出 `chooseImage` 作為舊圖片選取器的相容性別名
+主機；新的整合應該偵聽 `chooseAsset`。
+
+對於託管的第一方應用，啟用跨應用 SSO，並以 Dispatch 作為身分
+集線器，使 `content.agent-native.com` 和 `assets.agent-native.com` 連結使用者
+已驗證的電子郵件。 iframe 啟動仍應使用短暫的、路由範圍的
+在需要第三方 cookie 彈性時嵌入工作階段；普通應用程式cookie
+本身並不是一個完整的嵌入驗證故事。
+
+同一包包括用於協議發現的代理端點幫助程式和
+透過 A2A 流式傳輸文字：
+
+```ts
+import { getA2AUrl, getMcpUrl, sendMessage } from "@agent-native/embedding";
+
+getMcpUrl("https://assets.agent-native.com");
+getA2AUrl("https://assets.agent-native.com");
+
+for await (const chunk of sendMessage(
+  "https://assets.agent-native.com",
+  "Generate a blog hero",
+)) {
+  append(chunk);
+}
+```
+
+### 主機應用程式（`<AgentNative>`主機橋）
+
+> 首選上面包含電池的外掛。使用這個較低階別的橋
+> 僅適用於您連線頁面的獨立 sidecar 應用程式或跨來源 iframe
+> 脈絡和用戶端 actions 自己。
+
+對於獨立的 sidecar 應用程式或跨來源 iframe，請使用較低階別的 `<AgentNative />`。它將 iframe sidecar 和連線頁面脈絡、即時用戶端 actions 以及主機重新整理/導覽指令呈現在一個位置：
+
+```tsx
+import { AgentNative, defineClientAction } from "@agent-native/core/client";
+
+export function AssistantDock({ customer, sessionToken }) {
+  return (
+    <AgentNative
+      agentUrl="https://agent.example.com/workspaces/acme/sidecar"
+      className="h-full w-full"
+      session={{ id: browserTabId(), label: "Customer detail" }}
+      auth={() => ({ token: sessionToken })}
+      screen={{ includeVisibleText: true }}
+      getContext={() => ({
+        route: {
+          name: "customer-detail",
+          pathname: window.location.pathname,
+          params: { customerId: customer.id },
+        },
+        resource: {
+          type: "customer",
+          id: customer.id,
+          name: customer.name,
+        },
+        selection: {
+          ids: getSelectedRowIds(),
+          text: window.getSelection()?.toString() || undefined,
+        },
+        user: currentUser(),
+        organization: currentOrganization(),
+      })}
+      actions={[
+        defineClientAction<{ contentId: string }, { published: true }>({
+          name: "publish-content",
+          description: "Publish a Builder content entry",
+          schema: {
+            type: "object",
+            properties: { contentId: { type: "string" } },
+            required: ["contentId"],
+          },
+          destructive: true,
+          approval: { title: "Publish this entry?", risk: "medium" },
+          run: async ({ contentId }, { refresh }) => {
+            await builderApi.publish(contentId);
+            await refresh({ queryKey: ["content", contentId] });
+            return { published: true };
+          },
+        }),
+        defineClientAction<{ elementId: string }, void>({
+          name: "select-element",
+          description: "Select an element in the live visual editor",
+          schema: {
+            type: "object",
+            properties: { elementId: { type: "string" } },
+            required: ["elementId"],
+          },
+          run: ({ elementId }) => editor.select(elementId),
+        }),
+      ]}
+      onNavigate={(payload) => {
+        const { path } = payload as { path: string };
+        router.navigate(path);
+      }}
+      onRefresh={(payload) => {
+        const { queryKey } = payload as { queryKey?: readonly unknown[] };
+        queryClient.invalidateQueries({ queryKey });
+      }}
+      onRemount={() => setAppKey((key) => key + 1)}
+      onOpenResource={(payload) => openResource(payload)}
+      onRequestApproval={(payload) => approvalDialog.confirm(payload)}
+    />
+  );
+}
+```
+
+如果您只需要顯式語義脈絡，請使用 `screen={false}`。使用 `screen={{ includeDomHtml: true }}` 作為尚未將 UI 對應到語義 ID 和選取狀態的應用程式的後備。預設情況下，主橋僅接受來自 `agentUrl` 來源的訊息。如果 iframe URL 是可信來源不同的路由/代理 URL，則傳遞 `agentOrigin`。
+
+對於非 React 主機，直接呼叫 `createAgentNativeHostBridge()` 並傳遞相同的 `getContext`、`actions` 和 `commands` 選項。
+
+### Iframe 側
+
+在 Agent-Native sidecar 內，使用框架助手請求主機脈絡，發現即時瀏覽器工作階段 actions，執行它們，或要求主機執行 UI 工作。在正式環境中始終透過預期的 `hostOrigin`：
+
+```ts
+import {
+  announceAgentNativeFrameReady,
+  createAgentNativeHostTools,
+  requestAgentNativeHostActions,
+  requestAgentNativeHostContext,
+  runAgentNativeHostAction,
+  sendAgentNativeHostCommand,
+} from "@agent-native/core/client";
+
+announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
+
+const context = await requestAgentNativeHostContext({
+  hostOrigin: "https://app.example.com",
+});
+
+const liveActions = await requestAgentNativeHostActions({
+  hostOrigin: "https://app.example.com",
+});
+
+await runAgentNativeHostAction(
+  "select-element",
+  { elementId: context.selection?.ids?.[0] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+await sendAgentNativeHostCommand(
+  "refreshData",
+  { queryKey: ["customer", context.resource?.id] },
+  { hostOrigin: "https://app.example.com" },
+);
+
+const hostTools = createAgentNativeHostTools({
+  hostOrigin: "https://app.example.com",
+});
+```
+
+### 伺服器中介工具橋
+
+對於 CLAW 風格的同事，iframe 還可以向 sidecar 後端註冊其即時瀏覽器分頁。然後，代理取得正常的後端工具，將請求排入佇列，iframe 聲明它，主機頁面執行它，後端將結果返回給代理。
+
+<Diagram id="doc-block-m1fbf9" title={"伺服器介導的瀏覽器工作階段橋"} summary={"後端工具將工作排隊；註冊的分頁聲明它，在即時頁面上執行它，並將結果返回給代理 - 因此 backend/Slack/A2A 代理仍然可以觸摸開啟的分頁。"}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-node" data-rough>
+    後端代理<br /><small class="diagram-muted">聊天 · Slack · A2A</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    enqueue request<br /><small class="diagram-muted"
+      >/_agent-native/browser-sessions</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    活動標籤頁面接管它<br /><small class="diagram-muted"
+      >registered bridge</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">result &rarr; agent</div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+在 sidecar 應用程式中，當 iframe 安裝時啟動一次瀏覽器工作階段橋：
+
+```tsx
+import { useEffect } from "react";
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
+
+export function SidecarRuntime() {
+  useEffect(() => {
+    const bridge = startAgentNativeBrowserSessionBridge({
+      hostOrigin: "https://app.example.com",
+      label: "Builder editor",
+    });
+    return () => bridge.stop();
+  }, []);
+
+  return null;
+}
+```
+
+框架自動掛載`/_agent-native/browser-sessions`。一旦網橋執行，sidecar 代理就可以使用：
+
+| 工具                           | 目的                                               |
+| ------------------------------ | -------------------------------------------------- |
+| `list-browser-sessions`        | 檢視目前使用者的已連線主機分頁。                   |
+| `view-browser-session`         | 向即時分頁詢問目前頁面脈絡和螢幕截圖。             |
+| `list-browser-session-actions` | 向即時分頁詢問目前用戶端操作清單。                 |
+| `run-browser-session-action`   | 透過即時分頁執行一項目前用戶端操作。               |
+| `send-browser-session-command` | 請求主機重新整理、導覽、重新安裝、重新載入或核准。 |
+
+這是當代理在後端、Slack/Telegram/email 中執行或作為 A2A 被呼叫者執行時使用的橋，但在開啟時仍需要觸摸使用者目前的瀏覽器分頁。如果瀏覽器關閉，後端 actions 仍應處理持久工作，並且瀏覽器工作階段工具將報告沒有連線活動分頁。
+
+### Actions
+
+有兩個操作類：
+
+| 動作型別   | 執行位置                                              | 瀏覽器關閉時可以工作嗎？ | 最適合                                                                           |
+| ---------- | ----------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
+| 後端操作   | Sidecar 應用、後端 API、MCP 或整合轉接器              | 是                       | 持久的工作，例如建立、更新、發布、同步、傳送、匯入。                             |
+| 用戶端操作 | 透過 `<AgentNative actions={...} />` 的目前瀏覽器分頁 | 否                       | 臨時 UI 的工作方式類似於選取元素、讀取編輯器狀態、滾動到一行、複製目前畫布狀態。 |
+
+後端 actions 應該是任何必須在重新整理、關閉瀏覽器、重試或整合觸發執行後仍然存在的預設設定。它們屬於 sidecar 應用程式的正常 Agent-Native 操作/工具層，代理可以在其中透過聊天、自動化、Slack/Telegram/電子郵件整合和背景作業呼叫它們。
+
+用戶端 actions 是一個瀏覽器分頁的即時橋梁。主機使用 `source: "client"` 和 `availability: "browser-session"` 來通告它們，並且 sidecar 應該將該清單視為臨時的。當路由或選取發生變化時重新列出 actions，並在分頁消失時回退到後端 actions。
+
+### 便攜式擴充功能
+
+> 當您希望 Agent-Native 進行管理時，首選包含電池的外掛
+> 擴充功能定義、核准、儲存和代理建立的擴充功能。使用
+> 僅當 SaaS 已經擁有這些問題時才使用下面的可移植插槽。
+
+SDK 還支援使用者定義的擴充功能：主機 SaaS 可以在命名槽中呈現的沙盒 Alpine.js 迷你應用程式。當客戶想要針對代理使用的相同操作/脈絡介面建置自己的小面板、計算器、儀表板或工作流程助手時，請使用此選項。
+
+```tsx
+import {
+  AgentNativeExtensionSlot,
+  createHttpAgentNativeExtensionStorage,
+  defineClientAction,
+} from "@agent-native/core/client";
+
+const storage = createHttpAgentNativeExtensionStorage({
+  endpoint: "/api/agent-native/extensions/storage",
+  headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),
+});
+
+const actions = [
+  defineClientAction({
+    name: "list-at-risk-customers",
+    description: "List customers currently at risk",
+    schema: { type: "object", properties: {} },
+    run: () => crmApi.customers.list({ status: "at-risk" }),
+  }),
+];
+
+const customerHealthExtension = {
+  id: "customer-health",
+  name: "Customer health",
+  description: "Shows at-risk customers and quick notes.",
+  manifest: {
+    slots: ["crm.customer.sidebar"],
+    requestedActions: ["list-at-risk-customers"],
+    requestedCommands: ["openResource", "refreshData"],
+    storageScopes: ["user", "org"],
+  },
+  content: `
+    <div x-data="{
+      customers: [],
+      note: '',
+      async init() {
+        this.customers = await appAction('list-at-risk-customers', {})
+        const row = await extensionData.get('notes', slotContext.customerId, { scope: 'user' })
+        this.note = row?.data?.text || ''
+      },
+      async save() {
+        await extensionData.set('notes', slotContext.customerId, { text: this.note }, { scope: 'user' })
+        await agentNative.refresh({ customerId: slotContext.customerId })
+      }
+    }" x-init="init()" class="space-y-3">
+      <textarea class="w-full rounded-md border bg-background p-2" x-model="note"></textarea>
+      <button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" @click="save()">Save</button>
+    </div>
+  `,
+};
+
+export function CustomerSidebar({ customer, userExtensions }) {
+  return (
+    <AgentNativeExtensionSlot
+      id="crm.customer.sidebar"
+      extensions={[customerHealthExtension, ...userExtensions]}
+      context={{ customerId: customer.id, plan: customer.plan }}
+      actions={actions}
+      storage={storage}
+      storageContext={{
+        userId: currentUser().id,
+        organizationId: currentOrganization().id,
+      }}
+      getContext={() => ({
+        resource: { type: "customer", id: customer.id, name: customer.name },
+      })}
+      commands={{
+        refreshData: async () => queryClient.invalidateQueries(),
+      }}
+    />
+  );
+}
+```
+
+清單是安裝合同。當存在 `requestedActions`、`requestedCommands` 或 `storageScopes` 時，SDK 在 iframe 請求到達操作橋或儲存轉接器之前在主機中強制執行它們。當 `slots` 存在時，`AgentNativeExtensionSlot` 僅在匹配插槽中渲染擴充功能。主機仍然可以使用 `allowedActions`、`allowedCommands` 和 `allowedStorageScopes` 覆蓋每個插槽的策略。
+
+擴充功能名是普通的 HTML。 iframe 執行時為迷你應用程式提供相同的安全橋原語：
+
+```html
+<div
+  x-data="{ customers: [], async init() { this.customers = await appAction('list-at-risk-customers', {}) } }"
+  x-init="init()"
+>
+  <template x-for="customer in customers" :key="customer.id">
+    <button
+      class="block w-full rounded-md px-3 py-2 text-left hover:bg-muted"
+      x-text="customer.name"
+      @click="agentNative.command('openResource', { type: 'customer', id: customer.id })"
+    ></button>
+  </template>
+</div>
+```
+
+iframe 內的可用全域變數：
+
+| 幫手                           | 目的                                       |
+| ------------------------------ | ------------------------------------------ |
+| `appAction(name, args)`        | 執行主機聲明的操作。                       |
+| `agentNative.context()`        | 讀取目前主機頁面、資源、插槽和使用者資料。 |
+| `agentNative.command(name, p)` | 要求主機導覽、重新整理、重新安裝或開啟。   |
+| `agentNative.refresh(payload)` | `refreshData` 的快捷方式。                 |
+| `extensionData.*`              | 透過主機轉接器保留擴充功能本機資料。       |
+
+預設情況下，`extensionData` 使用瀏覽器 `localStorage`，這對於原型和本機小工具很有用。正式環境 SaaS 主機應傳遞後端支援的 `storage` 轉接器，以便使用者和組織範圍的擴充功能資料持久、可審核並受應用程式權限管理。通用 HTTP 轉接器傳送 POST 主體（如 `{ operation, extensionId, slotId, collection, id, data, options, context }`），並直接期望 `{ result }` 或結果 JSON。
+
+這個可移植的 SDK 層與框架的內建 SQL 支援的擴充功能儲存是分開的。在 Agent-Native 應用程式中，使用現有的 `ExtensionSlot`/`EmbeddedExtension` 元件和 `create-extension` 操作。在託管 SaaS 嵌入場景中，當您希望 Agent-Native 開箱即用地管理擴充功能定義、核准、儲存和代理建立的擴充功能時，首選 `createAgentNativeEmbeddedPlugin()` 加上 `AgentNativeEmbedded`。僅當 SaaS 已擁有擴充功能定義、核准、市場、儲存和計費時才使用 `AgentNativeExtensionSlot`。
+
+安全模型：
+
+- 擴充功能 iframe 是沙盒的，沒有 `allow-same-origin`；小應用程式無法直接讀取父DOM、cookies或應用程式執行時。
+- 擴充功能只能呼叫主機和擴充功能清單允許的 actions 和指令。
+- 有風險的 actions 應設定 `destructive` 或 `requiresApproval`，以便主機可以顯示核准流程。
+- 將使用者建立的擴充功能 HTML 視為不受信任。按使用者/組織檢視市場安裝、紀錄操作使用情況和範圍後端儲存。
+
+### 工作階段和分頁
+
+主機橋的作用域為一對 iframe/主機視窗。如果同一使用者開啟多個分頁，則每個分頁都有自己的 `session`、脈絡、選取、用戶端 actions 和暫停的指令回應。不要假設在一個分頁中發現的用戶端操作可以在另一分頁中執行，或者它在導覽後仍然存在。
+
+對於多分頁產品，在 SQL/後端 actions 中保持持久狀態，並僅將用戶端 actions 用於分頁本機部分：聚焦行、複製可見編輯器狀態、選取畫布元素或重新整理目前 React 查詢快取。包含足夠的 `route`、`resource` 和 `selection` 脈絡，以便 sidecar 決定目前分頁是否是執行瀏覽器工作階段操作的正確位置。
+
+### 指令模型
+
+內建指令名稱故意采用應用程式形式，而不是資料庫形式：
+
+| 指令                                   | 目的                                            |
+| -------------------------------------- | ----------------------------------------------- |
+| `navigate`                             | 將主機 UI 行動到路徑/檢視/資源。                |
+| `refreshData` / `refresh-data`         | 要求主機使用戶端資料無效。                      |
+| `remountView` / `remount-view`         | 要求主機重新掛載子樹，例如`<App key={key} />`。 |
+| `hardReload` / `hard-reload`           | 完全重新載入瀏覽器。                            |
+| `openResource` / `open-resource`       | 在主機 UI 中開啟特定域物件。                    |
+| `requestApproval` / `request-approval` | 要求主持人展示確認流程。為此註冊一個處理常式。  |
+
+如果未提供處理常式，安全預設值將調度瀏覽器事件，例如 `agentNative:refresh-data` 和 `agentNative:remount-view`。 `requestApproval`沒有預設處理常式；在依賴它之前先註冊一個。
+
+### 核准指南
+
+在其清單中將有風險的用戶端 actions 標記為 `destructive: true`，並在執行刪除、發布、傳送、收費、邀請、共用或以其他方式影響目前檢視之外的使用者的操作之前需要主機核准。後端 actions 也應該執行自己的授權和核准檢查；主機核准是有用的使用者體驗，而不是安全邊界。
+
+更喜歡這個形狀：
+
+- 持久突變在後端操作中執行，包括驗證、驗證、審核記錄紀錄和重試。
+- 主機指令開啟核准 UI 或聚焦受影響的資源。
+- 用戶端操作僅處理無法在後端發生的即時 UI 步驟。
+
+### 執行時整合
+
+當代理執行時接受普通工具描述符時，請在 sidecar iframe 內使用 `createAgentNativeHostTools()`。它返回四個與框架無關的工具：
+
+| 工具                | 目的                                           |
+| ------------------- | ---------------------------------------------- |
+| `view-host-screen`  | 讀取語義主機脈絡和螢幕截圖。                   |
+| `list-host-actions` | 列出目前分頁公開的即時瀏覽器工作階段 actions。 |
+| `run-host-action`   | 按名稱執行一個即時用戶端操作。                 |
+| `send-host-command` | 傳送重新整理、導覽、重新安裝或核准等主機指令。 |
+
+助手有意返回普通的 `{ name, description, parameters, execute }` 物件，以便 sidecar 可以將它們調整為 AI SDK、Anthropic、OpenAI 函式呼叫或 Agent-Native `ActionEntry` 形狀，而無需將此 SDK 耦合到一個執行時。
+
+## 推薦產品形狀
+
+首先啟動 iframe。它適用於 Builder.io、客戶 SaaS 應用程式和內部管理工具，無需耦合發布週期或 CSS/執行時假設。
+
+sidecar 本身應該仍然是 Agent-Native 應用程式/範本：actions 是後端 API 表面，SQL 支援的應用程式狀態是代理的記憶，並且 Slack 或 Telegram 等整合可以路由到相同的持久聊天。嵌入的 SDK 在該 sidecar 和目前主機頁面之間提供活動膜。

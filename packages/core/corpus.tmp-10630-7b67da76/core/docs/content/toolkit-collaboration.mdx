@@ -1,0 +1,128 @@
+---
+title: "Collaboration Kit"
+description: "Realtime editing, presence, live cursors, recent edit highlights, and undo primitives."
+---
+
+# Collaboration Kit
+
+The Collaboration Kit gives humans and agents the same live workspace:
+collaborative documents, awareness, presence avatars, live cursors, recent edit
+highlights, and undo that respects both CRDT-backed edits and app-local
+operations.
+
+<WireframeBlock id="doc-block-toolkit-collaboration">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:26px;display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='position:relative;display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Launch plan</h2><div style='flex:1'></div><div style='display:flex;align-items:center'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><span class='wf-pill'>3 editing</span></div><div style='display:flex;align-items:center;gap:8px'><button><span data-icon='arrowLeft'></span> Undo</button><button>Redo <span data-icon='arrowRight'></span></button><div style='flex:1'></div><span class='wf-muted'>All changes saved</span></div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:95%;background:var(--wf-line);border-radius:4px'></div></div><div style='border:1.6px solid var(--wf-accent);border-radius:var(--wf-radius);padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--wf-accent-soft)'><small class='wf-muted'>Agent edited just now</small><div>Ship the beta to 50 design partners the week of Aug 4.</div></div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:80%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:60%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:88%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;right:60px;top:212px'>Maya</span></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                    | Purpose                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `createCollabPlugin()`   | Server plugin that persists and syncs a collaborative resource.                     |
+| `useCollaborativeDoc()`  | Client hook for Yjs document, awareness, sync state, and agent presence.            |
+| `usePresence()`          | Reads and publishes awareness fields such as cursor, selection, viewport, and mode. |
+| `<PresenceBar>`          | Shared avatar and agent-presence strip.                                             |
+| `<LiveCursorOverlay>`    | Cursor labels over canvas or editor coordinates.                                    |
+| `<RecentEditHighlights>` | Fading highlights for human or agent edits.                                         |
+| `useCollabUndo()`        | Yjs undo manager lifecycle for CRDT-backed surfaces.                                |
+| `useLocalOpUndo()`       | Inverse-operation undo for non-Yjs local operations.                                |
+
+## Server And Client Shape {#server-and-client-shape}
+
+```ts filename="server/plugins/collab.ts"
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  resourceType: "document",
+  table: "documents",
+  contentColumn: "content",
+});
+```
+
+```tsx
+import {
+  useCollaborativeDoc,
+  usePresence,
+  useCollabUndo,
+} from "@agent-native/core/client/collab";
+import {
+  LiveCursorOverlay,
+  PresenceBar,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
+
+const collab = useCollaborativeDoc({ docId, user });
+const presence = usePresence(collab.awareness, collab.localClientId);
+const undo = useCollabUndo(collab.ydoc, { trackedOrigins: [user.email] });
+```
+
+## UX Standard {#ux-standard}
+
+- Show collaborators in the page header, not buried in a debug panel.
+- Render the agent as a first-class participant when it edits.
+- Highlight recent remote or agent edits long enough for users to orient.
+- Keep undo local and predictable: CRDT undo for document operations, local-op
+  undo for app-specific commands.
+
+## UI components {#ui-components}
+
+`@agent-native/toolkit/collab-ui` contains the presentational collaboration
+pieces that do not own transport or storage:
+
+<WireframeBlock id="doc-block-toolkit-collaboration-ui">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:26px;display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='position:relative;display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:8px'><h2 style='margin:0'>Editor canvas</h2><div style='flex:1'></div><div style='display:flex;align-items:center'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><span class='wf-pill accent'>Agent editing</span></div><div style='position:relative;border:1.6px solid var(--wf-accent);border-radius:var(--wf-radius);padding:14px;display:flex;flex-direction:column;gap:8px;margin-top:6px'><span class='wf-pill accent' style='position:absolute;left:12px;top:-12px'>Ava</span><div style='height:11px;width:80%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><div style='background:var(--wf-accent-soft);border-radius:var(--wf-radius);padding:14px;display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Sam edited moments ago</small><div style='height:11px;width:90%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:70%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill' style='position:absolute;right:70px;top:210px'>Sam</span></div></div>"
+    }
+  />
+</WireframeBlock>
+
+The full set of presentational exports:
+
+```tsx
+import {
+  AgentPresenceChip,
+  LiveCursorOverlay,
+  PresenceBar,
+  RecentEditHighlights,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
+```
+
+Existing imports from `@agent-native/core/client` still work because core
+re-exports these Toolkit components as compatibility shims, but new code
+should import `@agent-native/toolkit/collab-ui` directly.
+
+### Toolkit vs Core {#toolkit-vs-core}
+
+Toolkit owns:
+
+- Presence avatars and agent editing chips.
+- Live cursor overlays.
+- Remote selection rings.
+- Recent edit highlight overlays.
+- Display helpers such as collaborator color and display-name derivation.
+
+Core owns:
+
+- Yjs document creation and sync.
+- Awareness polling and SSE fast-path transport.
+- Collaboration server plugins and actions.
+- Recent edit publication and collection from awareness.
+
+## What's next
+
+- [**Realtime Collaboration**](/docs/real-time-collaboration) — the CRDT
+  transport and sync model these components render.
+- [**Component API**](/docs/components#collab-presence) — the generated
+  reference for collaboration component props.
+- [**Sharing Kit**](/docs/toolkit-sharing) — the same Toolkit/Core split
+  applied to sharing and access control.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — the hub page linking
+  every kit and foundation piece.

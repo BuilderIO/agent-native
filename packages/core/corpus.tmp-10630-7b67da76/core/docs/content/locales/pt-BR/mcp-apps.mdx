@@ -1,0 +1,271 @@
+---
+title: "Aplicativos MCP"
+description: "Criar e incorporar aplicativos MCP interativos UIs dentro de Claude, ChatGPT e outros hosts compatíveis — usando rotas de aplicativos reais, a ponte incorporada e a ponte de host API."
+---
+
+# Aplicativos MCP
+
+**Esta página: UIs inline em Claude/ChatGPT.** Criação de recursos do aplicativo MCP e a ponte incorporada que renderiza uma rota de aplicativo real dentro do bate-papo de um host compatível. Esta página também é o único local da **matriz de suporte ao cliente** ([below](#client-support)).
+
+| Se você quiser…                                                                                  | Ler                                      |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Conecte um agente/host externo ao seu aplicativo                                                 | [External Agents](/docs/external-agents) |
+| Dê mais ferramentas ao seu agente (consuma outros servidores MCP)                                | [MCP Clients](/docs/mcp-clients)         |
+| Crie UIs embutidos que renderizam em Claude/ChatGPT                                              | **Esta página** — Aplicativos MCP        |
+| Referência do servidor MCP de nível inferior (autenticação, ferramentas, montagem personalizada) | [MCP Protocol](/docs/mcp-protocol)       |
+
+Os aplicativos MCP são a extensão `io.modelcontextprotocol/ui` oficial que permite que hosts compatíveis – Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam e Cursor – renderizem UIs interativos inline no bate-papo. Em aplicativos nativos de agente, cada aplicativo MCP é uma **rota React real**, não um widget HTML simples separado.
+
+No próprio bate-papo do aplicativo Agent-Native, prefira [native chat renderers](/docs/native-chat-ui) para widgets originais, como tabelas, gráficos, resultados digitados e recursos de aprovação. Use aplicativos MCP para UI em linha externo/entre hosts em Claude, ChatGPT, Copilot, Cursor e outros hosts compatíveis, com a ação `link` como substituto de deep-link universal.
+
+## Autoria: aplicativos MCP opcionais UI {#mcp-apps}
+
+Para hosts que suportam a extensão MCP Apps, uma ação também pode anunciar um recurso UI embutido com `mcpApp`. Esta é uma melhoria progressiva para fluxos em que o agente externo deve entregar ao usuário uma superfície interativa em vez de apenas texto — por exemplo, revisando um rascunho de e-mail, editando um convite de calendário ou escolhendo entre variantes de painel geradas.
+
+Use o aplicativo React real com `embedRoute()` ou `embedApp()` sempre que o usuário precisar do UI. O modelo mental é simples: o alvo `link` da ação também é o alvo de incorporação do aplicativo MCP. Exponha a operação como uma ação/ferramenta normal, retorne um link direto focado com `link` e adicione `mcpApp.resource = embedApp(...)` para que hosts capazes carreguem a mesma rota inline em vez de abrir uma nova guia. Quando ambos devem ser construídos a partir da mesma rota, prefira `embedRoute({ title, openLabel, path })`: é o wrapper de conveniência que retorna os campos `link` e `mcpApp` correspondentes de uma chamada, enquanto `embedApp(...)` é o recurso de nível inferior que você atribui diretamente a `mcpApp.resource`.
+
+Isso significa que as incorporações completas do aplicativo podem fazer tudo o que a rota pode fazer depois de aberta: revisar ou editar um rascunho de e-mail, mostrar uma caixa de entrada/pesquisa filtrada, abrir um evento de calendário ou rascunho de evento, carregar uma página de extensão, inspecionar um painel de análise completo ou análise salva, continuar uma apresentação no editor de Slides ou abrir um projeto/editor de Design. Prefira os parâmetros URL/deep-link e a ponte de navegação/estado do aplicativo `/_agent-native/open` existente a inventar um protocolo de segundo estado para aplicativos MCP.
+
+Em raras ocasiões, o alvo certo é uma rota de aplicativo focada que renderiza um componente React compartilhado em vez de todo o shell do aplicativo. A rota `/chart` do Analytics é o modelo: ela pega uma carga `SqlPanel` compacta no URL e renderiza o mesmo componente gráfico que o painel usa. Este ainda é um aplicativo incorporado, não um aplicativo HTML MCP simples. Exponha ou chame-o por meio de uma ação normal / `open_app({ path, embed: true })`, mantenha o URL determinístico e deixe `embedApp()` renderizar essa rota inline.
+
+Não escreva à mão aplicativos HTML MCP simples e únicos para o produto UI; se a ação precisar de uma superfície personalizada, primeiro adicione ou reutilize uma rota/componente real do aplicativo e incorpore essa rota.
+
+<Diagram id="doc-block-13mdnqm" title="MCP Aplicativo incorporado de ida e volta" summary={"O destino do link da ação também é o destino incorporado. Hosts capazes carregam a mesma rota de aplicativo assinada em linha; todos os outros voltam para o link direto."}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-card" data-rough>
+    <strong>Action</strong
+    ><small class="diagram-muted">`link` target = MCP App embed target</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>embedApp()</strong
+    ><span class="diagram-pill accent">create_embed_session</span
+    ><small class="diagram-muted">mints short-lived embed session</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>/_agent-native/embed/start</strong
+    ><small class="diagram-muted">troca ticket SQL de uso único</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Signed app route</strong
+    ><span class="diagram-pill ok">rota React real</span
+    ><small class="diagram-muted">short-lived browser session</small>
+  </div>
+  <div class="diagram-fallback">
+    <span class="diagram-pill warn">sem suporte a MCP Apps</span>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      &quot;Open in … &rarr;&quot; deep link
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 140px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .diagram-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: 8px;
+}
+```
+
+</Diagram>
+
+```ts
+import { embedApp } from "@agent-native/core";
+
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: embedApp({
+      title: "Review draft",
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+    }),
+  },
+});
+```
+
+<AnnotatedCode
+  id="doc-block-1vcqj5m"
+  title={"A configuração do recurso mcpApp"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "Aprimoramento progressivo",
+      note: "`mcpApp.resource` anuncia um UI embutido para hosts que suportam a extensão MCP Apps. Mantenha o construtor `link` da ação também – hosts somente CLI e mais antigos ignoram os metadados UI e ainda precisam do link direto.",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "Rótulo substituto universal",
+      note: '`openLabel` é o texto visível `"Open in … →"` usado como saída de link profundo quando um host não renderiza o iframe inline.',
+    },
+  ]}
+/>
+
+O servidor MCP anuncia a extensão `io.modelcontextprotocol/ui`, adiciona `_meta.ui.resourceUri` mais `_meta["ui/resourceUri"]` a `tools/list` e também emite metadados de compatibilidade de aplicativos ChatGPT SDK (`openai/outputTemplate`, widget CSP/descrição/acessibilidade). Ele expõe HTML até `resources/list`, `resources/templates/list` e `resources/read` usando MIME `text/html;profile=mcp-app`. O proxy stdio encaminha esses manipuladores de recursos do aplicativo ativo, para que os clientes desktop e CLI vejam os mesmos recursos que os clientes HTTP.
+
+Mantenha o construtor `link` existente mesmo ao adicionar `mcpApp`. Clientes somente CLI, hosts mais antigos e qualquer host que não renderize aplicativos MCP ignorarão os metadados UI e ainda precisarão do link `"Open in … →"`. `embedApp()` usa esse link como destino de lançamento, chama o auxiliar `create_embed_session` somente de aplicativo, troca um ticket SQL único em `/_agent-native/embed/start` e navega no quadro do aplicativo MCP para a rota de destino com uma sessão de navegador de curta duração mais um substituto de portador para buscas da mesma origem. `open_app({ app, path, embed: true })` é a saída de emergência genérica para rotas como painéis completos, caixas de entrada filtradas, visualizações de rascunhos de calendário, análises e páginas de extensão, e deve ser usado generosamente quando o aplicativo completo é a superfície de revisão/edição mais clara.
+
+`embedApp()` inclui a origem da solicitação MCP no recurso CSP para que o inicializador possa buscar e, quando solicitado explicitamente, enquadrar a rota do aplicativo primário assinada. O Dispatch adiciona as origens exatas dos aplicativos concedidos ao seu recurso `open_app` para que um único conector do Dispatch possa incorporar Mail, Calendário, Apresentações e o resto sem permitir todas as origens HTTPS. Transmita apenas quadros adicionais ou domínios de recursos para um aplicativo MCP personalizado que realmente incorpore um player de terceiros ou carregue recursos de terceiros.
+
+Dentro dessas rotas `embedApp()`, `sendToAgentChat()` tem reconhecimento de incorporação. Os prompts enviados automaticamente são retransmitidos para o host MCP como `ui/update-model-context` mais `ui/message`, portanto, um botão no aplicativo incorporado pode continuar intencionalmente a conversa Claude/ChatGPT a partir do estado do aplicativo selecionado. O contexto oculto é enviado como contexto do modelo; a rotação visível do usuário permanece apenas no prompt do aplicativo, o que evita o consentimento assustador do host em torno dos caminhos internos dos arquivos de estado do aplicativo. `submit: false` permanece com comportamento de pré-preenchimento/revisão local.
+
+## Ponte de aplicativo MCP de primeira classe {#mcp-app-bridge}
+
+As incorporações de aplicativos MCP são incorporações de rota, e não miniprodutos separados. `embedApp()` inicia a partir do destino `link` da ação, cria uma sessão de incorporação de curta duração e inicia a rota do aplicativo assinada. Os hosts de aplicativos MCP padrão podem navegar pelo próprio quadro do aplicativo MCP quando o host pode hidratar a rota diretamente.
+
+<Diagram id="doc-block-14hyaa7" title="Dois caminhos de ponte de host, uma rota assinada" summary={"Claude transplanta a via hidratada e utiliza a ui/_bridge direta; ChatGPT obtém um iframe controlado via window.openai e retransmite as ações do host por postMessage. Ambos apontam para a mesma rota de aplicativo assinada."}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <strong>Claude web</strong
+      ><span class="diagram-pill accent">single-frame transplant</span
+      ><small class="diagram-muted"
+        >hidrata o HTML assinado do app no iframe do Claude, depois ponte direta
+        do host `ui/_`</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <strong>ChatGPT web</strong
+      ><span class="diagram-pill accent">controlled route iframe</span
+      ><small class="diagram-muted"
+        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        relay</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Same signed app route<br /><small class="diagram-muted"
+      >rota normal + componentes React</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-bridge .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  max-width: 300px;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bridge .diagram-box {
+  padding: 16px 18px;
+  text-align: center;
+}
+```
+
+</Diagram>
+
+Claude web usa um caminho de transplante de quadro único: o documento de recurso busca o aplicativo assinado HTML e o hidrata dentro do iframe do aplicativo MCP de Claude porque Claude não permite de forma confiável iframes filhos de propriedade do aplicativo ou navegação de quadro externo. A web ChatGPT obtém um iframe de rota controlada porque sua ponte de aplicativos nos fornece hosts `window.openai` estáveis ​​​​APIs e controle de altura limitado. Todos os caminhos apontam para a mesma rota de aplicativo assinada e renderizam a rota normal e os componentes React. Projete rotas incorporadas para que uma recarga com o mesmo URL assinado reconstrua a mesma visualização.
+
+Para `open_app({ embed: true })` do mesmo aplicativo, a estrutura cria o ticket de início incorporado durante a chamada da ferramenta original e armazena o URL de início assinado em metadados de ferramenta ocultos. actions personalizado pode retornar `embedStartUrl` para o mesmo caminho rápido; a camada MCP retira aquele URL com ticket do `structuredContent` visível ao modelo e dos metadados normais de link aberto. Quando não há URL de início incorporado, o recurso volta para o auxiliar `create_embed_session` somente de aplicativo. Isso mantém os hosts de produção que restringem as chamadas de ferramenta iniciadas por iframe na rota direta sem vazar URLs de sessão única do aplicativo na transcrição. Se um usuário reabrir um bate-papo antigo após a expiração de um ticket inicial único, a rota inicial retornará uma pequena página de atualização e postará `agentNative.embedSessionExpired` no wrapper; `embedApp()` limpa o início obsoleto URL e cria um novo ticket através de `create_embed_session` quando ainda tem a rota original do aplicativo.
+
+ChatGPT obtém um caminho de compatibilidade dedicado por meio de `window.openai`: o documento de lançamento lê `toolInput`, `toolOutput` e `toolResponseMetadata` diretamente e depois chama `create_embed_session` via `window.openai.callTool(...)`. Os hosts de aplicativos MCP padrão usam a ponte `ui/*` JSON-RPC. Rotas diretamente hidratadas podem chamar `ui/update-model-context`, `ui/message`, `ui/open-link` e `ui/request-display-mode` por meio dos auxiliares da ponte de host. A rota transplantada de Claude usa a mesma ponte hospedeira direta `ui/*` após a hidratação. Quando o caminho ChatGPT ou iframe de diagnóstico explícito é usado, o wrapper retransmite o mesmo host actions por meio de solicitações postMessage `agentNative.mcpHost.*`. Mantenha o formato do resultado idêntico para ambos os caminhos: retorne um `link` focado e um conteúdo estruturado conciso.
+
+Não defina `_meta.ui.domain` padrão para um aplicativo URL. Os aplicativos MCP tratam esse campo como específico do host: Claude valida domínios sandbox no estilo `{hash}.claudemcpcontent.com`, enquanto ChatGPT usa seus próprios metadados `openai/widgetDomain`. Omita `ui.domain`, a menos que você esteja emitindo deliberadamente um valor específico do host; o host escolherá uma origem de sandbox padrão.
+
+As páginas de extensão mantêm sua sandbox nas incorporações de bate-papo MCP sem navegar em um iframe de segunda rota. O uso normal do aplicativo renderiza `/_agent-native/extensions/:id/render` como um iframe filho em área restrita. No modo ponte de bate-papo MCP, a estrutura renderiza o mesmo documento de extensão que `srcDoc` em sandbox dentro do iframe de rota, evitando falhas de host `frame-ancestors`/`X-Frame-Options` e preservando `sandbox="allow-scripts allow-forms"`.
+
+O shell de recursos possui o tamanho do host externo. O padrão `embedApp({ height })` é `560px`, fixa o shell em `320-900px` e reserva `44px` para a pequena barra de ferramentas, portanto, a janela de visualização da rota é `height - 44px`. Mantenha as rotas de aplicativos incorporadas com rolagem interna e deixe o inicializador relatar a altura intrínseca limitada em vez da altura total do documento; caso contrário, o redimensionamento automático do host pode transformar uma página normal do aplicativo em um artefato de bate-papo muito alto. Um shell alterado afeta apenas novos recursos do aplicativo MCP e novas chamadas de ferramentas. Os quadros de conversação ChatGPT/Claude antigos podem manter o comportamento anterior do recurso, portanto, verifique o dimensionamento com uma nova renderização in-line antes de julgar uma correção.
+
+### Modos incorporados {#embed-modes}
+
+Claude usa o caminho de transplante de quadro único por padrão. Você também pode forçá-lo em outros hosts com `embedMode: "transplant"` ou `frame: "transplant"` ao depurar o comportamento de carregamento do módulo do host. Você pode forçar o iframe de diagnóstico aninhado com `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true` ou `frame: "iframe"`. Se o iframe estiver bloqueado, `embedApp()` o substitui por um substituto de aplicativo aberto: o usuário pode tentar novamente in-line, abrir uma sessão de incorporação recém-criada por meio do host ou usar a rota visível URL. Mantenha o alvo `link` da ação útil por si só, porque ele ainda é a saída de emergência universal.
+
+Ao testar Claude por meio do ngrok, use uma compilação de produção (`npx @agent-native/core@latest build` e depois `npx @agent-native/core@latest start`) ou uma visualização/produção implantada URL. O caminho de transplante de quadro único do Claude funciona com pedaços de ativos de produção; módulos de desenvolvimento Vite brutos, como `/app/root.tsx`, podem ser protegidos pela autenticação do aplicativo e falhar nas importações dinâmicas da origem do recurso Claude.
+
+## Ponte de host API {#host-bridge}
+
+A ponte do host é deliberadamente pequena:
+
+| Modo                  | Tipo de mensagem                      | Use-o para                                          |
+| --------------------- | ------------------------------------- | --------------------------------------------------- |
+| rota direta do host   | `ui/update-model-context`             | Contexto oculto para o modelo host                  |
+| rota direta do host   | `ui/message`                          | Postar uma transformação de usuário visível no host |
+| rota direta do host   | `ui/open-link`                        | Abra um URL externo ou aplicativo por meio do host  |
+| rota direta do host   | `ui/request-display-mode`             | Solicitar `inline`, `fullscreen` ou `pip`           |
+| Transplante Claude    | `ui/*`                                | Mesma ponte direta do hospedeiro após a hidratação  |
+| ChatGPT / rota iframe | `agentNative.mcpHostContext`          | Tema, localidade, plataforma host, dimensões        |
+| ChatGPT / rota iframe | `agentNative.embeddedAppReady`        | Confirme o iframe da rota carregado                 |
+| ChatGPT / rota iframe | `agentNative.mcpHost.*` / `.response` | Retransmissão wrapper para solicitações de host     |
+
+Rotas incorporadas podem usar `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` e `useMcpAppHostContext()` de `@agent-native/core/client`. `sendToAgentChat()` usa o mesmo caminho das incorporações completas do aplicativo para solicitações enviadas automaticamente.
+
+O modo de exibição é o melhor esforço. O `McpAppRenderer` no aplicativo atualmente relata um contexto de host da web embutido e um modo de exibição somente embutido; hosts externos podem atender a solicitações de exibição maiores, ignorá-las ou responder com um erro de modo não suportado. Sempre mantenha a rota inline utilizável.
+
+## Suporte ao cliente e armazenamento em cache {#client-support}
+
+A atual lista oficial de clientes do MCP Apps inclui Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT e Cursor; o suporte do host ainda varia de acordo com o plano, canal de lançamento e versão do cliente, portanto verifique o [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix). Os aplicativos MCP personalizados ChatGPT estão disponíveis no modo de desenvolvedor para espaços de trabalho Business e Enterprise/Edu na web ChatGPT; veja as notas [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) de OpenAI.
+
+Claude Code, Codex e outros clientes CLI/editor de código ainda recebem os mesmos recursos e metadados quando oferecem suporte a aplicativos MCP, mas os tratam como hosts de link-out, a menos que você tenha verificado a renderização de iframe in-line nessa superfície exata. O link direto continua sendo o substituto confiável quando um host opta por não renderizar um iframe. Na prática, cada aplicativo nativo do agente deve ser criado com ambos: aplicativos MCP para revisão/edição in-line em hosts compatíveis e `link` para retorno universal ao aplicativo completo.
+
+Claude e ChatGPT podem armazenar em cache metadados de ferramentas e recursos para um conector personalizado existente. Depois de alterar os metadados do aplicativo MCP, verifique com uma nova chamada de ferramenta; se o host ainda usar o descritor antigo, reconecte o conector Claude ou verifique novamente/revise o conector ChatGPT para que ele atualize o catálogo. Se Claude registrar um aviso sobre `_meta.ui.csp` ou `_meta.ui.permissions` residindo no descritor de ferramenta após uma implantação, esse conector está usando metadados obsoletos: exclua/reconecte o conector Claude e inicie um novo bate-papo.
+
+## Teste {#testing}
+
+Teste aplicativos MCP com acessórios leves em torno de `embedApp()` e `McpAppRenderer`; eles cobrem CSP, contexto de host, inicialização de aplicativo e comportamento de mensagem de ponte sem a necessidade de um host externo real. Ao validar a web ChatGPT ou Claude, acione uma nova chamada de ferramenta após as alterações do shell e meça o iframe visível. Os frames renderizados anteriormente na mesma conversa ainda podem mostrar a altura em cache ou o comportamento de inicialização.
+
+## Relacionado {#related}
+
+- [External Agents](/docs/external-agents) — conectando Claude, ChatGPT, Codex e Cursor a aplicativos hospedados; Matriz de compatibilidade de aplicativos MCP; camadas de catálogo; links diretos.
+- [MCP Protocol](/docs/mcp-protocol) — o servidor MCP montado automaticamente, autenticação, ferramentas e `ask-agent`.
+- [Actions](/docs/actions) — `defineAction`, o construtor `link`, `publicAgent`.
+
+```
+
+```

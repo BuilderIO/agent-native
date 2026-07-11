@@ -1,0 +1,387 @@
+---
+title: "可觀察性"
+description: "代理跟蹤、評估、意見回饋、A/B 實驗和內建儀表板 - 全部為零設定。"
+---
+
+# 代理可觀察性
+
+每個 Agent-Native 應用程式都具有開箱即用的可觀察性。跟蹤、自動評估、使用者意見回饋和 A/B 實驗可在零設定下執行 - 所有資料都儲存在應用自己的 SQL 資料庫中。
+
+此頁面涵蓋*代理品質*指標：儲存在資料庫中的跟蹤、成本、評估和意見回饋。對於*product*分析（您的應用程式的事件流向PostHog/Mixpanel/Amplitude），請參閱[Tracking](/docs/tracking)。
+
+## 三樣東西叫做“評估”/“可觀察性”——我想要哪一個？ {#which}
+
+這三個頁面很容易混淆。根據您要問的問題進行選取：
+
+| 頁面                                                   | 它回答的問題                           | 當它執行時                       | 關注      |
+| ------------------------------------------------------ | -------------------------------------- | -------------------------------- | --------- |
+| **可觀測性評估**（此頁面，_Evals_ 分頁）               | “我的實際正式環境情況如何？”           | 被動，每次執行後（LLM-判斷取樣） | 品質      |
+| **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | “代理在此固定輸入上執行正確的操作嗎？” | 主動、確定性、CI/部署門          | 品質      |
+| **[Observational Memory](/docs/observational-memory)** | “這條長線是否便宜且位於窗戶內？”       | 長對話串上的背景壓縮             | 成本/環境 |
+
+可觀察性和 CI 評估門都對品質進行評分，但兩端不同——對實際流量進行被動事後評分，與對固定輸入進行主動透過/失敗檢查。觀察記憶與品質無關；這與代幣成本和脈絡視窗壓力有關。
+
+## 自動捕獲的內容 {#captured}
+
+當使用者傳送訊息時，框架會自動紀錄：
+
+- **權杖使用** — 輸入、輸出、快取讀取、快取寫入
+- **成本** — 根據代幣數量和模型定價計算
+- **延遲** — 每次工具呼叫的總持續時間和時間
+- **工具呼叫** — 呼叫了哪些 actions、成功/錯誤狀態、持續時間
+- **自動評估** - 每次執行後計算 5 個品質分數
+
+無需更改程式碼。儀器透明地掛接到 `production-agent.ts`。
+
+<Diagram id="doc-block-13c9623" title={"每次執行都會為迴圈提供動力"} summary={"一次代理執行會產生跟蹤、自動評分和意見回饋掛鉤 - 所有這些都儲存在應用程式自己的 SQL 中並顯示在儀表板上。實驗將流量分配給設定變體。"}>
+
+```html
+<div class="obs-loop">
+  <div class="diagram-node">
+    代理執行<br /><small class="diagram-muted">production-agent.ts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">自動捕獲</span
+    ><small class="diagram-muted"
+      >tokens &middot; cost &middot; latency &middot; tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">Traces &amp; spans</div>
+    <div class="diagram-box">Evals (5 scorers + LLM judge)</div>
+    <div class="diagram-box">Feedback &amp; frustration index</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Dashboard<br /><small class="diagram-muted"
+      >scoped to the signed-in user</small
+    >
+  </div>
+</div>
+```
+
+```css
+.obs-loop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.obs-loop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.obs-loop .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.obs-loop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 儀表板 {#dashboard}
+
+將儀表板新增到具有單一路由的任何範本：
+
+```tsx
+// app/routes/observability.tsx
+import { ObservabilityDashboard } from "@agent-native/core/client";
+
+export default function ObservabilityPage() {
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <ObservabilityDashboard />
+    </div>
+  );
+}
+```
+
+所有資料的範圍僅限於登入使用者；今天沒有跨使用者管理檢視。
+
+儀表板有 5 個分頁：
+
+| 分頁         | 它顯示了什麼                                                 |
+| ------------ | ------------------------------------------------------------ |
+| **概述**     | 關鍵指標 - 執行、成本、延遲、工具成功率、滿意度、評估分數    |
+| **對話**     | 跟蹤清單，可深入到各個範圍（agent_run、llm_call、tool_call） |
+| **評估**     | 按標準自動評估分數、隨時間變化的趨勢                         |
+| **實驗**     | 帶有狀態徽章的 A/B 測試清單、帶有置信區間的變數結果          |
+| **意見回饋** | 讚成/反對、類別細分、挫敗感分數                              |
+
+## 使用者意見回饋 {#feedback}
+
+### 明確意見回饋
+
+“豎起大拇指”/“豎起大拇指”按鈕在聊天 UI 中的每條代理訊息上呈現行內。拇指朝下會開啟一個類別快顯視窗（不準確、沒有幫助、工具錯誤、太慢）。這會自動連線到 `AssistantChat.tsx`。
+
+### 隱性意見回饋（挫敗指數）
+
+框架根據對話信號計算挫敗指數（0-100）：
+
+| 信號     | 重量 | 它偵測到什麼             |
+| -------- | ---- | ------------------------ |
+| 改寫     | 30%  | 使用者重複類似的訊息     |
+| 重試模式 | 20%  | “再試一次”，“不，錯了”   |
+| 放棄     | 20%  | 工作階段在回應後不久結束 |
+| 情緒     | 15%  | 負面語言模式             |
+| 長度趨勢 | 15%  | 訊息長度減少             |
+
+分數解釋：0-20 = 健康，20-40 = 摩擦，40-60 = 不滿意，60+ = 中斷的訓練。
+
+## 自動評估 {#evals}
+
+每次代理執行後都會執行五個確定性記分器：
+
+| 標準                | 它測量什麼                              | 分數範圍 |
+| ------------------- | --------------------------------------- | -------- |
+| `tool_success_rate` | 沒有錯誤的工具呼叫百分比                | 0-1      |
+| `step_efficiency`   | 對使用工具的執行進行過多的 LLM 迭代懲罰 | 0-1      |
+| `latency_score`     | 根據 10 秒/工具基線進行歸一化           | 0-1      |
+| `cost_efficiency`   | 根據成本基線標準化                      | 0-1      |
+| `error_recovery`    | 代理是否從工具錯誤中恢復？              | 0 或 1   |
+
+### LLM 作為法官（可選）
+
+透過設定 `evalSampleRate` 啟用基於取樣 LLM 的評估：
+
+```ts
+import { putSetting } from "@agent-native/core/settings";
+
+await putSetting("observability-config", {
+  enabled: true,
+  evalSampleRate: 0.05, // 5% of runs
+});
+```
+
+自訂標準使用自然語言規則：
+
+```ts
+const criteria = {
+  name: "helpfulness",
+  description: "Was the response helpful and complete?",
+  rubric: "0.0 = unhelpful, 0.5 = partially helpful, 1.0 = fully resolved",
+};
+```
+
+## A/B 實驗 {#experiments}
+
+測試不同的型號、溫度或代理設定：
+
+```ts
+// Create via API
+POST /_agent-native/observability/experiments
+{
+  "name": "model-a-vs-b",
+  "variants": [
+    { "id": "control", "weight": 50, "config": { "model": "<your-model-id>" } },
+    { "id": "treatment", "weight": 50, "config": { "model": "<other-model-id>" } }
+  ],
+  "metrics": ["cost", "latency", "satisfaction"]
+}
+
+// Start the experiment
+PUT /_agent-native/observability/experiments/:id
+{ "status": "running" }
+```
+
+使用您的引擎接受的真實模型識別碼來代替 `<your-model-id>` / `<other-model-id>`（模型名稱經常更改 - 檢查您的提供者/引擎的目前 ID）。代理迴圈自動解析使用者的變體並應用設定覆蓋。分配使用一致的散列——同一使用者總是得到相同的變體。
+
+<Diagram id="doc-block-fi45ig" title={"一致哈希變體分配"} summary={"每個使用者散列到一個穩定的變體，迴圈應用該變體的設定覆蓋，並且結果以置信區間匯總每個變體。"}>
+
+```html
+<div class="exp">
+  <div class="diagram-node">
+    使用者 ID<br /><small class="diagram-muted">consistent hash</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill">control &middot; 50%</span
+      ><small class="diagram-muted">設定覆蓋 A</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">treatment &middot; 50%</span
+      ><small class="diagram-muted">設定覆蓋 B</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    結果 per variant<br /><small class="diagram-muted"
+      >cost &middot; latency &middot; satisfaction</small
+    >
+  </div>
+</div>
+```
+
+```css
+.exp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.exp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.exp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 設定 {#config}
+
+所有設定都儲存在 `observability-config` 金鑰中：
+
+```ts
+{
+  enabled: true,           // Master switch
+  capturePrompts: false,   // Store prompt content in traces
+  captureToolArgs: false,  // Store action input arguments
+  captureToolResults: false, // Store action results
+  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
+  exporters: []            // OTLP export targets
+}
+```
+
+<Callout id="doc-block-1xvsimn" tone="info">
+
+Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+
+</Callout>
+
+## API 端點 {#api}
+
+全部自動安裝在`/_agent-native/observability/`：
+
+| 方法 | 路徑                       | 目的                      |
+| ---- | -------------------------- | ------------------------- |
+| GET  | `/`                        | 統計概覽                  |
+| GET  | `/traces`                  | 列出跟蹤摘要              |
+| GET  | `/traces/:runId`           | 跟蹤詳細資訊（摘要+跨度） |
+| GET  | `/traces/:runId/evals`     | 執行評估                  |
+| POST | `/feedback`                | 提交意見回饋              |
+| GET  | `/feedback`                | 列出意見回饋              |
+| GET  | `/feedback/stats`          | 意見回饋聚合              |
+| GET  | `/satisfaction`            | 滿意度分數                |
+| GET  | `/evals/stats`             | 評估統計                  |
+| POST | `/experiments`             | 建立實驗                  |
+| GET  | `/experiments`             | 列出實驗                  |
+| GET  | `/experiments/:id`         | 取得實驗詳細資訊          |
+| PUT  | `/experiments/:id`         | 更新實驗                  |
+| POST | `/experiments/:id/results` | 計算結果                  |
+| GET  | `/experiments/:id/results` | 取得結果                  |
+
+所有端點均支援`?since=N`（毫秒時間戳）和`?limit=N`查詢參數。
+
+## 匯出到外部平台 {#export}
+
+將跟蹤傳送到 Langfuse、Datadog、Grafana 或任何 OTel 相容後端：
+
+```ts
+await putSetting("observability-config", {
+  enabled: true,
+  exporters: [
+    {
+      type: "otlp",
+      endpoint: "https://cloud.langfuse.com/api/public/otel",
+      headers: { Authorization: "Bearer sk-..." },
+    },
+  ],
+});
+```
+
+此框架發出與 OpenTelemetry GenAI 規範相容的 `gen_ai.*` 語義約定範圍。
+
+## OpenTelemetry 跨度 {#otel}
+
+與上面的 `exporters` 設定（將內部跟蹤傳送到 OTLP 端點）不同，代理迴圈還可以為每次執行、模型呼叫和工具呼叫發出**即時 OpenTelemetry 範圍**，因此已經執行 OTel 收集器的主機可以看到代理活動以及其分布式跟蹤的其餘部分。
+
+該層是**可選且預設情況下無操作**：
+
+- `@opentelemetry/api` 是**可選依賴項**。如果未安裝，幫助程式將降級為靜默無操作 - 這裡不會將任何內容放入代理迴圈中。
+- 即使 api 包存在，它也會提供預設的無操作跟蹤器。只有當**主機註冊了 `TracerProvider`**（透過 `@opentelemetry/sdk-node` 或類似的）時，跨度才變得真實。此框架故意**不**依賴於繁重的 SDK/exporter 包或本身註冊提供者 - 偵測是由嵌入應用程式選取加入的。
+
+因此，當您未連線 OTel 時，成本是每次呼叫都會讀取幾次快取的屬性。要開啟它，請安裝 api 包和 SDK，並在伺服器啟動時註冊提供者，就像任何其他 Node 服務一樣。
+
+代理迴圈發出三種跨度型別：
+
+| 跨度        | 何時             | 屬性                                                              |
+| ----------- | ---------------- | ----------------------------------------------------------------- |
+| `agent.run` | 每個代理執行一次 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
+| `tool.call` | 每次操作呼叫一次 | `tool.name`，加上成功/錯誤狀態                                    |
+| `llm.call`  | 每個模型呼叫     | 計時+正常/錯誤狀態                                                |
+
+跨度以 OK/ERROR 狀態完成，並紀錄失敗時的錯誤訊息。零/哨兵屬性值被修剪，因此跨度不會因噪音而混亂。該 OTel 層純粹是對內部 `agent_trace_spans` / `agent_trace_summaries` 表的補充，這些表為上面的儀表板提供支援 - 兩者都是由相同的執行事件產生的。
+
+## 錯誤報告（Sentry） {#sentry}
+
+設定 DSN 時，轉義 Nitro 路由處理常式的伺服器端錯誤將報告給 Sentry。如果沒有它，SDK 會默默地無操作，因此可以安全地在開發中保留環境變數未設定。瀏覽器和伺服器事件可以去同一個Sentry專案；僅當您希望所有權、數量、配額或警報路由的操作分離時，才將它們拆分為單獨的專案。
+
+| 表面               | SDK               | 環境變數                                                      | 註解                                                    |
+| ------------------ | ----------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
+| 瀏覽器/SPA         | `@sentry/browser` | `VITE_SENTRY_CLIENT_DSN`、`SENTRY_CLIENT_DSN` 或 `SENTRY_DSN` | 捕獲用戶端中未處理的錯誤和路由更改面包屑。              |
+| Nitro伺服器        | `@sentry/node`    | `SENTRY_SERVER_DSN`或`SENTRY_DSN`                             | 捕獲 5xx 回應和 Nitro 生命週期錯誤。每個請求的使用者。  |
+| `agent-native` CLI | `@sentry/node`    | _硬編碼_                                                      | 來自已發布的 CLI 二進制檔案的當機報告；使用者不可設定。 |
+
+### 伺服器端設定 {#sentry-config}
+
+在部署環境（Netlify 儀表板、Cloudflare 機密等）中設定 `SENTRY_SERVER_DSN` 或共用 `SENTRY_DSN`。此框架自動安裝 Nitro 外掛：
+
+1. 啟動時呼叫 `Sentry.init` 一次（冪等 - 可以安全地從多個外掛呼叫）。
+2. 透過 `getSession(event)` 對每個 API/框架請求解析使用者，並將 `id` / `email` / `username` 加上 `orgId` 標籤附加到 Sentry 的每個請求隔離範圍。跳過靜態資產路徑以避免額外的資料庫命中。
+3. 使用可搜尋的 `route`、`method` 和 `userAgent` 標籤捕獲每個框架路由 5xx。
+
+可選旋鈕：
+
+- `SENTRY_SERVER_TRACES_SAMPLE_RATE`（浮點 `0`–`1`）— 選取加入性能跟蹤。預設為 `0`（僅限錯誤）。無效值限制為 `0`。
+- `AGENT_NATIVE_RELEASE` — 覆蓋 `release` 標籤。預設為 `agent-native-server@<core-version>`。
+
+### 範本
+
+每個範本都會自動繼承它——無需匯入任何內容。對於 SSR 應用程式，當 `SENTRY_CLIENT_DSN`、`VITE_SENTRY_CLIENT_DSN` 或共用 `SENTRY_DSN` 在執行時可用時，伺服器會注入一個小型瀏覽器設定指令碼，因此瀏覽器捕獲不限於 Vite 建置時環境。想要自訂行為的範本（額外標籤、每個範本不同的 DSN、硬停用 Sentry）可以透過從 `server/plugins/sentry.ts` 匯出自己的外掛來覆蓋：
+
+```ts
+// server/plugins/sentry.ts
+import { createSentryPlugin } from "@agent-native/core/server";
+export default createSentryPlugin();
+```
+
+CLI 的硬編碼 DSN 是有意為之的 - 發布的二進制檔案需要通知家庭當機，無論執行它的環境如何。伺服器模組從不硬編碼 DSN，因為它在客戶環境中執行，操作者決定錯誤是否應該到達 Sentry。
+
+### 隱私和 PII {#privacy}
+
+伺服器和 CLI 都使用 `sendDefaultPii: false` 和剝離的 `beforeSend` 鉤子進行初始化：
+
+- `request.headers.authorization`, `cookie`, `set-cookie`, `proxy-authorization`
+- `request.cookies`
+- `user.ip_address`（未經同意自動收集）
+- `contexts.runtime_env`（行程環境快照）
+- 頂級異常型別為 `ValidationError` 的任何事件（被視為預期的使用者輸入拒絕，而不是錯誤）。
+
+透過 `setUser({ id, email, username })` 顯式設定的身分欄位將被保留。
+
+## 下一步是什麼
+
+- [**Tracking**](/docs/tracking) - 針對您的應用自身事件的產品分析（PostHog、Mixpanel、Amplitude）
+- [**Actions**](/docs/actions) - 在跟蹤中顯示為工具呼叫的操作
+- [**Security**](/docs/security) — 資料範圍和憑證處理

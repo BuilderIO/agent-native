@@ -1,0 +1,306 @@
+/**
+ * AnthropicEngine — wraps @anthropic-ai/sdk for use as an AgentEngine.
+ *
+ * This is the default, best-in-class engine. It supports all Anthropic-native
+ * features: extended thinking, prompt caching, vision, computer use, and
+ * parallel tool calls.
+ *
+ * All providerOptions.anthropic fields are forwarded directly to the SDK.
+ */
+
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
+import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
+import {
+  engineToolsToAnthropic,
+  engineMessagesToAnthropic,
+  anthropicContentToEngine,
+  anthropicChunkToEngineEvents,
+  createAnthropicChunkStreamState,
+} from "./translate-anthropic.js";
+import type {
+  AgentEngine,
+  EngineCapabilities,
+  EngineStreamOptions,
+  EngineEvent,
+} from "./types.js";
+
+export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
+  thinking: true,
+  promptCaching: true,
+  vision: true,
+  computerUse: true,
+  parallelToolCalls: true,
+};
+
+export const ANTHROPIC_SUPPORTED_MODELS =
+  ANTHROPIC_MODEL_CONFIG.supportedModels;
+export const ANTHROPIC_DEFAULT_MODEL = ANTHROPIC_MODEL_CONFIG.defaultModel;
+
+class AnthropicEngine implements AgentEngine {
+  readonly name = "anthropic";
+  readonly label = "Claude (Anthropic SDK)";
+  readonly defaultModel = ANTHROPIC_DEFAULT_MODEL;
+  readonly supportedModels = ANTHROPIC_SUPPORTED_MODELS;
+  readonly capabilities = ANTHROPIC_CAPABILITIES;
+
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic({ apiKey: this.apiKey });
+
+    const tools = engineToolsToAnthropic(opts.tools);
+    const messages = engineMessagesToAnthropic(opts.messages);
+    const anthropicOpts = opts.providerOptions?.anthropic;
+
+    // Resolved once so both max_tokens and the thinking-budget headroom
+    // clamp below agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
+
+    // Build extra body params for Anthropic-native features
+    const extra: Record<string, unknown> = {};
+    if (anthropicOpts?.thinking) {
+      extra.thinking = {
+        type: anthropicOpts.thinking.type,
+        // Only the "enabled" config carries a numeric budget_tokens; clamp it
+        // so thinking can't consume the entire max_tokens budget and leave
+        // zero room for the actual response ("adaptive" thinking has no
+        // budget_tokens field at all, so it passes through unclamped).
+        budget_tokens:
+          anthropicOpts.thinking.type === "enabled" &&
+          typeof anthropicOpts.thinking.budgetTokens === "number"
+            ? clampThinkingBudgetTokens(
+                anthropicOpts.thinking.budgetTokens,
+                resolvedMaxOutputTokens,
+              )
+            : anthropicOpts.thinking.budgetTokens,
+      };
+    }
+    if (anthropicOpts?.topK !== undefined) {
+      extra.top_k = anthropicOpts.topK;
+    }
+    const reasoningEffort = normalizeReasoningEffortForModel(
+      opts.model,
+      opts.reasoningEffort,
+    );
+    if (reasoningEffort && !extra.thinking) {
+      extra.thinking = { type: "adaptive" };
+      extra.output_config = { effort: reasoningEffort };
+    }
+
+    // Apply prompt caching to the system prompt and tools by default.
+    // Cache is pure upside: identical prefixes on subsequent turns get ~90%
+    // off input cost and much faster time-to-first-token. If the prefix
+    // changes turn-to-turn, it's a no-op. Templates can opt out by setting
+    // providerOptions.anthropic.cacheControl = false.
+    const cacheEnabled = anthropicOpts?.cacheControl !== false;
+    const systemBlocks: any[] = [{ type: "text", text: opts.systemPrompt }];
+    if (cacheEnabled) {
+      systemBlocks[0].cache_control = { type: "ephemeral" };
+    }
+
+    // Apply cache_control to the last tool definition when caching is enabled.
+    // Anthropic caches the prefix up to and including the last cached block.
+    let cachedTools = tools;
+    if (cacheEnabled && tools.length > 0) {
+      cachedTools = [...tools];
+      const last = { ...cachedTools[cachedTools.length - 1] } as any;
+      last.cache_control = { type: "ephemeral" };
+      cachedTools[cachedTools.length - 1] = last;
+    }
+
+    // Apply a moving cache breakpoint on the last user message's last content
+    // block so the entire conversation prefix (system + tools + growing
+    // history) is cached turn-over-turn as the thread lengthens. Mirrors the
+    // Builder gateway engine's identical handling in builder-engine.ts.
+    let cachedMessages = messages;
+    if (cacheEnabled && messages.length > 0) {
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
+      }
+    }
+
+    const requestParams: any = {
+      model: opts.model,
+      max_tokens: resolvedMaxOutputTokens,
+      system: systemBlocks,
+      tools: cachedTools.length > 0 ? cachedTools : undefined,
+      messages: cachedMessages,
+      ...(opts.temperature !== undefined
+        ? { temperature: opts.temperature }
+        : {}),
+      ...extra,
+    };
+
+    // Remove undefined tools to avoid Anthropic API validation errors
+    if (!requestParams.tools) delete requestParams.tools;
+
+    const apiStream = client.messages.stream(requestParams, {
+      signal: opts.abortSignal,
+    });
+
+    // Per-stream state lets the translator carry each tool-call's id/name from
+    // its `content_block_start` onto the streamed `input_json_delta` chunks, so
+    // long tool-input generation emits countable `tool-input-start` /
+    // `tool-input-delta` progress events (mirroring the Builder engine).
+    const chunkState = createAnthropicChunkStreamState();
+
+    try {
+      for await (const chunk of apiStream) {
+        const events = anthropicChunkToEngineEvents(chunk, chunkState);
+        for (const event of events) {
+          yield event;
+        }
+      }
+
+      const finalMessage = await apiStream.finalMessage();
+      const assistantContent = anthropicContentToEngine(finalMessage.content);
+
+      // Emit usage
+      if (finalMessage.usage) {
+        yield {
+          type: "usage",
+          inputTokens: finalMessage.usage.input_tokens ?? 0,
+          outputTokens: finalMessage.usage.output_tokens ?? 0,
+          cacheReadTokens:
+            (finalMessage.usage as any).cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            (finalMessage.usage as any).cache_creation_input_tokens ?? 0,
+        };
+      }
+
+      yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: "ANTHROPIC_API_KEY",
+        value: this.apiKey,
+      });
+
+      // Emit stop reason
+      const stopReason = finalMessage.stop_reason ?? "end_turn";
+      yield {
+        type: "stop",
+        reason:
+          stopReason === "tool_use"
+            ? "tool_use"
+            : stopReason === "max_tokens"
+              ? "max_tokens"
+              : "end_turn",
+      };
+    } catch (err: any) {
+      const statusCode: number | undefined =
+        typeof err?.status === "number"
+          ? err.status
+          : typeof err?.statusCode === "number"
+            ? err.statusCode
+            : undefined;
+      const errorMessage = err?.message ?? String(err);
+      // Anthropic SDK APIConnectionError defaults to "Connection error." with
+      // no HTTP status. Tag it so in-run retries and run-level resume treat
+      // the failure as a transient network interruption.
+      const isConnectionError =
+        statusCode === undefined &&
+        String(errorMessage).trim().toLowerCase() === "connection error.";
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: "ANTHROPIC_API_KEY",
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: errorMessage,
+        });
+      }
+      yield {
+        type: "stop",
+        reason: "error",
+        error: errorMessage,
+        // Forward the provider HTTP status for EVERY known status, not just
+        // 401. The Anthropic SDK reports empty-body failures as a bare
+        // "429 status code (no body)" message, so without a structured
+        // statusCode/errorCode `isRetryableError` couldn't classify a rate
+        // limit (it matches "529"/"502" substrings but not "429") and the
+        // run failed hard instead of backing off + retrying like the Builder
+        // gateway path does. `http_429`/`http_529` also let the run-level
+        // continuation logic auto-resume a rate-limited turn.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : isConnectionError
+            ? {
+                errorCode: "provider_network_error",
+                providerRetryable: true,
+              }
+            : {}),
+      };
+      throw err;
+    }
+  }
+}
+
+/**
+ * Create an AnthropicEngine instance.
+ * Falls back to the deployment Anthropic key if no key is provided.
+ */
+export function createAnthropicEngine(
+  config: Record<string, unknown> = {},
+): AgentEngine {
+  const allowEnvFallback = config.allowEnvFallback !== false;
+  const apiKey =
+    (config.apiKey as string | undefined) ??
+    (allowEnvFallback ? readDeployCredentialEnv("ANTHROPIC_API_KEY") : "") ??
+    "";
+  if (!apiKey) {
+    // Return a "missing key" engine that immediately errors
+    return {
+      name: "anthropic",
+      label: "Claude (Anthropic SDK)",
+      defaultModel: ANTHROPIC_DEFAULT_MODEL,
+      supportedModels: ANTHROPIC_SUPPORTED_MODELS,
+      capabilities: ANTHROPIC_CAPABILITIES,
+      async *stream() {
+        yield {
+          type: "stop" as const,
+          reason: "error" as const,
+          error: LLM_MISSING_CREDENTIALS_MESSAGE,
+          errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+        };
+      },
+    };
+  }
+  return new AnthropicEngine(apiKey);
+}

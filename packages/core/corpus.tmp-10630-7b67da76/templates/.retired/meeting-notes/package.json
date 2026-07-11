@@ -1,0 +1,7 @@
+{
+  "name": "meeting-notes",
+  "private": true,
+  "scripts": {
+    "build": "node ../../../scripts/build-retired-netlify-site.ts meeting-notes"
+  }
+}

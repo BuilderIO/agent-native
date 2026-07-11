@@ -1,0 +1,106 @@
+---
+title: "Comments & Review Kit"
+description: "Inline comments, annotations, mentions, resolved threads, and review status surfaces."
+---
+
+# Comments & Review Kit
+
+The Comments & Review Kit gives collaborative apps a standard review layer:
+inline comments, canvas annotations, mentions, replies, resolved threads, and
+status such as draft, review, approved, or needs changes.
+
+<WireframeBlock id="doc-block-toolkit-comments-review">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 300px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Landing page copy</h2><span class='wf-pill accent'>In review</span><div style='flex:1'></div><button class='primary'><span data-icon='check'></span> Approve</button></div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:70%;background:var(--wf-line);border-radius:4px'></div></div><div style='border:1.6px solid var(--wf-accent);border-radius:var(--wf-radius);background:var(--wf-accent-soft);padding:12px'>Build agent-native apps in minutes.</div><div style='display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:92%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:60%;background:var(--wf-line);border-radius:4px'></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div style='display:flex;gap:8px'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Maya</strong><br/><small>Can we tighten this headline?</small></div></div><div style='display:flex;gap:8px'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);flex:none'></div><div style='flex:1;min-width:0'><strong>Agent</strong><br/><small>Updated to a shorter version.</small></div></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><small class='wf-muted'>Resolved: CTA copy</small></div><div style='flex:1'></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='flex:1'>Add a comment</span><span data-icon='send'></span></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                          | Purpose                                                                                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerReviewableResource()` | Register a resource type and optional access resolver for review actions.                                                                                         |
+| Comment actions                | `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, and `delete-review-comment`.                                    |
+| Feedback actions               | `get-review-feedback` and `consume-review-feedback` for agent-readable review queues.                                                                             |
+| Review status action           | `set-review-status` for draft, in review, approved, and changes requested states.                                                                                 |
+| `ReviewThreadPanel`            | Drop-in React panel with comment composer, replies, resolve, and delete controls.                                                                                 |
+| `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
+| Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
+| Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
+
+## Shared Model {#shared-model}
+
+Comments are resource-scoped, access-scoped, and agent-readable. The UI and
+agent use the same actions to create, resolve, and list threads. Apps can
+specialize anchor shapes, but the common model preserves:
+
+- `resourceType` and `resourceId`
+- `author`, `body`, `status`, and timestamps
+- `parentCommentId` for replies
+- optional `mentions`
+- optional `anchor` or `resolutionTarget`
+
+## Register A Resource {#register-resource}
+
+```ts
+import { registerReviewableResource } from "@agent-native/core/comments-review";
+
+registerReviewableResource({
+  type: "document",
+  async resolveAccess(resourceId, ctx) {
+    return {
+      role: "owner",
+      ownerEmail: ctx?.userEmail,
+      orgId: ctx?.orgId,
+      visibility: "private",
+    };
+  },
+});
+```
+
+If the resource is already registered with the Sharing Kit, the review actions
+reuse that access model. Add a review registration when the app needs a custom
+access resolver or wants to make the resource type explicit in setup code.
+
+## UI Usage {#ui-usage}
+
+```tsx
+import { ReviewThreadPanel } from "@agent-native/core/client/comments-review";
+
+export function DocumentReview({ documentId }: { documentId: string }) {
+  return (
+    <ReviewThreadPanel
+      resourceType="document"
+      resourceId={documentId}
+      targetId="intro-section"
+    />
+  );
+}
+```
+
+The `anchor` field is intentionally `unknown`: editors, canvases, diagrams, and
+documents can store the shape they need while still using the shared review
+actions and thread UI.
+
+## UX Standard {#ux-standard}
+
+- Comments live next to the thing being reviewed, not only in chat.
+- Mentions resolve against team membership.
+- Resolved threads remain visible in history.
+- Agents can read open review feedback before changing code or content.
+- `consumedAt` and `resolved` are separate. An agent can consume a piece of
+  feedback without closing the reviewer-visible thread.
+
+## What's next
+
+- [**Plan**](/docs/template-plan) — a template that uses review threads for
+  plan feedback.
+- [**Content**](/docs/template-content) — a template that uses review threads
+  for editorial approval.
+- [**Sharing Kit**](/docs/toolkit-sharing) — the access model reviewable
+  resources can reuse.
+- [**History Kit**](/docs/toolkit-history) — version history alongside the
+  review trail.

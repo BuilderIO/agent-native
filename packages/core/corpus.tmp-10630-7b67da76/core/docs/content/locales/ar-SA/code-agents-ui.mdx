@@ -1,0 +1,525 @@
+---
+title: "رمز Agent-Native UI"
+description: "قم بإنشاء وتخصيص أسطح التعليمات البرمجية Agent-Native باستخدام حزمة UI المشتركة، وجسر مضيف سطح المكتب، ومتجر التشغيل CLI."
+---
+
+# رمز Agent-Native UI
+
+> **من هو:** المؤلفون المضيفون الذين يقومون ببناء أو تخصيص مساحة عمل البرمجة
+> (CLI أو سطح المكتب أو قالب المتصفح) على حزمة Code UI المشتركة.
+
+## ما هو مستند البرمجة الذي أريده؟ {#which-doc}
+
+| تريد...                                                                        | استخدام                                |
+| ------------------------------------------------------------------------------ | -------------------------------------- |
+| عرض نمط Claude/Codex **مساحة عمل الترميز UI**                                  | **رمز Agent-Native UI** (هذه الصفحة)   |
+| تشغيل Claude Code / Codex / Pi **كوكيل**، باستخدام الحلقة + الأدوات الخاصة بهم | [Harness Agents](/docs/harness-agents) |
+| قم بتبديل الواجهة الخلفية التي تقوم بتشغيل **أداة `run-code`**                 | [Adapters](/docs/sandbox-adapters)     |
+| قم بلف أداة CLI (`gh`، `ffmpeg`) ليتصل بها الوكيل                              | [Adapters](/docs/sandbox-adapters)     |
+
+رمز Agent-Native هو سطح تشفير Agent-Native: مساحة عمل محلية على نمط Claude Code/Codex لجلسات البرمجة، وأوامر الشرطة المائلة، وعمليات الترحيل، وعمليات التدقيق، والنصوص، وعناصر التحكم في التشغيل، والمتابعات. يفتح أمر `npx @agent-native/core@latest` مساحة العمل هذه؛ `npx @agent-native/core@latest code` هو الأمر الفرعي الصريح لنفس التجربة.
+
+هناك ثلاث طبقات:
+
+- **CLI**: `npx @agent-native/core@latest` و`npx @agent-native/core@latest code` بدء التشغيل واستئنافه وفحصه وإيقافه.
+- **سطح المكتب**: تضيف علامة التبويب Code في الشريط الجانبي الأيسر تشغيل الوحدة الطرفية الأصلي، وعروض الويب للتطبيق، والروابط العميقة لسطح المكتب أثناء استخدام نفس نموذج التشغيل.
+- **UI المشتركة**: يعرض `@agent-native/code-agents-ui` سطح React القابل لإعادة الاستخدام.
+
+<Diagram id="doc-block-1tz9c3f" title={"ثلاث طبقات فوق مخزن تشغيل واحد"} summary={"CLI، Desktop، وواجهة المستخدم المشتركة هي أسطح مختلفة على نفس مخزن التشغيل والمنفذ المدعوم بالملف؛ يقوم المضيفون بتكييفه عبر عقد CodeAgentsHost."}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-row">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">CLI</span
+      ><small class="diagram-muted">البدء · الاستئناف · الحالة · التوقف</small>
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">Desktop</span
+      ><small class="diagram-muted"
+        >المحطة الأصلية · مشاهدات الويب · الروابط العميقة</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">واجهة المستخدم المشتركة</span
+      ><small class="diagram-muted">@agent-native/code-agents-ui</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill">CodeAgentsHost</span
+    ><small class="diagram-muted">عقد المضيف</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    مخزن تشغيل مدعوم بالملفات + منفذ تنفيذي<br /><small class="diagram-muted"
+      >@agent-native/core/code-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.diagram-layers .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-layers .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-layers .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+يتقارب الانقسام الحالي عن عمد: يعمل الشريط الجانبي للوكيل القياسي وفرق الوكلاء على دورة حياة `run-manager` الأساسية، بينما يستخدم Agent-Native جلسات محلية طويلة التشغيل مدعومة بمخزن تشغيل التعليمات البرمجية القائم على الملفات ومفردات وحدة التحكم المشتركة التي يتم تشغيلها في الخلفية.
+
+إن UI المشترك يعتمد على المضيف. ولا يعرف ما إذا كان يعمل في Electron أو قالب متصفح أو غلاف مستضاف في المستقبل. يوفر المضيفون تطبيق `CodeAgentsHost`.
+
+```ts
+import { CodeAgentsApp, type CodeAgentsHost } from "@agent-native/code-agents-ui";
+import "@agent-native/code-agents-ui/styles.css";
+
+const host: CodeAgentsHost = {
+  listRuns: (goalId) => listRunsSomehow(goalId),
+  listCodePacks: () => listCodePacksSomehow(),
+  createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
+  readTranscript: (request) => readTranscriptSomehow(request),
+  appendFollowUp: (request) => appendFollowUpSomehow(request),
+  updateRun: (request) => updateRunSomehow(request),
+  retryRun: (request) => retryRunSomehow(request),
+  rerunRun: (request) => rerunRunSomehow(request),
+  controlRun: (goalId, runId, command, permissionMode) =>
+    controlRunSomehow({ goalId, runId, command, permissionMode }),
+};
+
+export function CodeSurface() {
+  return <CodeAgentsApp apps={[]} host={host} />;
+}
+```
+
+يمكن للمضيفين مزج مصادر التشغيل في نفس القائمة. جلسات كود Agent-Native المحلية
+يمكن أن يظهر بجوار فرق الوكلاء أو المحولات الأخرى التي يتم تشغيلها في الخلفية طالما أن كل منها
+يتم تطبيع الإدخال إلى `CodeAgentRun`. عندما يقوم المضيف بتوفير `sourceLabel`،
+`source`، أو `kind`، يعرض المركز تسمية مصدر صغيرة مثل "الرمز المحلي"
+أو "فرق الوكلاء" في قائمة التشغيل ورأس الجلسة المحددة. احذف هذه الحقول
+للسطح أحادي المصدر؛ تظل الحالة الفارغة والتخطيط الأساسي دون تغيير.
+
+## مضيف سطح المكتب
+
+يستخدم سطح المكتب UI المشترك ولكنه يحتفظ بالإمكانيات المميزة في Electron:
+
+- فتح محطة أصلية
+- عرض الأسطح الاختيارية المدعومة بالتطبيقات باستخدام `AppWebview`
+- التعامل مع روابط `agentnative://open?...`
+- تتبع عمليات التشغيل المحلية
+- تسجيل التوجيه مقابل المتابعة في قائمة الانتظار لعمليات التشغيل النشطة
+- إعادة محاولة وإعادة تشغيل جلسات Code الأصلية، بما في ذلك `/migrate` و`/audit`
+- إيقاف العملية التي بدأتها
+
+هذا الانفصال مهم. يمكن إعادة استخدام UI بواسطة القوالب، ولكن التحكم الأصلي في العملية يجب أن يبقى في سطح المكتب أو CLI.
+
+## مصادقة Codex CLI {#codex-cli-auth}
+
+يمكن لرمز Agent-Native استخدام تسجيل دخول Codex CLI محلي بدلاً من مفتاح OpenAI API.
+قم بتثبيت Codex CLI على `PATH`، وقم بتسجيل الدخول مرة واحدة، ثم أعد تشغيل سطح المكتب أو
+الرمز UI إذا كان مفتوحًا بالفعل:
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+يقرأ سطح المكتب وCLI `codex login status` ويقومان بتشغيل `codex exec`، لذلك
+إعادة استخدام اشتراك ChatGPT أو مفتاح API لمصادقة Codex CLI المثبتة لديك
+التقارير. وهذا منفصل عن حزمة `@ai-sdk/harness-codex` التي يستخدمها
+[Harness Agents](/docs/harness-agents); the harness adapter can copy local
+لا يتم مصادقة Codex CLI في وضع الحماية الموثوق به إلا عندما يكون `codexCliAuth: true`
+تم تمكينه بشكل صريح.
+
+## مضيف المتصفح
+
+تمت إزالة قالب `code` القديم المخفي. لإنشاء سطح تعليمات برمجية مستضاف في المتصفح، أنشئ تطبيقًا عاديًا وقم بتحميل حزمة UI المشتركة باستخدام مضيف:
+
+```bash
+npx @agent-native/core@latest create my-code-ui --template chat
+cd my-code-ui
+pnpm add @agent-native/code-agents-ui
+pnpm install
+pnpm dev
+```
+
+يمكن لمضيفك تغليف مخزن التشغيل المحلي من خلال actions العادي. هذه هي
+actions المملوكة للمضيف الذي يمكنك تعريفه بنفسك - لم يتم شحنه إطار العمل
+actions — تعيين كل أسلوب `CodeAgentsHost` على مخزن التشغيل، على سبيل المثال:
+
+- إجراء "تشغيل القائمة" يدعم `listRuns`
+- إجراء "حزم رموز القائمة" يدعم `listCodePacks`
+- إجراء "إنشاء تشغيل" يدعم `createRun`
+- إجراء "قراءة النص" يدعم `readTranscript`
+- إجراء "إلحاق متابعة" يدعم `appendFollowUp`
+- إجراء "تشغيل التحديث" الذي يدعم `updateRun`
+- إجراء "تشغيل التحكم" الذي يدعم `controlRun`
+
+كل واحد يستدعي `@agent-native/core/code-agents`، مما يعرض نفسه
+مخزن التشغيل والمنفذ المدعوم بالملف المستخدم بواسطة CLI.
+
+## عناصر التحكم في التشغيل CLI
+
+يتصرف CLI ذو المستوى الأعلى مثل رمز Claude أو Codex:
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+```
+
+استخدم `npx @agent-native/core@latest code` عندما تريد مساحة الاسم الصريحة. شرطة مائلة مدمجة
+يمكن تشغيل الأهداف وأوامر المشروع داخل مساحة العمل التفاعلية أو مباشرة
+من الصدفة:
+
+```bash
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
+```
+
+هنا `/migrate` و`/audit` هي أهداف مدمجة (الأهداف المدمجة هي
+`task`، `migrate`، و`audit`). يتم عرض `/release-check` كمثال على
+أمر المشروع — محدد في `.agents/commands/`، وليس هدفًا مدمجًا. المشروع
+الأوامر تأتي من `.agents/commands/*.md`؛ يأتي المشروع skills من
+`.agents/skills/*/SKILL.md`. تعمل أوامر التحكم على نفس التشغيل
+يسجل أن علامة التبويب Desktop Code وUI المشتركة تعرض:
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+```
+
+يُلحق `resume` السياق ويستمر في التشغيل، `status` يُبلغ عن آخر تشغيل
+الحالة، `stop` يطلب من وحدة التحكم النشطة إيقاف العمل، ويفتح `ui` المحلي
+سطح الكود. هذه هي عناصر تحكم التشغيل، وليست مسار تنفيذ منفصل. إذا
+يتوقف الأمر عالي الخطورة مؤقتًا للموافقة عليه، ويقوم `approve --last` بتشغيل ذلك الأمر معلقًا
+الأمر ثم يوجهك مرة أخرى لاستئناف الجلسة.
+
+أوضاع التشغيل تجعل سياسة التحرير واضحة لكل جلسة:
+
+| الوضع              | علامة CLI | السلوك                                                                                                             |
+| ------------------ | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| **وضع الخطة**      | `--plan`  | الفحص والتخطيط والشرح دون كتابة ملفات أو إجراء تغييرات.                                                            |
+| **الوضع التلقائي** | `--auto`  | تحرير الملفات، وتشغيل عمليات التحقق، والإيقاف المؤقت فقط لعمليات الملفات أو git أو النشر أو البيانات المدمرة حقًا. |
+
+الوضع التلقائي هو الوضع الافتراضي لجلسات كود Agent-Native المحلية. استخدم وضع الخطة لـ
+التقييم أو التصميم أو المراجعة أو أي مهمة تريد اقتراحًا قبلها
+التعديلات.
+
+بالنسبة للقوائم الشاملة أو لوحات المعلومات أو أجزاء المراقبة، تفضل المشتركة
+التصدير الذي يتم تشغيله في الخلفية من `@agent-native/core/code-agents` عبر رمز القراءة
+تشغيل الملفات مباشرة. يقومون بتطبيع جلسات التعليمات البرمجية المحلية في نفس المفردات
+يتم استخدامه بواسطة العمل في الخلفية المستضاف: معرف التشغيل، والحالة، وcwd، ومدخلات الاحتياجات،
+تحتاج إلى الموافقة، وأحداث النسخ، وجذر العناصر.
+
+يتم الكشف أيضًا عن فرق الوكلاء المستضافة من مسار دردشة الوكيل للمتصفح
+المضيفون الذين يحتاجون إلى قائمة متوافقة مع مركز التعليمات البرمجية دون عمليات استيراد الخادم المباشرة:
+إرجاع `GET /_agent-native/agent-chat/runs/list?goalId=agent-team`
+`{ status: "ok", goalId, runs }`، حيث يتضمن كل تشغيل `kind`،
+`source`، `sourceLabel`، `status`، `title`، والطوابع الزمنية، والبيانات الوصفية للمهمة.
+ترجع `GET /_agent-native/agent-chat/runs/:id/background-events`
+أحداث نص الخلفية المشتركة لتشغيل فرق الوكلاء.
+
+يمكن للمضيفين المدعومين بالمحول أيضًا إرفاق بيانات تعريف المصدر:
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
+
+## تشغيل المتجر
+
+يتم تخزين عمليات تشغيل كود Agent-Native المحلي في:
+
+```text
+~/.agent-native/code-agents
+```
+
+قم بتعيين `AGENT_NATIVE_CODE_AGENTS_HOME` لعزل قالب أو مخزن تشغيل تجريبي.
+
+```bash
+AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
+```
+
+## عقد المضيف
+
+`CodeAgentsHost` صغير عمدًا:
+
+| الطريقة                                               | الغرض                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| `listRuns(goalId?)`                                   | أدرج الجلسات للهدف المحدد                               |
+| `listCodePacks?()`                                    | أدرج `.agents/commands` و`.agents/skills`               |
+| `createRun(request)`                                  | ابدأ جولة جديدة                                         |
+| `subscribeTranscript?(request, callback)`             | ادفع تحديثات النص إلى المحادثة المشتركة                 |
+| `readTranscript(request)`                             | استطلاع أحداث النص كإجراء احتياطي للتوافق               |
+| `appendFollowUp(request)`                             | أضف متابعة، إما لتوجيه العمل النشط أو في قائمة الانتظار |
+| `updateRun(request)`                                  | تحديث الوضع أو تشغيل البيانات الوصفية                   |
+| `retryRun?(request)`                                  | أعد محاولة التشغيل المحدد في المكان                     |
+| `rerunRun?(request)`                                  | بدء تشغيل جديد من المطالبة السابقة                      |
+| `controlRun(goalId, runId, command, permissionMode?)` | الاستئناف أو الموافقة أو التحديث أو الإيقاف             |
+| `openTerminal?(request)`                              | ربط طرفي أصلي اختياري                                   |
+
+يجب أن يعرض مضيفو المتصفح خطأ `openTerminal` بدلاً من محاولة محاكاة تشغيل الوحدة الطرفية الأصلية.
+
+## الملحن المشترك
+
+يستخدم رمز Agent-Native نفس `AgentComposerFrame` + `PromptComposer` /
+تم تصدير مكدس `TiptapComposer` من `@agent-native/core/client/composer` باعتباره
+الشريط الجانبي لعامل إطار العمل. لا تقم بشوكة منفصلة
+منطقة النص، أو منتقي أدوات الترميز، أو منتقي التحميل، أو زر الصوت، أو منتقي النماذج، أو مفتاح الإدخال للإرسال
+تنفيذ للأسطح المشابهة للتعليمات البرمجية. إذا كان المضيف يحتاج إلى عنصر تحكم إضافي واحد، فقم بالتمرير
+من خلال ملحق الملحن المشترك يشير إلى الشريط الجانبي، والرمز UI، و
+تحتفظ الدردشة الدماغية بنفس نموذج التفاعل والمجال البصري.
+
+يستخدم مسار Brain's Ask `AgentChatSurface`، المدعوم بالفعل بواسطة
+مؤلف الشريط الجانبي القياسي. يستخدم الكود `PromptComposer` مباشرة لأن المضيف
+يمتلك إنشاء التشغيل والنصوص ومتابعة التسليم.
+
+## أدوات الترميز المشتركة
+
+يستخدم كل من وكيل تطوير الشريط الجانبي وكود Agent-Native نفس الحد الأدنى
+ملف تعريف أداة الترميز: `bash`، و`read`، و`edit`، و`write`. `bash` هو الإعداد الافتراضي
+لإدراج/البحث في الملفات، وإجراء الاختبارات، واستدعاء المشروع CLIs؛ `read`
+يُظهر شرائح الملفات المرقمة؛ يطبق `edit` بدائل النص الدقيقة؛ و
+يتم حجز `write` للملفات الجديدة أو عمليات إعادة الكتابة الكاملة المتعمدة. الأسماء المستعارة الأقدم
+مثل `shell`، و`read-file`، و`write-file`، و`list-files`، و`search-files`
+متوافقة فقط ولا تشكل جزءًا من السطح المعلن عنه الافتراضي.
+
+ينتمي UI الخاص بالرمز إلى الملحن، وليس إلى داخل حقل محادثة متشعب. ال
+قد يضيف الرمز المشترك UI فتحات لـ:
+
+- عناصر التحكم في الوضع التلقائي/الخطة.
+- بيانات التعريف المحددة للملف ومنتقي المشروع وتشغيله.
+- إمكانيات المضيف فقط مثل فتح محطة طرفية.
+
+يبقى كل شيء آخر في المؤلف المشترك: المرفقات والمراجع والشرطة المائلة و
+إدراج المهارات، ومعالجة النص الملصق، والإملاء الصوتي، والمسودات، ولوحة المفاتيح
+الاختصارات ودلالات الإرسال.
+
+يجب أن يظل النص الذي يواجه المستخدم محادثة. يقوم مضيفو التعليمات البرمجية بتطبيع الخام
+أحداث النسخ/الحالة/الأداة في عارض المحادثة المشترك: المساعد
+يندمج النص في دورة واحدة، ويظل ضجيج دورة حياة الإشارة المنخفضة بعيدًا عن الصوت الرئيسي
+يتم عرض نشاط السطح والأداة كملخصات مدمجة مدمجة مع التفاصيل
+متوفر عند الحاجة.
+
+## أوامر الشرطة المائلة
+
+يتعامل كود Agent-Native مع الترحيل كإمكانية، وليس فئة تطبيق منفصلة. يمكن أن يكون `/migrate` هدفًا مدمجًا، أو أمر مشروع، أو حزمة تعليمات مخصصة أعلى نفس عقد المضيف.
+
+### الترحيل إلى Agent-Native باستخدام `/migrate` {#migrate}
+
+`/migrate` هو الهدف المدمج لنقل تطبيق موجود، URL، أو منتج موصوف إلى Agent-Native. إنه هدف مائل في مساحة عمل Code - وليس قالبًا منفصلاً للسقالة وليس منتجًا لمرة واحدة - لذلك فهو يشترك في نفس مخزن الجلسة والنص وعناصر التحكم في التشغيل ومركز سطح المكتب مثل كل جلسة Code أخرى، ويمكنك استئنافها والإرفاق بها وفحصها وإيقافها بنفس الطريقة.
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+مسارات المصدر المحلية للقراءة فقط؛ يجب أن يكون الإخراج الذي تم إنشاؤه خارج الشجرة المصدر. استخدم `--emit <dir>` لكتابة ملف ترحيل محمول (`AGENTS.md`، `MIGRATION_PLAYBOOK.md`، التقييم، ومخزون `ir.json` عند توفره) وتسليمه إلى وكيل تشفير آخر بدلاً من فتح سطح التشغيل الداخلي. يعيد `/migrate` استخدام نظام بيانات الاعتماد العادي لإطار العمل - لا يوجد مخزن مفاتيح خاص بالترحيل. تعرض حزمة `@agent-native/migrate` محركًا قابلاً لإعادة الاستخدام (`createMigrationRun`، `discoverMigration`، `planMigration`، محولات المصدر/الهدف) لعمليات سير العمل المخصصة.
+
+الأوامر الخاصة بالمشروع موجودة في:
+
+```text
+.agents/commands/*.md
+```
+
+استخدمها في عمليات سير عمل الفريق مثل عمليات التحقق من الإصدار، أو متغيرات الترحيل، أو ترقيات إطار العمل، أو عمليات التدقيق.
+
+المشروع skills موجود في:
+
+```text
+.agents/skills/*/SKILL.md
+```
+
+عندما يقوم المضيف بتنفيذ `listCodePacks`، يعرض UI المشترك أوامر المشروع وskills في السكة. تُدرج صفوف الأوامر `/<command>`، وتُدرج صفوف المهارات موجه "استخدم مهارة `<skill>`..." المُركز حتى تظل السكة قابلة للتنفيذ. تظل أهداف الشرطة المائلة المضمنة `/migrate` و`/audit` محفوظة لعناصر التحكم في كود Agent-Native العالمية، كما هو الحال مع أسماء عناصر التحكم في التشغيل مثل `status` و`resume` - وهي أوامر فرعية يتم استدعاؤها بدون شرطة مائلة (`npx @agent-native/core@latest code status`، `npx @agent-native/core@latest code resume`)، وليست أهداف الشرطة المائلة.
+
+لا تقم بإنشاء تسجيل منفصل لأوامر الشرطة المائلة لمضيف Code جديد. المشروع
+تم اكتشاف الأوامر وskills من `.agents/commands/*.md` و
+`.agents/skills/*/SKILL.md`; the UI should render those packs and insert prompts
+من خلال الملحن المشترك.
+
+## مدير تشغيل وكيل الخلفية
+
+يجب أن يعيد عمل وكيل ترميز الخلفية استخدام نفس أساس مدير التشغيل مثل
+باقي Agent-Native:
+
+- استخدم مخزن/منفذ تشغيل التعليمات البرمجية لجلسات التعليمات البرمجية المحلية.
+- استخدم المحول/الأساس المشترك الذي يتم تشغيله في الخلفية عندما يحتاج السطح إلى القائمة،
+  فحص جلسات التعليمات البرمجية المحلية أو ربطها جنبًا إلى جنب مع أعمال الخلفية الأخرى.
+- استخدم `run-manager` الأساسي لتشغيل الوكيل المستضاف بحيث يتم إجراء عمليات البث والإجهاض ونبضات القلب،
+  تعمل القابلية للاستئناف والمهلات البسيطة وعمليات التنظيف المتوقفة بشكل متسق.
+- استخدم `agent-teams` / `spawnTask()` عندما يقوم UI بتفويض العمل إلى
+  الوكيل الفرعي في الخلفية من دردشة التطبيق العادية.
+
+لا تضف عامل خلفية موازيًا لمجرد أن السطح الجديد يحتاج إلى
+تخطيط مختلف. أنشئ محول مضيف أو فتحة UI أعلى
+أساس تشغيل المدير بدلاً من ذلك.
+
+## المتابعات
+
+تدعم عمليات المتابعة أثناء التشغيل النشط وضعين للتسليم:
+
+- يؤدي الضغط على Enter أو النقر فوق "إرسال" إلى تسجيل مطالبة توجيه فورية
+  ينطبق العداء النشط عند نقطة المتابعة الآمنة التالية.
+- يؤدي الضغط على Cmd+Enter في نظام التشغيل macOS أو Ctrl+Enter في مكان آخر إلى وضع المطالبة للتشغيل في قائمة الانتظار
+  بعد انتهاء المنعطف الحالي.
+
+تحتفظ عمليات التشغيل غير النشطة بالسلوك المتوافق: يتم إلحاق المتابعة ويتم استئناف التشغيل على الفور.
+
+وهذا يمنح Code نفس شكل المراسلة ثنائية الاتجاه التي تواجه المستخدم مثل فرق الوكلاء:
+يمكن للمستخدم الاستمرار في التحدث إلى العمل النشط، ولكن التنفيذ يستهلك ذلك فقط
+الرسالة عند نقطة استمرار آمنة. إذا لم يتمكن العداء من التوجيه على الفور، فإنه
+يجب أن يستمر في المتابعة كعمل في قائمة الانتظار بدلاً من إسقاطها أو تسابقها.
+
+## الإرسال عن بعد
+
+يمكن لسطح المكتب تعريض مشغل Code Agent المحلي لترحيل Dispatch المنتشر لذلك
+يمكن للدردشة عبر الهاتف أو Telegram بدء الجلسات ومراقبتها ومواصلتها أثناء
+الكمبيوتر نشط.
+
+الاتصال صادر فقط من سطح المكتب:
+
+1. يقترن سطح المكتب مع Dispatch ويخزن رمزًا مميزًا للجهاز محليًا.
+2. استطلاعات الرأي الطويلة على سطح المكتب `/_agent-native/integrations/remote/poll`.
+3. تقوم جلسات الهاتف المحمول وTelegram `/code` بإدراج الأوامر في قاعدة بيانات الترحيل.
+4. يطالب سطح المكتب بالأوامر، ويدير مخزن التشغيل المحلي، وينشر النتائج و
+   نسخ الأحداث مرة أخرى إلى ديسباتش.
+5. يقرأ الهاتف المحمول `hosts` و`runs` و`transcript` من Dispatch؛ لا يتحدث أبدًا
+   مباشرة إلى سطح المكتب.
+
+<Diagram id="doc-block-1qu1t9i" title={"البعيد Dispatch للخارج فقط"} summary={"لا يتحدث الهاتف المحمول مطلقًا مع سطح المكتب مباشرة. Desktop الاستقصاءات الطويلة Dispatch، يطالب بالأوامر، ويحرك مخزن التشغيل المحلي، ويعكس النتائج مرة أخرى."}>
+
+```html
+<div class="diagram-remote">
+  <div class="diagram-node" data-rough>
+    موبايل / تليجرام<br /><small class="diagram-muted">/الكود · الجلسات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Dispatch التتابع<br /><small class="diagram-muted"
+      >المضيفين · يدير · نسخة</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-node" data-rough>
+    Desktop<br /><small class="diagram-muted"
+      >استطلاعات الرأي الطويلة · المطالبات · محركات الأقراص التي تدير
+      المتجر</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-remote {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-remote .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+نقاط نهاية الترحيل عن بعد الأساسية هي:
+
+<Endpoint id="doc-block-1dqhs2o" title={"يطالب سطح المكتب بالعمل في قائمة الانتظار"} method="POST" path="/_agent-native/integrations/remote/poll" summary={"يقوم سطح المكتب باستقصاء طويل للمرحل للمطالبة بالأوامر الموضوعة في قائمة الانتظار"} auth="Desktop device token" responses={[
+  {
+    "status": "200",
+    "description": "Claimed commands for this host (may be empty after the long-poll window)."
+  }
+]}>
+
+Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.
+
+</Endpoint>
+
+| الطريقة    | المسار                                                   | المتصل                   | الغرض                                               |
+| ---------- | -------------------------------------------------------- | ------------------------ | --------------------------------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | جلسة سطح المكتب          | قم بإقران مضيف سطح المكتب وإرجاع رمز مميز مرة واحدة |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | الجوال/الجلسة            | قائمة المضيفين المقترنين                            |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | الجوال/الجلسة            | إبطال مضيف مقترن                                    |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | الجوال/الجلسة            | إبطال مضيف مقترن                                    |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | الرمز المميز لسطح المكتب | المطالبة بالعمل                                     |
+| `POST`     | `/_agent-native/integrations/remote/result`              | الرمز المميز لسطح المكتب | إكمال العمل أو فشله                                 |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | الرمز المميز لسطح المكتب | نسخة معكوسة من أحداث                                |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | الجوال/الجلسة            | قائمة الجلسات                                       |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | الجوال/الجلسة            | اقرأ ملخص الجلسة                                    |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | الجوال/الجلسة            | قراءة النص المنسوخ                                  |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | الجوال/الجلسة            | تسجيل رمز الدفع للمعرض/الجوال                       |
+
+يستخدم Telegram نفس التتابع من خلال Dispatch. الأوامر المدعومة هي:
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+## التصميم
+
+قم باستيراد ورقة أنماط الحزمة:
+
+```ts
+import "@agent-native/code-agents-ui/styles.css";
+```
+
+تستخدم ورقة الأنماط نفس خصائص HSL المخصصة لنمط shadcn مثل القوالب وقشرة سطح المكتب. فضل تغيير الرموز المميزة أو تجاوزات الفئات الصغيرة في التطبيق المضيف قبل تفرع UI المشترك.
+
+## الحدود
+
+قالب المتصفح محلي أولاً. يمكنه بدء التشغيل واستئنافه أثناء وجود خادم العقدة المحلي الخاص به. بالنسبة لدورة حياة العملية الأصلية، وتشغيل المحطة الطرفية، وطرق عرض الويب للتطبيق، استخدم سطح المكتب.

@@ -1,0 +1,86 @@
+---
+title: "Agent UX Kit"
+description: "Composer, model picker, context chips, approvals, run recovery, progress, and the runs tray."
+---
+
+# Agent UX Kit
+
+The Agent UX Kit packages the surfaces that make an app's agent feel trustworthy
+and inspectable: composer, model picker, context chips, approvals, progress,
+run recovery, and the runs tray.
+
+<WireframeBlock id="doc-block-toolkit-agent-ux">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 300px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Ask the agent</h2><div style='display:flex;flex-direction:column;gap:10px;flex:1'><div class='wf-box' style='align-self:flex-end;max-width:75%'>Draft the Q3 summary email.</div><div class='wf-box' style='max-width:80%;background:var(--wf-accent-soft)'>Here is a draft. I will need approval before sending.</div></div><div class='wf-card' style='padding:12px;display:flex;flex-direction:column;gap:10px'><span class='wf-muted'>Message the agent...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'><span data-icon='calendar'></span> Q3 Forecast</span><span class='wf-pill'>GPT-5 <span data-icon='chevronDown'></span></span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> Send</button></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Runs</strong><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='send'></span><div style='flex:1'>Generating report</div><span class='wf-pill'>Running</span></div><div class='wf-box' style='display:flex;align-items:center;gap:8px;border-color:var(--wf-accent)'><span data-icon='lock'></span><div style='flex:1'>Send email</div><button class='primary'>Approve</button></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>Synced data</div><span class='wf-muted'>Done</span></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                             | Purpose                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `<AgentSidebar>` / `<AgentPanel>` | Complete agent surfaces for sidebars, pages, and dialogs.                          |
+| `<PromptComposer>`                | Standard rich composer with attachments, references, pasted text, and voice hooks. |
+| Model picker                      | Standard model/provider choice in agent settings or composer chrome.               |
+| Context chips                     | Visible route, resource, file, and selection context sent to the agent.            |
+| Human approvals                   | Confirmation gates for sensitive or irreversible operations.                       |
+| `<RunsTray>`                      | User-visible background run progress and recovery.                                 |
+| Run recovery                      | Hydrates dropped/stale foreground and background runs back into the UI.            |
+
+## Wiring The Header {#wiring}
+
+`PromptComposer` and `RunsTray` are the two pieces most apps wire by hand
+outside the default sidebar: a standalone composer that posts into agent chat,
+plus a header trigger showing live run progress.
+
+```tsx
+import {
+  AgentToggleButton,
+  PromptComposer,
+  sendToAgentChat,
+} from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
+
+export function AgentDock() {
+  return (
+    <div className="flex flex-col gap-2 border-t p-3">
+      <header className="flex items-center gap-2">
+        <AgentToggleButton />
+        <div className="flex-1" />
+        <RunsTray />
+      </header>
+      <PromptComposer
+        onSubmit={(text, _files, _references, options) =>
+          sendToAgentChat({ message: text, model: options.model })
+        }
+      />
+    </div>
+  );
+}
+```
+
+`RunsTray` polls `/_agent-native/runs` and hides itself when idle, so it is safe
+to mount unconditionally next to `AgentToggleButton`. Use the full
+`<AgentSidebar>` instead of a bare `<PromptComposer>` when you want the whole
+chat surface, not just the input — see [Drop-in Agent](/docs/drop-in-agent).
+
+## UX Standard {#ux-standard}
+
+- Show what context the agent will use before the user sends.
+- Model and key setup should link to the Settings Kit.
+- Long-running work belongs in the runs tray, not as a frozen composer spinner.
+- Approval prompts should name the action, data, and risk before proceeding.
+- Recovered runs should be visible and explain what happened.
+
+## What's next
+
+- [**Using Your Agent**](/docs/using-your-agent) — the end-user model/composer
+  experience this kit implements.
+- [**Human Approval**](/docs/human-approval) — the approval-gate contract
+  behind approval prompts.
+- [**Progress**](/docs/progress) — the run data `<RunsTray>` polls and renders.
+- [**Native Chat UI**](/docs/native-chat-ui) — build a custom chat surface on
+  the same runtime as `<PromptComposer>`.

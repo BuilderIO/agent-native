@@ -1,0 +1,7 @@
+{
+  "name": "issues",
+  "private": true,
+  "scripts": {
+    "build": "node ../../../scripts/build-retired-netlify-site.ts issues"
+  }
+}

@@ -1,0 +1,149 @@
+---
+title: "Toolkit UI Primitives"
+description: "How to use @agent-native/toolkit UI primitives, the local app-adapter pattern, and shared shell hooks without locking apps out of customization."
+---
+
+# Toolkit UI Primitives
+
+Toolkit UI primitives live under `@agent-native/toolkit/ui/*`. They are the
+shared shadcn-style building blocks used by templates and reusable kits.
+
+<WireframeBlock id="doc-block-toolkit-ui-primitives">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:460px;box-sizing:border-box;padding:26px;display:flex;flex-direction:column;gap:16px'><h2 style='margin:0'>UI primitives</h2><div style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Buttons</small><div style='display:flex;gap:8px'><button>Cancel</button><button class='primary'>Save</button></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Input</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='search'></span><span class='wf-muted'>Search...</span></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Select</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Editor</div><span data-icon='chevronDown'></span></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Badges</small><div style='display:flex;gap:6px'><span class='wf-pill accent'>Active</span><span class='wf-pill'>Draft</span></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Dialog</small><strong>Delete file?</strong><small class='wf-muted'>This cannot be undone.</small><div style='display:flex;gap:8px;justify-content:flex-end'><button>Cancel</button><button class='primary'>Delete</button></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Menu</small><div style='display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='edit'></span> Rename</div><div style='display:flex;align-items:center;gap:8px;padding:6px 8px'><span data-icon='user'></span> Share</div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+Reusable package code can import them directly:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Dialog, DialogContent } from "@agent-native/toolkit/ui/dialog";
+```
+
+Apps that render Toolkit UI must also import the Toolkit stylesheet from
+`app/global.css` so Tailwind generates classes used only inside package
+components, such as dropdown and popover z-index and animation utilities:
+
+```css filename="app/global.css"
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+```
+
+## App adapters {#app-adapters}
+
+Template app code should import a local adapter instead of a Toolkit
+primitive directly:
+
+```tsx
+import { Button } from "@/components/ui/button";
+```
+
+Every template exposes these adapters under `@/components/ui/*`, and local
+hook adapters under `@/hooks/*` (see [Shell hooks](#shell-hooks) below). Most
+adapters are intentionally tiny — a one-line re-export:
+
+```tsx filename="app/components/ui/button.tsx"
+export * from "@agent-native/toolkit/ui/button";
+```
+
+<WireframeBlock id="doc-block-toolkit-app-adapters">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:460px;box-sizing:border-box;padding:28px;display:flex;flex-direction:column;gap:16px'><h2 style='margin:0'>One stable import path</h2><div style='display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><span class='wf-pill'>Toolkit</span><strong>@agent-native/toolkit/ui/button</strong><small class='wf-muted'>Default behavior and accessibility</small></div><span data-icon='chevronRight' style='justify-self:center'></span><div class='wf-card' style='display:flex;flex-direction:column;gap:8px;border:1.6px solid var(--wf-accent);background:var(--wf-accent-soft)'><span class='wf-pill accent'>App adapter</span><strong>@/components/ui/button</strong><small class='wf-muted'>Re-export, swap once to restyle</small></div><span data-icon='chevronRight' style='justify-self:center'></span><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><span class='wf-pill'>App screens</span><div style='display:flex;align-items:center;gap:8px'><span data-icon='settings'></span> Settings</div><div style='display:flex;align-items:center;gap:8px'><span data-icon='user'></span> Share dialog</div><div style='display:flex;align-items:center;gap:8px'><span data-icon='search'></span> Command menu</div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+This pattern gives apps a stable customization point. Reusable Toolkit code can
+ship once, while app owners can replace `Button`, `Input`, or `Dialog` locally
+without rewriting every callsite: when an app wants its own button, it
+replaces that one adapter file, and the rest of the app keeps importing
+`@/components/ui/button`.
+
+**Import rule:** inside app code, import from the local adapter
+(`@/components/ui/button`); inside Toolkit or other reusable packages, import
+directly from `@agent-native/toolkit/ui/*`. Reusable kit components that
+render app chrome should prefer reading overridable primitives from
+`ToolkitProvider` instead of importing an adapter directly — see
+[Provider overrides](#provider-overrides) below.
+
+### Provider overrides {#provider-overrides}
+
+Reusable Toolkit UI should read overridable primitives from `ToolkitProvider`
+instead of hard-coding a visual system. Templates wire their local `Button` into
+that provider so future kits automatically pick up app customization.
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { Button } from "@/components/ui/button";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <ToolkitProvider components={{ Button }}>{children}</ToolkitProvider>;
+}
+```
+
+If an app override wants to keep Toolkit's default button styling as its base,
+render `ButtonBase` from `@agent-native/toolkit/ui/button`. Do not render
+Toolkit's `Button` from inside the override; `ButtonBase` is the explicit escape
+hatch, while Toolkit's recursion guard is only a fallback.
+
+Existing template code that used direct Toolkit imports has been migrated to
+local adapters, and new template code should follow the same pattern. Toolkit
+still exports every primitive directly, so external, non-template packages can
+keep importing `@agent-native/toolkit/ui/*` without adopting local adapters.
+Core also keeps old imports working through its own re-export shims for code
+written before Toolkit adapters existed.
+
+## Shell hooks {#shell-hooks}
+
+Toolkit includes small shell helpers and hooks that are useful across apps:
+
+<WireframeBlock id="doc-block-toolkit-shell-hooks">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:460px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:200px 1fr;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong style='margin-bottom:4px'>Analytics</strong><div style='padding:6px 9px;border-radius:8px;background:var(--wf-accent-soft)'>Dashboards</div><div style='padding:6px 9px;border-radius:8px'>Reports</div><div style='padding:6px 9px;border-radius:8px'>Settings</div></aside><main style='position:relative;display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Dashboards</h2><div style='flex:1'></div><button><span data-icon='send'></span> Export</button><button class='primary'><span data-icon='plus'></span> Create</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><div style='height:11px;width:70%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:90%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:80%;background:var(--wf-line);border-radius:4px'></div></div><div class='wf-card' style='display:flex;align-items:center;gap:8px;border-color:var(--wf-accent);position:absolute;right:0;bottom:0;width:230px'><span data-icon='check'></span><div style='flex:1'>Saved changes</div><span data-icon='x'></span></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+```tsx
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+import { useIsMobile } from "@agent-native/toolkit/hooks/use-mobile";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+```
+
+Apps wrap these through the same local-adapter pattern as UI primitives (see
+[App adapters](#app-adapters) above):
+
+```ts filename="app/hooks/use-mobile.ts"
+export * from "@agent-native/toolkit/hooks/use-mobile";
+```
+
+Keep shell helpers in Toolkit when they are reusable and do not own app data.
+Keep app-specific navigation, command entries, and domain state in the template.
+
+Core remains responsible for framework-wide shell behavior such as app providers,
+agent chat, app state, auth, and runtime sync.
+
+## What's next
+
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — the hub page linking
+  every kit and foundation piece.
+- [**Sharing Kit**](/docs/toolkit-sharing) — another kit that splits Toolkit UI
+  from Core-owned runtime and access checks.
+- [**Collaboration Kit**](/docs/toolkit-collaboration) — the same Toolkit/Core
+  split applied to realtime editing and presence.
+- [**Component API**](/docs/components) — the generated reference for public
+  React exports, including the primitives covered here.
