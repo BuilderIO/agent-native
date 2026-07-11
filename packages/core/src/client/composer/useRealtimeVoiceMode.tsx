@@ -274,6 +274,21 @@ function openMicrophoneSettings(): void {
   window.location.assign(`${appPath("/settings")}#voice`);
 }
 
+export function endRealtimeVoiceBeforeNavigation(
+  end: () => void,
+  navigate: () => void,
+): void {
+  end();
+  window.setTimeout(navigate, 0);
+}
+
+export function listenForRealtimeVoicePageHide(
+  cleanup: () => void,
+): () => void {
+  window.addEventListener("pagehide", cleanup);
+  return () => window.removeEventListener("pagehide", cleanup);
+}
+
 function voiceCopy(t: ReturnType<typeof useT>): RealtimeVoiceModeCopy {
   return {
     entryButtonLabel: t("agentPanel.voiceMode.entryButtonLabel"),
@@ -819,7 +834,13 @@ function useRealtimeVoiceModeController(
       window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, onSidebarState);
   }, []);
 
-  useEffect(() => cleanupTransport, [cleanupTransport]);
+  useEffect(() => {
+    const stopListening = listenForRealtimeVoicePageHide(cleanupTransport);
+    return () => {
+      stopListening();
+      cleanupTransport();
+    };
+  }, [cleanupTransport]);
 
   return {
     state,
@@ -860,7 +881,12 @@ export function RealtimeVoiceModeProvider({
               audioLevels={voice.audioLevels}
               onToggleChat={voice.toggleChat}
               onEndVoiceMode={voice.end}
-              onOpenMicrophoneSettings={openMicrophoneSettings}
+              onOpenMicrophoneSettings={() =>
+                endRealtimeVoiceBeforeNavigation(
+                  voice.end,
+                  openMicrophoneSettings,
+                )
+              }
               errorMessage={voice.errorMessage}
             />,
             document.body,

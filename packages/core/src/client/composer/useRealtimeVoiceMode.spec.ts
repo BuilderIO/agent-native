@@ -5,10 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRealtimeVoiceSession,
   createRealtimeVoiceConnectionTimeout,
+  endRealtimeVoiceBeforeNavigation,
   executeRealtimeVoiceTool,
   extractCompletedRealtimeVoiceTranscript,
   extractRealtimeVoiceFunctionCalls,
   isRealtimeVoiceAbortError,
+  listenForRealtimeVoicePageHide,
   REALTIME_VOICE_AUDIO_CONSTRAINTS,
   shouldRestoreRealtimeVoiceTranscriptThread,
 } from "./useRealtimeVoiceMode.js";
@@ -60,6 +62,33 @@ describe("Realtime voice client transport", () => {
     expect(isRealtimeVoiceAbortError(new Error("signal was aborted"))).toBe(
       false,
     );
+  });
+
+  it("ends voice synchronously before a hard settings navigation", () => {
+    vi.useFakeTimers();
+    const calls: string[] = [];
+
+    endRealtimeVoiceBeforeNavigation(
+      () => calls.push("end"),
+      () => calls.push("navigate"),
+    );
+
+    expect(calls).toEqual(["end"]);
+    vi.runAllTimers();
+    expect(calls).toEqual(["end", "navigate"]);
+    vi.useRealTimers();
+  });
+
+  it("cleans up realtime transport when the page is hidden", () => {
+    const cleanup = vi.fn();
+    const stopListening = listenForRealtimeVoicePageHide(cleanup);
+
+    window.dispatchEvent(new Event("pagehide"));
+    expect(cleanup).toHaveBeenCalledOnce();
+
+    stopListening();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   it("creates a same-origin SDP session without exposing a provider key", async () => {
