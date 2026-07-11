@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
+import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
@@ -959,10 +959,13 @@ export async function approveRequest(
 
   const timestamp = now();
   const reviewer = ctx.ownerEmail;
+  const staleApplyingBefore = timestamp - 5 * 60 * 1000;
 
   // Fence the transition on the current status — scoped to caller's tenant —
   // so a concurrent approve can't both win: only the caller that flips
-  // pending -> applying proceeds to create the secret/grant. See
+  // pending -> applying proceeds to create the secret/grant. A crashed worker
+  // leaves an applying row behind, so a later reviewer may reclaim a lease
+  // that has been idle for five minutes. See
   // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
   // for the same pattern.
   const claimed = await db
@@ -975,7 +978,13 @@ export async function approveRequest(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
-        eq(schema.vaultRequests.status, "pending"),
+        or(
+          eq(schema.vaultRequests.status, "pending"),
+          and(
+            eq(schema.vaultRequests.status, "applying"),
+            sql`${schema.vaultRequests.updatedAt} < ${staleApplyingBefore}`,
+          ),
+        ),
       ),
     )
     .returning();

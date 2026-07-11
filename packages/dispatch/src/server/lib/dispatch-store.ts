@@ -188,8 +188,8 @@ export async function getApprovalPolicy(): Promise<DispatchApprovalPolicy> {
 async function applyApprovalPolicy(
   input: DispatchApprovalPolicy,
   actor = currentOwnerEmail(),
+  orgId = currentOrgId(),
 ) {
-  const orgId = currentOrgId();
   if (!orgId) {
     throw new Error(
       "Dispatch approval settings require an active organization",
@@ -209,7 +209,10 @@ async function applyApprovalPolicy(
     metadata: input,
     actor,
   });
-  return getApprovalPolicy();
+  return {
+    enabled: input.enabled,
+    approverEmails: input.approverEmails,
+  };
 }
 
 export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
@@ -564,6 +567,7 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
     return applyApprovalPolicy(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx.orgId,
     );
   }
   if (request.changeType === "dream-proposal.apply") {
