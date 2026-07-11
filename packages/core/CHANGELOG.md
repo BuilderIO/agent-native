@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.95.0
+
+### Minor Changes
+
+- 2308575: Add an OpenAI-compatible PR visual recap backend for DeepSeek, Kimi, and other compatible providers.
+
 ## 0.94.3
 
 ### Patch Changes
