@@ -107,6 +107,38 @@ export function canSubmitComposerContent(options: {
   );
 }
 
+export function resolveComposerPrimaryAction(options: {
+  canSubmit: boolean;
+  hasStopButton: boolean;
+}): "send" | "stop" {
+  return !options.canSubmit && options.hasStopButton ? "stop" : "send";
+}
+
+export type ContextChipBackspaceAction =
+  | { type: "select"; key: string }
+  | { type: "remove"; key: string }
+  | null;
+
+export function resolveContextChipBackspaceAction(options: {
+  contextItemKeys: string[];
+  selectedKey: string | null;
+  cursorAtStart: boolean;
+}): ContextChipBackspaceAction {
+  if (!options.cursorAtStart || options.contextItemKeys.length === 0) {
+    return null;
+  }
+  if (
+    options.selectedKey &&
+    options.contextItemKeys.includes(options.selectedKey)
+  ) {
+    return { type: "remove", key: options.selectedKey };
+  }
+  return {
+    type: "select",
+    key: options.contextItemKeys[options.contextItemKeys.length - 1],
+  };
+}
+
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
 function composerReferenceFromMentionItem(
@@ -1294,12 +1326,19 @@ export function TiptapComposer({
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const [selectedContextItemKey, setSelectedContextItemKey] = useState<
+    string | null
+  >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
     disabled,
+  });
+  const primaryAction = resolveComposerPrimaryAction({
+    canSubmit: canSend,
+    hasStopButton: Boolean(stopButton),
   });
   const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
@@ -1385,8 +1424,24 @@ export function TiptapComposer({
   onSlashCommandRef.current = onSlashCommand;
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
+  const contextItemsRef = useRef(contextItems);
+  contextItemsRef.current = contextItems;
+  const onRemoveContextItemRef = useRef(onRemoveContextItem);
+  onRemoveContextItemRef.current = onRemoveContextItem;
+  const selectedContextItemKeyRef = useRef<string | null>(null);
+  selectedContextItemKeyRef.current = selectedContextItemKey;
   const initialTextKeyRef = useRef<string | number | undefined>(undefined);
   const seenReferenceInsertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (
+      selectedContextItemKey &&
+      !contextItems.some((item) => item.key === selectedContextItemKey)
+    ) {
+      selectedContextItemKeyRef.current = null;
+      setSelectedContextItemKey(null);
+    }
+  }, [contextItems, selectedContextItemKey]);
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -1587,9 +1642,34 @@ export function TiptapComposer({
           }
         }
 
+        const { from, to } = view.state.selection;
+        const cursorAtStart = from === to && from <= 1;
+        if (event.key === "Backspace") {
+          const chipAction = resolveContextChipBackspaceAction({
+            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            selectedKey: selectedContextItemKeyRef.current,
+            cursorAtStart,
+          });
+          if (chipAction) {
+            event.preventDefault();
+            if (chipAction.type === "select") {
+              selectedContextItemKeyRef.current = chipAction.key;
+              setSelectedContextItemKey(chipAction.key);
+            } else {
+              selectedContextItemKeyRef.current = null;
+              setSelectedContextItemKey(null);
+              onRemoveContextItemRef.current?.(chipAction.key);
+            }
+            return true;
+          }
+        }
+        if (selectedContextItemKeyRef.current) {
+          selectedContextItemKeyRef.current = null;
+          setSelectedContextItemKey(null);
+        }
+
         // Backspace removes composer mode chip when editor is empty
         if (event.key === "Backspace" && composerModeRef.current) {
-          const { from, to } = view.state.selection;
           if (
             view.state.doc.textContent.trim() === "" &&
             from === to &&
@@ -2541,13 +2621,24 @@ export function TiptapComposer({
           {contextItems.map((item) => (
             <span
               key={item.key}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground"
+              data-state={
+                selectedContextItemKey === item.key ? "selected" : undefined
+              }
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium text-foreground ${
+                selectedContextItemKey === item.key
+                  ? "border-ring bg-accent ring-2 ring-ring/40"
+                  : "border-border bg-muted/50"
+              }`}
             >
               <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">{item.title}</span>
               <button
                 type="button"
-                onClick={() => onRemoveContextItem?.(item.key)}
+                onClick={() => {
+                  selectedContextItemKeyRef.current = null;
+                  setSelectedContextItemKey(null);
+                  onRemoveContextItem?.(item.key);
+                }}
                 aria-label={`Remove ${item.title} context`}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
@@ -2613,7 +2704,7 @@ export function TiptapComposer({
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            {!canSend && stopButton ? (
+            {primaryAction === "stop" ? (
               stopButton
             ) : (
               <Tooltip>

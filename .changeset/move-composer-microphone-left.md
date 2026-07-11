@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep the composer microphone to the left of custom controls such as the active-response stop button.
+Use one primary composer action while a response is running: show stop for an empty draft, restore send when the user types, and keep the microphone immediately to its left.

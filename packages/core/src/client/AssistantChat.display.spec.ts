@@ -1553,7 +1553,7 @@ describe("waitForThreadRunToClear", () => {
       encoding: "utf8",
     });
     const start = source.indexOf("visibleReconnectContent.length > 0");
-    const end = source.indexOf("{showRunningInUI &&", start);
+    const end = source.indexOf("{showGlobalRunningStatus &&", start);
     const renderSource = source.slice(start, end);
 
     expect(start).toBeGreaterThan(-1);

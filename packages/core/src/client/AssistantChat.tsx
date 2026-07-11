@@ -5189,31 +5189,31 @@ const AssistantChatInner = forwardRef<
                             onAttachmentError={setComposerError}
                             extraActionButton={
                               contextXRayEnabled ||
-                              composerExtraActionButton ||
-                              showRunningInUI ? (
+                              composerExtraActionButton ? (
                                 <>
                                   {contextXRayEnabled && (
                                     <ContextMeter threadId={threadId} />
                                   )}
                                   {composerExtraActionButton}
-                                  {showRunningInUI && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <button
-                                          type="button"
-                                          onClick={() => stopActiveRun()}
-                                          aria-label="Stop response"
-                                          className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                        >
-                                          <IconPlayerStopFilled className="h-3 w-3" />
-                                        </button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        Stop response
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
                                 </>
+                              ) : undefined
+                            }
+                            stopButton={
+                              showRunningInUI ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => stopActiveRun()}
+                                      aria-label="Stop response"
+                                      data-agent-composer-slot="stop-button"
+                                      className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                    >
+                                      <IconPlayerStopFilled className="h-3 w-3" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Stop response</TooltipContent>
+                                </Tooltip>
                               ) : undefined
                             }
                           />

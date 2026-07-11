@@ -14,6 +14,8 @@ import {
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
   MODEL_SELECTOR_POPOVER_STYLE,
+  resolveContextChipBackspaceAction,
+  resolveComposerPrimaryAction,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -78,6 +80,75 @@ describe("createTiptapComposerExtensions", () => {
         disabled: true,
       }),
     ).toBe(false);
+  });
+
+  it("uses one primary action while a response is running", () => {
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: false,
+        hasStopButton: true,
+      }),
+    ).toBe("stop");
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: true,
+        hasStopButton: true,
+      }),
+    ).toBe("send");
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: false,
+        hasStopButton: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("selects and removes context chips one Backspace at a time", () => {
+    let contextItemKeys = ["dashboard", "panel"];
+    let selectedKey: string | null = null;
+
+    const selectPanel = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(selectPanel).toEqual({ type: "select", key: "panel" });
+    selectedKey = selectPanel?.key ?? null;
+
+    const removePanel = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(removePanel).toEqual({ type: "remove", key: "panel" });
+    contextItemKeys = contextItemKeys.filter((key) => key !== removePanel?.key);
+    selectedKey = null;
+
+    const selectDashboard = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(selectDashboard).toEqual({ type: "select", key: "dashboard" });
+    selectedKey = selectDashboard?.key ?? null;
+
+    expect(
+      resolveContextChipBackspaceAction({
+        contextItemKeys,
+        selectedKey,
+        cursorAtStart: true,
+      }),
+    ).toEqual({ type: "remove", key: "dashboard" });
+  });
+
+  it("leaves context chips alone when the caret is not at the start", () => {
+    expect(
+      resolveContextChipBackspaceAction({
+        contextItemKeys: ["dashboard"],
+        selectedKey: null,
+        cursorAtStart: false,
+      }),
+    ).toBeNull();
   });
 
   it("uses a visible fallback for attachment-only composer mode prompts", () => {
