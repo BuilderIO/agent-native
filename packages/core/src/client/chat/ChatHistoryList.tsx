@@ -315,9 +315,7 @@ function ChatHistoryRow({
             )}
           </div>
           {item.subtitle != null && (
-            <div className="an-chat-history-row__subtitle">
-              {item.subtitle}
-            </div>
+            <div className="an-chat-history-row__subtitle">{item.subtitle}</div>
           )}
           {item.detail != null && (
             <div className="an-chat-history-row__detail">{item.detail}</div>
@@ -376,7 +374,9 @@ function ChatHistoryRow({
                       ) : (
                         <IconPinned size={13} strokeWidth={1.8} />
                       )}
-                      <span>{item.pinned ? "Unpin from top" : "Pin to top"}</span>
+                      <span>
+                        {item.pinned ? "Unpin from top" : "Pin to top"}
+                      </span>
                     </button>
                   )}
                   {onDelete && (

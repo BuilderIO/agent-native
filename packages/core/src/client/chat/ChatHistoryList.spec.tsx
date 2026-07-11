@@ -10,7 +10,9 @@ import {
   type ChatHistorySection,
 } from "./ChatHistoryList.js";
 
-function item(overrides: Partial<ChatHistoryItem> & { id: string }): ChatHistoryItem {
+function item(
+  overrides: Partial<ChatHistoryItem> & { id: string },
+): ChatHistoryItem {
   return {
     title: overrides.id,
     ...overrides,
@@ -72,9 +74,7 @@ describe("ChatHistoryList", () => {
     expect(container.textContent).toContain("Yesterday");
     expect(container.textContent).toContain("2 min ago");
 
-    const buttons = container.querySelectorAll(
-      ".an-chat-history-row__button",
-    );
+    const buttons = container.querySelectorAll(".an-chat-history-row__button");
     act(() => {
       (buttons[1] as HTMLButtonElement).click();
     });
@@ -117,9 +117,7 @@ describe("ChatHistoryList", () => {
     ];
 
     act(() => {
-      root.render(
-        <ChatHistoryList sections={sections} onSelect={() => {}} />,
-      );
+      root.render(<ChatHistoryList sections={sections} onSelect={() => {}} />);
     });
 
     const labels = Array.from(
@@ -215,9 +213,7 @@ describe("ChatHistoryList", () => {
     act(() => {
       root.render(<ChatHistoryList items={items} onSelect={() => {}} />);
     });
-    expect(
-      container.querySelector(".an-chat-history-row__menu"),
-    ).toBeNull();
+    expect(container.querySelector(".an-chat-history-row__menu")).toBeNull();
   });
 
   it("supports pin toggling via the row action menu", () => {

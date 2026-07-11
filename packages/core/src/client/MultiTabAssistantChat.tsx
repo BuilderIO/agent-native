@@ -597,9 +597,7 @@ function HistoryPopover({
           searchInputRef={inputRef}
           loading={isSearching}
           loadingLabel="Searching..."
-          error={
-            loadError && !search.trim() ? loadError : undefined
-          }
+          error={loadError && !search.trim() ? loadError : undefined}
           emptyLabel="No chats yet"
           emptySearchLabel="No matching chats"
           footer={

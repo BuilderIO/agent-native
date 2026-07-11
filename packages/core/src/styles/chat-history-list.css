@@ -127,7 +127,9 @@
   color: hsl(var(--muted-foreground));
 }
 
-.an-chat-history--rail .an-chat-history-row--active .an-chat-history-row__button {
+.an-chat-history--rail
+  .an-chat-history-row--active
+  .an-chat-history-row__button {
   background: hsl(var(--accent));
   color: hsl(var(--accent-foreground));
 }
@@ -154,11 +156,14 @@
   color: hsl(var(--foreground));
 }
 
-.an-chat-history--rail .an-chat-history-row--active .an-chat-history-row__title {
+.an-chat-history--rail
+  .an-chat-history-row--active
+  .an-chat-history-row__title {
   color: hsl(var(--accent-foreground));
 }
 
-.an-chat-history--rail .an-chat-history-row--pinned:not(.an-chat-history-row--active)
+.an-chat-history--rail
+  .an-chat-history-row--pinned:not(.an-chat-history-row--active)
   .an-chat-history-row__title {
   color: hsl(var(--foreground));
 }
@@ -174,7 +179,9 @@
   color: hsl(var(--muted-foreground) / 0.62);
 }
 
-.an-chat-history--rail .an-chat-history-row--active .an-chat-history-row__timestamp {
+.an-chat-history--rail
+  .an-chat-history-row--active
+  .an-chat-history-row__timestamp {
   color: hsl(var(--accent-foreground));
 }
 
@@ -243,7 +250,10 @@
   color: hsl(var(--muted-foreground) / 0.72);
   opacity: 0;
   cursor: pointer;
-  transition: background 100ms ease, color 100ms ease, opacity 100ms ease;
+  transition:
+    background 100ms ease,
+    color 100ms ease,
+    opacity 100ms ease;
 }
 
 .an-chat-history-row:hover .an-chat-history-row__menu-trigger,
