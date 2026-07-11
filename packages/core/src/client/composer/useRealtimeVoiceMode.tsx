@@ -36,6 +36,17 @@ const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
+const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
+
+export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  // Prefer the browser/OS-selected input instead of whichever physical device
+  // happens to be enumerated first. `ideal` keeps browsers without the
+  // synthetic `default` device from failing with OverconstrainedError.
+  deviceId: { ideal: "default" },
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
 
 type RealtimeServerEvent = Record<string, unknown> & { type?: string };
 
@@ -106,6 +117,22 @@ export interface RealtimeVoiceModeProviderProps {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function isRealtimeVoiceAbortError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      (error as { name?: unknown }).name === "AbortError",
+  );
+}
+
+export function createRealtimeVoiceConnectionTimeout(
+  onTimeout: () => void,
+  timeoutMs = REALTIME_VOICE_CONNECTION_TIMEOUT_MS,
+): () => void {
+  const timeout = window.setTimeout(onTimeout, timeoutMs);
+  return () => window.clearTimeout(timeout);
 }
 
 async function readErrorResponse(response: Response): Promise<string> {
@@ -304,6 +331,7 @@ function useRealtimeVoiceModeController(
   const meterFrameRef = useRef<number | null>(null);
   const lastMeterSampleRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const cancelConnectionTimeoutRef = useRef<(() => void) | null>(null);
   const handledCallsRef = useRef(new Set<string>());
   const sessionIdRef = useRef<string | undefined>(undefined);
   const startedAtRef = useRef<string | undefined>(undefined);
@@ -419,6 +447,8 @@ function useRealtimeVoiceModeController(
   );
 
   const cleanupTransport = useCallback(() => {
+    cancelConnectionTimeoutRef.current?.();
+    cancelConnectionTimeoutRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
     channelRef.current?.close();
@@ -624,14 +654,31 @@ function useRealtimeVoiceModeController(
 
     const abortController = new AbortController();
     abortRef.current = abortController;
+    const isCurrentAttempt = () =>
+      abortRef.current === abortController && !abortController.signal.aborted;
+    const markConnected = () => {
+      if (!isCurrentAttempt()) return;
+      cancelConnectionTimeoutRef.current?.();
+      cancelConnectionTimeoutRef.current = null;
+      transition("listening");
+    };
+    cancelConnectionTimeoutRef.current = createRealtimeVoiceConnectionTimeout(
+      () => {
+        if (!isCurrentAttempt()) return;
+        fail(
+          copy?.errors.connectionFailed ??
+            "The realtime voice connection timed out.",
+        );
+      },
+    );
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: REALTIME_VOICE_AUDIO_CONSTRAINTS,
       });
+      if (!isCurrentAttempt()) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
       streamRef.current = stream;
       attachAudioMeter(stream, "input");
 
@@ -652,21 +699,25 @@ function useRealtimeVoiceModeController(
 
       const channel = peer.createDataChannel("oai-events");
       channelRef.current = channel;
-      channel.onopen = () => transition("listening");
+      channel.onopen = markConnected;
       channel.onmessage = (messageEvent) => {
+        if (!isCurrentAttempt()) return;
         try {
           handleServerEvent(JSON.parse(String(messageEvent.data)));
         } catch {
           // Ignore malformed provider events without ending a healthy call.
         }
       };
-      channel.onerror = () =>
+      channel.onerror = () => {
+        if (!isCurrentAttempt()) return;
         fail(
           copy?.errors.channelDisconnected ??
             "The realtime voice control channel disconnected.",
         );
+      };
       peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "connected") transition("listening");
+        if (!isCurrentAttempt()) return;
+        if (peer.connectionState === "connected") markConnected();
         if (peer.connectionState === "failed") {
           fail(
             copy?.errors.connectionFailed ??
@@ -676,7 +727,9 @@ function useRealtimeVoiceModeController(
       };
 
       const offer = await peer.createOffer();
+      if (!isCurrentAttempt()) return;
       await peer.setLocalDescription(offer);
+      if (!isCurrentAttempt()) return;
       if (!offer.sdp) {
         throw new Error(
           copy?.errors.offerFailed ??
@@ -687,8 +740,19 @@ function useRealtimeVoiceModeController(
         browserTabId,
         signal: abortController.signal,
       });
+      if (!isCurrentAttempt()) return;
       await peer.setRemoteDescription({ type: "answer", sdp: answerSdp });
     } catch (startError) {
+      // Ending a connection aborts the SDP request by design. A superseded
+      // attempt must never resurrect the dock or surface that cancellation as
+      // an error after cleanup.
+      if (
+        isRealtimeVoiceAbortError(startError) ||
+        abortController.signal.aborted ||
+        abortRef.current !== abortController
+      ) {
+        return;
+      }
       const status = (startError as { status?: unknown })?.status;
       fail(errorMessage(startError), { openKeySettings: status === 400 });
     }

@@ -234,6 +234,9 @@ import {
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
+import { DatabaseGalleryView } from "./GalleryView";
+import { DatabaseListView } from "./ListView";
+import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
   databaseId: string;
@@ -288,7 +291,7 @@ export type PersonalDatabaseViewOverrides =
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
-function dbText(
+export function dbText(
   key: DatabaseMessageKey,
   values?: Record<string, string | number>,
 ): string {
@@ -307,7 +310,7 @@ function dbText(
   );
 }
 
-type CreateDatabaseRowHandler = (
+export type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
 type DatabaseDragPreviewState =
@@ -438,7 +441,7 @@ export function databaseItemPageIconText(
   return icon ? icon : null;
 }
 
-function DatabaseItemPageIcon({
+export function DatabaseItemPageIcon({
   document,
   className,
   fallbackClassName,
@@ -9467,7 +9470,7 @@ export function databaseViewHasNoMatchingPages(
   return visibleCount === 0 && (hasSearch || activeFilterCount > 0);
 }
 
-function DatabaseNoMatchingPages({
+export function DatabaseNoMatchingPages({
   label = "No pages match this view",
   className,
   onClear,
@@ -9519,6 +9522,38 @@ function DatabaseConstraintChip({
         <IconX className="size-3.5" />
       </button>
     </span>
+  );
+}
+
+export function DatabaseGroupHeader({
+  group,
+  collapsed,
+  onCollapsedChange,
+}: {
+  group: DatabaseBoardGroup;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex min-h-9 w-full items-center gap-2 border-t border-border bg-muted/30 px-2 text-left text-xs text-muted-foreground hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-expanded={!collapsed}
+      onClick={() => onCollapsedChange(!collapsed)}
+    >
+      <IconChevronRight
+        className={cn(
+          "size-3.5 shrink-0 transition-transform",
+          !collapsed && "rotate-90",
+        )}
+      />
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {group.label}
+      </span>
+      <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
+        {group.items.length}
+      </span>
+    </button>
   );
 }
 
@@ -9794,7 +9829,7 @@ function DatabaseCalendarView({
   );
 }
 
-function DatabaseDateViewNoDateSection({
+export function DatabaseDateViewNoDateSection({
   items,
   databaseDocumentId,
   properties,
@@ -11742,7 +11777,7 @@ function databaseBoardGroupingProperty(
   );
 }
 
-function databaseViewGroupingProperty(
+export function databaseViewGroupingProperty(
   view: Pick<ContentDatabaseView, "groupByPropertyId" | "type">,
   properties: DocumentProperty[],
 ) {
@@ -11857,7 +11892,7 @@ export function databaseTimelineDays(anchorDate: Date) {
   return databaseCalendarMonthDays(anchorDate);
 }
 
-function databaseTimelineEndDateProperty(
+export function databaseTimelineEndDateProperty(
   view: Pick<ContentDatabaseView, "endDatePropertyId">,
   properties: DocumentProperty[],
   startPropertyId?: string | null,
@@ -12097,7 +12132,7 @@ export function databaseBulkMultiSelectFilteredOptions(
   );
 }
 
-function databaseTimelineRangeLabel(days: Date[]) {
+export function databaseTimelineRangeLabel(days: Date[]) {
   const first = days[0] ?? new Date();
   const last = days[days.length - 1] ?? first;
   const sameYear = first.getFullYear() === last.getFullYear();
@@ -12230,7 +12265,7 @@ export function databaseItemsWithoutDateValue(
   });
 }
 
-function startOfMonth(date: Date) {
+export function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
@@ -15988,7 +16023,7 @@ function DatabaseTableRow({
   );
 }
 
-function RowActionsCell({
+export function RowActionsCell({
   item,
   databaseDocumentId,
   onPreviewItem,

@@ -218,38 +218,6 @@ function DatabaseGroupedListSection({
   );
 }
 
-function DatabaseGroupHeader({
-  group,
-  collapsed,
-  onCollapsedChange,
-}: {
-  group: DatabaseBoardGroup;
-  collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="flex min-h-9 w-full items-center gap-2 border-t border-border bg-muted/30 px-2 text-left text-xs text-muted-foreground hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-expanded={!collapsed}
-      onClick={() => onCollapsedChange(!collapsed)}
-    >
-      <IconChevronRight
-        className={cn(
-          "size-3.5 shrink-0 transition-transform",
-          !collapsed && "rotate-90",
-        )}
-      />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {group.label}
-      </span>
-      <span className="rounded bg-background px-1.5 py-0.5 text-[11px]">
-        {group.items.length}
-      </span>
-    </button>
-  );
-}
-
 function DatabaseListRow({
   item,
   properties,

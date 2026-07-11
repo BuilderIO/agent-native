@@ -7563,289 +7563,43 @@ async function controlCodeAgentRun(
   };
 }
 
-ipcMain.handle(
-  IPC.CLIPBOARD_WRITE_TEXT,
-  (_event: IpcMainInvokeEvent, text: unknown): boolean => {
-    if (typeof text !== "string" || text.length === 0) return false;
-    clipboard.writeText(text);
-    return true;
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_RUNS,
-  (
-    _event: IpcMainInvokeEvent,
-    goalId?: string,
-  ): Promise<CodeAgentRunListResult> => {
-    const goal = getCodeAgentGoal(goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task");
-    if (!goal) {
-      return Promise.resolve({
-        status: "unavailable",
-        goalId,
-        runs: [],
-        error: `Unknown Agent-Native Code goal: ${goalId}`,
-      });
-    }
-    const runs = listDesktopCodeAgentRuns(goal.id);
-    return Promise.resolve({
-      status: "ok",
-      goalId: goal.id,
-      runs,
-    });
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CREATE_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MODELS,
-  (): CodeAgentModelListResult => getCodeAgentModelList(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_READ_TRANSCRIPT,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentTranscriptResult =>
-    readCodeAgentTranscript(input),
-);
-
-ipcMain.on(
-  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (event: IpcMainEvent, input: unknown) => {
-    const payload = isObject(input) ? input : {};
-    const subscriptionId =
-      firstStringValue(payload.subscriptionId) ??
-      `subscription-${timestampSlug(new Date().toISOString())}-${randomUUID().slice(0, 8)}`;
-    const request = isObject(payload.request) ? payload.request : payload;
-    const runId = normalizeCodeAgentRunId(request.runId);
-    if (!runId) {
-      event.sender.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
-        subscriptionId,
-        status: "unavailable",
-        runId: "",
-        events: [],
-        error: "Missing or invalid run id.",
-      } satisfies CodeAgentTranscriptSubscriptionBatch);
-      return;
-    }
-
-    removeCodeAgentTranscriptSubscription(subscriptionId);
-    const subscription: CodeAgentTranscriptSubscription = {
-      id: subscriptionId,
-      runId,
-      senderId: event.sender.id,
-      knownEventKeys: new Set(),
-    };
-    const result = initializeCodeAgentTranscriptSubscriptionKeys(subscription);
-    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription);
-    watchCodeAgentTranscriptSubscription(subscription);
-    event.sender.once("destroyed", () => {
-      removeCodeAgentTranscriptSubscription(subscriptionId);
-    });
-    if (result.status !== "ok" || result.error) {
-      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
-        status: result.status,
-        runId: result.runId ?? runId,
-        events: [],
-        eventFile: result.eventFile,
-        reason: "subscribe",
-        error: result.error,
-      });
-    }
-  },
-);
-
-ipcMain.on(
-  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (_event: IpcMainEvent, input: unknown) => {
-    const subscriptionId = isObject(input)
-      ? firstStringValue(input.subscriptionId)
-      : firstStringValue(input);
-    if (subscriptionId) removeCodeAgentTranscriptSubscription(subscriptionId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentFollowUpResult> => appendCodeAgentFollowUp(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_UPDATE_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentUpdateRunResult =>
-    updateCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RETRY_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRetryRunResult =>
-    retryCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RERUN_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): Promise<CodeAgentRerunResult> =>
-    rerunCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CONTROL_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentControlResult> => controlCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_GET_HOST_METADATA,
-  (): CodeAgentHostMetadata => getCodeAgentHostMetadata(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_COMPUTER_SETUP,
-  (_event: IpcMainInvokeEvent, action: unknown) =>
-    runComputerSetupAction(action, {
-      platform: process.platform,
-      requestAccessibility: () =>
-        requestAccessibilityPermission(systemPreferences),
-      requestScreenRecording: async () => {
-        await desktopCapturer.getSources({
-          types: ["screen"],
-          thumbnailSize: { width: 1, height: 1 },
-        });
-        return (
-          getComputerPermissionStatus(systemPreferences).screenRecording ===
-          "granted"
-        );
-      },
-      openExternal: (url) => shell.openExternal(url),
-      extensionPath: getBundledChromeExtensionPath,
-      pathExists: fs.existsSync,
-      revealExtensionFolder: async (extensionPath) => {
-        const openError = await shell.openPath(extensionPath);
-        if (openError) throw new Error(openError);
-      },
-      openChromeExtensions: () => {
-        const chrome = spawnSync(
-          "open",
-          ["-a", "Google Chrome", "chrome://extensions/"],
-          { encoding: "utf8", stdio: "ignore" },
-        );
-        if (chrome.error || chrome.status !== 0) {
-          throw chrome.error ?? new Error("Google Chrome could not be opened.");
-        }
-      },
-      restart: () => {
-        setTimeout(() => {
-          app.relaunch();
-          app.exit(0);
-        }, 250);
-      },
-    }),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
-  (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): CodeAgentProviderSettingsUpdateResult =>
-    updateCodeAgentProviderSettings(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
-  (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-    connectDesktopBuilderProvider(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_CODE_PACKS,
-  (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentCodePackResult =>
-    listCodeAgentProjectPacks(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_PROJECTS,
-  (): CodeAgentProjectListResult => listCodeAgentProjects(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_SELECT_PROJECT,
-  (
-    _event: IpcMainInvokeEvent,
-    folderPath: unknown,
-  ): CodeAgentProjectSelectResult => {
-    if (typeof folderPath === "string")
-      return upsertCodeAgentProject(folderPath);
-    const state = readCodeAgentProjectsState();
-    return {
-      ok: false,
-      projects: state.projects,
-      selectedPath: state.selectedPath,
-      error: "Missing project folder.",
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CHOOSE_PROJECT,
-  (): Promise<CodeAgentProjectSelectResult> => chooseCodeAgentProject(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MIGRATION_RUNS,
-  (): Promise<CodeAgentRunListResult> =>
-    Promise.resolve({
-      status: "ok",
-      goalId: "migrate",
-      runs: listDesktopCodeAgentRuns("migrate"),
-    }),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_OPEN_TERMINAL,
-  (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
-    return openTerminalForCodeAgents(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus => getRemoteConnectorStatus(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED,
-  (
-    _event: IpcMainInvokeEvent,
-    enabled: unknown,
-  ): CodeAgentRemoteConnectorControlResult =>
-    setRemoteConnectorEnabled(Boolean(enabled)),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentRemoteConnectorPairResult> =>
-    pairRemoteCodeAgentConnector(input),
-);
+// ---------- IPC: Clipboard + Agent-Native Code (background code agents) ----------
+// See main/ipc/code-agents.ts.
+registerCodeAgentsIpc({
+  isObject,
+  firstStringValue,
+  timestampSlug,
+  normalizeCodeAgentRunId,
+  listDesktopCodeAgentRuns,
+  createCodeAgentRun,
+  getCodeAgentModelList,
+  readCodeAgentTranscript,
+  removeCodeAgentTranscriptSubscription,
+  initializeCodeAgentTranscriptSubscriptionKeys,
+  watchCodeAgentTranscriptSubscription,
+  setCodeAgentTranscriptSubscription: (subscriptionId, subscription) =>
+    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
+  sendCodeAgentTranscriptSubscriptionBatch,
+  appendCodeAgentFollowUp,
+  updateCodeAgentRun,
+  retryCodeAgentRun,
+  rerunCodeAgentRun,
+  controlCodeAgentRun,
+  getCodeAgentHostMetadata,
+  getBundledChromeExtensionPath,
+  getCodeAgentProviderSettings,
+  updateCodeAgentProviderSettings,
+  connectDesktopBuilderProvider,
+  listCodeAgentProjectPacks,
+  listCodeAgentProjects,
+  upsertCodeAgentProject,
+  readCodeAgentProjectsState,
+  chooseCodeAgentProject,
+  openTerminalForCodeAgents,
+  getRemoteConnectorStatus,
+  setRemoteConnectorEnabled,
+  pairRemoteCodeAgentConnector,
+});
 
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
@@ -8050,349 +7804,66 @@ function installContextMenu(contents: Electron.WebContents) {
 }
 
 // ---------- IPC: Window controls ----------
-
-ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize();
-});
-
-ipcMain.on(IPC.WINDOW_MAXIMIZE, (event: IpcMainEvent) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  win.isMaximized() ? win.restore() : win.maximize();
-});
-
-ipcMain.on(IPC.WINDOW_CLOSE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.close();
-});
-
-ipcMain.handle(
-  IPC.WINDOW_IS_MAXIMIZED,
-  (event: IpcMainInvokeEvent): boolean => {
-    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
-  },
-);
+// See main/ipc/window.ts.
+registerWindowIpc();
 
 // ---------- IPC: App config management ----------
-
-ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
-  return AppStore.loadApps();
+// See main/ipc/apps.ts.
+registerAppsIpc({
+  getManagedDesktopAppIds: () => Array.from(managedDesktopAppProcesses.keys()),
+  stopManagedDesktopApp,
+  refreshDesktopShortcutBindings,
+  chooseLocalAppFolder,
+  desktopAppCreationSettings,
+  normalizeDesktopAppsRoot,
+  createDesktopAppFromPrompt,
+  showDesktopAppContextMenu,
 });
 
-ipcMain.handle(
-  IPC.APPS_ADD,
-  (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
-    const apps = AppStore.addApp(app);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
-    stopManagedDesktopApp(id);
-    const apps = AppStore.removeApp(id);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    id: string,
-    updates: Partial<AppConfig>,
-  ): AppConfig[] => {
-    const apps = AppStore.updateApp(id, updates);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_REORDER,
-  (
-    _event: IpcMainInvokeEvent,
-    id: string,
-    direction: "up" | "down",
-  ): AppConfig[] => AppStore.reorderApp(id, direction),
-);
-
-ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
-  for (const appId of managedDesktopAppProcesses.keys()) {
-    stopManagedDesktopApp(appId);
-  }
-  const apps = AppStore.resetToDefaults();
-  refreshDesktopShortcutBindings();
-  return apps;
+// See main/ipc/plan-files.ts.
+registerPlanFilesIpc({
+  requirePlanFilesWebviewAccess,
+  normalizePlanFilesRequestPlanId,
+  getPlanFilesGrant,
+  planFilesFolderInfo,
+  collectLocalControlResources,
+  choosePlanFilesFolder,
+  writePlanFilesForRequest,
+  readPlanFilesForRequest,
+  clearPlanFilesGrant,
 });
 
-ipcMain.handle(
-  IPC.APPS_CHOOSE_LOCAL_FOLDER,
-  (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
-);
-
-ipcMain.handle(
-  IPC.APPS_GET_CREATION_SETTINGS,
-  (): DesktopAppCreationSettings => desktopAppCreationSettings(),
-);
-
-ipcMain.handle(
-  IPC.APPS_UPDATE_CREATION_SETTINGS,
-  (
-    _event: IpcMainInvokeEvent,
-    settings: Partial<DesktopAppCreationSettings>,
-  ): DesktopAppCreationSettings => {
-    const appsRoot = normalizeDesktopAppsRoot(settings?.appsRoot);
-    if (!appsRoot) return desktopAppCreationSettings();
-    AppStore.saveDesktopAppPreferences({ appsRoot });
-    return { appsRoot };
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_CREATE_FROM_PROMPT,
-  (
-    _event: IpcMainInvokeEvent,
-    input: DesktopCreateAppRequest,
-  ): Promise<DesktopCreateAppResult> => createDesktopAppFromPrompt(input),
-);
-
-ipcMain.handle(
-  IPC.APPS_SHOW_CONTEXT_MENU,
-  (
-    _event: IpcMainInvokeEvent,
-    appId: string,
-  ): Promise<DesktopAppContextAction | null> =>
-    showDesktopAppContextMenu(appId),
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    const grant = getPlanFilesGrant(planId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: planFilesFolderInfo(planId, grant),
-      controlResources: await collectLocalControlResources(grant.path),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CHOOSE_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesChooseFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return choosePlanFilesFolder(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesWriteRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writePlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesReadRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readPlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesClearFolderRequest,
-  ): DesktopPlanFilesResult => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    return clearPlanFilesGrant(planId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    const grants = getContentFilesGrants();
-    const grant = getContentFilesGrant(request.folderId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: contentFilesFolderInfo(grant),
-      folders: contentFilesFoldersInfo(grants),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CHOOSE_FOLDER,
-  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return chooseContentFilesFolder();
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_DELETE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileDeleteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return deleteContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_REVEAL_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileRevealRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return revealContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesClearFolderRequest = {},
-  ): DesktopContentFilesResult => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    return clearContentFilesGrant(request.folderId);
-  },
-);
+// See main/ipc/content-files.ts.
+registerContentFilesIpc({
+  requireContentFilesWebviewAccess,
+  getContentFilesGrants,
+  getContentFilesGrant,
+  contentFilesFolderInfo,
+  contentFilesFoldersInfo,
+  chooseContentFilesFolder,
+  writeContentFilesForRequest,
+  writeContentFileForRequest,
+  deleteContentFileForRequest,
+  readContentFilesForRequest,
+  revealContentFileForRequest,
+  clearContentFilesGrant,
+});
 
 // ---------- IPC: Frame settings ----------
-
-ipcMain.handle(IPC.FRAME_LOAD, () => {
-  return AppStore.loadFrameSettings();
-});
-
-ipcMain.handle(
-  IPC.FRAME_UPDATE,
-  (_event: IpcMainInvokeEvent, settings: Partial<AppStore.FrameSettings>) => {
-    return AppStore.saveFrameSettings(settings);
-  },
-);
+// See main/ipc/frame.ts.
+registerFrameIpc();
 
 // ---------- IPC: Local app-launch shortcuts ----------
-
-ipcMain.handle(IPC.SHORTCUTS_LOAD, (): DesktopShortcutSettings => {
-  return getDesktopShortcutSettings();
+// See main/ipc/shortcuts.ts.
+registerShortcutsIpc({
+  getDesktopShortcutSettings,
+  registerDesktopShortcutBindings,
 });
-
-ipcMain.handle(
-  IPC.SHORTCUTS_UPSERT,
-  (
-    _event: IpcMainInvokeEvent,
-    request: DesktopShortcutUpsertRequest,
-  ): DesktopShortcutUpdateResult => {
-    const result = AppStore.upsertDesktopShortcutBinding(request);
-    if (!result.ok) {
-      return {
-        ok: false,
-        settings: getDesktopShortcutSettings(),
-        error: result.error,
-      };
-    }
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
-
-ipcMain.handle(
-  IPC.SHORTCUTS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): DesktopShortcutUpdateResult => {
-    AppStore.removeDesktopShortcutBinding(id);
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
 
 // ---------- IPC: Inter-app message relay ----------
-// Routes messages from one app to all renderer windows so webviews can forward them.
-
-ipcMain.on(IPC.INTER_APP_SEND, (_event: IpcMainEvent, msg: InterAppMessage) => {
-  BrowserWindow.getAllWindows().forEach((win) => {
-    win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
-  });
-});
+// Routes messages from one app to all renderer windows so webviews can forward
+// them. See main/ipc/inter-app.ts.
+registerInterAppIpc();
 
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the

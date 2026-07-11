@@ -72,6 +72,10 @@ export interface CodeAgentsIpcDeps {
     subscriptionId: string,
     subscription: CodeAgentTranscriptSubscription,
   ) => void;
+  sendCodeAgentTranscriptSubscriptionBatch: (
+    subscription: CodeAgentTranscriptSubscription,
+    batch: Omit<CodeAgentTranscriptSubscriptionBatch, "subscriptionId">,
+  ) => void;
   appendCodeAgentFollowUp: (input: unknown) => Promise<CodeAgentFollowUpResult>;
   updateCodeAgentRun: (input: unknown) => CodeAgentUpdateRunResult;
   retryCodeAgentRun: (input: unknown) => CodeAgentRetryRunResult;
@@ -122,6 +126,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     initializeCodeAgentTranscriptSubscriptionKeys,
     watchCodeAgentTranscriptSubscription,
     setCodeAgentTranscriptSubscription,
+    sendCodeAgentTranscriptSubscriptionBatch,
     appendCodeAgentFollowUp,
     updateCodeAgentRun,
     retryCodeAgentRun,
@@ -229,15 +234,14 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
         removeCodeAgentTranscriptSubscription(subscriptionId);
       });
       if (result.status !== "ok" || result.error) {
-        event.sender.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
-          subscriptionId,
+        sendCodeAgentTranscriptSubscriptionBatch(subscription, {
           status: result.status,
           runId: result.runId ?? runId,
           events: [],
           eventFile: result.eventFile,
           reason: "subscribe",
           error: result.error,
-        } satisfies CodeAgentTranscriptSubscriptionBatch);
+        });
       }
     },
   );
