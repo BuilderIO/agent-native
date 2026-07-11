@@ -638,94 +638,14 @@ export { assembleA2AFinalResponse };
  * The agent calls this on-demand when it needs specifics about embeds,
  * agent teams, recurring jobs, etc.
  */
-function createFrameworkContextEntry(): Record<string, ActionEntry> {
-  const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
-  return {
-    "get-framework-context": {
-      tool: {
-        description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
-        parameters: {
-          type: "object" as const,
-          properties: {
-            topic: {
-              type: "string",
-              description: `Topic to read. One of: ${topicList}, or "all" for everything.`,
-            },
-          },
-          required: ["topic"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        const topic = String(args.topic ?? "all").toLowerCase();
-        if (topic === "all") {
-          return Object.values(FRAMEWORK_CONTEXT_SECTIONS).join("\n\n");
-        }
-        const section = FRAMEWORK_CONTEXT_SECTIONS[topic];
-        if (!section) {
-          return `Unknown topic "${topic}". Available: ${topicList}`;
-        }
-        return section;
-      },
-      readOnly: true,
-    },
-  };
-}
-
-/**
- * Creates the `refresh-screen` tool. Writes a bump to `application_state`
- * under a well-known key; the client's `useDbSync` watches for this and
- * invalidates react-query caches so the on-screen UI re-fetches its data
- * without a full page reload.
- *
- * This is the standard way for the agent to say "the data on the screen
- * just changed, please refresh it" — e.g. after editing a dashboard config,
- * updating a form schema, or mutating a row that the current view renders.
- */
-function createRefreshScreenEntry(): Record<string, ActionEntry> {
-  return {
-    "refresh-screen": {
-      // Writes __screen_refresh__ to application_state, which emits its own
-      // distinct `screen-refresh` poll event. Don't double-emit a generic
-      // `action` event on top of that.
-      readOnly: true,
-      tool: {
-        description:
-          "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions and any enabled raw DB write tools) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",
-        parameters: {
-          type: "object",
-          properties: {
-            scope: {
-              type: "string",
-              description:
-                "Optional hint describing what changed (e.g. 'dashboard', 'form', 'settings'). Templates may use it to narrow which queries to invalidate; if omitted, all queries are invalidated.",
-            },
-          },
-        },
-      },
-      run: async (args) => {
-        const { writeAppState } =
-          await import("../application-state/script-helpers.js");
-        const nonce = Date.now();
-        const scope = typeof args?.scope === "string" ? args.scope : undefined;
-        await writeAppState(SCREEN_REFRESH_KEY, {
-          nonce,
-          ...(scope ? { scope } : {}),
-        });
-        return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
-      },
-    },
-  };
-}
-
-/** Well-known application-state key used by the refresh-screen tool. */
-const SCREEN_REFRESH_KEY = "__screen_refresh__";
-const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-
-function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
-  if (typeof browserTabId !== "string") return key;
-  const trimmed = browserTabId.trim();
-  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
-}
+import {
+  FRAMEWORK_CONTEXT_SECTIONS,
+  createFrameworkContextEntry,
+  createRefreshScreenEntry,
+  appStateKeyForBrowserTab,
+  createUrlTools,
+  createDataWidgetActionEntries,
+} from "./agent-chat/context-tools.js";
 
 /**
  * In-memory rate-limit tracker for `/generate-title`. Keyed by user email,
