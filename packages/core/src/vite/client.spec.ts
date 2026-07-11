@@ -918,6 +918,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
+    expect(code).toContain("export const useMessagePartReasoning = stub;");
   });
 });
 

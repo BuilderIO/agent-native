@@ -69,6 +69,18 @@ async function resolveOwner(event: H3Event): Promise<string> {
   return session.email;
 }
 
+function canManageExperiments(ownerEmail: string): boolean {
+  // Local development keeps the built-in dashboard usable without additional
+  // setup. Hosted deployments fail closed unless the operator supplies an
+  // explicit allowlist, because experiments affect every user in the app.
+  if (process.env.NODE_ENV !== "production") return true;
+  const admins = (process.env.AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return admins.includes(ownerEmail.trim().toLowerCase());
+}
+
 function parseSince(q: Record<string, any>): number {
   const raw = q.since;
   if (typeof raw === "string" && raw.length > 0) {
@@ -234,6 +246,11 @@ export function createObservabilityHandler() {
     ) {
       const q = getQuery(event);
       return getEvalStats(parseSince(q), { userId: owner });
+    }
+
+    if (parts[0] === "experiments" && !canManageExperiments(owner)) {
+      setResponseStatus(event, 403);
+      return { error: "Experiment administrator access required" };
     }
 
     // POST /experiments — create experiment. Records the calling user as

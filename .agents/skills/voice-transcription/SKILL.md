@@ -41,9 +41,13 @@ shared agent sidebar.
 ## Realtime speech mode
 
 Realtime speech mode is a full-duplex OpenAI Realtime WebRTC session, separate
-from the dictation providers below. It requires the authenticated user's
-`OPENAI_API_KEY`, uses the server-owned `gpt-realtime-2.1` session
-configuration, and keeps the key out of browser code.
+from the dictation providers below. It prefers the authenticated user's
+complete Builder connection and the Builder-managed metered gateway. A scoped
+`OPENAI_API_KEY` is the fallback when Builder is not connected. The server owns
+the `gpt-realtime-2.1` session configuration and keeps credentials out of
+browser code. If neither provider is configured, show **Connect Builder** as
+the primary microphone-popover action and OpenAI key setup as the secondary
+action before requesting microphone permission.
 
 - Starting voice mode collapses the chat into a persistent bottom-end speech
   orb. The orb stays visible above the chat even when the chat opens
@@ -169,7 +173,7 @@ client.
 
 Templates can:
 - **Disable the mic**: pass `voiceEnabled={false}` to `TiptapComposer`.
-- **Replace the button**: wrap `TiptapComposer` and render your own `extraActionButton` (the framework mic sits between `extraActionButton` and the send button).
+- **Replace the button**: wrap `TiptapComposer` and render your own `extraActionButton`; the framework mic stays immediately before the primary send/stop control. Use `stopButton` for an active-run control so the disabled send button becomes stop when the draft is empty and returns when the user types.
 - **Pre-register provider keys as `required: true`**: call `registerRequiredSecret(...)` from your own server plugin when a template needs a specific BYOK provider in onboarding.
 
 ## Don'ts

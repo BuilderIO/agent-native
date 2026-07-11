@@ -4,7 +4,7 @@
  * Search or list past agent chat threads.
  *
  * Usage:
- *   pnpm action search-chats [--query "search term"] [--limit N] [--format json]
+ *   pnpm action search-chats [--query "search term"] [--limit N] [--format json] [--includeArchived]
  */
 
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
@@ -40,15 +40,17 @@ export default async function searchChats(args: string[]): Promise<void> {
     console.log(`Usage: pnpm action search-chats [options]
 
 Options:
-  --query <text>  Search chats by title, preview, or content
-  --limit N       Max results (default: 20)
-  --format json   Output as JSON
-  --help          Show this help message
+  --query <text>       Search chats by title, preview, or content
+  --limit N            Max results (default: 20)
+  --format json        Output as JSON
+  --includeArchived    Also include archived chats (excluded by default)
+  --help               Show this help message
 
 Examples:
   pnpm action search-chats --query "email setup"
   pnpm action search-chats --limit 5
-  pnpm action search-chats --format json`);
+  pnpm action search-chats --format json
+  pnpm action search-chats --includeArchived`);
     return;
   }
 
@@ -56,10 +58,11 @@ Examples:
   const limit = parsed.limit ? parseInt(parsed.limit, 10) : 20;
   if (isNaN(limit) || limit < 1) fail("--limit must be a positive integer");
 
+  const includeArchived = parsed.includeArchived === "true";
   const query = parsed.query;
   const threads = query
-    ? await searchThreads(owner, query, limit)
-    : await listThreads(owner, limit, 0);
+    ? await searchThreads(owner, query, limit, { includeArchived })
+    : await listThreads(owner, { limit, offset: 0, includeArchived });
 
   if (parsed.format === "json") {
     console.log(

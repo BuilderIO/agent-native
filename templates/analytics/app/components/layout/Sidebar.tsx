@@ -1295,7 +1295,7 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection() {
+function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1439,8 +1439,9 @@ function AnalyticsChatsSection() {
       {visibleThreads.map((thread) => {
         const title = threadTitle(thread, t("chat.untitledChat"));
         const isActive =
-          thread.id === activeThreadId ||
-          thread.id === persistedAnalyticsThreadId();
+          isAskRoute &&
+          (thread.id === activeThreadId ||
+            thread.id === persistedAnalyticsThreadId());
         const isRenaming = thread.id === renamingThreadId;
         return (
           <div
@@ -2592,7 +2593,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection />}
+                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
               </div>
 
               {/* Sessions link */}

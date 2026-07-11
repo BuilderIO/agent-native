@@ -431,6 +431,101 @@ describe("chat thread store", () => {
     expect(result[0].messageCount).toBe(1);
   });
 
+  it("excludes archived threads from list/search by default, includes them via includeArchived, and restores them on unarchive", async () => {
+    const activeRow: ChatThreadRow = {
+      id: "thread-active",
+      owner_email: "user@example.com",
+      title: "Active Thread",
+      preview: "hello there",
+      thread_data: "{}",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    const archivedRow: ChatThreadRow = {
+      ...activeRow,
+      id: "thread-archived",
+      title: "Archived Thread",
+      archived_at: 5,
+    };
+    const rowsById = new Map<string, ChatThreadRow>([
+      [activeRow.id, activeRow],
+      [archivedRow.id, archivedRow],
+    ]);
+
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/UPDATE chat_threads SET archived_at/i.test(sql)) {
+        const target = rowsById.get(args[1] as string);
+        if (!target) return { rows: [], rowsAffected: 0 };
+        target.archived_at = args[0] as number | null;
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        const all = Array.from(rowsById.values());
+        const filtered = /archived_at IS NULL/i.test(sql)
+          ? all.filter((r) => r.archived_at == null)
+          : all;
+        return { rows: filtered, rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    // Default: archived thread is hidden from listThreads.
+    const defaultList = await listThreads("user@example.com", { limit: 10 });
+    expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
+
+    // includeArchived: true surfaces it again.
+    const listWithArchived = await listThreads("user@example.com", {
+      limit: 10,
+      includeArchived: true,
+    });
+    expect(listWithArchived.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+
+    // Default: archived thread is hidden from searchThreads.
+    const defaultSearch = await searchThreads("user@example.com", "Thread");
+    expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
+
+    // includeArchived: true surfaces it in search too.
+    const searchWithArchived = await searchThreads(
+      "user@example.com",
+      "Thread",
+      50,
+      { includeArchived: true },
+    );
+    expect(searchWithArchived.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+
+    // Unarchiving restores the thread to the default list.
+    const unarchived = await setThreadArchived("thread-archived", false);
+    expect(unarchived).toBe(true);
+    expect(archivedRow.archived_at).toBeNull();
+    const afterUnarchive = await listThreads("user@example.com", {
+      limit: 10,
+    });
+    expect(afterUnarchive.map((t) => t.id).sort()).toEqual([
+      "thread-active",
+      "thread-archived",
+    ]);
+  });
+
   it("backfills message_count for legacy rows so they stay in the list", async () => {
     // ensureTable caches its bootstrap promise at module scope, so reset the
     // module registry to force a fresh bootstrap (and the one-time backfill)

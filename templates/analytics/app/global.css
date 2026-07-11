@@ -149,6 +149,16 @@
   background-color: hsl(var(--background)) !important;
 }
 
+.analytics-chat-panel .agent-thread-content {
+  padding-top: 4.5rem;
+}
+
+.analytics-chat-panel
+  [data-agent-page-chat-scrolled]
+  [data-agent-page-chat-fade] {
+  opacity: 1;
+}
+
 @media (max-width: 767px) {
   .analytics-chat-panel [data-agent-page-new-chat] {
     display: none;

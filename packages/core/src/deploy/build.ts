@@ -32,7 +32,6 @@ import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
-  DEFAULT_SSR_NETLIFY_VARY,
   DEFAULT_SPECULATION_RULES_PATH,
   DEFAULT_SSR_CACHE_CONTROL,
 } from "../shared/cache-control.js";
@@ -909,7 +908,6 @@ function injectHeadScript(html, script) {
 const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
 const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
-const DEFAULT_SSR_NETLIFY_VARY = ${JSON.stringify(DEFAULT_SSR_NETLIFY_VARY)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -986,17 +984,21 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 /**
  * Apply the SSR cache policy to the response headers.
  *
- * SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.
- * Every SSR HTML / React Router .data response gets the same public
- * stale-while-revalidate policy for ALL visitors, authenticated or not. The SSR
- * output is impersonal (the handler never reads the request's session/cookies),
- * so it is safe to hard-cache one shared copy at the edge. Do NOT reintroduce
- * per-user / cookie-based cache variation here (no private, no no-store, no
- * "authenticated then don't cache" branch) — that makes every logged-in
- * visitor's pages uncacheable. Per-user state is resolved client-side instead.
+ * Unannotated SSR HTML and React Router .data responses share a public
+ * stale-while-revalidate cache policy. Preserve an explicit route policy,
+ * though: token-gated and personalized routes can opt out with private or
+ * no-store policies.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+  // React Router marks every .data response as no-cache, but those loader
+  // payloads are safe to cache at the shared edge. Preserve only explicit
+  // private/no-store policies, which token-gated and personalized routes use
+  // to opt out of shared caching.
+  const cacheControl = headers.get("cache-control")?.toLowerCase() ?? "";
+  if (cacheControl.includes("private") || cacheControl.includes("no-store")) {
+    return;
+  }
 
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
@@ -1005,7 +1007,6 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   // Netlify-specific header so SSR HTML/.data are served from the shared
   // durable CDN cache instead of stampeding origin — for every visitor.
   headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
-  headers.set("netlify-vary", DEFAULT_SSR_NETLIFY_VARY);
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {

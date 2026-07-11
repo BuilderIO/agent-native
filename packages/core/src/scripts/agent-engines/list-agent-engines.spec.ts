@@ -109,4 +109,37 @@ describe("list-agent-engines", () => {
     expect(result.current?.engine).toBe("test:openai");
     expect(result.current?.model).toBe("gpt-test");
   });
+
+  it("reports the sticky hosted experiment model as the visible default", async () => {
+    vi.stubEnv("BUILDER_PRIVATE_KEY", "builder-private-example");
+    vi.stubEnv("BUILDER_PUBLIC_KEY", "builder-public-example");
+    vi.stubEnv("URL", "https://chat.agent-native.com");
+
+    const { hostedDefaultModelExperimentBucket } =
+      await import("../../observability/hosted-model-experiment.js");
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+    let treatmentUser = "";
+    for (let index = 0; index < 100; index++) {
+      const user = `hosted-${index}@example.test`;
+      if (hostedDefaultModelExperimentBucket(user) < 20) {
+        treatmentUser = user;
+        break;
+      }
+    }
+
+    const result = JSON.parse(
+      await runWithRequestContext({ userEmail: treatmentUser }, () => run()),
+    );
+
+    expect(result.current).toMatchObject({
+      engine: "builder",
+      model: "gpt-5-6-luna",
+      modelSelectionSource: "experiment",
+      experimentAssignment: {
+        variantId: "gpt-5-6-luna",
+      },
+    });
+  });
 });

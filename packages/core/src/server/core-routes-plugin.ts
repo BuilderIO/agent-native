@@ -298,6 +298,7 @@ const BUILDER_WAITLIST_USE_CASES = new Set([
   BUILDER_WAITLIST_DEFAULT_USE_CASE,
   "design_publish_app",
   "docs_build_online_waitlist",
+  "docs_edit_online_waitlist",
 ]);
 const BUILDER_WAITLIST_FORM_TIMEOUT_MS = 8000;
 const BUILDER_WAITLIST_TEXT_LIMIT = 4000;
@@ -320,6 +321,7 @@ export interface BuilderWaitlistBody {
   appUrl?: unknown;
   pageUrl?: unknown;
   source?: unknown;
+  template?: unknown;
   useCase?: unknown;
 }
 
@@ -350,6 +352,13 @@ function normalizeBuilderWaitlistUseCase(value: unknown): string {
   return useCase && BUILDER_WAITLIST_USE_CASES.has(useCase)
     ? useCase
     : BUILDER_WAITLIST_DEFAULT_USE_CASE;
+}
+
+function normalizeBuilderWaitlistTemplate(value: unknown): string | undefined {
+  const template = cleanBuilderWaitlistText(value, 100);
+  return template && /^[a-z0-9][a-z0-9-]{0,99}$/.test(template)
+    ? template
+    : undefined;
 }
 
 function isValidWaitlistEmail(email: string): boolean {
@@ -506,6 +515,7 @@ export function buildBuilderWaitlistFormPayload(
     getOrigin(event);
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
+  const template = normalizeBuilderWaitlistTemplate(body.template);
   const useCase = normalizeBuilderWaitlistUseCase(body.useCase);
 
   return {
@@ -515,6 +525,7 @@ export function buildBuilderWaitlistFormPayload(
       appUrl,
       prompt: cleanBuilderWaitlistText(body.prompt),
       source,
+      template,
       useCase,
     },
     _hp: "",
@@ -522,6 +533,7 @@ export function buildBuilderWaitlistFormPayload(
       submitterEmail: sessionEmail,
       pageUrl: appUrl,
       source,
+      template,
       useCase,
     },
   };
@@ -2021,6 +2033,7 @@ export function createCoreRoutesPlugin(
             body,
           );
           const waitlistSource = waitlistPayload.data.source;
+          const waitlistTemplate = waitlistPayload.data.template;
           const waitlistUseCase = waitlistPayload.data.useCase;
           let formSubmission: { submitted: boolean; formId?: string };
           try {
@@ -2039,6 +2052,7 @@ export function createCoreRoutesPlugin(
                   err instanceof Error ? err.message : "unknown_waitlist_error",
                 source: waitlistSource,
                 stage: "waitlist",
+                template: waitlistTemplate ?? null,
                 useCase: waitlistUseCase,
               },
             );
@@ -2057,6 +2071,7 @@ export function createCoreRoutesPlugin(
               formSubmitted: formSubmission.submitted,
               source: waitlistSource,
               stage: "waitlist",
+              template: waitlistTemplate ?? null,
               useCase: waitlistUseCase,
             },
           );

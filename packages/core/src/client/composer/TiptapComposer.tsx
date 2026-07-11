@@ -107,6 +107,38 @@ export function canSubmitComposerContent(options: {
   );
 }
 
+export function resolveComposerPrimaryAction(options: {
+  canSubmit: boolean;
+  hasStopButton: boolean;
+}): "send" | "stop" {
+  return !options.canSubmit && options.hasStopButton ? "stop" : "send";
+}
+
+export type ContextChipBackspaceAction =
+  | { type: "select"; key: string }
+  | { type: "remove"; key: string }
+  | null;
+
+export function resolveContextChipBackspaceAction(options: {
+  contextItemKeys: string[];
+  selectedKey: string | null;
+  cursorAtStart: boolean;
+}): ContextChipBackspaceAction {
+  if (!options.cursorAtStart || options.contextItemKeys.length === 0) {
+    return null;
+  }
+  if (
+    options.selectedKey &&
+    options.contextItemKeys.includes(options.selectedKey)
+  ) {
+    return { type: "remove", key: options.selectedKey };
+  }
+  return {
+    type: "select",
+    key: options.contextItemKeys[options.contextItemKeys.length - 1],
+  };
+}
+
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
 function composerReferenceFromMentionItem(
@@ -535,8 +567,13 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
-  /** Extra button to render alongside the default send button (e.g. stop while running). */
+  /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
+  /**
+   * Stop control shown instead of the disabled send button while the composer
+   * has no sendable content. Typing or attaching content restores send.
+   */
+  stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
   /** Custom host-owned control rendered next to the attachment affordance. */
@@ -824,6 +861,25 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
+export function compactComposerModelName(model: string): string {
+  const gpt56Variant = model.match(
+    /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
+  )?.[1];
+  if (gpt56Variant) {
+    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+  }
+  return friendlyModelName(model);
+}
+
+export function compactComposerReasoningEffortLabel(
+  effort: ReasoningEffort,
+): string {
+  if (effort === "medium" || effort === "auto") return "Med";
+  if (effort === "minimal") return "Min";
+  if (effort === "xhigh") return "XHigh";
+  return reasoningEffortLabel(effort);
+}
+
 /**
  * Deduplicate models to only the latest version per family.
  * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
@@ -994,12 +1050,19 @@ function ModelSelector({
         <button
           type="button"
           data-agent-composer-slot="model-button"
+          aria-label={`Model: ${friendlyModelName(model)}${
+            effortOptions.length > 0
+              ? `. Reasoning: ${reasoningEffortLabel(selectedEffort)}`
+              : ""
+          }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
+          <span className="min-w-0 truncate">
+            {compactComposerModelName(model)}
+          </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {reasoningEffortLabel(selectedEffort)}
+              · {compactComposerReasoningEffortLabel(selectedEffort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1247,6 +1310,7 @@ export function TiptapComposer({
   onTextChange,
   actionButton,
   extraActionButton,
+  stopButton,
   attachButton,
   modeControl,
   toolbarSlot,
@@ -1288,12 +1352,19 @@ export function TiptapComposer({
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const [selectedContextItemKey, setSelectedContextItemKey] = useState<
+    string | null
+  >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
     disabled,
+  });
+  const primaryAction = resolveComposerPrimaryAction({
+    canSubmit: canSend,
+    hasStopButton: Boolean(stopButton),
   });
   const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
@@ -1379,8 +1450,24 @@ export function TiptapComposer({
   onSlashCommandRef.current = onSlashCommand;
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
+  const contextItemsRef = useRef(contextItems);
+  contextItemsRef.current = contextItems;
+  const onRemoveContextItemRef = useRef(onRemoveContextItem);
+  onRemoveContextItemRef.current = onRemoveContextItem;
+  const selectedContextItemKeyRef = useRef<string | null>(null);
+  selectedContextItemKeyRef.current = selectedContextItemKey;
   const initialTextKeyRef = useRef<string | number | undefined>(undefined);
   const seenReferenceInsertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (
+      selectedContextItemKey &&
+      !contextItems.some((item) => item.key === selectedContextItemKey)
+    ) {
+      selectedContextItemKeyRef.current = null;
+      setSelectedContextItemKey(null);
+    }
+  }, [contextItems, selectedContextItemKey]);
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -1448,6 +1535,13 @@ export function TiptapComposer({
           }
         } catch {}
       }, 300);
+    },
+    onSelectionUpdate: ({ editor: ed }) => {
+      const { from, to } = ed.state.selection;
+      if (selectedContextItemKeyRef.current && (from !== to || from > 1)) {
+        selectedContextItemKeyRef.current = null;
+        setSelectedContextItemKey(null);
+      }
     },
     editorProps: {
       attributes: {
@@ -1581,9 +1675,37 @@ export function TiptapComposer({
           }
         }
 
+        const { from, to } = view.state.selection;
+        const cursorAtStart = from === to && from <= 1;
+        if (event.key === "Backspace" && onRemoveContextItemRef.current) {
+          const chipAction = resolveContextChipBackspaceAction({
+            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            selectedKey: selectedContextItemKeyRef.current,
+            cursorAtStart,
+          });
+          if (chipAction) {
+            event.preventDefault();
+            if (chipAction.type === "select") {
+              selectedContextItemKeyRef.current = chipAction.key;
+              setSelectedContextItemKey(chipAction.key);
+            } else {
+              selectedContextItemKeyRef.current = null;
+              setSelectedContextItemKey(null);
+              contextItemsRef.current = contextItemsRef.current.filter(
+                (item) => item.key !== chipAction.key,
+              );
+              onRemoveContextItemRef.current?.(chipAction.key);
+            }
+            return true;
+          }
+        }
+        if (selectedContextItemKeyRef.current) {
+          selectedContextItemKeyRef.current = null;
+          setSelectedContextItemKey(null);
+        }
+
         // Backspace removes composer mode chip when editor is empty
         if (event.key === "Backspace" && composerModeRef.current) {
-          const { from, to } = view.state.selection;
           if (
             view.state.doc.textContent.trim() === "" &&
             from === to &&
@@ -2535,13 +2657,24 @@ export function TiptapComposer({
           {contextItems.map((item) => (
             <span
               key={item.key}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground"
+              data-state={
+                selectedContextItemKey === item.key ? "selected" : undefined
+              }
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium text-foreground ${
+                selectedContextItemKey === item.key
+                  ? "border-ring bg-accent ring-2 ring-ring/40"
+                  : "border-border bg-muted/50"
+              }`}
             >
               <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">{item.title}</span>
               <button
                 type="button"
-                onClick={() => onRemoveContextItem?.(item.key)}
+                onClick={() => {
+                  selectedContextItemKeyRef.current = null;
+                  setSelectedContextItemKey(null);
+                  onRemoveContextItem?.(item.key);
+                }}
                 aria-label={`Remove ${item.title} context`}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
@@ -2607,20 +2740,24 @@ export function TiptapComposer({
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => void submitComposer("immediate")}
-                  disabled={!canSend}
-                  data-agent-composer-slot="send-button"
-                  className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <IconArrowUp className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Send message</TooltipContent>
-            </Tooltip>
+            {primaryAction === "stop" ? (
+              stopButton
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => void submitComposer("immediate")}
+                    disabled={!canSend}
+                    data-agent-composer-slot="send-button"
+                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <IconArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Send message</TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
       </div>
