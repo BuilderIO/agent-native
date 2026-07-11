@@ -505,6 +505,18 @@ import {
 } from "./design-editor/data-operations";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import {
+  designGenerationDirectives,
+  designIntakeQuestionDirectives,
+  designSystemGenerationDirectives,
+  designTemplateRefinementDirectives,
+  designVariantGenerationDirectives,
+  formatTweakDefinitionsContext,
+  formatUploadedFileContext,
+  imageAttachmentsFromUploadedFiles,
+  loadDesignSystemGenerationContext,
+  promptRequestsVariantExploration,
+} from "./design-editor/generation-prompt-directives";
+import {
   escapeHtmlAttributeValue,
   escapeHtmlText,
   queryUniqueSelector,
