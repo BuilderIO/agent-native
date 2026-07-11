@@ -37,8 +37,7 @@ const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
 const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
-const REALTIME_VOICE_CAPABILITY_HEADER =
-  "X-Agent-Native-Realtime-Capability";
+const REALTIME_VOICE_CAPABILITY_HEADER = "X-Agent-Native-Realtime-Capability";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
 const REALTIME_VOICE_MAX_TOOLS = 32;
 const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
@@ -591,14 +590,16 @@ async function readErrorResponse(response: Response): Promise<string> {
   }
 }
 
-export async function createRealtimeVoiceSession(
+interface RealtimeVoiceSessionOptions {
+  browserTabId?: string;
+  signal?: AbortSignal;
+  preferences?: RealtimeVoicePreferences;
+  browserLanguages?: readonly string[];
+}
+
+export async function createRealtimeVoiceSessionWithCapability(
   offerSdp: string,
-  options: {
-    browserTabId?: string;
-    signal?: AbortSignal;
-    preferences?: RealtimeVoicePreferences;
-    browserLanguages?: readonly string[];
-  } = {},
+  options: RealtimeVoiceSessionOptions = {},
 ): Promise<RealtimeVoiceSessionAnswer> {
   const preferences = options.preferences;
   const response = await fetch(agentNativePath(REALTIME_VOICE_SESSION_PATH), {
@@ -635,6 +636,15 @@ export async function createRealtimeVoiceSession(
     sdp,
     ...(capability ? { capability } : {}),
   };
+}
+
+/** Backwards-compatible SDP-only session helper for existing client callers. */
+export async function createRealtimeVoiceSession(
+  offerSdp: string,
+  options: RealtimeVoiceSessionOptions = {},
+): Promise<string> {
+  return (await createRealtimeVoiceSessionWithCapability(offerSdp, options))
+    .sdp;
 }
 
 export async function executeRealtimeVoiceTool(input: {
@@ -786,8 +796,7 @@ export function mergeRealtimeVoiceToolManifest(
           candidate,
           "realtime_tool_manifest_999999999",
         ),
-      ) <=
-      REALTIME_VOICE_MAX_SESSION_BYTES
+      ) <= REALTIME_VOICE_MAX_SESSION_BYTES
     ) {
       packed.push(tool);
     }
@@ -854,7 +863,7 @@ export function createRealtimeVoiceToolManifestCoordinator(
           ? {
               callId: result.callId,
               status: "failed",
-              output: `${failureMessage} The discovered tools were not added to this voice session.`,
+              output: `${failureMessage} The discovered tools were not added to this voice session. Original tool result: ${result.output}`,
             }
           : result,
       ),
@@ -1470,6 +1479,7 @@ function useRealtimeVoiceModeController(
       if (handledCallsRef.current.has(call.callId)) return;
       handledCallsRef.current.add(call.callId);
       const transportGeneration = transportGenerationRef.current;
+      const transportChannel = channelRef.current;
       transition("working");
       let result: RealtimeVoiceToolResult;
       try {
@@ -1490,7 +1500,12 @@ function useRealtimeVoiceModeController(
           output: errorMessage(toolError),
         };
       }
-      if (transportGeneration !== transportGenerationRef.current) return;
+      if (
+        transportGeneration !== transportGenerationRef.current ||
+        channelRef.current !== transportChannel
+      ) {
+        return;
+      }
       toolManifestCoordinator.enqueue(result);
     },
     [browserTabId, toolManifestCoordinator, transition],
@@ -1598,9 +1613,7 @@ function useRealtimeVoiceModeController(
             : event.event_id;
         if (
           toolManifestCoordinator.handleError(
-            typeof expansionEventId === "string"
-              ? expansionEventId
-              : undefined,
+            typeof expansionEventId === "string" ? expansionEventId : undefined,
             message,
           )
         ) {
@@ -1763,7 +1776,7 @@ function useRealtimeVoiceModeController(
             "The browser did not create an audio offer.",
         );
       }
-      const answer = await createRealtimeVoiceSession(offer.sdp, {
+      const answer = await createRealtimeVoiceSessionWithCapability(offer.sdp, {
         browserTabId,
         signal: abortController.signal,
         preferences: preferencesRef.current,

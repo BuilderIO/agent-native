@@ -450,9 +450,19 @@ function grantDiscoveredRealtimeTools(input: {
     .map((name) => input.toolsByName.get(name))
     .filter((tool): tool is RealtimeFunctionTool => Boolean(tool));
   const boundedTools = packRealtimeTools({}, candidates);
-  input.capability.names = new Set(boundedTools.map((tool) => tool.name));
+  const expandedTools: RealtimeFunctionTool[] = [];
+  for (const tool of boundedTools) {
+    if (
+      !input.capability.names.has(tool.name) &&
+      input.capability.names.size >= REALTIME_VOICE_MAX_TOOLS
+    ) {
+      continue;
+    }
+    input.capability.names.add(tool.name);
+    expandedTools.push(tool);
+  }
   input.capability.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
-  return boundedTools;
+  return expandedTools;
 }
 
 function declaredBodyBytes(event: H3Event): number | undefined {
@@ -854,6 +864,13 @@ function createToolHandler(
       return { error: "Invalid realtime tool request" };
     }
     if (
+      request.browserTabId !== undefined &&
+      request.browserTabId !== capability.browserTabId
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "Realtime voice browser tab mismatch" };
+    }
+    if (
       !allowedToolNames.has(request.name) &&
       !capability.names.has(request.name)
     ) {
@@ -861,7 +878,7 @@ function createToolHandler(
       return { error: "Unknown realtime voice tool" };
     }
 
-    const browserTabId = request.browserTabId ?? auth.browserTabId;
+    const browserTabId = capability.browserTabId;
     const threadId = request.sessionId
       ? `realtime:${request.sessionId}`
       : `realtime:${request.callId}`;

@@ -7,6 +7,7 @@ import {
   createRealtimeVoiceGreetingStarter,
   createRealtimeVoicePreferenceUpdate,
   createRealtimeVoiceSession,
+  createRealtimeVoiceSessionWithCapability,
   createRealtimeVoiceTranscriptSequencer,
   createRealtimeVoiceConnectionTimeout,
   createRealtimeVoiceConnectionGate,
@@ -247,7 +248,10 @@ describe("Realtime voice client transport", () => {
       async () =>
         new Response("answer-sdp", {
           status: 200,
-          headers: { "Content-Type": "application/sdp" },
+          headers: {
+            "Content-Type": "application/sdp",
+            "X-Agent-Native-Realtime-Capability": "capability-1",
+          },
         }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -263,6 +267,12 @@ describe("Realtime voice client transport", () => {
         browserLanguages: ["en-US"],
       }),
     ).resolves.toBe("answer-sdp");
+    await expect(
+      createRealtimeVoiceSessionWithCapability("offer-sdp"),
+    ).resolves.toEqual({
+      sdp: "answer-sdp",
+      capability: "capability-1",
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       "/_agent-native/realtime-voice/session",
       expect.objectContaining({
@@ -299,6 +309,7 @@ describe("Realtime voice client transport", () => {
         callId: "call-1",
         sessionId: "session-1",
         browserTabId: "tab-1",
+        capability: "capability-1",
       }),
     ).resolves.toEqual({
       callId: "call-1",
@@ -311,6 +322,7 @@ describe("Realtime voice client transport", () => {
         method: "POST",
         headers: expect.objectContaining({
           "X-Agent-Native-Browser-Tab": "tab-1",
+          "X-Agent-Native-Realtime-Capability": "capability-1",
         }),
         body: JSON.stringify({
           name: "navigate",
@@ -371,6 +383,20 @@ describe("Realtime voice dynamic tool manifests", () => {
     expect(names).toContain("open-dashboard");
     expect(names).toContain("list-dashboards");
     expect(names).not.toContain("old-26");
+  });
+
+  it("packs dynamic schemas within the realtime session byte budget", () => {
+    const largeTool = (name: string): RealtimeVoiceFunctionTool => ({
+      ...realtimeTool(name),
+      description: "x".repeat(25_000),
+    });
+
+    const merged = mergeRealtimeVoiceToolManifest(
+      [],
+      [largeTool("large-1"), largeTool("large-2"), largeTool("large-3")],
+    );
+
+    expect(merged.map((tool) => tool.name)).toEqual(["large-1", "large-2"]);
   });
 
   it("waits for session.updated before exposing discovered tools to the model", () => {
@@ -441,9 +467,10 @@ describe("Realtime voice dynamic tool manifests", () => {
     ) as Record<string, unknown>;
     expect(failure.status).toBe("failed");
     expect(failure.output).toContain("Invalid session tools");
-    expect(
-      coordinator.handleError("some_other_event", "unrelated"),
-    ).toBe(false);
+    expect(failure.output).toContain("Found open-dashboard");
+    expect(coordinator.handleError("some_other_event", "unrelated")).toBe(
+      false,
+    );
   });
 
   it("serializes updates and falls back after a missing confirmation", () => {
