@@ -211,11 +211,24 @@ export async function deleteTask(input: {
   ownerEmail: string;
   id: string;
 }): Promise<void> {
-  deleteCustomFieldValues({
+  await assertStoredItemsExist({
     ownerEmail: input.ownerEmail,
-    taskId: input.id,
+    ids: [input.id],
+    promotedToTask: true,
+    notFoundMessage: "Task not found.",
   });
-  await deleteStoredItem({ ...input, promotedToTask: true });
+
+  runTransaction(getDb(), (tx) => {
+    deleteCustomFieldValues(
+      { ownerEmail: input.ownerEmail, taskId: input.id },
+      tx,
+    );
+    deleteStoredItemInTx(tx, {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: true,
+    });
+  });
 }
 
 export async function bulkDeleteTasks(input: {

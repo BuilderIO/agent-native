@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCustomField } from "../custom-fields/store.js";
+import { listTaskFieldValues } from "../custom-fields/task-fields.js";
+import { updateCustomFieldValues } from "../custom-fields/values/store.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem, updateInboxItem } from "../inbox/store.js";
 import { getStoredItem } from "../stored-items/store.js";
@@ -153,6 +155,39 @@ describe("task store", () => {
       includeDone: true,
     });
     expect(tasks).toHaveLength(0);
+  });
+
+  it("keeps task field values when deletion fails", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Keep values",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    const field = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+      config: { precision: 0, positiveOnly: true },
+    });
+    await updateCustomFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "t1",
+      values: [{ fieldId: field.id, value: 5 }],
+    });
+
+    await expect(
+      deleteTask({ ownerEmail: "alice@example.com", id: "missing" }),
+    ).rejects.toThrow(/not found/i);
+
+    const values = await listTaskFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "t1",
+    });
+    expect(values.find((item) => item.id === field.id)?.value).toBe(5);
+    expect(
+      await listTasks({ ownerEmail: "alice@example.com", includeDone: true }),
+    ).toHaveLength(1);
   });
 
   it("rejects task updates for non-promoted stored items", async () => {
