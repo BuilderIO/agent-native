@@ -1725,20 +1725,13 @@ export default function CodeAgentsApp({
                         permissionMode={selectedPermissionMode}
                         modelSelection={selectedModelSelection}
                         modelOptions={modelOptions}
-                        updatingPermissionMode={updatingPermissionMode}
                         onPermissionModeChange={changeSelectedPermissionMode}
                         onModelSelectionChange={setModelSelection}
-                        onOpenWorkbench={() => setWorkbenchOpen(true)}
-                        onOpenTerminal={
-                          canOpenTerminal ? openTerminal : undefined
-                        }
-                        onResume={() => controlRun("resume")}
                         onStop={() => controlRun("stop")}
                         onApprove={() => controlRun("approve")}
                         onApproveAlways={() => controlRun("approve-always")}
                         onDeny={() => controlRun("deny")}
-                        onRetry={host.retryRun ? retrySelectedRun : undefined}
-                        onRerun={host.rerunRun ? rerunSelectedRun : undefined}
+                        providerBlocked={providerGate.blocked}
                         builderConnecting={builderConnecting}
                         builderConnectMessage={builderConnectMessage}
                         onConnectBuilder={connectBuilderProvider}
