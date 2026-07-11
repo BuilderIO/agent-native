@@ -168,7 +168,7 @@ const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
 const REPLAY_CHUNK_BATCH_MAX_CHUNKS = 20;
 const REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES = 4 * 1024 * 1024;
-const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 2;
+const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 3;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
@@ -2000,8 +2000,7 @@ function customReplayMarker(
     const method =
       typeof payload.method === "string" ? payload.method : undefined;
     const url = typeof payload.url === "string" ? payload.url : undefined;
-    const error =
-      typeof payload.error === "string" ? payload.error : undefined;
+    const error = typeof payload.error === "string" ? payload.error : undefined;
     return {
       id: `network-${timestamp}-${index}`,
       timestamp,

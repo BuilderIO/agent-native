@@ -800,13 +800,13 @@ describe("session replay ingest parsing", () => {
     expect(readPrivateBlobMock).not.toHaveBeenCalled();
   });
 
-  it("limits replay chunk blob reads to four and marks missing chunks unavailable", async () => {
+  it("limits replay chunk blob reads to ten and marks missing chunks unavailable", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: playableRecordingResource("sr_batch_concurrency"),
     });
     const eventsJson = JSON.stringify([{ type: 4, timestamp: 1000 }]);
-    const rows = Array.from({ length: 8 }, (_, seq) => ({
+    const rows = Array.from({ length: 15 }, (_, seq) => ({
       seq,
       checksum: `checksum_${seq}`,
       byteLength: eventsJson.length,
@@ -834,13 +834,13 @@ describe("session replay ingest parsing", () => {
 
     const result = await readSessionReplayChunkBatch(
       "sr_batch_concurrency",
-      [...rows.map((row) => row.seq), 9],
+      [...rows.map((row) => row.seq), 19],
       { userEmail: "viewer@example.com", orgId: "org_123" },
     );
 
-    expect(maxActiveReads).toBe(4);
+    expect(maxActiveReads).toBe(10);
     expect(result.chunks[result.chunks.length - 1]).toMatchObject({
-      seq: 9,
+      seq: 19,
       events: [],
       unavailable: true,
     });

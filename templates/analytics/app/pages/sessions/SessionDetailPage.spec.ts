@@ -495,7 +495,7 @@ describe("session replay chunk loading", () => {
     ]);
   });
 
-  it("loads chunk batches two at a time and restores manifest order", async () => {
+  it("loads chunk batches three at a time and restores manifest order", async () => {
     const manifestChunks = Array.from({ length: 45 }, (_, index) =>
       replayChunkManifest(index, replayChunkPath(index)),
     );
@@ -531,7 +531,7 @@ describe("session replay chunk loading", () => {
     const playback = await fetchSessionReplayPlayback("sr_1");
 
     expect(batchRequests).toBe(3);
-    expect(maxActiveBatches).toBe(2);
+    expect(maxActiveBatches).toBe(3);
     expect(playback.chunks.map((chunk) => chunk.seq)).toEqual(
       manifestChunks.map((chunk) => chunk.seq),
     );

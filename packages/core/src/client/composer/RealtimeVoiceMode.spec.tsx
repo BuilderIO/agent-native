@@ -410,6 +410,7 @@ describe("RealtimeVoiceMode", () => {
 
   it("keeps the dock visible when chat opens itself", () => {
     const sidebar = document.createElement("div");
+    let sidebarWidth = 320;
     sidebar.className = "agent-sidebar-panel";
     sidebar.dataset.agentSidebarPosition = "right";
     sidebar.dataset.agentSidebarState = "open";
@@ -417,11 +418,11 @@ describe("RealtimeVoiceMode", () => {
       ({
         bottom: 768,
         height: 768,
-        left: 704,
+        left: 1024 - sidebarWidth,
         right: 1024,
         top: 0,
-        width: 320,
-        x: 704,
+        width: sidebarWidth,
+        x: 1024 - sidebarWidth,
         y: 0,
         toJSON: () => ({}),
       }) as DOMRect;
@@ -457,12 +458,94 @@ describe("RealtimeVoiceMode", () => {
         .querySelector("[data-realtime-voice-state]")
         ?.getAttribute("data-realtime-voice-chat-offset"),
     ).toBe("-320");
+
+    act(() => {
+      sidebarWidth = 400;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(
+      document
+        .querySelector("[data-realtime-voice-state]")
+        ?.getAttribute("data-realtime-voice-chat-offset"),
+    ).toBe("-400");
     expect(
       document
         .querySelector('button[aria-label="Hide chat"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
 
+    sidebar.remove();
+  });
+
+  it("keeps the dock reachable for fullscreen and left-side chat", () => {
+    const sidebar = document.createElement("div");
+    sidebar.className = "agent-sidebar-panel";
+    sidebar.dataset.agentSidebarPosition = "right";
+    sidebar.dataset.agentSidebarState = "open";
+    sidebar.dataset.agentSidebarLayout = "fullscreen";
+    sidebar.getBoundingClientRect = () =>
+      ({
+        bottom: 768,
+        height: 768,
+        left: 0,
+        right: 1024,
+        top: 0,
+        width: 1024,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(sidebar);
+
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    expect(
+      document
+        .querySelector("[data-realtime-voice-state]")
+        ?.getAttribute("data-realtime-voice-chat-offset"),
+    ).toBe("0");
+
+    act(() => {
+      document.documentElement.style.direction = "rtl";
+      sidebar.dataset.agentSidebarLayout = "desktop";
+      sidebar.dataset.agentSidebarPosition = "left";
+      sidebar.getBoundingClientRect = () =>
+        ({
+          bottom: 768,
+          height: 768,
+          left: 0,
+          right: 280,
+          top: 0,
+          width: 280,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    });
+    render(
+      <RealtimeVoiceModeDock
+        key="rtl"
+        state="listening"
+        copy={copy}
+        chatVisible
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    expect(
+      document
+        .querySelector("[data-realtime-voice-state]")
+        ?.getAttribute("data-realtime-voice-chat-offset"),
+    ).toBe("280");
+
+    document.documentElement.style.direction = "";
     sidebar.remove();
   });
 
