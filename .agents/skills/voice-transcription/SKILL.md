@@ -169,7 +169,7 @@ client.
 
 Templates can:
 - **Disable the mic**: pass `voiceEnabled={false}` to `TiptapComposer`.
-- **Replace the button**: wrap `TiptapComposer` and render your own `extraActionButton` (the framework mic sits between `extraActionButton` and the send button).
+- **Replace the button**: wrap `TiptapComposer` and render your own `extraActionButton` (the framework mic renders immediately before `extraActionButton`, keeping it to the left of stop and send controls).
 - **Pre-register provider keys as `required: true`**: call `registerRequiredSecret(...)` from your own server plugin when a template needs a specific BYOK provider in onboarding.
 
 ## Don'ts

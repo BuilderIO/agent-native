@@ -15,6 +15,7 @@ import {
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
@@ -45,6 +46,7 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import {
   clearIntegrationAwaitingInput,
@@ -866,6 +868,18 @@ async function processIncomingMessage(
               signal,
               threadId,
               approvedToolCalls: incoming.approvedToolCalls,
+              // Messaging integrations are interactive chat surfaces. They
+              // need the same initial completion headroom as web chat so
+              // reasoning cannot consume the small per-engine default and
+              // leave a user-facing Slack reply empty.
+              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+              // Explicitly resolve the normal chat default so an empty-final
+              // retry can step its reasoning effort down rather than
+              // repeatedly letting the engine choose Medium.
+              reasoningEffort: normalizeReasoningEffortForRequest(
+                resolvedModel,
+                undefined,
+              ),
             });
             return usage;
           },

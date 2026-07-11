@@ -535,8 +535,13 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
-  /** Extra button to render alongside the default send button (e.g. stop while running). */
+  /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
+  /**
+   * Stop control shown instead of the disabled send button while the composer
+   * has no sendable content. Typing or attaching content restores send.
+   */
+  stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
   /** Custom host-owned control rendered next to the attachment affordance. */
@@ -1247,6 +1252,7 @@ export function TiptapComposer({
   onTextChange,
   actionButton,
   extraActionButton,
+  stopButton,
   attachButton,
   modeControl,
   toolbarSlot,
@@ -2607,20 +2613,24 @@ export function TiptapComposer({
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => void submitComposer("immediate")}
-                  disabled={!canSend}
-                  data-agent-composer-slot="send-button"
-                  className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <IconArrowUp className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Send message</TooltipContent>
-            </Tooltip>
+            {!canSend && stopButton ? (
+              stopButton
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => void submitComposer("immediate")}
+                    disabled={!canSend}
+                    data-agent-composer-slot="send-button"
+                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <IconArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Send message</TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
       </div>
