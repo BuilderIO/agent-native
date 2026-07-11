@@ -74,9 +74,13 @@ describe("runQuery cancellation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await vi.advanceTimersByTimeAsync(60_000);
 
-    // Cancellation clears the pending interval, so no getQueryResults poll is
-    // issued after the agent run has ended.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Cancellation clears the pending interval, avoids another
+    // getQueryResults poll, and best-effort cancels the submitted job.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/projects/test-project/jobs/job-1/cancel"),
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 
   it("forwards the signal to completed-job polling requests", async () => {

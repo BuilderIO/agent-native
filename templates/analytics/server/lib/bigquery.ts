@@ -303,6 +303,28 @@ function waitForPollInterval(signal?: AbortSignal): Promise<void> {
   });
 }
 
+async function cancelQueryJob(
+  projectId: string,
+  jobId: string,
+  token: string,
+): Promise<void> {
+  try {
+    await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  } catch {
+    // The caller is already aborting. Cancellation is best-effort and must not
+    // hide the original abort reason if BigQuery or the network is unavailable.
+  }
+}
+
 /**
  * Convert BigQuery REST API row format to plain objects.
  * BigQuery returns rows as { f: [{ v: value }, ...] } arrays
@@ -454,22 +476,29 @@ export async function runQuery(
     const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}`;
 
     let attempts = 0;
-    while (!data.jobComplete && attempts < 60) {
-      await waitForPollInterval(signal);
-      throwIfAborted(signal);
-      const pollRes = await fetch(resultsUrl, {
-        ...(signal ? { signal } : {}),
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!pollRes.ok) {
-        const text = await pollRes.text();
-        throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+    try {
+      while (!data.jobComplete && attempts < 60) {
+        await waitForPollInterval(signal);
+        throwIfAborted(signal);
+        const pollRes = await fetch(resultsUrl, {
+          ...(signal ? { signal } : {}),
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!pollRes.ok) {
+          const text = await pollRes.text();
+          throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+        }
+        data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
+        attempts++;
       }
-      data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
-      attempts++;
+    } catch (error) {
+      if (signal?.aborted) {
+        await cancelQueryJob(projectId, jobId, token);
+      }
+      throw error;
     }
 
     if (!data.jobComplete) {

@@ -84,8 +84,12 @@ describe("docs popover controls", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Join waitlist" }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const waitlistRequests = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes("/_agent-native/builder/branch-waitlist"),
+      );
+    await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
+    const request = waitlistRequests()[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toMatchObject({
       email: "reader@example.com",
       source: "docs_template_card",
