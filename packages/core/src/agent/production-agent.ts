@@ -61,6 +61,7 @@ import {
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
+import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -5414,7 +5415,6 @@ export async function chainServerDrivenContinuation(opts: {
       opts.workerProvenInBackgroundFunction === true,
   });
   const maxDispatchAttempts = dispatchBudget.maxDispatchAttempts;
-  const dispatchResponseTimeoutMs = dispatchBudget.dispatchResponseTimeoutMs;
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
@@ -5489,104 +5489,29 @@ export async function chainServerDrivenContinuation(opts: {
           ...continuationBody,
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
         };
-    let dispatched = false;
-    let lastDispatchErr: unknown;
-    // Proactive nested-chain safety margin — see `MAX_NESTED_SELF_DISPATCH_DEPTH`.
-    // Skip the nested dispatch attempt entirely once this segment's hop count
-    // reaches the cap; a nested attempt at this depth is expected to trip
-    // Netlify's loop protection, so there is nothing to gain by trying it and
-    // burning this worker's remaining wall clock on a doomed call. Falls
-    // straight into the same deferred-recovery path below as an exhausted
-    // retry budget.
-    const nestedDepthExceeded =
-      opts.backgroundContinuationCount >= MAX_NESTED_SELF_DISPATCH_DEPTH;
-    if (nestedDepthExceeded) {
-      lastDispatchErr = new Error(
-        `proactive nested-dispatch depth cap reached (backgroundContinuationCount=${opts.backgroundContinuationCount} >= MAX_NESTED_SELF_DISPATCH_DEPTH=${MAX_NESTED_SELF_DISPATCH_DEPTH}) — deferring to the unclaimed-background-run sweep instead of risking Netlify loop protection`,
-      );
-    }
-    for (
-      let attempt = 0;
-      !nestedDepthExceeded && attempt < maxDispatchAttempts && !dispatched;
-      attempt++
-    ) {
-      try {
-        if (attempt > 0) {
-          // Uncapped budgets (durable-background and true-foreground) keep
-          // the original `500 * 2 ** attempt` schedule unchanged. The capped
-          // budget (proven-in-background-function) instead uses a schedule
-          // starting at 500ms and doubling per gap, capped at
-          // `backoffCapMs` — see `resolveContinuationDispatchBudget` for why
-          // this stays well inside the worker's remaining wall clock even
-          // with 5 attempts.
-          const backoffMs = Number.isFinite(dispatchBudget.backoffCapMs)
-            ? Math.min(500 * 2 ** (attempt - 1), dispatchBudget.backoffCapMs)
-            : 500 * 2 ** attempt;
-          await d.sleep(backoffMs);
-          // Keep the pre-inserted successor row visibly alive while we
-          // retry: the awaited attempts + backoff can outlast
-          // UNCLAIMED_BACKGROUND_RUN_GRACE_MS (25s), and without a fresh
-          // heartbeat the unclaimed-run reaper / sweep could error a handoff
-          // we are still delivering.
-          if (nextRowInserted) {
-            await d.updateRunHeartbeat(nextRunId).catch(() => {});
-          }
-        }
-        await d.fireInternalDispatch({
-          event: opts.event,
-          // Durable chain: same path resolution as the initial dispatch —
-          // on hosted Netlify the background function's DEFAULT url (no
-          // custom config.path; async via background:true; never shadowed
-          // because /.netlify/* is excluded from the /* catch-all) so each
-          // chunk keeps the 15-min budget; off-Netlify the in-process
-          // framework route. Foreground self-chain: always the framework
-          // `_process-run` route on the regular function (see the fn doc).
-          path: continuationDispatchPath,
-          taskId: nextRunId,
-          body: dispatchBody,
-          awaitResponse: true,
-          responseTimeoutMs: dispatchResponseTimeoutMs,
-        });
-        dispatched = true;
-      } catch (dispatchErr) {
-        lastDispatchErr = dispatchErr;
-        // Regular-function targets (foreground self-chain) respond only
-        // after the successor chunk FINISHES, so an await timeout is not
-        // proof of a dead handoff. The successor's ATOMIC CLAIM is: a row
-        // that left `dispatch_mode='background'` (claimed) or is already
-        // terminal proves the handoff landed — stop retrying. A duplicate
-        // delivery would lose the claim and no-op anyway; skipping it saves
-        // wall-clock this close to the invocation deadline.
-        if (!opts.chainViaDurableBackground && nextRowInserted) {
-          const claim = await d
-            .readBackgroundRunClaim(nextRunId)
-            .catch(() => null);
-          if (
-            claim &&
-            ((claim.dispatchMode && claim.dispatchMode !== "background") ||
-              (claim.status && claim.status !== "running"))
-          ) {
-            dispatched = true;
-            break;
-          }
-        }
-        console.error(
-          `[agent-chat] background continuation dispatch attempt ${attempt + 1} failed:`,
-          dispatchErr instanceof Error ? dispatchErr.message : dispatchErr,
-        );
-        // Netlify loop protection (see `isLoopProtectionDispatchError`) is a
-        // property of this same live, nested call chain — retrying the exact
-        // same nested self-dispatch within the next few seconds will not
-        // change that, so further attempts are a guaranteed-doomed use of
-        // this worker's remaining wall clock. Stop immediately (instead of
-        // burning the full `maxDispatchAttempts` budget) and fall into the
-        // same deferred-recovery path below, which hands the successor to the
-        // sweep — a genuinely different, non-nested invocation.
-        if (isLoopProtectionDispatchError(dispatchErr)) {
-          break;
-        }
-      }
-    }
+    // Attempts to deliver the dispatch, retrying with backoff up to the
+    // resolved budget. See `attemptContinuationDispatch` for the full
+    // per-attempt rationale (nested-depth cap, claim-check on failure,
+    // Netlify loop-protection short-circuit) — moved verbatim, unchanged.
+    const { dispatched, lastDispatchErr, nestedDepthExceeded } =
+      await attemptContinuationDispatch({
+        event: opts.event,
+        chainViaDurableBackground: opts.chainViaDurableBackground,
+        backgroundContinuationCount: opts.backgroundContinuationCount,
+        nextRunId,
+        nextRowInserted,
+        continuationDispatchPath,
+        dispatchBody,
+        dispatchBudget,
+        isLoopProtectionDispatchError,
+        maxNestedSelfDispatchDepth: MAX_NESTED_SELF_DISPATCH_DEPTH,
+        deps: {
+          sleep: d.sleep,
+          updateRunHeartbeat: d.updateRunHeartbeat,
+          fireInternalDispatch: d.fireInternalDispatch,
+          readBackgroundRunClaim: d.readBackgroundRunClaim,
+        },
+      });
     if (!dispatched) {
       if (nextRowInserted) {
         // Classify WHY this handoff is being deferred — distinct, greppable

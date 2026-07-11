@@ -151,6 +151,19 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { registerAppsIpc } from "./ipc/apps";
+import { registerCodeAgentsIpc } from "./ipc/code-agents";
+import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerFrameIpc } from "./ipc/frame";
+import { registerInterAppIpc } from "./ipc/inter-app";
+import { registerPlanFilesIpc } from "./ipc/plan-files";
+import { registerShortcutsIpc } from "./ipc/shortcuts";
+import {
+  checkForAppUpdates,
+  getCurrentUpdateStatus,
+  registerUpdatesIpc,
+} from "./ipc/updates";
+import { registerWindowIpc } from "./ipc/window";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -235,11 +248,12 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
-const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
-const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
-const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+export const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL =
+  "code-agents:transcript-events";
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -284,7 +298,7 @@ interface DesktopBackgroundAgentController {
   ): Promise<DesktopBackgroundAgentControlResult>;
 }
 
-interface CodeAgentTranscriptSubscriptionBatch {
+export interface CodeAgentTranscriptSubscriptionBatch {
   subscriptionId: string;
   status: CodeAgentTranscriptResult["status"];
   runId: string;
@@ -294,7 +308,7 @@ interface CodeAgentTranscriptSubscriptionBatch {
   error?: string;
 }
 
-interface CodeAgentTranscriptSubscription {
+export interface CodeAgentTranscriptSubscription {
   id: string;
   runId: string;
   senderId: number;
@@ -855,94 +869,6 @@ app.on("open-url", (event, url) => {
   }
 });
 
-// ---------- Auto-updates ----------
-//
-// In production, electron-updater pulls release metadata from the
-// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
-// GitHub repo). We auto-download in the background, surface progress and
-// readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
-// installs queued updates automatically on quit.
-//
-// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
-// so we report an "unsupported" status and skip all autoUpdater calls.
-
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
-const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
-const DESKTOP_UPDATE_FEED_URL = (
-  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
-  DEFAULT_DESKTOP_UPDATE_FEED_URL
-).replace(/\/+$/, "");
-
-let currentUpdateStatus: UpdateStatus = IS_DEV
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
-  : { state: "idle" };
-let updateCheckInFlight: Promise<unknown> | null = null;
-let lastUpdateCheckStartedAt = 0;
-let notifiedUpdateVersion: string | null = null;
-
-function broadcastUpdateStatus(status: UpdateStatus) {
-  currentUpdateStatus = status;
-  refreshApplicationMenu();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
-    }
-  }
-}
-
-async function checkForAppUpdates(): Promise<UpdateStatus> {
-  if (IS_DEV) return currentUpdateStatus;
-  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
-
-  if (!updateCheckInFlight) {
-    lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = autoUpdater
-      .checkForUpdates()
-      .catch((err) => {
-        broadcastUpdateStatus({
-          state: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => {
-        updateCheckInFlight = null;
-      });
-  }
-
-  await updateCheckInFlight;
-  return currentUpdateStatus;
-}
-
-function maybeCheckForAppUpdates() {
-  if (IS_DEV) return;
-  if (currentUpdateStatus.state === "downloaded") return;
-  if (
-    updateCheckInFlight ||
-    Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
-  ) {
-    return;
-  }
-  void checkForAppUpdates();
-}
-
-function showUpdateReadyNotification(version: string) {
-  if (!Notification.isSupported()) return;
-  if (notifiedUpdateVersion === version) return;
-  notifiedUpdateVersion = version;
-
-  const notification = new Notification({
-    title: "Agent Native update ready",
-    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
-  });
-  notification.on("click", (_event) => {
-    focusMainWindow();
-  });
-  notification.show();
-}
-
 // --------------- Run completion / attention notifications ---------------
 
 /** True when the main window is hidden or unfocused. */
@@ -1005,98 +931,11 @@ app.on("browser-window-focus", () => {
   updateDockBadge();
 });
 
-if (!IS_DEV) {
-  // The GitHub provider reads the repository-wide latest release feed, which
-  // also contains npm package releases and Clips desktop releases. Use the
-  // Agent Native feed that filters the shared repo down to desktop assets.
-  autoUpdater.setFeedURL({
-    provider: "generic",
-    url: DESKTOP_UPDATE_FEED_URL,
-  });
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on("checking-for-update", () => {
-    broadcastUpdateStatus({ state: "checking" });
-  });
-
-  autoUpdater.on("update-available", (info) => {
-    broadcastUpdateStatus({
-      state: "available",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-  });
-
-  autoUpdater.on("update-not-available", (info) => {
-    broadcastUpdateStatus({
-      state: "not-available",
-      currentVersion: info.version ?? app.getVersion(),
-    });
-  });
-
-  autoUpdater.on("download-progress", (progress) => {
-    broadcastUpdateStatus({
-      state: "downloading",
-      percent: Math.round(progress.percent ?? 0),
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total,
-    });
-  });
-
-  autoUpdater.on("update-downloaded", (info) => {
-    broadcastUpdateStatus({
-      state: "downloaded",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-    showUpdateReadyNotification(info.version);
-  });
-
-  autoUpdater.on("error", (err) => {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err?.message ?? String(err),
-    });
-  });
-
-  app.whenReady().then(() => {
-    void checkForAppUpdates();
-    setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
-  });
-
-  app.on("browser-window-focus", maybeCheckForAppUpdates);
-  app.on("activate", maybeCheckForAppUpdates);
-}
-
-ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
-
-ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-  return checkForAppUpdates();
-});
-
-ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-  if (IS_DEV) return currentUpdateStatus;
-  try {
-    await autoUpdater.downloadUpdate();
-  } catch (err) {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return currentUpdateStatus;
-});
-
-ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-  if (IS_DEV) return;
-  // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-  // app relaunches after the update completes.
-  autoUpdater.quitAndInstall(false, true);
-});
+// ---------- IPC: Auto-updates ----------
+// See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
+// update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
+// (imported above) are also used by the application menu below.
+registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -5643,7 +5482,7 @@ async function collectLocalControlResources(
   return resources;
 }
 
-interface ContentFilesGrant {
+export interface ContentFilesGrant {
   id: string;
   path: string;
   sourcePrefix?: string;
@@ -6402,7 +6241,7 @@ const PLAN_ASSETS_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const PLAN_ASSET_FILENAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpe?g|gif|webp|svg)$/i;
 
-interface PlanFilesGrant {
+export interface PlanFilesGrant {
   path: string;
   title?: string;
   updatedAt?: string;
@@ -9459,6 +9298,8 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       enabled: false,
     };
   }
+
+  const currentUpdateStatus = getCurrentUpdateStatus();
 
   if (currentUpdateStatus.state === "downloaded") {
     return {

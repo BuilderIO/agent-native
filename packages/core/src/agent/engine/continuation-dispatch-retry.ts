@@ -135,7 +135,9 @@ export async function attemptContinuationDispatch(params: {
       // delivery would lose the claim and no-op anyway; skipping it saves
       // wall-clock this close to the invocation deadline.
       if (!chainViaDurableBackground && nextRowInserted) {
-        const claim = await d.readBackgroundRunClaim(nextRunId).catch(() => null);
+        const claim = await d
+          .readBackgroundRunClaim(nextRunId)
+          .catch(() => null);
         if (
           claim &&
           ((claim.dispatchMode && claim.dispatchMode !== "background") ||

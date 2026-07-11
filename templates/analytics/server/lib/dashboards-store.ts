@@ -1,3 +1,18 @@
+/**
+ * Dashboards + analyses store — SQL first, legacy settings-KV as
+ * read-only fallback. Writes always go to SQL.
+ *
+ * Lazy migration: when a record is fetched by id and exists only in the
+ * legacy settings store, it is copied into SQL on the fly using the
+ * settings key as the source of truth for `ownerEmail` / `orgId` /
+ * `visibility`, then returned. Subsequent reads hit SQL directly.
+ *
+ * - `u:<email>:dashboard-{id}`     → kind='explorer', owner=email,  visibility='private'
+ * - `u:<email>:sql-dashboard-{id}` → kind='sql',      owner=email,  visibility='private'
+ * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
+ * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
+ */
+import { isPostgres } from "@agent-native/core/db";
 import { recordChange } from "@agent-native/core/server";
 import {
   getAllSettings,
@@ -13,21 +28,7 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-/**
- * Dashboards + analyses store — SQL first, legacy settings-KV as
- * read-only fallback. Writes always go to SQL.
- *
- * Lazy migration: when a record is fetched by id and exists only in the
- * legacy settings store, it is copied into SQL on the fly using the
- * settings key as the source of truth for `ownerEmail` / `orgId` /
- * `visibility`, then returned. Subsequent reads hit SQL directly.
- *
- * - `u:<email>:dashboard-{id}`     → kind='explorer', owner=email,  visibility='private'
- * - `u:<email>:sql-dashboard-{id}` → kind='sql',      owner=email,  visibility='private'
- * - `o:<orgId>:sql-dashboard-{id}` → kind='sql',      owner=caller, visibility='org'
- * - `adhoc-analysis-{id}`          → owner=caller,   legacy visibility from its source key
- */
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -54,6 +55,22 @@ export interface DashboardRecord {
   role?: AccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+}
+
+/** Metadata-only dashboard row for navigation and picker surfaces. */
+export interface DashboardSummaryRecord {
+  id: string;
+  kind: DashboardKind;
+  name: string;
+  parentId: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  hiddenAt: string | null;
+  hiddenBy: string | null;
 }
 
 export interface DashboardRevisionRecord {
@@ -471,6 +488,125 @@ export async function listDashboards(
         visibility,
       );
       out.push(rec);
+    }
+  } catch {
+    // Legacy scan is best-effort.
+  }
+  return out;
+}
+
+/**
+ * List dashboard metadata without transferring or parsing each dashboard's
+ * potentially very large panel config. This is the list-path counterpart to
+ * `getDashboard`, which remains the full-config detail read.
+ *
+ * Legacy settings rows are surfaced directly instead of being migrated during
+ * the read. Opening one by id still performs the existing lazy migration, but
+ * navigation no longer turns an ordinary list into N sequential writes.
+ */
+export async function listDashboardSummaries(
+  ctx: AccessCtx,
+  filter?: {
+    kind?: DashboardKind;
+    archived?: DashboardArchiveFilter;
+    hidden?: DashboardHiddenFilter;
+  },
+): Promise<DashboardSummaryRecord[]> {
+  const db = getDb() as any;
+  const archived = filter?.archived ?? "active";
+  const hidden = filter?.hidden ?? "visible";
+  const conditions: any[] = [
+    accessFilter(schema.dashboards, schema.dashboardShares, {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    }),
+  ];
+  if (filter?.kind) conditions.push(eq(schema.dashboards.kind, filter.kind));
+  if (archived === "active")
+    conditions.push(isNull(schema.dashboards.archivedAt));
+  else if (archived === "archived")
+    conditions.push(isNotNull(schema.dashboards.archivedAt));
+  if (hidden === "visible") conditions.push(isNull(schema.dashboards.hiddenAt));
+  else if (hidden === "hidden")
+    conditions.push(isNotNull(schema.dashboards.hiddenAt));
+  const where = conditions.length === 1 ? conditions[0] : and(...conditions);
+  const parentId = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'parentId')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.parentId')`;
+  const rows = await db
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      name: schema.dashboards.title,
+      parentId,
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+      visibility: schema.dashboards.visibility,
+      createdAt: schema.dashboards.createdAt,
+      updatedAt: schema.dashboards.updatedAt,
+      archivedAt: schema.dashboards.archivedAt,
+      hiddenAt: schema.dashboards.hiddenAt,
+      hiddenBy: schema.dashboards.hiddenBy,
+    })
+    .from(schema.dashboards)
+    .where(where);
+  const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
+    ...row,
+    parentId: typeof row.parentId === "string" ? row.parentId : null,
+    orgId: row.orgId ?? null,
+    archivedAt: row.archivedAt ?? null,
+    hiddenAt: row.hiddenAt ?? null,
+    hiddenBy: row.hiddenBy ?? null,
+  }));
+  const seen = new Set(out.map((row) => row.id));
+
+  if (archived === "archived" || hidden === "hidden") return out;
+  try {
+    const all = await getAllSettings();
+    for (const [key, value] of Object.entries(all)) {
+      let id: string | null = null;
+      let kind: DashboardKind | null = null;
+      let orgId: string | null = null;
+      let visibility: DashboardSummaryRecord["visibility"] = "private";
+      if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+        id = key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length);
+        kind = "sql";
+        orgId = ctx.orgId;
+        visibility = "org";
+      } else if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+        id = key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length);
+        kind = "sql";
+      } else if (
+        ctx.email &&
+        key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
+      ) {
+        id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
+        kind = "explorer";
+      }
+      if (!id || !kind || seen.has(id)) continue;
+      if (filter?.kind && filter.kind !== kind) continue;
+      seen.add(id);
+      const config = value as Record<string, unknown>;
+      const { title } = configFromSettings(config);
+      const createdAt =
+        typeof config.createdAt === "string" ? config.createdAt : nowIso();
+      out.push({
+        id,
+        kind,
+        name: title,
+        parentId: typeof config.parentId === "string" ? config.parentId : null,
+        ownerEmail: ctx.email,
+        orgId,
+        visibility,
+        createdAt,
+        updatedAt:
+          typeof config.updatedAt === "string" ? config.updatedAt : createdAt,
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      });
     }
   } catch {
     // Legacy scan is best-effort.

@@ -1,5 +1,8 @@
 import { getCurrentTurnEventsForThread } from "../run-store.js";
-import { classifyToolCallJournal, type ToolCallJournal } from "../tool-call-journal.js";
+import {
+  classifyToolCallJournal,
+  type ToolCallJournal,
+} from "../tool-call-journal.js";
 
 /**
  * Minimal shape `runAgentLoop` needs from a prior tool call — kept local

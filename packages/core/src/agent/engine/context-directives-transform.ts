@@ -1,6 +1,9 @@
 import { applyContextDirectives } from "../context-xray/apply-directives.js";
 import { loadContextDirectives } from "../context-xray/directives-store.js";
-import { buildManifest, writeContextManifest } from "../context-xray/manifest.js";
+import {
+  buildManifest,
+  writeContextManifest,
+} from "../context-xray/manifest.js";
 import { computeProtectedSegmentIds } from "../context-xray/segments.js";
 import type { EngineMessage } from "./types.js";
 
