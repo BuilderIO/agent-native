@@ -131,6 +131,26 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the center play control actionable before media readiness events fire", () => {
+    const video = getVideo();
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
+    // so loadeddata/canplay may not arrive before the user needs this control.
+    expect(video.readyState).toBe(0);
+    expect(container.textContent).not.toContain("Preparing clip");
+    expect(centerPlay).not.toBeNull();
+
+    act(() => {
+      centerPlay?.click();
+    });
+
+    expect(video.paused).toBe(false);
+    expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
   it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
     const surface = getPlayerSurface();
     const video = getVideo();
