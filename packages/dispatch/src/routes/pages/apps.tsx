@@ -25,8 +25,8 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { CreateAppPopover } from "../../components/create-app-popover";
 import { ActionQueryError } from "../../components/action-query-error";
+import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import {
@@ -76,10 +76,10 @@ export default function AppsRoute() {
   const t = useT();
   const [showHidden, setShowHidden] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const appsQuery = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false, includeArchived: true },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+    includeArchived: true,
+  });
   const { data: apps = [], isLoading: appsLoading } = appsQuery;
   const { data: workspace } = useActionQuery(
     "get-workspace-info",

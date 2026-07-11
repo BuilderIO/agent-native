@@ -69,7 +69,9 @@ describe("AppKeysPanel", () => {
     });
 
     expect(container.textContent).toContain("Couldn't load data");
-    expect(container.textContent).toContain("Dispatch couldn't load this data.");
+    expect(container.textContent).toContain(
+      "Dispatch couldn't load this data.",
+    );
     expect(container.textContent).not.toContain("Vault unavailable");
     expect(container.textContent).not.toContain("No vault keys yet");
 

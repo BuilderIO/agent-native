@@ -3,9 +3,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { test, expect, type Page } from "@playwright/test";
-
 import { startLocalPlanBridge } from "@agent-native/core/testing";
+import { test, expect, type Page } from "@playwright/test";
 
 async function getAvailablePort(): Promise<number> {
   const server = http.createServer();

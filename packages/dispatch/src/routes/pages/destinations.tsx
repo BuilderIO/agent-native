@@ -6,8 +6,8 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "../../components/dispatch-shell";
 import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
 import { TaskQueueHealth } from "../../components/task-queue-health";
 import {
   AlertDialog,
@@ -125,68 +125,71 @@ export default function DestinationsRoute() {
               />
             ) : (
               <div className="mt-4 space-y-3">
-              {(data || []).map((destination: any) => (
-                <div
-                  key={destination.id}
-                  className="rounded-xl border bg-muted/30 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-foreground">
-                        {destination.name}
+                {(data || []).map((destination: any) => (
+                  <div
+                    key={destination.id}
+                    className="rounded-xl border bg-muted/30 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">
+                          {destination.name}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {destination.platform} · {destination.destination}
+                          {destination.threadRef
+                            ? ` · thread ${destination.threadRef}`
+                            : ""}
+                        </div>
+                        {destination.notes && (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {destination.notes}
+                          </p>
+                        )}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {destination.platform} · {destination.destination}
-                        {destination.threadRef
-                          ? ` · thread ${destination.threadRef}`
-                          : ""}
-                      </div>
-                      {destination.notes && (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {destination.notes}
-                        </p>
-                      )}
-                    </div>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          {t("dispatch.pages.delete")}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {t("dispatch.pages.deleteDestinationTitle")}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("dispatch.pages.deleteDestinationDescription", {
-                              name: destination.name,
-                            })}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>
-                            {t("dispatch.pages.cancel")}
-                          </AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() =>
-                              remove.mutate({ id: destination.id })
-                            }
-                          >
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm">
                             {t("dispatch.pages.delete")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {t("dispatch.pages.deleteDestinationTitle")}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t(
+                                "dispatch.pages.deleteDestinationDescription",
+                                {
+                                  name: destination.name,
+                                },
+                              )}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>
+                              {t("dispatch.pages.cancel")}
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() =>
+                                remove.mutate({ id: destination.id })
+                              }
+                            >
+                              {t("dispatch.pages.delete")}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                    <QuickSendRow destination={destination} />
                   </div>
-                  <QuickSendRow destination={destination} />
-                </div>
-              ))}
-              {(data?.length || 0) === 0 && (
-                <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
-                  {t("dispatch.pages.noDestinations")}
-                </div>
-              )}
+                ))}
+                {(data?.length || 0) === 0 && (
+                  <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
+                    {t("dispatch.pages.noDestinations")}
+                  </div>
+                )}
               </div>
             )}
           </section>

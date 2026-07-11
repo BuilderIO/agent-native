@@ -11,8 +11,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "../../components/dispatch-shell";
 import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import {
@@ -320,14 +320,8 @@ function PerAppDetailRow({ app }: { app: CatalogApp }) {
 }
 
 export default function ConnectionsRoute() {
-  const catalogQuery = useActionQuery(
-    "list-integrations-catalog",
-    {},
-  );
-  const accessQuery = useActionQuery(
-    "get-vault-access-settings",
-    {},
-  );
+  const catalogQuery = useActionQuery("list-integrations-catalog", {});
+  const accessQuery = useActionQuery("get-vault-access-settings", {});
   const { data: catalog, isLoading } = catalogQuery;
   const { data: accessSettings } = accessQuery;
   const apps = (catalog as CatalogApp[]) || [];

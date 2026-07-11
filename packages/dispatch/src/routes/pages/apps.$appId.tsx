@@ -7,8 +7,8 @@ import {
 import { useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router";
 
-import { DispatchShell } from "../../components/dispatch-shell";
 import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";

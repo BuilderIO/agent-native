@@ -24,25 +24,25 @@ export default function AuditRoute() {
           />
         ) : (
           <div className="space-y-3">
-          {(data || []).map((event: any) => (
-            <div
-              key={event.id}
-              className="rounded-xl border bg-muted/30 px-4 py-3"
-            >
-              <div className="text-sm font-medium text-foreground">
-                {event.summary}
+            {(data || []).map((event: any) => (
+              <div
+                key={event.id}
+                className="rounded-xl border bg-muted/30 px-4 py-3"
+              >
+                <div className="text-sm font-medium text-foreground">
+                  {event.summary}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {event.actor} · {event.action} ·{" "}
+                  {new Date(event.createdAt).toLocaleString()}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {event.actor} · {event.action} ·{" "}
-                {new Date(event.createdAt).toLocaleString()}
+            ))}
+            {(data?.length || 0) === 0 && (
+              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                No audit entries yet.
               </div>
-            </div>
-          ))}
-          {(data?.length || 0) === 0 && (
-            <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-              No audit entries yet.
-            </div>
-          )}
+            )}
           </div>
         )}
       </section>

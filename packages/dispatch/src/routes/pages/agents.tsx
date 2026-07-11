@@ -8,11 +8,11 @@ import { IconCheck, IconCopy, IconPlugConnected } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import {
   AgentsPanel,
   type ConnectedAgent,
 } from "../../components/agents-panel";
-import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";

@@ -44,7 +44,9 @@ describe("ActionQueryError", () => {
     });
 
     expect(container.textContent).toContain("Couldn't load data");
-    expect(container.textContent).toContain("Dispatch couldn't load this data.");
+    expect(container.textContent).toContain(
+      "Dispatch couldn't load this data.",
+    );
     expect(container.textContent).not.toContain("Database unavailable");
     act(() => {
       container.querySelector("button")?.click();

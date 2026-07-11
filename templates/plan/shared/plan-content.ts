@@ -1222,7 +1222,7 @@ const wireframeSurfaceSchema = z.enum([
 const visualCanvasModeSchema = z.enum(["wireframe", "design"]);
 const visualFrameSchema = z.enum(["auto", "show", "hide"]);
 
-export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
+export const wireframeDataSchema = z
   .object({
     surface: wireframeSurfaceSchema,
     renderMode: visualCanvasModeSchema.optional(),
@@ -1334,21 +1334,20 @@ const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   emphasis: z.boolean().optional(),
 });
 
-const legacyWireframeDataSchema: z.ZodType<PlanLegacyWireframeBlock["data"]> =
-  z.object({
-    viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
-    template: z
-      .enum([
-        "context-xray-app",
-        "context-xray-default",
-        "context-xray-expanded",
-        "context-xray-map",
-        "context-xray-chat-cleanup",
-      ])
-      .optional(),
-    caption: z.string().trim().max(400).optional(),
-    regions: z.array(wireframeRegionSchema).max(80).default([]),
-  });
+const legacyWireframeDataSchema = z.object({
+  viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
+  template: z
+    .enum([
+      "context-xray-app",
+      "context-xray-default",
+      "context-xray-expanded",
+      "context-xray-map",
+      "context-xray-chat-cleanup",
+    ])
+    .optional(),
+  caption: z.string().trim().max(400).optional(),
+  regions: z.array(wireframeRegionSchema).max(80).default([]),
+});
 
 /**
  * Compact ADVERTISED-ONLY stand-in for `legacyWireframeDataSchema`. Only

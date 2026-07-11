@@ -16,11 +16,11 @@ import {
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import {
   ApprovalValueBlock,
   parseApprovalValue,
 } from "../../components/approval-value-block";
-import { ActionQueryError } from "../../components/action-query-error";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -67,10 +67,7 @@ export default function ApprovalPreviewRoute() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
 
-  const approvalsQuery = useActionQuery(
-    "list-dispatch-approvals",
-    {},
-  );
+  const approvalsQuery = useActionQuery("list-dispatch-approvals", {});
   const { data: approvals, isLoading } = approvalsQuery;
 
   const approve = useActionMutation("approve-dispatch-change", {

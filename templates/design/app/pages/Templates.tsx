@@ -92,10 +92,10 @@ export default function Templates() {
   const anchorRef = useRef<HTMLElement | null>(null);
   anchorRef.current = anchorElRef.current;
 
-  const { data, isLoading, isError, isFetching, refetch } = useActionQuery<TemplatesResult>(
-    "list-design-templates",
-    { includePreview: "true" },
-  );
+  const { data, isLoading, isError, isFetching, refetch } =
+    useActionQuery<TemplatesResult>("list-design-templates", {
+      includePreview: "true",
+    });
   const createMutation = useActionMutation("create-design-from-template");
   const deleteMutation = useActionMutation("delete-design-template");
 

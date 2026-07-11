@@ -2,8 +2,8 @@ import { useActionQuery, useT } from "@agent-native/core/client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router";
 
-import { Skeleton } from "@/components/ui/skeleton";
 import { QueryErrorState } from "@/components/QueryErrorState";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface DesignFile {
   id: string;
@@ -75,10 +75,7 @@ export default function Present() {
   if (isError) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-black p-10">
-        <QueryErrorState
-          onRetry={() => void refetch()}
-          retrying={isFetching}
-        />
+        <QueryErrorState onRetry={() => void refetch()} retrying={isFetching} />
       </div>
     );
   }

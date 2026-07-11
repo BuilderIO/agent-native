@@ -50,8 +50,7 @@ export default function TrashRoute() {
   const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
-  const { data, isLoading, isError, isFetching, refetch } =
-    useRecordings(args);
+  const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
   const recordings = (data?.recordings ?? []) as RecordingSummary[];
 
   // These actions are owned by other teams and ship with the template.

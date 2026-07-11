@@ -14,8 +14,8 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "../../components/dispatch-shell";
 import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -737,17 +737,11 @@ function RequestRow({ request }: { request: any }) {
 }
 
 export default function VaultRoute() {
-  const secretsQuery = useActionQuery(
-    "list-vault-secrets",
-    {},
-  );
+  const secretsQuery = useActionQuery("list-vault-secrets", {});
   const grantsQuery = useActionQuery("list-vault-grants", {});
   const requestsQuery = useActionQuery("list-vault-requests", {});
   const auditQuery = useActionQuery("list-vault-audit", { limit: 20 });
-  const accessQuery = useActionQuery(
-    "get-vault-access-settings",
-    {},
-  );
+  const accessQuery = useActionQuery("get-vault-access-settings", {});
   const { data: secrets, isLoading: secretsLoading } = secretsQuery;
   const { data: grants } = grantsQuery;
   const { data: requests } = requestsQuery;
@@ -794,7 +788,9 @@ export default function VaultRoute() {
         </TabsList>
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
-          {secretsQuery.isError || grantsQuery.isError || accessQuery.isError ? (
+          {secretsQuery.isError ||
+          grantsQuery.isError ||
+          accessQuery.isError ? (
             <ActionQueryError
               error={
                 secretsQuery.error ?? grantsQuery.error ?? accessQuery.error
@@ -822,7 +818,9 @@ export default function VaultRoute() {
             <AddSecretDialog />
           </div>
 
-          {!secretsQuery.isError && secretsLoading && (secrets ?? []).length === 0
+          {!secretsQuery.isError &&
+          secretsLoading &&
+          (secrets ?? []).length === 0
             ? Array.from({ length: 3 }).map((_, index) => (
                 <div
                   key={index}
@@ -841,18 +839,23 @@ export default function VaultRoute() {
                 />
               ))}
 
-          {!secretsQuery.isError && !secretsLoading && (secrets?.length || 0) === 0 && (
-            <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
-              <IconKey size={32} className="mx-auto text-muted-foreground/50" />
-              <h3 className="mt-3 text-sm font-medium text-foreground">
-                No secrets yet
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Add your first secret to start sharing credentials across
-                workspace apps.
-              </p>
-            </div>
-          )}
+          {!secretsQuery.isError &&
+            !secretsLoading &&
+            (secrets?.length || 0) === 0 && (
+              <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
+                <IconKey
+                  size={32}
+                  className="mx-auto text-muted-foreground/50"
+                />
+                <h3 className="mt-3 text-sm font-medium text-foreground">
+                  No secrets yet
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Add your first secret to start sharing credentials across
+                  workspace apps.
+                </p>
+              </div>
+            )}
         </TabsContent>
 
         <TabsContent value="requests" className="mt-4 space-y-3">

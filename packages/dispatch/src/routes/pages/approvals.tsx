@@ -62,52 +62,52 @@ export default function ApprovalsRoute() {
             />
           ) : (
             <div className="mt-4 space-y-4">
-            <label className="flex items-center justify-between rounded-xl border px-4 py-3">
-              <div>
+              <label className="flex items-center justify-between rounded-xl border px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    Require approval for durable changes
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {hasOrg
+                      ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
+                      : "Requires a team workspace. Set one up on the Team page."}
+                  </div>
+                </div>
+                <Switch
+                  checked={settings?.enabled || false}
+                  disabled={!hasOrg || savePolicy.isPending}
+                  onCheckedChange={(checked) =>
+                    savePolicy.mutate({
+                      enabled: checked,
+                      approverEmails: settings?.approverEmails || approverList,
+                    })
+                  }
+                />
+              </label>
+              <div className="space-y-2">
                 <div className="text-sm font-medium text-foreground">
-                  Require approval for durable changes
+                  Approver emails
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {hasOrg
-                    ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
-                    : "Requires a team workspace. Set one up on the Team page."}
-                </div>
+                <Input
+                  value={emails}
+                  onChange={(event) => setEmails(event.target.value)}
+                  placeholder={(settings?.approverEmails || []).join(", ")}
+                  disabled={!hasOrg}
+                />
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={!hasOrg || savePolicy.isPending}
+                  onClick={() =>
+                    savePolicy.mutate({
+                      enabled: settings?.enabled || false,
+                      approverEmails: approverList,
+                    })
+                  }
+                >
+                  Save approvers
+                </Button>
               </div>
-              <Switch
-                checked={settings?.enabled || false}
-                disabled={!hasOrg || savePolicy.isPending}
-                onCheckedChange={(checked) =>
-                  savePolicy.mutate({
-                    enabled: checked,
-                    approverEmails: settings?.approverEmails || approverList,
-                  })
-                }
-              />
-            </label>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">
-                Approver emails
-              </div>
-              <Input
-                value={emails}
-                onChange={(event) => setEmails(event.target.value)}
-                placeholder={(settings?.approverEmails || []).join(", ")}
-                disabled={!hasOrg}
-              />
-              <Button
-                className="w-full"
-                variant="outline"
-                disabled={!hasOrg || savePolicy.isPending}
-                onClick={() =>
-                  savePolicy.mutate({
-                    enabled: settings?.enabled || false,
-                    approverEmails: approverList,
-                  })
-                }
-              >
-                Save approvers
-              </Button>
-            </div>
             </div>
           )}
         </section>
@@ -124,50 +124,50 @@ export default function ApprovalsRoute() {
             />
           ) : (
             <div className="mt-4 space-y-3">
-            {(approvals || []).map((approval: any) => (
-              <div
-                key={approval.id}
-                className="rounded-xl border bg-muted/30 px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">
-                      {approval.summary}
+              {(approvals || []).map((approval: any) => (
+                <div
+                  key={approval.id}
+                  className="rounded-xl border bg-muted/30 px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {approval.summary}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {approval.status} · requested by {approval.requestedBy}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {approval.status} · requested by {approval.requestedBy}
-                    </div>
+                    {approval.status === "pending" && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => approve.mutate({ id: approval.id })}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            reject.mutate({
+                              id: approval.id,
+                              reason: "Rejected in dispatch UI",
+                            })
+                          }
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {approval.status === "pending" && (
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => approve.mutate({ id: approval.id })}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          reject.mutate({
-                            id: approval.id,
-                            reason: "Rejected in dispatch UI",
-                          })
-                        }
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))}
-            {(approvals?.length || 0) === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
-                No approval requests yet.
-              </div>
-            )}
+              ))}
+              {(approvals?.length || 0) === 0 && (
+                <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
+                  No approval requests yet.
+                </div>
+              )}
             </div>
           )}
         </section>

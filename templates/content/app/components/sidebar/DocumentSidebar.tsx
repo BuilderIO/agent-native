@@ -48,8 +48,8 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { QueryErrorState } from "@/components/QueryErrorState";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   AlertDialog,
   AlertDialogAction,
