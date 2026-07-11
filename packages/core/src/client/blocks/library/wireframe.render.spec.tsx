@@ -5,7 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { BlockRenderContext } from "../types.js";
-import { HTML_ROUGH_SELECTOR } from "./wireframe-kit.js";
+import {
+  hasDrawableRoughBounds,
+  HTML_ROUGH_SELECTOR,
+} from "./wireframe-kit.js";
 import type { WireframeData } from "./wireframe.config.js";
 import { WireframeBlock } from "./wireframe.js";
 
@@ -90,6 +93,15 @@ function roughScopeInnerHtml(html: string): string {
 }
 
 describe("wireframe auto-height frame", () => {
+  it("skips degenerate rough paths after applying their inset", () => {
+    expect(hasDrawableRoughBounds(4, 20, 2)).toBe(false);
+    expect(hasDrawableRoughBounds(20, 4, 2)).toBe(false);
+    expect(hasDrawableRoughBounds(2, 20, 1)).toBe(false);
+    expect(hasDrawableRoughBounds(Number.NaN, 20, 1)).toBe(false);
+    expect(hasDrawableRoughBounds(5, 5, 2)).toBe(true);
+    expect(hasDrawableRoughBounds(3, 3, 1)).toBe(true);
+  });
+
   it("roughens standard wireframe primitives by default", () => {
     expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
     expect(HTML_ROUGH_SELECTOR).toContain("button");

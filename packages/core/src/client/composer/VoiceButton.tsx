@@ -56,7 +56,7 @@ export function isRealtimeVoiceSetupRequired(
     status !== null &&
     !status.builder &&
     !status.openai &&
-    builderConfigured === false
+    builderConfigured !== true
   );
 }
 
@@ -83,6 +83,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
       <RealtimeVoiceModeEntry
         copy={realtimeCopy}
         disabled={disabled}
+        providerStatusPending={voiceProviders.status === null}
         setupRequired={isRealtimeVoiceSetupRequired(
           voiceProviders.status,
           builderConnect.statusResolved ? builderConnect.configured : null,

@@ -371,6 +371,14 @@ export function mountActionRoutes(
                   await notifyActionChange({
                     actionName: name,
                     ...(userEmail ? { owner: userEmail } : {}),
+                    ...(getHeader(event, "x-request-source")
+                      ? {
+                          requestSource: getHeader(
+                            event,
+                            "x-request-source",
+                          ) as string,
+                        }
+                      : {}),
                   });
                 } catch {
                   // ignore

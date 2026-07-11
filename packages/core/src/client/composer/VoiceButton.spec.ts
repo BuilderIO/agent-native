@@ -5,9 +5,12 @@ import { isRealtimeVoiceSetupRequired } from "./VoiceButton.js";
 describe("isRealtimeVoiceSetupRequired", () => {
   it("waits for the voice-specific provider status before prompting setup", () => {
     expect(isRealtimeVoiceSetupRequired(null, false)).toBe(false);
+  });
+
+  it("does not wait on the redundant Builder status after voice status resolves", () => {
     expect(
       isRealtimeVoiceSetupRequired({ builder: false, openai: false }, null),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("accepts either managed Builder voice or an OpenAI key", () => {

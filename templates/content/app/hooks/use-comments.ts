@@ -65,7 +65,6 @@ export function useComments(documentId: string | null) {
         }
         return Array.from(threadMap.values());
       },
-      refetchInterval: 5000,
     },
   );
 }

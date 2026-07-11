@@ -68,6 +68,20 @@ type SidebarDashboard = {
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
+
+const SIDEBAR_SYNC_SETTLE_MS = 500;
+
+function useSettledSyncVersion(version: number): number {
+  const [settledVersion, setSettledVersion] = useState(version);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSettledVersion(version),
+      SIDEBAR_SYNC_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [version]);
+  return settledVersion;
+}
 import {
   DevDatabaseLink,
   FeedbackButton,
@@ -1751,12 +1765,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
-  // depend on `action` too because the agent runner emits an `action`
-  // event for every successful tool call — even when the matching
-  // resource-table emit (`dashboards` / `analyses`) is missed (e.g. event
-  // batching). See `use-change-version.ts` in @agent-native/core.
-  const dashboardsSync = useChangeVersions(["dashboards", "action"]);
-  const analysesSync = useChangeVersions(["analyses", "action"]);
+  // Domain counters keep these lists targeted. Folding the generic `action`
+  // counter into the keys makes unrelated background work cancel and restart
+  // both sidebar reads.
+  const dashboardsSync = useSettledSyncVersion(
+    useChangeVersions(["dashboards"]),
+  );
+  const analysesSync = useSettledSyncVersion(useChangeVersions(["analyses"]));
   const dashboardsSyncRef = useRef(dashboardsSync);
   const analysesSyncRef = useRef(analysesSync);
   dashboardsSyncRef.current = dashboardsSync;

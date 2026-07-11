@@ -675,6 +675,13 @@ function plainTextToDoc(text: string) {
   };
 }
 
+/** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
+  editor: T | null | undefined,
+): editor is T {
+  return Boolean(editor && editor.isDestroyed !== true);
+}
+
 export function createTiptapComposerExtensions(
   getPlaceholder: () => string | undefined,
 ) {
@@ -1804,7 +1811,7 @@ export function TiptapComposer({
   // its existing draft when the host starts observing it so contextual UI is
   // correct immediately after a tab switch, not only after the next keystroke.
   useEffect(() => {
-    if (!editor || !onTextChange) return;
+    if (!isComposerEditorUsable(editor) || !onTextChange) return;
     onTextChange(editor.state.doc.textContent.trim());
   }, [editor, onTextChange]);
 
@@ -1812,7 +1819,7 @@ export function TiptapComposer({
     (ref: AgentComposerReference) => {
       const normalized = normalizeAgentComposerReference(ref);
       const ed = editor;
-      if (!normalized || !ed) return;
+      if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
         setSlotReferences((current) =>
           applySlotReferenceChanges(current, [normalized]),
@@ -1852,7 +1859,8 @@ export function TiptapComposer({
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
       const ed = editor;
-      if (!ed || disabled || composerModeRef.current) return;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const normalized = normalizeAgentComposerReference(payload);
       if (normalized?.slotKey) {
         insertReference(normalized);
@@ -1910,10 +1918,10 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      editor?.commands.focus("end");
+      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
     },
     setText(text: string) {
-      if (!editor) return;
+      if (!isComposerEditorUsable(editor)) return;
       editor.commands.setContent(plainTextToDoc(text));
       editor.commands.focus("end");
       const trimmed = editor.state.doc.textContent.trim();
@@ -1936,7 +1944,9 @@ export function TiptapComposer({
     (mode: ComposerMode) => {
       setComposerMode(mode);
       composerModeRef.current = mode;
-      setTimeout(() => editor?.commands.focus("end"), 50);
+      setTimeout(() => {
+        if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      }, 50);
     },
     [editor],
   );
@@ -1948,7 +1958,7 @@ export function TiptapComposer({
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -1980,7 +1990,7 @@ export function TiptapComposer({
   const insertTranscript = useCallback(
     (text: string) => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
@@ -2036,7 +2046,7 @@ export function TiptapComposer({
       });
     }
 
-    const draft = editor
+    const draft = isComposerEditorUsable(editor)
       ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
       : null;
     if (draft) snippets.push({ label: "Current draft", value: draft });
@@ -2070,7 +2080,7 @@ export function TiptapComposer({
     if (voice.state === "idle" && voiceAnchorRef.current != null) {
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
-      if (editor && prevLen > 0) {
+      if (isComposerEditorUsable(editor) && prevLen > 0) {
         editor
           .chain()
           .deleteRange({ from: anchor, to: anchor + prevLen })
@@ -2117,7 +2127,7 @@ export function TiptapComposer({
 
   const extractComposerPayload = useCallback(() => {
     const ed = editor;
-    if (!ed) {
+    if (!isComposerEditorUsable(ed)) {
       return {
         text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
         references: slotReferences.map(referenceFromComposerReference),
@@ -2247,7 +2257,7 @@ export function TiptapComposer({
 
   const clearEditorAfterSubmit = useCallback(() => {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     ed.commands.clearContent();
     setEditorHasText(false);
     setSlotReferences([]);
@@ -2261,7 +2271,7 @@ export function TiptapComposer({
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
       if (submitInFlightRef.current) return;
 
       const { text, references } = syncComposerState();
@@ -2321,6 +2331,7 @@ export function TiptapComposer({
           submitInFlightRef.current = false;
         }
       }
+      if (!isComposerEditorUsable(ed)) return;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -2353,7 +2364,7 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        ed.commands.clearContent();
+        if (isComposerEditorUsable(ed)) ed.commands.clearContent();
         setEditorHasText(false);
         setSlotReferences([]);
         setComposerMode(null);
@@ -2380,7 +2391,7 @@ export function TiptapComposer({
         composerRuntime.send();
       }
       cancelActiveVoice();
-      ed.commands.clearContent();
+      if (isComposerEditorUsable(ed)) ed.commands.clearContent();
       setEditorHasText(false);
       setSlotReferences([]);
       try {
@@ -2413,7 +2424,7 @@ export function TiptapComposer({
     item: MentionItem,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
@@ -2429,7 +2440,7 @@ export function TiptapComposer({
     command: SlashCommand,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
@@ -2444,7 +2455,7 @@ export function TiptapComposer({
     skill: SkillResult,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain()
@@ -2463,7 +2474,7 @@ export function TiptapComposer({
   // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectMention = useCallback(
     (item: MentionItem) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2479,7 +2490,7 @@ export function TiptapComposer({
 
   const handleSelectCommand = useCallback(
     (command: SlashCommand) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2495,7 +2506,7 @@ export function TiptapComposer({
 
   const handleSelectSkill = useCallback(
     (skill: SkillResult) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2515,7 +2526,7 @@ export function TiptapComposer({
 
   // Track query text as user types after trigger
   useEffect(() => {
-    if (!editor || !popover) return;
+    if (!isComposerEditorUsable(editor) || !popover) return;
 
     const updateHandler = () => {
       const pop = popoverStateRef.current;
@@ -2554,20 +2565,22 @@ export function TiptapComposer({
     editor.on("update", updateHandler);
     editor.on("selectionUpdate", updateHandler);
     return () => {
-      editor.off("update", updateHandler);
-      editor.off("selectionUpdate", updateHandler);
+      if (isComposerEditorUsable(editor)) {
+        editor.off("update", updateHandler);
+        editor.off("selectionUpdate", updateHandler);
+      }
     };
   }, [editor, popover, closePopover]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!isComposerEditorUsable(editor)) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
   }, [composerText, editor]);
 
   useEffect(() => {
-    if (!editor || initialText === undefined) return;
+    if (!isComposerEditorUsable(editor) || initialText === undefined) return;
     const key = initialTextKey ?? initialText;
     if (initialTextKeyRef.current === key) return;
     initialTextKeyRef.current = key;
@@ -2588,7 +2601,7 @@ export function TiptapComposer({
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
-    if (!editor) return;
+    if (!isComposerEditorUsable(editor)) return;
     editor.setEditable(!disabled);
     if (disabled) editor.commands.blur();
   }, [editor, disabled]);
@@ -2616,7 +2629,9 @@ export function TiptapComposer({
             onRemove={() => {
               setComposerMode(null);
               composerModeRef.current = null;
-              editor?.commands.focus("end");
+              if (isComposerEditorUsable(editor)) {
+                editor.commands.focus("end");
+              }
             }}
           />
         </div>
@@ -2645,7 +2660,9 @@ export function TiptapComposer({
                   setSlotReferences((current) =>
                     removeSlotReference(current, ref),
                   );
-                  editor?.commands.focus("end");
+                  if (isComposerEditorUsable(editor)) {
+                    editor.commands.focus("end");
+                  }
                 }}
                 aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"

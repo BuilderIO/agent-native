@@ -52,24 +52,54 @@ action before requesting microphone permission.
 - Starting voice mode collapses the chat into a persistent bottom-end speech
   orb. The orb stays visible above the chat even when the chat opens
   automatically. Clicking it shows or hides chat without ending the session;
-  ending the session is a separate, explicit control.
-- The orb's compact waveform must reflect actual microphone or assistant audio
-  activity. It is an audio-level indicator, not a decorative animation.
+  opening chat slides the orb clear of the sidebar. The progressively disclosed
+  controls contain only settings and the separate end-session action.
+- The orb's compact waveform stays visible for the full session and reflects
+  actual microphone or assistant audio activity. At silence it rests at its
+  baseline instead of turning into a loading spinner. While connecting, show a
+  distinct compact spinner; when the session becomes live, the assistant gives
+  one brief spoken greeting so readiness is unambiguous. Do not apply a
+  text-sized `max_output_tokens` cap to that audio greeting because audio tokens
+  can truncate it mid-sentence.
+- The orb settings cog opens in place without ending voice mode or navigating
+  away. Nested pickers must not dismiss the settings popover. Language and
+  intelligence update the active Realtime session; the microphone picker swaps
+  the live WebRTC input track and remembers the browser-local device choice;
+  an output-voice change updates immediately only before the assistant has
+  emitted audio and otherwise applies to the next conversation, matching the
+  Realtime API's voice immutability rule.
 - Semantic VAD keeps listening, starts responses automatically, and supports
   barge-in while the agent is speaking.
 - Function calls must cross the authenticated realtime tool bridge and enter
   `executeAgentToolCall`. Never call `ActionEntry.run` directly: that bypasses
   schema validation, approvals, audit/journal behavior, timeouts, redaction,
   and mutation refreshes.
-- Preserve the active browser-tab id in request context so `set-url`,
+- Preserve the active browser-tab id in request context so `set-url-path`,
   `set-search-params`, `view-screen`, and tab-scoped application state affect
-  the app the user is actually speaking to.
+  the app the user is actually speaking to. Realtime tool manifests are capped,
+  so prioritize `navigate`, `set-url-path`, `set-search-params`, and
+  `view-screen` before packing large template registries.
+- Keep `tool-search` in the initial Realtime manifest. A successful specific
+  search may expand the live session with matching action schemas, but the
+  server must derive those schemas from its own registry, bind authorization
+  to the authenticated voice session, and continue execution through
+  `executeAgentToolCall`. Treat `session.update.tools` as a full replacement:
+  preserve the pinned navigation/discovery tools, evict lower-priority entries
+  within the manifest cap, and wait for `session.updated` before asking the
+  model to continue with a newly discovered tool.
 - Do not persist audio or interim transcript deltas. Append completed user and
   assistant utterances as ordinary text messages to the exact chat thread
-  captured when the session starts. Ending voice mode opens that chat so the
-  user can continue over text. Store only compact lifecycle and latest context
-  at `application_state["realtime-voice-session"]`; delete it when the session
-  ends.
+  captured when the session starts. Input transcription completes
+  asynchronously from assistant generation, so reserve provider conversation
+  item order and publish only the contiguous completed sequence; never use
+  completion arrival time as chat order. Ending voice mode opens that chat so
+  the user can continue over text. Store only compact lifecycle and latest
+  context at `application_state["realtime-voice-session"]`; delete it when the
+  session ends.
+- Store the user-controlled language, intelligence, and output-voice choices at
+  `application_state["realtime-voice-prefs"]`. Keep this separate from
+  `voice-transcription-prefs`, which configures editable dictation rather than
+  the speech-to-speech session.
 - Missing-key failures should open Settings focused on the user-scoped
   `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 

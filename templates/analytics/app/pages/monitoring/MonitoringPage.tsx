@@ -55,7 +55,7 @@ export default function MonitoringPage() {
 
   const toggles = (
     <div className="flex shrink-0 items-center gap-2">
-      <RunsTray />
+      <RunsTray pollMs={0} />
       <AgentToggleButton />
     </div>
   );

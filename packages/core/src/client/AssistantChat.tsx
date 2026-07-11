@@ -170,6 +170,7 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+import { useT } from "./i18n.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -386,6 +387,63 @@ function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
     message.includes("MessageRepository") &&
     message.includes("same id already exists")
   );
+}
+
+type AssistantUiMessageRepository = {
+  addOrUpdateMessage: (parentId: unknown, message: unknown) => unknown;
+  __agentNativePatched?: boolean;
+  head?: { current?: { id?: string } } | null;
+};
+
+type AssistantUiThreadBinding = {
+  getState?: () => { repository?: AssistantUiMessageRepository };
+  outerSubscribe?: (callback: () => void) => void | (() => void);
+};
+
+/**
+ * Keep the assistant-ui repository race recovery installed across runtime-core
+ * replacements. The public ThreadRuntime object stays stable when its binding
+ * swaps to another local runtime (thread activation, reconnect, history load),
+ * but each core owns a different MessageRepository instance.
+ */
+export function installAssistantUiMessageRepositoryRecovery(
+  threadRuntime: unknown,
+): () => void {
+  const binding = (
+    threadRuntime as {
+      __internal_threadBinding?: AssistantUiThreadBinding;
+    }
+  )?.__internal_threadBinding;
+  if (!binding?.getState) return () => {};
+
+  const patchCurrentRepository = () => {
+    const repo = binding.getState?.()?.repository;
+    if (!repo || typeof repo.addOrUpdateMessage !== "function") return;
+    if (repo.__agentNativePatched) return;
+    repo.__agentNativePatched = true;
+    const original = repo.addOrUpdateMessage.bind(repo);
+    repo.addOrUpdateMessage = function (parentId: unknown, message: unknown) {
+      try {
+        return original(parentId, message);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        if (parentId && errorMessage.includes("Parent message not found")) {
+          const fallbackParent = this.head?.current?.id ?? null;
+          if (fallbackParent && fallbackParent !== parentId) {
+            return original(fallbackParent, message);
+          }
+          return original(null, message);
+        }
+        if (errorMessage.includes("same id already exists")) return;
+        throw error;
+      }
+    };
+  };
+
+  patchCurrentRepository();
+  const unsubscribe = binding.outerSubscribe?.(patchCurrentRepository);
+  return typeof unsubscribe === "function" ? unsubscribe : () => {};
 }
 
 function cloneContentParts(content: ContentPart[]): ContentPart[] {
@@ -1885,6 +1943,7 @@ const AssistantChatInner = forwardRef<
 ) {
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
+  const t = useT();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   // Latest-value ref so long-lived async closures (the reconnect reader, its
@@ -1993,41 +2052,19 @@ const AssistantChatInner = forwardRef<
   // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
   // it by relinking to the current head whenever the requested parent has
   // gone missing instead of throwing.
-  useEffect(() => {
-    const repo = (threadRuntime as any)?.__internal_threadBinding?.getState?.()
-      ?.repository as
-      | { addOrUpdateMessage?: (parentId: any, message: any) => void }
-      | undefined;
-    if (!repo || typeof repo.addOrUpdateMessage !== "function") return;
-    const patched = repo as any;
-    if (patched.__agentNativePatched) return;
-    patched.__agentNativePatched = true;
-    const original = repo.addOrUpdateMessage.bind(repo);
-    repo.addOrUpdateMessage = function (parentId: any, message: any) {
-      try {
-        return original(parentId, message);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (parentId && msg.includes("Parent message not found")) {
-          const fallbackParent = (this as any).head?.current?.id ?? null;
-          if (fallbackParent && fallbackParent !== parentId) {
-            return original(fallbackParent, message);
-          }
-          return original(null, message);
-        }
-        if (msg.includes("same id already exists")) {
-          return;
-        }
-        throw err;
-      }
-    };
-  }, [threadRuntime]);
+  useEffect(
+    () => installAssistantUiMessageRepositoryRecovery(threadRuntime),
+    [threadRuntime],
+  );
   const agentEngineConfigured = useAgentEngineConfigured(
     providerStatusChecksEnabled,
     { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const isComposerDisabled = missingApiKey || composerDisabled;
+  const isProviderStatusChecking =
+    providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
+  const isComposerDisabled =
+    missingApiKey || isProviderStatusChecking || composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);
@@ -2043,7 +2080,12 @@ const AssistantChatInner = forwardRef<
         : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
             timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
           });
-    if (state !== "missing") return true;
+    if (state === "configured") return true;
+
+    // Unknown means the readiness endpoint is unavailable or still resolving.
+    // Do not start a run optimistically: that recreates the long failure path
+    // this preflight exists to prevent. The mounted hook retries automatically.
+    if (state === "unknown") return false;
 
     requestMissingKeySetup();
     if (typeof window !== "undefined") {
@@ -5150,14 +5192,16 @@ const AssistantChatInner = forwardRef<
                             placeholder={
                               missingApiKey
                                 ? "Connect AI to start chatting..."
-                                : composerDisabled
-                                  ? (composerDisabledPlaceholder ??
-                                    "Open Desktop to use this chat.")
-                                  : isRunning
-                                    ? queuedMessages.length > 0
-                                      ? `${queuedMessages.length} queued — send a follow-up...`
-                                      : "Send a follow-up..."
-                                    : composerPlaceholder
+                                : isProviderStatusChecking
+                                  ? t("agentPanel.checkingAiConnection")
+                                  : composerDisabled
+                                    ? (composerDisabledPlaceholder ??
+                                      "Open Desktop to use this chat.")
+                                    : isRunning
+                                      ? queuedMessages.length > 0
+                                        ? `${queuedMessages.length} queued — send a follow-up...`
+                                        : "Send a follow-up..."
+                                      : composerPlaceholder
                             }
                             onSubmit={
                               isRunning || composerContextItems.length > 0

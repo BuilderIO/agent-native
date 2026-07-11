@@ -28,6 +28,10 @@ agent answers about browser recordings in the Analytics template.
   `session-recording` access before reading private blob refs.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
+- A local Analytics app pointed at a production database must also use the key
+  that encrypted those replay blobs. Set `ANALYTICS_SECRETS_ENCRYPTION_KEY` in
+  an untracked local env file; do not replace the workspace-wide
+  `BETTER_AUTH_SECRET` just to read production replay storage.
 - When sharing a replay with an external agent, use
   `create-session-replay-agent-link`. It mints a two-hour `agent_access` URL
   scoped to the recording, embeds a small SSR discovery payload on
@@ -98,11 +102,12 @@ agent answers about browser recordings in the Analytics template.
 - Wait for all replay chunks (`isComplete`) before constructing the rrweb
   `Replayer`. Progressive chunk publishes should only update the loading bar;
   rebuilding the player mid-load desyncs the scrubber and playhead.
-- Pass events to `Replayer` untouched (aside from stylesheet/script sanitization
-  that prevents blank frames from live CSS loads). Let rrweb own iframe sizing
-  via Meta / ViewportResize; use those dimensions only for CSS fit-to-stage of
-  the outer wrapper. Never rewrite Meta widths or force iframe dimensions —
-  that desyncs the FullSnapshot DOM and blanks the stage.
+- Pass events to `Replayer` untouched. rrweb rebuilds them in a sandboxed iframe;
+  pre-processing DOM, stylesheet, resource, or mutation payloads makes playback
+  diverge from the captured page. Let rrweb own iframe sizing via Meta /
+  ViewportResize, and keep the outer wrapper in that same coordinate system for
+  fit-to-stage scaling. Never clamp only one layer, rewrite Meta widths, or force
+  iframe dimensions — that desyncs the FullSnapshot DOM and breaks the stage.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.

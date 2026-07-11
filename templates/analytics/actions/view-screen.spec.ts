@@ -4,12 +4,11 @@ const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: vi.fn(async (key: string) =>
-    key === "__url__" ? urlState.current : null,
-  ),
-  readAppStateForCurrentTab: vi.fn(async (key: string) =>
-    key === "navigation" ? navigationState.current : null,
-  ),
+  readAppStateForCurrentTab: vi.fn(async (key: string) => {
+    if (key === "navigation") return navigationState.current;
+    if (key === "__url__") return urlState.current;
+    return null;
+  }),
 }));
 
 let userEmail: string | null = "user@example.test";

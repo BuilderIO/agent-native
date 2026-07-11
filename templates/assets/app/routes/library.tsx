@@ -1617,7 +1617,6 @@ function LibraryCandidateStage({
         { signal },
       );
     },
-    refetchInterval: 1000,
   });
   const isAllAssetsStage = !activeLibraryId;
   const liveLibraryId = activeLibraryId ?? variants?.libraryId ?? null;

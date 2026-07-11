@@ -44,7 +44,7 @@ describe("buildChatModelGroups", () => {
     ]);
   });
 
-  it("includes installed API-key-backed providers beyond Claude, OpenAI, and Gemini", () => {
+  it("shows the curated providers with OpenRouter last", () => {
     const groups = buildChatModelGroups({
       configuredKeys: [
         "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -99,7 +99,12 @@ describe("buildChatModelGroups", () => {
           label: "Mistral",
           supportedModels: ["mistral-large-latest"],
           requiredEnvVars: ["MISTRAL_API_KEY"],
-          packageInstalled: false,
+        },
+        {
+          name: "ai-sdk:cohere",
+          label: "Cohere",
+          supportedModels: ["command-a-03-2025"],
+          requiredEnvVars: ["COHERE_API_KEY"],
         },
         {
           name: "ai-sdk:ollama",
@@ -114,17 +119,15 @@ describe("buildChatModelGroups", () => {
       "Claude",
       "OpenAI",
       "Gemini",
-      "Groq",
       "OpenRouter",
     ]);
     expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
       engine: "ai-sdk:google",
       configured: true,
     });
-    expect(groups.find((group) => group.label === "Groq")).toMatchObject({
-      engine: "ai-sdk:groq",
-      configured: true,
-    });
+    expect(groups.find((group) => group.label === "Groq")).toBeUndefined();
+    expect(groups.find((group) => group.label === "Mistral")).toBeUndefined();
+    expect(groups.find((group) => group.label === "Cohere")).toBeUndefined();
     expect(groups.find((group) => group.label === "OpenAI")).toMatchObject({
       configured: false,
     });
@@ -133,6 +136,54 @@ describe("buildChatModelGroups", () => {
       models: ["z-ai/glm-5.2"],
       configured: true,
     });
+  });
+
+  it("keeps a hidden provider visible when it is the current engine", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:groq",
+      currentModel: "llama-3.3-70b-versatile",
+      engines: [
+        {
+          name: "ai-sdk:groq",
+          label: "Groq",
+          supportedModels: ["llama-3.3-70b-versatile"],
+          requiredEnvVars: ["GROQ_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "ai-sdk:groq",
+        label: "Groq",
+        models: ["llama-3.3-70b-versatile"],
+        configured: false,
+      },
+    ]);
+  });
+
+  it("puts OpenRouter after other installed custom providers", () => {
+    const groups = buildChatModelGroups({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: ["custom/model"],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Custom",
+      "OpenRouter",
+    ]);
   });
 
   it("keeps the current engine visible without re-adding unsupported current models", () => {

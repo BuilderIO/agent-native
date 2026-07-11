@@ -23,6 +23,7 @@ const guards = [
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
   "guard:agent-chat-context",
+  "guard:request-storms",
 ] as const;
 
 type GuardName = (typeof guards)[number];

@@ -419,18 +419,7 @@ function DbSyncSetup() {
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 export default function Root() {
-  const [queryClient] = useState(() =>
-    createAgentNativeQueryClient({
-      defaultOptions: {
-        queries: {
-          // Mail's VisibilityRefresh handles the focus-based refresh with a
-          // 60 s throttle, so we also want React Query's focus refetch to
-          // fire for other query keys (labels, settings, etc.).
-          refetchOnWindowFocus: true,
-        },
-      },
-    }),
-  );
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
       <AppProviders

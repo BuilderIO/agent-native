@@ -429,7 +429,6 @@ export function BrandKitDetailRoute({
         signal,
       });
     },
-    refetchInterval: 1000,
   });
 
   useEffect(() => {

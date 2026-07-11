@@ -30,7 +30,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
    useDbSync({ queryClient });
    ```
 
-   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries for ordinary domain events — that caused a request storm in production. The exception is `source: "action"`: a successful mutating action is the framework-wide "agent changed app data" signal, so `useDbSync` also refreshes active React Query observers as a compatibility safety net for custom apps that have not yet moved every read to `useActionQuery` or source-versioned query keys.
+   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries — that caused request storms in production. A successful mutating action refreshes active `useActionQuery` observers under the `["action"]` prefix. Browser actions carry a tab id so their originating tab ignores the sync echo while other tabs refresh. Legacy apps can opt into broader compatibility with `actionInvalidatePredicate`, but first-party apps should use action-backed or source-versioned query keys. Idle fallback polling runs once per minute; active agent work temporarily uses the faster cadence.
 
 3. **Templates fold per-source counters into their query keys.** This is the pattern that makes "agent writes show up without a manual refresh" reliable:
 
@@ -117,7 +117,7 @@ useQuery({
 | UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Does the affected query have an active observer?         |
 | Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                                    |
 | SSE not connecting                 | Is `/_agent-native/events` accessible and authenticated? Polling should still keep the UI fresh as fallback.   |
-| High CPU / event storms            | The agent is writing rapidly. Add `staleTime` to queries to debounce refetches.                                |
+| High CPU / event storms            | Use targeted source keys, settle bursty list counters, and avoid broad action invalidation.                   |
 
 ## Jitter Prevention
 

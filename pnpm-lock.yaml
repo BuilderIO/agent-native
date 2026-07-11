@@ -254,8 +254,8 @@ importers:
         specifier: ^2.6.2
         version: 2.6.2
       '@rrweb/record':
-        specifier: 2.0.1
-        version: 2.0.1
+        specifier: 2.1.0
+        version: 2.1.0
       '@sentry/browser':
         specifier: 10.60.0
         version: 10.60.0
@@ -1431,8 +1431,8 @@ importers:
         specifier: ^0.15.8
         version: 0.15.15
       '@rrweb/replay':
-        specifier: 2.0.1
-        version: 2.0.1
+        specifier: 2.1.0
+        version: 2.1.0
       '@sparticuz/chromium-min':
         specifier: ^149.0.0
         version: 149.0.0
@@ -10252,17 +10252,17 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rrweb/record@2.0.1':
-    resolution: {integrity: sha512-vv1arNDrlWW6tmDnLKPEhnZf14OY3Q6nrl+JTNN+RoGRRoWQHb4sNy/Hlg/xlnAlob/OQyYwLPOMZZOYnwWouQ==}
+  '@rrweb/record@2.1.0':
+    resolution: {integrity: sha512-jnbpYQED6QdKn1MuEoqJyILkYhuWDhb3kzA/l1i+Di5sfP7apf3HvrlVIMoyZgATMlk2if65BUUrc5R+vabCjQ==}
 
-  '@rrweb/replay@2.0.1':
-    resolution: {integrity: sha512-UrZONirb8o4t0urg1aJ8aMSWhNHvJ3a2usuVbPJIm/edyFbwTvvY9sg/rrXccyXOntFhhp73R5nCretODRZcCw==}
+  '@rrweb/replay@2.1.0':
+    resolution: {integrity: sha512-a6s3Lzf4iIEL22o6+DHZrbjH/q6OIM9CFh/KzU6pDZ2mOYFP3u3Yd3IL57Oc9usnqFt/kNCvOjUf5JbBrQ9o7A==}
 
-  '@rrweb/types@2.0.1':
-    resolution: {integrity: sha512-x8cNaKFxdvS0/5IfKOj1xG8Htnw1fUwqoPqgP61bOaWqZL6t9UtRPpO9ZlMB2z+FiTxg9zlFFL+Da4ZpFuhoiA==}
+  '@rrweb/types@2.1.0':
+    resolution: {integrity: sha512-svOHkcuukP6rIjz2umwVsS7uYct+2h0N97+bg+8IJYKIUj5+YjwIvqx5y9NILFKPIu3yk+Mb+KDFfJ8RV+4JlA==}
 
-  '@rrweb/utils@2.0.1':
-    resolution: {integrity: sha512-t+b+4rB23/e4EpoGMdPUr6cKtDsFuOb3LxA9IHE8e3A/Xo0nMUfH0bkwqdpUNa/VGDOdiGeG3bhHjuO9zWX54g==}
+  '@rrweb/utils@2.1.0':
+    resolution: {integrity: sha512-hU7MT3TSdD+Do7FmMoHrBfPevFCheN5vo2mn97Y4vbXuwemopAmo8dqo5KJeMaA6oQQt7FinHJ0Xqb7k68Ci6Q==}
 
   '@sentry/browser-utils@10.60.0':
     resolution: {integrity: sha512-YhdPeMJnMaKVi5NQ2tD9RJ2AxU7cav5khmiMHFppmbP3I3Os2EHVaQjAVb6/ePAINr/d5mj5SxpnWmFX17iXsg==}
@@ -16608,17 +16608,17 @@ packages:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
 
-  rrdom@2.0.1:
-    resolution: {integrity: sha512-z8GdQWFmVfa8GpcGkAqfBXseb89z0ciTPSBkID0qr0i6KHCye1MdQ4VoXFf0Ejp3ELe/c7AObu4zsbSbMT+hiw==}
+  rrdom@2.1.0:
+    resolution: {integrity: sha512-d7oaIHzwffxI74UJMZDGq/f97/Yfm3QX4CcTIlQelt2HsLavItLjp8x8nQ0g9Pet5+5wG1RGr9yvsxb1gJlo8A==}
 
   rrule@2.8.1:
     resolution: {integrity: sha512-hM3dHSBMeaJ0Ktp7W38BJZ7O1zOgaFEsn41PDk+yHoEtfLV+PoJt9E9xAlZiWgf/iqEqionN0ebHFZIDAp+iGw==}
 
-  rrweb-snapshot@2.0.1:
-    resolution: {integrity: sha512-H8TA29ct2tpYtr5oaB0N+ksRY9bhEErfAYcKbce4+w8lqEUQChpKZd41HpBJLkp04b5QUfWUg4v6r9Okf8r7vA==}
+  rrweb-snapshot@2.1.0:
+    resolution: {integrity: sha512-CFjUKWlO+Dl72gk8qwcDcNE/Pj9yr6IvGRAiRAx12pmJaSWaOKFoFgpQQ1j/mW0WKwEZXbHnMJL8M92gIsdwUQ==}
 
-  rrweb@2.0.1:
-    resolution: {integrity: sha512-MQYzOtI7aZft9ffDMT6rmRSAj6hO4W6T7iA4eB9Mtcuiv3M7DbnnxDMrcPW0sQXepgYN46YhfSKe75d/mlUHrQ==}
+  rrweb@2.1.0:
+    resolution: {integrity: sha512-gGGvd1eXWnOuJpQumH7+gPmBwTXzNrjmQyedWVePcEx0S5fe3VkQW4vw5f5ItY+vuigaaktte9cZKOg0OEvv+w==}
 
   rsa-pem-from-mod-exp@0.8.6:
     resolution: {integrity: sha512-c5ouQkOvGHF1qomUUDJGFcXsomeSO2gbEs6hVhMAtlkE1CuaZase/WzoaKFG/EZQuNmq6pw/EMCeEnDvOgCJYQ==}
@@ -24285,20 +24285,20 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.62.2':
     optional: true
 
-  '@rrweb/record@2.0.1':
+  '@rrweb/record@2.1.0':
     dependencies:
-      '@rrweb/types': 2.0.1
-      '@rrweb/utils': 2.0.1
-      rrweb: 2.0.1
+      '@rrweb/types': 2.1.0
+      '@rrweb/utils': 2.1.0
+      rrweb: 2.1.0
 
-  '@rrweb/replay@2.0.1':
+  '@rrweb/replay@2.1.0':
     dependencies:
-      '@rrweb/types': 2.0.1
-      rrweb: 2.0.1
+      '@rrweb/types': 2.1.0
+      rrweb: 2.1.0
 
-  '@rrweb/types@2.0.1': {}
+  '@rrweb/types@2.1.0': {}
 
-  '@rrweb/utils@2.0.1': {}
+  '@rrweb/utils@2.1.0': {}
 
   '@sentry/browser-utils@10.60.0':
     dependencies:
@@ -31687,28 +31687,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  rrdom@2.0.1:
+  rrdom@2.1.0:
     dependencies:
-      rrweb-snapshot: 2.0.1
+      rrweb-snapshot: 2.1.0
 
   rrule@2.8.1:
     dependencies:
       tslib: 2.8.1
 
-  rrweb-snapshot@2.0.1:
+  rrweb-snapshot@2.1.0:
     dependencies:
       postcss: 8.5.15
 
-  rrweb@2.0.1:
+  rrweb@2.1.0:
     dependencies:
-      '@rrweb/types': 2.0.1
-      '@rrweb/utils': 2.0.1
+      '@rrweb/types': 2.1.0
+      '@rrweb/utils': 2.1.0
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
       mitt: 3.0.1
-      rrdom: 2.0.1
-      rrweb-snapshot: 2.0.1
+      rrdom: 2.1.0
+      rrweb-snapshot: 2.1.0
 
   rsa-pem-from-mod-exp@0.8.6: {}
 

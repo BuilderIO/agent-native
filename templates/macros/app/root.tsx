@@ -169,9 +169,6 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Macros UI refetches on focus to pick up meals logged in other
-          // browser tabs or mobile, which don't always arrive via DB sync.
-          refetchOnWindowFocus: true,
           // Flat retry: macros data errors are usually transient network
           // issues, not auth failures, so a flat count is sufficient.
           retry: 1,

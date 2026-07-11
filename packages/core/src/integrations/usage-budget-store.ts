@@ -232,7 +232,7 @@ function requirePeriod(
 
 function authorizationSql(alias = ""): string {
   const prefix = alias ? `${alias}.` : "";
-  return `((${prefix}subject_type = 'user' AND ${prefix}owner_email = ?) OR (${prefix}subject_type <> 'user' AND ((${prefix}org_id = ? AND ? IS NOT NULL) OR (${prefix}org_id IS NULL AND ${prefix}owner_email = ?))))`;
+  return `((${prefix}subject_type = 'user' AND ${prefix}owner_email = ?) OR (${prefix}subject_type <> 'user' AND ((${prefix}org_id = ? AND CAST(? AS TEXT) IS NOT NULL) OR (${prefix}org_id IS NULL AND ${prefix}owner_email = ?))))`;
 }
 
 function authorizationArgs(

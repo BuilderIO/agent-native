@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import {
-  readAppState,
-  readAppStateForCurrentTab,
-} from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -37,12 +34,12 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
-    const url = (await readAppState("__url__")) as {
+    const url = (await readAppStateForCurrentTab("__url__")) as {
       pathname?: string;
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
-    const selectedObject = await readAppState("selected-object");
+    const selectedObject = await readAppStateForCurrentTab("selected-object");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;

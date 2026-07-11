@@ -48,7 +48,10 @@ import {
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   listSessionRecordings,
+  MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
+  MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
   parseSessionReplayIngestPayload,
+  readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
   recordSessionReplayChunks,
 } from "./session-replay";
@@ -665,6 +668,249 @@ describe("session replay ingest parsing", () => {
     });
     expect(result.json).toBe(eventsJson);
     expect(JSON.parse(result.json)).toHaveLength(2);
+  });
+
+  it("returns actionable setup guidance when a replay blob key does not match", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_blob_mismatch"),
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "encrypted-blob-handle" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 4096,
+          eventCount: 2,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockRejectedValue(
+      new Error("Unsupported state or unable to authenticate data"),
+    );
+
+    await expect(
+      readSessionReplayChunkBytes("sr_blob_mismatch", 0, {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: expect.stringContaining("ANALYTICS_SECRETS_ENCRYPTION_KEY"),
+    });
+  });
+
+  it("reads an ordered replay chunk batch with one access check and one row query", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch"),
+    });
+    const firstJson = JSON.stringify([{ type: 4, timestamp: 1000 }]);
+    const secondJson = JSON.stringify([{ type: 3, timestamp: 2000 }]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 1,
+          checksum: "checksum_1",
+          byteLength: secondJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: secondJson,
+        },
+        {
+          seq: 2,
+          checksum: "checksum_2",
+          byteLength: firstJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: firstJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = await readSessionReplayChunkBatch("sr_batch", [2, 1], {
+      userEmail: "viewer@example.com",
+      orgId: "org_123",
+    });
+
+    expect(resolveAccessMock).toHaveBeenCalledTimes(1);
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(result.chunks.map((chunk) => chunk.seq)).toEqual([2, 1]);
+    expect(result.chunks[0]?.events).toEqual([{ type: 4, timestamp: 1000 }]);
+    expect(result.unavailableChunks).toBe(0);
+  });
+
+  it("bounds replay chunk batches by count and declared bytes before blob reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_bounds"),
+    });
+
+    await expect(
+      readSessionReplayChunkBatch(
+        "sr_batch_bounds",
+        Array.from(
+          { length: MAX_REPLAY_CHUNK_READ_BATCH_SIZE + 1 },
+          (_, index) => index,
+        ),
+        { userEmail: "viewer@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "oversized" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: MAX_REPLAY_CHUNK_READ_BATCH_BYTES + 1,
+          eventCount: 1,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_bounds", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 413 });
+    expect(readPrivateBlobMock).not.toHaveBeenCalled();
+  });
+
+  it("limits replay chunk blob reads to ten and marks missing chunks unavailable", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_concurrency"),
+    });
+    const eventsJson = JSON.stringify([{ type: 4, timestamp: 1000 }]);
+    const rows = Array.from({ length: 15 }, (_, seq) => ({
+      seq,
+      checksum: `checksum_${seq}`,
+      byteLength: eventsJson.length,
+      eventCount: 1,
+      storageKind: "blob",
+      storageRef: JSON.stringify({
+        kind: "agent-native.session-replay.private-blob",
+        version: 1,
+        compression: "gzip",
+        handle: { opaque: `blob-${seq}` },
+      }),
+      inlineData: null,
+    }));
+    const { db } = createReplayDbMock([rows]);
+    getDbMock.mockReturnValue(db);
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    readPrivateBlobMock.mockImplementation(async () => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeReads -= 1;
+      return { data: gzipSync(Buffer.from(eventsJson, "utf8")) };
+    });
+
+    const result = await readSessionReplayChunkBatch(
+      "sr_batch_concurrency",
+      [...rows.map((row) => row.seq), 19],
+      { userEmail: "viewer@example.com", orgId: "org_123" },
+    );
+
+    expect(maxActiveReads).toBe(10);
+    expect(result.chunks[result.chunks.length - 1]).toMatchObject({
+      seq: 19,
+      events: [],
+      unavailable: true,
+    });
+    expect(result.unavailableChunks).toBe(1);
+  });
+
+  it("rejects replay chunk batches whose actual JSON response exceeds the cap", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_actual_size"),
+    });
+    const oversizedJson = JSON.stringify([
+      { data: "x".repeat(MAX_REPLAY_CHUNK_READ_BATCH_BYTES) },
+    ]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 1,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: oversizedJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_actual_size", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 413 });
+  });
+
+  it("fails a replay chunk batch on systemic blob read errors", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_storage_error"),
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "unreadable" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 10,
+          eventCount: 1,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockRejectedValue(new Error("provider unavailable"));
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_storage_error", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
   });
 
   it("requires signed-in email identity and replay events in session recording lists", async () => {

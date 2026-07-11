@@ -180,6 +180,7 @@ describe("demo dashboards", () => {
       true,
     );
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
   });
 
   it("does not block installation when collab synchronization stalls", async () => {

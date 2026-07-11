@@ -18,6 +18,8 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
+import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
+import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
   getBuilderGatewayBaseUrl,
@@ -37,6 +39,10 @@ export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
 export const REALTIME_VOICE_MAX_TOOLS = 32;
 export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
+export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 10 * 60 * 1_000;
+export const REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS = 256;
+export const REALTIME_VOICE_CAPABILITY_HEADER =
+  "X-Agent-Native-Realtime-Capability";
 
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
@@ -50,6 +56,37 @@ const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
 const BROWSER_TAB_ID = /^[A-Za-z0-9_-]{1,96}$/;
+const ISO_639_1_LANGUAGE = /^[A-Za-z]{2}$/;
+const REALTIME_VOICE_BUILT_INS = new Set([
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar",
+]);
+const REALTIME_VOICE_REASONING_EFFORT = {
+  instant: "minimal",
+  balanced: "low",
+  deep: "medium",
+} as const;
+
+/**
+ * Realtime sessions have a deliberately bounded tool manifest. Keep the
+ * context/navigation tools ahead of large template registries so voice can
+ * always see and operate the same UI navigation surface as text chat.
+ */
+const REALTIME_VOICE_PRIORITY_TOOLS = [
+  "navigate",
+  "set-url-path",
+  "set-search-params",
+  "view-screen",
+  TOOL_SEARCH_ACTION_NAME,
+] as const;
 
 export interface RealtimeVoiceRequestContext {
   event: H3Event;
@@ -105,6 +142,17 @@ interface RealtimeFunctionTool {
   parameters: Record<string, unknown>;
 }
 
+interface RealtimeToolCapability {
+  userEmail: string;
+  orgId?: string;
+  browserTabId?: string;
+  expiresAt: number;
+  initialNames: Set<string>;
+  names: Set<string>;
+}
+
+type RealtimeToolCapabilityStore = Map<string, RealtimeToolCapability>;
+
 interface AuthenticatedVoiceContext extends RealtimeVoiceRequestContext {
   timezone?: string;
 }
@@ -123,6 +171,50 @@ function configuredIdentifier(
   const trimmed = value?.trim();
   return trimmed && /^[A-Za-z0-9_.:-]{1,128}$/.test(trimmed)
     ? trimmed
+    : fallback;
+}
+
+export function resolveRealtimeVoiceTranscriptionLanguage(
+  acceptLanguage: string | null | undefined,
+): string {
+  for (const locale of parseAcceptLanguage(acceptLanguage)) {
+    const primaryLanguage = locale.split("-")[0];
+    if (ISO_639_1_LANGUAGE.test(primaryLanguage)) {
+      return primaryLanguage.toLowerCase();
+    }
+  }
+  return "en";
+}
+
+export function resolveRealtimeVoiceLanguagePreference(
+  value: string | null | undefined,
+  acceptLanguage: string | null | undefined,
+): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && ISO_639_1_LANGUAGE.test(normalized)
+    ? normalized
+    : resolveRealtimeVoiceTranscriptionLanguage(acceptLanguage);
+}
+
+export function resolveRealtimeVoiceReasoningEffort(
+  value: string | null | undefined,
+): "minimal" | "low" | "medium" {
+  const normalized = value?.trim().toLowerCase();
+  return normalized &&
+    Object.hasOwn(REALTIME_VOICE_REASONING_EFFORT, normalized)
+    ? REALTIME_VOICE_REASONING_EFFORT[
+        normalized as keyof typeof REALTIME_VOICE_REASONING_EFFORT
+      ]
+    : "low";
+}
+
+export function resolveRealtimeVoicePreference(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && REALTIME_VOICE_BUILT_INS.has(normalized)
+    ? normalized
     : fallback;
 }
 
@@ -218,7 +310,22 @@ function buildRealtimeTools(
       parameters,
     });
   }
-  return tools;
+  const priority = new Map<string, number>(
+    REALTIME_VOICE_PRIORITY_TOOLS.map((name, index) => [name, index]),
+  );
+  return tools
+    .map((tool, index) => ({ tool, index }))
+    .sort((left, right) => {
+      const leftPriority = priority.get(left.tool.name);
+      const rightPriority = priority.get(right.tool.name);
+      if (leftPriority !== undefined || rightPriority !== undefined) {
+        if (leftPriority === undefined) return 1;
+        if (rightPriority === undefined) return -1;
+        return leftPriority - rightPriority;
+      }
+      return left.index - right.index;
+    })
+    .map(({ tool }) => tool);
 }
 
 function packRealtimeTools(
@@ -241,6 +348,124 @@ function packRealtimeTools(
     }
   }
   return packed;
+}
+
+function mintRealtimeToolCapability(): string {
+  return globalThis.crypto.randomUUID().replaceAll("-", "");
+}
+
+function cleanRealtimeToolCapabilities(
+  capabilities: RealtimeToolCapabilityStore,
+  now = Date.now(),
+): void {
+  for (const [key, capability] of capabilities) {
+    if (capability.expiresAt <= now) capabilities.delete(key);
+  }
+  while (capabilities.size > REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS) {
+    let oldestKey: string | undefined;
+    let oldestExpiry = Number.POSITIVE_INFINITY;
+    for (const [key, capability] of capabilities) {
+      if (capability.expiresAt < oldestExpiry) {
+        oldestKey = key;
+        oldestExpiry = capability.expiresAt;
+      }
+    }
+    if (!oldestKey) break;
+    capabilities.delete(oldestKey);
+  }
+}
+
+function registerRealtimeToolCapability(
+  capabilities: RealtimeToolCapabilityStore,
+  auth: AuthenticatedVoiceContext,
+  initialNames: Iterable<string>,
+): string {
+  cleanRealtimeToolCapabilities(capabilities);
+  const token = mintRealtimeToolCapability();
+  capabilities.set(token, {
+    userEmail: auth.userEmail.trim().toLowerCase(),
+    ...(auth.orgId ? { orgId: auth.orgId } : {}),
+    ...(auth.browserTabId ? { browserTabId: auth.browserTabId } : {}),
+    expiresAt: Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS,
+    initialNames: new Set(initialNames),
+    names: new Set(),
+  });
+  cleanRealtimeToolCapabilities(capabilities);
+  return token;
+}
+
+function resolveRealtimeToolCapability(
+  capabilities: RealtimeToolCapabilityStore,
+  token: string | undefined,
+  auth: AuthenticatedVoiceContext,
+): RealtimeToolCapability | null {
+  cleanRealtimeToolCapabilities(capabilities);
+  if (!token) return null;
+  const capability = capabilities.get(token);
+  if (!capability) return null;
+  if (
+    capability.userEmail !== auth.userEmail.trim().toLowerCase() ||
+    capability.orgId !== auth.orgId ||
+    capability.browserTabId !== auth.browserTabId
+  ) {
+    return null;
+  }
+  capability.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
+  return capability;
+}
+
+function parseSuccessfulToolSearchNames(output: string): string[] {
+  try {
+    const parsed = JSON.parse(output) as { results?: unknown };
+    if (!Array.isArray(parsed.results)) return [];
+    const names: string[] = [];
+    for (const result of parsed.results) {
+      if (!isRecord(result) || typeof result.name !== "string") continue;
+      if (!REALTIME_TOOL_NAME.test(result.name)) continue;
+      if (!names.includes(result.name)) names.push(result.name);
+      if (names.length >= REALTIME_VOICE_MAX_TOOLS) break;
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}
+
+function grantDiscoveredRealtimeTools(input: {
+  request: NonNullable<ReturnType<typeof parseToolRequest>>;
+  result: RealtimeVoiceToolExecutionResult;
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>;
+  initialAllowedNames: ReadonlySet<string>;
+  capability: RealtimeToolCapability;
+}): RealtimeFunctionTool[] {
+  const query = input.request.args.query;
+  if (
+    input.request.name !== TOOL_SEARCH_ACTION_NAME ||
+    input.result.status !== "completed" ||
+    typeof query !== "string" ||
+    !query.trim()
+  ) {
+    return [];
+  }
+
+  const candidates = parseSuccessfulToolSearchNames(input.result.output)
+    .filter((name) => !input.initialAllowedNames.has(name))
+    .map((name) => input.toolsByName.get(name))
+    .filter((tool): tool is RealtimeFunctionTool => Boolean(tool));
+  const boundedTools = packRealtimeTools({}, candidates);
+  const expandedTools: RealtimeFunctionTool[] = [];
+  for (const tool of boundedTools) {
+    if (
+      !input.capability.names.has(tool.name) &&
+      input.capability.names.size >= REALTIME_VOICE_MAX_TOOLS
+    ) {
+      continue;
+    }
+    input.capability.names.add(tool.name);
+    expandedTools.push(tool);
+  }
+  input.capability.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
+  return expandedTools;
 }
 
 function declaredBodyBytes(event: H3Event): number | undefined {
@@ -328,6 +553,7 @@ function invalidMethod(event: H3Event): { error: string } {
 
 function createSessionHandler(
   tools: RealtimeFunctionTool[],
+  capabilities: RealtimeToolCapabilityStore,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -394,14 +620,30 @@ function createSessionHandler(
         }
 
         const instructions = await buildInstructions(auth, options);
+        const transcriptionLanguage = resolveRealtimeVoiceLanguagePreference(
+          readSafeHeader(event, "x-agent-native-realtime-language"),
+          readSafeHeader(event, "accept-language"),
+        );
+        const reasoningEffort = resolveRealtimeVoiceReasoningEffort(
+          readSafeHeader(event, "x-agent-native-realtime-intelligence"),
+        );
+        const voice = resolveRealtimeVoicePreference(
+          readSafeHeader(event, "x-agent-native-realtime-voice"),
+          configuredIdentifier(options.voice, DEFAULT_VOICE),
+        );
         const sessionBase = {
           type: "realtime",
           model: configuredIdentifier(options.model, DEFAULT_MODEL),
           instructions,
+          parallel_tool_calls: false,
+          reasoning: { effort: reasoningEffort },
           output_modalities: ["audio"],
           audio: {
             input: {
-              transcription: { model: "gpt-4o-mini-transcribe" },
+              transcription: {
+                model: "gpt-4o-mini-transcribe",
+                language: transcriptionLanguage,
+              },
               turn_detection: {
                 type: "semantic_vad",
                 create_response: true,
@@ -410,13 +652,14 @@ function createSessionHandler(
               },
             },
             output: {
-              voice: configuredIdentifier(options.voice, DEFAULT_VOICE),
+              voice,
             },
           },
         };
+        const packedTools = packRealtimeTools(sessionBase, tools);
         const session = {
           ...sessionBase,
-          tools: packRealtimeTools(sessionBase, tools),
+          tools: packedTools,
           tool_choice: "auto",
         };
 
@@ -491,6 +734,15 @@ function createSessionHandler(
 
         setResponseStatus(event, upstream.status);
         setResponseHeader(event, "Content-Type", "application/sdp");
+        setResponseHeader(
+          event,
+          REALTIME_VOICE_CAPABILITY_HEADER,
+          registerRealtimeToolCapability(
+            capabilities,
+            auth,
+            packedTools.map((tool) => tool.name),
+          ),
+        );
         return answerSdp;
       },
     );
@@ -562,7 +814,8 @@ function normalizeExecutionResult(
 }
 
 function createToolHandler(
-  allowedToolNames: ReadonlySet<string>,
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
+  capabilities: RealtimeToolCapabilityStore,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -577,6 +830,15 @@ function createToolHandler(
     if (!auth) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
+    }
+    const capability = resolveRealtimeToolCapability(
+      capabilities,
+      readSafeHeader(event, REALTIME_VOICE_CAPABILITY_HEADER),
+      auth,
+    );
+    if (!capability) {
+      setResponseStatus(event, 403);
+      return { error: "Invalid or expired realtime voice capability" };
     }
 
     const contentType = readSafeHeader(event, "content-type")?.toLowerCase();
@@ -608,12 +870,22 @@ function createToolHandler(
       setResponseStatus(event, 400);
       return { error: "Invalid realtime tool request" };
     }
-    if (!allowedToolNames.has(request.name)) {
+    if (
+      request.browserTabId !== undefined &&
+      request.browserTabId !== capability.browserTabId
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "Realtime voice browser tab mismatch" };
+    }
+    if (
+      !capability.initialNames.has(request.name) &&
+      !capability.names.has(request.name)
+    ) {
       setResponseStatus(event, 404);
       return { error: "Unknown realtime voice tool" };
     }
 
-    const browserTabId = request.browserTabId ?? auth.browserTabId;
+    const browserTabId = capability.browserTabId;
     const threadId = request.sessionId
       ? `realtime:${request.sessionId}`
       : `realtime:${request.callId}`;
@@ -635,9 +907,21 @@ function createToolHandler(
               userEmail: auth.userEmail,
               orgId: auth.orgId,
               ...request,
+              ...(browserTabId ? { browserTabId } : {}),
             }),
           );
-          return { callId: request.callId, ...result };
+          const expandedTools = grantDiscoveredRealtimeTools({
+            request,
+            result,
+            toolsByName,
+            initialAllowedNames: capability.initialNames,
+            capability,
+          });
+          return {
+            callId: request.callId,
+            ...result,
+            ...(expandedTools.length > 0 ? { expandedTools } : {}),
+          };
         } catch (error) {
           setResponseStatus(event, 500);
           return {
@@ -665,14 +949,16 @@ export function mountRealtimeVoiceRoutes(
   }
 
   const tools = buildRealtimeTools(actions);
-  const allowedToolNames = new Set(
-    tools.slice(0, REALTIME_VOICE_MAX_TOOLS).map((tool) => tool.name),
-  );
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+  const capabilities: RealtimeToolCapabilityStore = new Map();
   const app = getH3App(nitroApp);
-  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
+  app.use(
+    REALTIME_VOICE_SESSION_PATH,
+    createSessionHandler(tools, capabilities, options),
+  );
   app.use(
     REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(allowedToolNames, options),
+    createToolHandler(toolsByName, capabilities, options),
   );
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,

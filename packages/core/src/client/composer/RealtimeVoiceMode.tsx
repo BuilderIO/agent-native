@@ -1,6 +1,15 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+} from "@agent-native/toolkit/ui/select";
+import {
   IconAlertTriangle,
+  IconBrain,
+  IconLanguage,
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
@@ -9,14 +18,17 @@ import {
 } from "@tabler/icons-react";
 import {
   type MouseEvent,
+  useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
@@ -57,13 +69,39 @@ export interface RealtimeVoiceModeCopy {
   showChat: string;
   hideChat: string;
   endVoiceMode: string;
-  microphoneSettings: string;
+  voiceSettings: string;
+  settings: {
+    microphone: string;
+    defaultMicrophone: string;
+    microphoneSwitchFailed: string;
+    language: string;
+    autoLanguage: string;
+    languages: Record<
+      Exclude<
+        import("./useRealtimeVoiceMode.js").RealtimeVoiceLanguage,
+        "auto"
+      >,
+      string
+    >;
+    intelligence: string;
+    intelligenceLevels: Record<
+      import("./useRealtimeVoiceMode.js").RealtimeVoiceIntelligence,
+      string
+    >;
+    voiceStyle: string;
+    voiceChangePending: string;
+    voiceDescriptions: Record<
+      import("./useRealtimeVoiceMode.js").RealtimeVoice,
+      string
+    >;
+  };
   status: Record<RealtimeVoiceModeState, string>;
   errors: {
     unsupported: string;
     responseFailed: string;
     sessionFailed: string;
     channelDisconnected: string;
+    connectionTimedOut?: string;
     connectionFailed: string;
     offerFailed: string;
   };
@@ -72,6 +110,7 @@ export interface RealtimeVoiceModeCopy {
 export interface RealtimeVoiceModeEntryProps {
   copy: RealtimeVoiceModeCopy;
   disabled?: boolean;
+  providerStatusPending?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onStartVoiceMode: () => void;
@@ -92,6 +131,7 @@ export interface RealtimeVoiceModeEntryProps {
 export function RealtimeVoiceModeEntry({
   copy,
   disabled,
+  providerStatusPending = false,
   open: controlledOpen,
   onOpenChange,
   onStartVoiceMode,
@@ -107,6 +147,16 @@ export function RealtimeVoiceModeEntry({
   const open = controlledOpen ?? uncontrolledOpen;
   const titleId = useId();
   const descriptionId = useId();
+  const [collisionBoundary, setCollisionBoundary] =
+    useState<HTMLElement | null>(null);
+
+  const setTriggerNode = useCallback((node: HTMLButtonElement | null) => {
+    const nextBoundary =
+      node?.closest<HTMLElement>(".agent-panel-root") ?? null;
+    setCollisionBoundary((currentBoundary) =>
+      currentBoundary === nextBoundary ? currentBoundary : nextBoundary,
+    );
+  }, []);
 
   const setOpen = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
@@ -124,6 +174,7 @@ export function RealtimeVoiceModeEntry({
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <Button
+              ref={setTriggerNode}
               type="button"
               variant="ghost"
               size="icon"
@@ -146,11 +197,14 @@ export function RealtimeVoiceModeEntry({
         side="top"
         align="end"
         sideOffset={10}
+        collisionBoundary={collisionBoundary ?? undefined}
+        collisionPadding={16}
+        data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
           "p-4",
           setupRequired
-            ? "w-[min(30rem,calc(100vw-2rem))]"
-            : "w-[min(22rem,calc(100vw-2rem))]",
+            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
+            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,22rem),22rem)]",
         )}
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
@@ -168,7 +222,7 @@ export function RealtimeVoiceModeEntry({
             </p>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-nowrap sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button
               type="button"
               variant="ghost"
@@ -206,9 +260,14 @@ export function RealtimeVoiceModeEntry({
               <Button
                 type="button"
                 size="sm"
+                disabled={providerStatusPending}
                 onClick={() => choose(onStartVoiceMode)}
               >
-                <IconMicrophone />
+                {providerStatusPending ? (
+                  <IconLoader2 className="animate-spin" />
+                ) : (
+                  <IconMicrophone />
+                )}
                 {copy.startVoiceMode}
               </Button>
             )}
@@ -226,9 +285,33 @@ export interface RealtimeVoiceModeDockProps {
   audioLevels?: RealtimeVoiceAudioLevelStore;
   onToggleChat: () => void;
   onEndVoiceMode: () => void;
-  onOpenMicrophoneSettings?: () => void;
+  settings?: RealtimeVoiceModeInlineSettings;
   errorMessage?: string | null;
   className?: string;
+}
+
+export interface RealtimeVoiceModeSettingOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface RealtimeVoiceModeSelectSetting {
+  label: string;
+  value: string;
+  options: readonly RealtimeVoiceModeSettingOption[];
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}
+
+export interface RealtimeVoiceModeInlineSettings {
+  dialogLabel: string;
+  appliesNextConversationNote?: string;
+  microphoneError?: string;
+  microphone: RealtimeVoiceModeSelectSetting;
+  language: RealtimeVoiceModeSelectSetting;
+  intelligence: RealtimeVoiceModeSelectSetting;
+  voiceStyle: RealtimeVoiceModeSelectSetting;
 }
 
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
@@ -255,7 +338,7 @@ function VoiceWaveform({
 }: {
   level: number;
   reducedMotion: boolean;
-  activity: "user" | "assistant";
+  activity: "idle" | "user" | "assistant";
 }) {
   const visibleLevel = reducedMotion ? 0.45 : level;
   return (
@@ -269,45 +352,265 @@ function VoiceWaveform({
         <span
           key={index}
           className="h-5 w-0.5 origin-center rounded-full bg-current transition-transform duration-75 ease-out motion-reduce:transition-none"
-          style={{ transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})` }}
+          style={{
+            transform: `scaleY(${0.2 + visibleLevel * 0.8 * weight})`,
+          }}
         />
       ))}
     </span>
   );
 }
 
+function VoiceConnectingIndicator() {
+  return (
+    <IconLoader2
+      aria-hidden="true"
+      className="size-6 animate-spin motion-reduce:animate-none"
+      data-realtime-voice-connecting-indicator="true"
+    />
+  );
+}
+
 const ORB_STATE_CLASSES: Record<RealtimeVoiceModeState, string> = {
   connecting:
-    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   listening:
-    "bg-primary text-primary-foreground ring-primary/20 hover:bg-primary/90",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   speaking:
-    "bg-foreground text-background ring-foreground/20 hover:bg-foreground/90",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   working:
-    "bg-secondary text-secondary-foreground ring-secondary/40 hover:bg-secondary/80",
+    "bg-background/65 text-foreground ring-border/60 hover:bg-background/75",
   error:
-    "bg-destructive text-destructive-foreground ring-destructive/20 hover:bg-destructive/90",
-  ending: "cursor-wait bg-muted text-muted-foreground ring-muted/40",
+    "bg-destructive/20 text-destructive ring-destructive/30 hover:bg-destructive/25",
+  ending: "cursor-wait bg-background/65 text-muted-foreground ring-border/60",
 };
 
-function VoiceStateIcon({ state }: { state: RealtimeVoiceModeState }) {
-  switch (state) {
-    case "connecting":
-      return (
-        <IconLoader2 className="animate-spin motion-reduce:animate-none" />
+function useChatPanelTranslation(chatVisible: boolean): number {
+  const [translation, setTranslation] = useState(0);
+
+  useEffect(() => {
+    if (!chatVisible || typeof window === "undefined") {
+      setTranslation(0);
+      return;
+    }
+
+    const direction = window.getComputedStyle(
+      document.documentElement,
+    ).direction;
+    const inlineEnd = direction === "rtl" ? "left" : "right";
+
+    const update = () => {
+      const panels = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          `.agent-sidebar-panel[data-agent-sidebar-position="${inlineEnd}"][data-agent-sidebar-state="open"]`,
+        ),
       );
-    case "listening":
-      return <IconMicrophone />;
-    case "speaking":
-      return <IconVolume />;
-    case "working":
-    case "ending":
-      return (
-        <IconLoader2 className="animate-spin motion-reduce:animate-none" />
-      );
-    case "error":
-      return <IconAlertTriangle />;
-  }
+      const panel = panels.find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+
+      if (!panel) {
+        setTranslation(0);
+        return;
+      }
+
+      // A fullscreen chat has no unobscured side to move into. Keep the dock
+      // at its normal edge so it stays reachable instead of pinning it to the
+      // opposite side of the same overlay.
+      if (panel.dataset.agentSidebarLayout === "fullscreen") {
+        setTranslation(0);
+        return;
+      }
+
+      const rect = panel.getBoundingClientRect();
+      const overlap =
+        inlineEnd === "right"
+          ? Math.max(0, window.innerWidth - rect.left)
+          : Math.max(0, rect.right);
+      const maximumShift = Math.max(0, window.innerWidth - 96);
+      const distance = Math.min(overlap, maximumShift);
+      setTranslation(inlineEnd === "right" ? -distance : distance);
+    };
+
+    update();
+    const frame = window.requestAnimationFrame(update);
+    window.addEventListener("resize", update);
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    const observedPanels = new WeakSet<HTMLElement>();
+    const observePanels = () => {
+      document
+        .querySelectorAll<HTMLElement>(".agent-sidebar-panel")
+        .forEach((panel) => {
+          if (!observedPanels.has(panel)) {
+            observedPanels.add(panel);
+            resizeObserver?.observe(panel);
+          }
+        });
+    };
+    observePanels();
+
+    const mutationObserver = new MutationObserver(() => {
+      observePanels();
+      update();
+    });
+    mutationObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: [
+        "data-agent-sidebar-layout",
+        "data-agent-sidebar-state",
+        "style",
+      ],
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", update);
+      resizeObserver?.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [chatVisible]);
+
+  return translation;
+}
+
+function VoiceSettingRow({
+  icon: Icon,
+  setting,
+  onSelectOpenChange,
+}: {
+  icon: typeof IconLanguage;
+  setting: RealtimeVoiceModeSelectSetting;
+  onSelectOpenChange: (open: boolean) => void;
+}) {
+  const selected = setting.options.find(
+    (option) => option.value === setting.value,
+  );
+
+  return (
+    <Select
+      value={setting.value}
+      onValueChange={setting.onValueChange}
+      onOpenChange={onSelectOpenChange}
+      disabled={setting.disabled}
+    >
+      <SelectTrigger
+        aria-label={`${setting.label}: ${selected?.label ?? setting.value}`}
+        className="h-11 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 text-sm font-medium text-foreground">
+            {setting.label}
+          </span>
+          <span className="ms-auto min-w-0 truncate text-end text-sm text-muted-foreground">
+            {selected?.label ?? setting.value}
+          </span>
+        </div>
+      </SelectTrigger>
+      <SelectContent
+        align="end"
+        className="min-w-56"
+        data-realtime-voice-setting-options="true"
+      >
+        <SelectGroup>
+          {setting.options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              <span className="grid gap-0.5">
+                <span>{option.label}</span>
+                {option.description ? (
+                  <span className="text-xs text-muted-foreground">
+                    {option.description}
+                  </span>
+                ) : null}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function VoiceInlineSettings({
+  settings,
+  disabled,
+  onSelectOpenChange,
+}: {
+  settings: RealtimeVoiceModeInlineSettings;
+  disabled: boolean;
+  onSelectOpenChange: (open: boolean) => void;
+}) {
+  const selectedVoice = settings.voiceStyle.options.find(
+    (option) => option.value === settings.voiceStyle.value,
+  );
+
+  return (
+    <div data-realtime-voice-settings="true">
+      <h2 className="sr-only">{settings.dialogLabel}</h2>
+      <div className="grid gap-0.5 px-4 pb-3 pt-4 text-center">
+        <div className="truncate text-base font-semibold text-foreground">
+          {selectedVoice?.label ?? settings.voiceStyle.value}
+        </div>
+        {selectedVoice?.description ? (
+          <div className="truncate text-xs text-muted-foreground">
+            {selectedVoice.description}
+          </div>
+        ) : null}
+      </div>
+      <div className="mx-2 mb-2 overflow-hidden rounded-xl border border-border/70 bg-background/70">
+        <VoiceSettingRow
+          icon={IconMicrophone}
+          setting={{
+            ...settings.microphone,
+            disabled: disabled || settings.microphone.disabled,
+          }}
+          onSelectOpenChange={onSelectOpenChange}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
+          icon={IconLanguage}
+          setting={{
+            ...settings.language,
+            disabled: disabled || settings.language.disabled,
+          }}
+          onSelectOpenChange={onSelectOpenChange}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
+          icon={IconBrain}
+          setting={{
+            ...settings.intelligence,
+            disabled: disabled || settings.intelligence.disabled,
+          }}
+          onSelectOpenChange={onSelectOpenChange}
+        />
+        <div className="mx-3 h-px bg-border/70" />
+        <VoiceSettingRow
+          icon={IconVolume}
+          setting={{
+            ...settings.voiceStyle,
+            disabled: disabled || settings.voiceStyle.disabled,
+          }}
+          onSelectOpenChange={onSelectOpenChange}
+        />
+      </div>
+      {settings.microphoneError ? (
+        <p className="px-4 pb-3 text-center text-xs text-destructive">
+          {settings.microphoneError}
+        </p>
+      ) : null}
+      {settings.appliesNextConversationNote ? (
+        <p className="px-4 pb-3 text-center text-xs text-muted-foreground">
+          {settings.appliesNextConversationNote}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -321,32 +624,69 @@ export function RealtimeVoiceModeDock({
   audioLevels = SILENT_AUDIO_LEVELS,
   onToggleChat,
   onEndVoiceMode,
-  onOpenMicrophoneSettings,
+  settings,
   errorMessage,
   className,
 }: RealtimeVoiceModeDockProps) {
   const statusId = useId();
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const selectInteractionRef = useRef(false);
+  const selectInteractionFrameRef = useRef<number | null>(null);
   const levels = useSyncExternalStore(
     audioLevels.subscribe,
     audioLevels.getSnapshot,
     audioLevels.getSnapshot,
   );
   const reducedMotion = usePrefersReducedMotion();
-  const activity =
-    levels.output > AUDIO_ACTIVITY_THRESHOLD
+  // Microphone metering begins while the SDP request is still in flight. Keep
+  // the connecting affordance authoritative until WebRTC is established;
+  // otherwise speaking into the mic replaces the loader with a waveform and
+  // makes a stalled connection look like a live call.
+  const connected =
+    state === "listening" || state === "speaking" || state === "working";
+  const activity = connected
+    ? levels.output > AUDIO_ACTIVITY_THRESHOLD
       ? "assistant"
       : levels.input > AUDIO_ACTIVITY_THRESHOLD
         ? "user"
-        : "idle";
+        : "idle"
+    : "idle";
   const activityLevel = activity === "assistant" ? levels.output : levels.input;
   const toggleLabel = chatVisible ? copy.hideChat : copy.showChat;
   const ending = state === "ending";
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
-  const orbScale = reducedMotion ? 1 : 1 + Math.min(activityLevel, 1) * 0.07;
+  const controlsVisible = controlsOpen || settingsOpen;
+  const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+
+  const handleSelectOpenChange = useCallback((open: boolean) => {
+    if (selectInteractionFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectInteractionFrameRef.current);
+      selectInteractionFrameRef.current = null;
+    }
+    selectInteractionRef.current = true;
+    if (!open) {
+      // Radix closes the portalled Select before its focus/outside events have
+      // fully settled. Keep the parent protected through the current frame.
+      selectInteractionFrameRef.current = window.requestAnimationFrame(() => {
+        selectInteractionRef.current = false;
+        selectInteractionFrameRef.current = null;
+      });
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (selectInteractionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectInteractionFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const closeControlsUnlessFocused = (event: MouseEvent<HTMLDivElement>) => {
+    if (settingsOpen) return;
     if (!event.currentTarget.contains(document.activeElement)) {
       setControlsOpen(false);
     }
@@ -355,12 +695,16 @@ export function RealtimeVoiceModeDock({
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-4 end-4 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2",
+        "pointer-events-none fixed bottom-4 end-4 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2 transition-transform duration-200 ease-[var(--ease-collapse)] motion-reduce:transition-none",
         className,
       )}
-      style={{ zIndex: 270 }}
+      style={{
+        zIndex: 270,
+        transform: `translateX(${chatPanelTranslation}px)`,
+      }}
       data-realtime-voice-state={state}
       data-realtime-voice-activity={activity}
+      data-realtime-voice-chat-offset={chatPanelTranslation}
     >
       {errorDetailVisible ? (
         <div
@@ -386,42 +730,72 @@ export function RealtimeVoiceModeDock({
       >
         <div
           id={controlsId}
-          data-realtime-voice-controls={controlsOpen ? "open" : "closed"}
+          data-realtime-voice-controls={controlsVisible ? "open" : "closed"}
           className={cn(
-            "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 ps-3 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
-            controlsOpen
+            "flex items-center gap-1 rounded-full border border-border/70 bg-background/95 p-1 shadow-lg backdrop-blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
+            controlsVisible
               ? "pointer-events-auto translate-x-0 opacity-100"
               : "pointer-events-none opacity-0 ltr:translate-x-2 rtl:-translate-x-2 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-x-0 group-focus-within:opacity-100",
           )}
         >
-          <div
+          <span
             id={statusId}
             role={state === "error" && !errorDetailVisible ? "alert" : "status"}
             aria-live={
               state === "error" && !errorDetailVisible ? "assertive" : "polite"
             }
-            className="me-1 whitespace-nowrap text-xs font-medium text-foreground"
+            className="sr-only"
           >
             {copy.status[state]}
-          </div>
+          </span>
 
-          {onOpenMicrophoneSettings ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
+          {settings ? (
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverAnchor asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={ending}
+                      onClick={() => setSettingsOpen((open) => !open)}
+                      aria-label={copy.voiceSettings}
+                      aria-expanded={settingsOpen}
+                      className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
+                    >
+                      <IconSettings />
+                    </Button>
+                  </PopoverAnchor>
+                </TooltipTrigger>
+                <TooltipContent>{copy.voiceSettings}</TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                side="top"
+                align="end"
+                sideOffset={10}
+                className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden p-0"
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                onInteractOutside={(event) => {
+                  const target = event.target;
+                  if (
+                    selectInteractionRef.current ||
+                    (target instanceof Element &&
+                      target.closest(
+                        '[data-realtime-voice-setting-options="true"]',
+                      ))
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <VoiceInlineSettings
+                  settings={settings}
                   disabled={ending}
-                  onClick={onOpenMicrophoneSettings}
-                  aria-label={copy.microphoneSettings}
-                  className="size-8 rounded-full text-muted-foreground transition-transform duration-150 ease-out active:scale-[0.97]"
-                >
-                  <IconSettings />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{copy.microphoneSettings}</TooltipContent>
-            </Tooltip>
+                  onSelectOpenChange={handleSelectOpenChange}
+                />
+              </PopoverContent>
+            </Popover>
           ) : null}
 
           <Tooltip>
@@ -454,43 +828,26 @@ export function RealtimeVoiceModeDock({
               }}
               aria-label={toggleLabel}
               aria-pressed={chatVisible}
+              data-realtime-voice-chat-toggle="orb"
               aria-describedby={statusId}
               aria-controls={controlsId}
-              aria-expanded={controlsOpen}
+              aria-expanded={controlsVisible}
               className={cn(
-                "relative isolate size-16 overflow-visible rounded-full ring-4 shadow-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
+                "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
               )}
             >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "pointer-events-none absolute -inset-2 -z-10 rounded-full bg-current opacity-0 blur-md transition-[transform,opacity] duration-150 ease-out motion-reduce:transition-none",
-                  activity !== "idle" && "opacity-20",
-                )}
-                style={{ transform: `scale(${orbScale})` }}
-              />
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-1 overflow-hidden rounded-full bg-gradient-to-br from-background/70 via-background/15 to-transparent opacity-70"
-              >
-                <span className="absolute start-2.5 top-2 size-3 rounded-full bg-background/70 blur-[1px]" />
-                <span
-                  className="absolute -bottom-2 -end-1 h-8 w-10 rounded-full bg-background/25 blur-md transition-transform duration-150 ease-out motion-reduce:transition-none"
-                  style={{
-                    transform: `scale(${reducedMotion ? 1 : 1 + activityLevel * 0.25})`,
-                  }}
-                />
-              </span>
               <span className="relative z-10 flex items-center justify-center">
-                {activity === "idle" ? (
-                  <VoiceStateIcon state={state} />
-                ) : (
+                {state === "connecting" ? (
+                  <VoiceConnectingIndicator />
+                ) : state !== "error" ? (
                   <VoiceWaveform
                     level={activityLevel}
                     reducedMotion={reducedMotion}
                     activity={activity}
                   />
+                ) : (
+                  <IconAlertTriangle />
                 )}
               </span>
             </Button>

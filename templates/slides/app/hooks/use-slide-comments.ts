@@ -1,10 +1,8 @@
 import {
-  appBasePath,
   emailToColor,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 export interface SlideComment {
   id: string;
@@ -50,12 +48,6 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
   return Array.from(map.values());
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
-
 export function useSlideComments(
   deckId: string | null,
   slideId: string | null,
@@ -71,7 +63,6 @@ export function useSlideComments(
         const comments: SlideComment[] = Array.isArray(raw) ? raw : [];
         return groupIntoThreads(comments);
       },
-      refetchInterval: 3000,
     },
   );
 }
@@ -81,31 +72,16 @@ export function useCreateSlideComment() {
 }
 
 export function useResolveSlideComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id }: { id: string }) =>
-      fetchJson<{ ok: boolean }>(`${appBasePath()}/api/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resolved: true }),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action"] });
-    },
-  });
+  return useActionMutation<
+    { ok: boolean; resolved?: boolean },
+    { id: string; resolved?: boolean }
+  >("update-slide-comment");
 }
 
 export function useDeleteSlideComment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id }: { id: string }) =>
-      fetchJson<{ ok: boolean }>(`${appBasePath()}/api/comments/${id}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action"] });
-    },
-  });
+  return useActionMutation<{ ok: boolean }, { id: string }>(
+    "delete-slide-comment",
+  );
 }
 
 /** Derive a display color for an author email */

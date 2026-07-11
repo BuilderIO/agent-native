@@ -1004,6 +1004,7 @@ export function SqlChart({
   const {
     data: result,
     isLoading,
+    isFetching,
     error: queryError,
   } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
@@ -1079,7 +1080,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (!loadData || isLoading) {
+  if (!loadData || isLoading || isFetching) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 

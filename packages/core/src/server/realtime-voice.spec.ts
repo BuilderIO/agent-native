@@ -58,6 +58,7 @@ vi.mock("../agent/production-agent.js", () => ({
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
+  REALTIME_VOICE_CAPABILITY_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
   REALTIME_VOICE_MAX_SESSION_BYTES,
   REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES,
@@ -65,7 +66,12 @@ import {
   REALTIME_VOICE_MAX_TOOLS,
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
+  REALTIME_VOICE_TOOL_GRANT_TTL_MS,
   realtimeVoiceSafetyIdentifier,
+  resolveRealtimeVoiceLanguagePreference,
+  resolveRealtimeVoicePreference,
+  resolveRealtimeVoiceReasoningEffort,
+  resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
 
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
@@ -93,6 +99,52 @@ const ACTIONS = {
   },
 } satisfies Record<string, ActionEntry>;
 
+function discoveryActions(count = REALTIME_VOICE_MAX_TOOLS + 8) {
+  const actions: Record<string, ActionEntry> = {};
+  for (let index = 0; index < count; index++) {
+    actions[`filler_${index}`] = {
+      tool: {
+        name: `filler_${index}`,
+        description: `Filler ${index}`,
+        parameters: { type: "object", properties: {} },
+      },
+      run: vi.fn(),
+    };
+  }
+  actions["tool-search"] = {
+    tool: {
+      name: "tool-search",
+      description: "Discover tools",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+      },
+    },
+    readOnly: true,
+    run: vi.fn(),
+  };
+  actions["rare-action"] = {
+    tool: {
+      name: "rare-action",
+      description: "Perform a rare action",
+      parameters: {
+        type: "object",
+        properties: { target: { type: "string" } },
+      },
+    },
+    run: vi.fn(),
+  };
+  actions["other-rare-action"] = {
+    tool: {
+      name: "other-rare-action",
+      description: "Perform another rare action",
+      parameters: { type: "object", properties: {} },
+    },
+    run: vi.fn(),
+  };
+  return actions;
+}
+
 function fakeEvent(options: {
   method?: string;
   headers?: Record<string, string>;
@@ -111,6 +163,7 @@ function fakeEvent(options: {
 }
 
 function mount(options?: {
+  actions?: Record<string, ActionEntry>;
   getInstructions?: (context: any) => string | Promise<string>;
   model?: string;
   voice?: string;
@@ -125,10 +178,11 @@ function mount(options?: {
       },
     },
   };
-  const executeTool = options?.executeTool ?? vi.fn();
-  const routes = mountRealtimeVoiceRoutes(nitroApp, ACTIONS, {
+  const { actions = ACTIONS, ...routeOptions } = options ?? {};
+  const executeTool = routeOptions.executeTool ?? vi.fn();
+  const routes = mountRealtimeVoiceRoutes(nitroApp, actions, {
     executeTool: executeTool as any,
-    ...options,
+    ...routeOptions,
   });
   return { handlers, routes, executeTool };
 }
@@ -148,6 +202,33 @@ function toolEvent(body: unknown, headers: Record<string, string> = {}) {
     body: JSON.stringify(body),
     headers: { "content-type": "application/json", ...headers },
   });
+}
+
+async function issueToolCapability(
+  handlers: Map<string, Handler>,
+  headers: Record<string, string> = {},
+): Promise<string> {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response("v=0\r\ns=capability\r\n", {
+        status: 201,
+        headers: { "content-type": "application/sdp" },
+      }),
+    ),
+  );
+  const event = sessionEvent(undefined, headers);
+  await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+  const capability = event.responseHeaders[REALTIME_VOICE_CAPABILITY_HEADER];
+  expect(capability).toMatch(/^[a-f0-9]{32}$/);
+  return capability;
+}
+
+function withToolCapability(
+  capability: string,
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  return { ...headers, [REALTIME_VOICE_CAPABILITY_HEADER]: capability };
 }
 
 beforeEach(() => {
@@ -247,7 +328,102 @@ describe("mountRealtimeVoiceRoutes", () => {
   });
 });
 
+describe("resolveRealtimeVoiceTranscriptionLanguage", () => {
+  it("uses the preferred ISO-639-1 language from Accept-Language", () => {
+    expect(resolveRealtimeVoiceTranscriptionLanguage("en-US,en;q=0.9")).toBe(
+      "en",
+    );
+    expect(
+      resolveRealtimeVoiceTranscriptionLanguage("en;q=0.5, zh-CN;q=0.9"),
+    ).toBe("zh");
+  });
+
+  it("defaults safely to English", () => {
+    expect(resolveRealtimeVoiceTranscriptionLanguage(undefined)).toBe("en");
+    expect(resolveRealtimeVoiceTranscriptionLanguage("*;q=1, invalid")).toBe(
+      "en",
+    );
+  });
+});
+
+describe("realtime voice inline preferences", () => {
+  it("accepts validated language, intelligence, and built-in voice values", () => {
+    expect(resolveRealtimeVoiceLanguagePreference("en", "zh-CN")).toBe("en");
+    expect(resolveRealtimeVoiceLanguagePreference("invalid", "fr-FR")).toBe(
+      "fr",
+    );
+    expect(resolveRealtimeVoiceReasoningEffort("instant")).toBe("minimal");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
+    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
+    expect(resolveRealtimeVoicePreference("cedar", "marin")).toBe("cedar");
+    expect(resolveRealtimeVoicePreference("custom-id", "marin")).toBe("marin");
+  });
+});
+
 describe("realtime voice session route", () => {
+  it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
+    resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "builder-private-example",
+      publicKey: "builder-public-example",
+      userId: null,
+    });
+    actionsToEngineTools.mockReturnValue([
+      ...Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `template_tool_${index}`,
+        description: `Template tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+      {
+        name: "view-screen",
+        description: "View the current screen",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "set-search-params",
+        description: "Update URL filters",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "navigate",
+        description: "Navigate the app",
+        inputSchema: ACTIONS.navigate.tool.parameters,
+      },
+      {
+        name: "set-url-path",
+        description: "Navigate by URL",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "tool-search",
+        description: "Discover tools",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("v=0\r\ns=builder\r\n", { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { handlers } = mount();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const request = JSON.parse(String(init.body));
+    expect(
+      request.session.tools
+        .slice(0, 5)
+        .map((tool: { name: string }) => tool.name),
+    ).toEqual([
+      "navigate",
+      "set-url-path",
+      "set-search-params",
+      "view-screen",
+      "tool-search",
+    ]);
+    expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+  });
+
   it("caps tools to the Builder realtime gateway contract", async () => {
     resolveBuilderCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
@@ -410,7 +586,12 @@ describe("realtime voice session route", () => {
       resolveOrgId: async () => "org-custom",
       getInstructions,
     });
-    const event = sessionEvent();
+    const event = sessionEvent(undefined, {
+      "accept-language": "zh-CN, en;q=0.9",
+      "x-agent-native-realtime-language": "en",
+      "x-agent-native-realtime-intelligence": "deep",
+      "x-agent-native-realtime-voice": "cedar",
+    });
 
     const result = await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
 
@@ -419,6 +600,8 @@ describe("realtime voice session route", () => {
     expect(event.responseHeaders).toMatchObject({
       "Content-Type": "application/sdp",
       "Cache-Control": "no-store",
+      [REALTIME_VOICE_CAPABILITY_HEADER]:
+        expect.stringMatching(/^[a-f0-9]{32}$/),
     });
     expect(resolveSecret).toHaveBeenCalledWith("OPENAI_API_KEY");
     expect(getInstructions).toHaveBeenCalledWith(
@@ -449,17 +632,22 @@ describe("realtime voice session route", () => {
     expect(realtimeSession).toMatchObject({
       type: "realtime",
       model: "gpt-realtime-2.1",
+      parallel_tool_calls: false,
+      reasoning: { effort: "medium" },
       output_modalities: ["audio"],
       audio: {
         input: {
-          transcription: { model: "gpt-4o-mini-transcribe" },
+          transcription: {
+            model: "gpt-4o-mini-transcribe",
+            language: "en",
+          },
           turn_detection: {
             type: "semantic_vad",
             create_response: true,
             interrupt_response: true,
           },
         },
-        output: { voice: "marin" },
+        output: { voice: "cedar" },
       },
       tool_choice: "auto",
       tools: [
@@ -546,6 +734,14 @@ describe("realtime voice session route", () => {
       session: {
         type: "realtime",
         model: "gpt-realtime-2.1",
+        audio: {
+          input: {
+            transcription: {
+              model: "gpt-4o-mini-transcribe",
+              language: "en",
+            },
+          },
+        },
         tool_choice: "auto",
       },
     });
@@ -606,24 +802,356 @@ describe("realtime voice session route", () => {
 });
 
 describe("realtime voice tool route", () => {
+  it("requires the opaque capability minted by a successful SDP session", async () => {
+    const executeTool = vi.fn();
+    const { handlers } = mount({ executeTool });
+    const event = toolEvent({
+      name: "navigate",
+      args: {},
+      callId: "call_without_capability",
+    });
+
+    expect(await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event)).toEqual({
+      error: "Invalid or expired realtime voice capability",
+    });
+    expect(event.statusCode).toBe(403);
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
+  it("rejects a body browser tab that differs from the capability-bound tab", async () => {
+    const executeTool = vi.fn();
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers, {
+      "x-agent-native-browser-tab": "tab-a",
+    });
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: {},
+        callId: "call_wrong_tab",
+        browserTabId: "tab-b",
+      },
+      withToolCapability(capability, {
+        "x-agent-native-browser-tab": "tab-a",
+      }),
+    );
+
+    expect(await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event)).toEqual({
+      error: "Realtime voice browser tab mismatch",
+    });
+    expect(event.statusCode).toBe(403);
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
+  it("expands only registry-backed tools from a successful specific tool search", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(async (request: { name: string }) => {
+      if (request.name === "tool-search") {
+        return {
+          status: "completed" as const,
+          output: JSON.stringify({
+            query: "rare capability",
+            results: [{ name: "rare-action" }, { name: "invented-action" }],
+          }),
+        };
+      }
+      return { status: "completed" as const, output: "rare action complete" };
+    });
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    const capability = await issueToolCapability(handlers);
+
+    const beforeSearch = toolEvent(
+      {
+        name: "rare-action",
+        args: { target: "dashboard" },
+        callId: "call_before",
+        sessionId: "voice-session-1",
+      },
+      withToolCapability(capability),
+    );
+    expect(await handler(beforeSearch)).toEqual({
+      error: "Unknown realtime voice tool",
+    });
+    expect(beforeSearch.statusCode).toBe(404);
+
+    const search = toolEvent(
+      {
+        name: "tool-search",
+        args: { query: "rare capability", includeSchemas: true },
+        callId: "call_search",
+        sessionId: "voice-session-1",
+      },
+      withToolCapability(capability),
+    );
+    expect(await handler(search)).toEqual({
+      callId: "call_search",
+      status: "completed",
+      output: JSON.stringify({
+        query: "rare capability",
+        results: [{ name: "rare-action" }, { name: "invented-action" }],
+      }),
+      expandedTools: [
+        {
+          type: "function",
+          name: "rare-action",
+          description: "Perform a rare action",
+          parameters: actions["rare-action"]!.tool.parameters,
+        },
+      ],
+    });
+
+    const discovered = toolEvent(
+      {
+        name: "rare-action",
+        args: { target: "dashboard" },
+        callId: "call_after",
+        sessionId: "voice-session-1",
+      },
+      withToolCapability(capability),
+    );
+    expect(await handler(discovered)).toEqual({
+      callId: "call_after",
+      status: "completed",
+      output: "rare action complete",
+    });
+    expect(executeTool).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "rare-action" }),
+    );
+
+    const otherSession = toolEvent(
+      {
+        name: "rare-action",
+        args: {},
+        callId: "call_other",
+        sessionId: "voice-session-2",
+      },
+      withToolCapability(capability),
+    );
+    expect(await handler(otherSession)).toEqual({
+      callId: "call_other",
+      status: "completed",
+      output: "rare action complete",
+    });
+  });
+
+  it("does not expand menu searches and expires session grants", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
+    try {
+      const actions = discoveryActions();
+      const executeTool = vi.fn(async (request: { name: string }) => ({
+        status: "completed" as const,
+        output:
+          request.name === "tool-search"
+            ? JSON.stringify({ results: [{ name: "rare-action" }] })
+            : "done",
+      }));
+      const { handlers } = mount({ actions, executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+
+      const menu = toolEvent(
+        {
+          name: "tool-search",
+          args: {},
+          callId: "call_menu",
+          sessionId: "voice-session-menu",
+        },
+        withToolCapability(capability),
+      );
+      const menuResult = (await handler(menu)) as Record<string, unknown>;
+      expect(menuResult).not.toHaveProperty("expandedTools");
+
+      const search = toolEvent(
+        {
+          name: "tool-search",
+          args: { query: "rare" },
+          callId: "call_search_ttl",
+          sessionId: "voice-session-ttl",
+        },
+        withToolCapability(capability),
+      );
+      const searchResult = (await handler(search)) as Record<string, unknown>;
+      expect(searchResult).toHaveProperty("expandedTools");
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS + 1);
+      const expired = toolEvent(
+        {
+          name: "rare-action",
+          args: {},
+          callId: "call_expired",
+          sessionId: "voice-session-ttl",
+        },
+        withToolCapability(capability),
+      );
+      expect(await handler(expired)).toEqual({
+        error: "Invalid or expired realtime voice capability",
+      });
+      expect(expired.statusCode).toBe(403);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an actively used capability alive with sliding expiration", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
+    try {
+      const actions = discoveryActions();
+      const executeTool = vi.fn(async (request: { name: string }) => ({
+        status: "completed" as const,
+        output:
+          request.name === "tool-search"
+            ? JSON.stringify({ results: [{ name: "rare-action" }] })
+            : "done",
+      }));
+      const { handlers } = mount({ actions, executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+      const headers = withToolCapability(capability);
+
+      await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args: { query: "rare" },
+            callId: "call_search_sliding",
+          },
+          headers,
+        ),
+      );
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
+      expect(
+        await handler(
+          toolEvent(
+            { name: "rare-action", args: {}, callId: "call_refresh" },
+            headers,
+          ),
+        ),
+      ).toEqual({
+        callId: "call_refresh",
+        status: "completed",
+        output: "done",
+      });
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
+      expect(
+        await handler(
+          toolEvent(
+            { name: "rare-action", args: {}, callId: "call_still_live" },
+            headers,
+          ),
+        ),
+      ).toEqual({
+        callId: "call_still_live",
+        status: "completed",
+        output: "done",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains bounded discoveries across sequential specific searches", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(async (request: { name: string; args: any }) => {
+      if (request.name === "tool-search") {
+        const name =
+          request.args.query === "first" ? "rare-action" : "other-rare-action";
+        return {
+          status: "completed" as const,
+          output: JSON.stringify({ results: [{ name }] }),
+        };
+      }
+      return { status: "completed" as const, output: "done" };
+    });
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    const capability = await issueToolCapability(handlers);
+
+    for (const [query, callId] of [
+      ["first", "search_first"],
+      ["second", "search_second"],
+    ] as const) {
+      await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args: { query },
+            callId,
+          },
+          withToolCapability(capability),
+        ),
+      );
+    }
+
+    const invokeFirst = toolEvent(
+      { name: "rare-action", args: {}, callId: "invoke_first" },
+      withToolCapability(capability),
+    );
+    expect(await handler(invokeFirst)).toEqual({
+      callId: "invoke_first",
+      status: "completed",
+      output: "done",
+    });
+  });
+
+  it("bounds expanded tool schemas to the realtime manifest limits", async () => {
+    const actions = discoveryActions(REALTIME_VOICE_MAX_TOOLS + 50);
+    const deferredNames = Array.from(
+      { length: REALTIME_VOICE_MAX_TOOLS + 8 },
+      (_, index) => `filler_${index + REALTIME_VOICE_MAX_TOOLS - 1}`,
+    );
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "completed",
+      output: JSON.stringify({
+        results: deferredNames.map((name) => ({ name })),
+      }),
+    });
+    const { handlers } = mount({ actions, executeTool });
+    const capability = await issueToolCapability(handlers);
+    const result = (await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        {
+          name: "tool-search",
+          args: { query: "filler" },
+          callId: "call_bounded",
+          sessionId: "voice-session-bounded",
+        },
+        withToolCapability(capability),
+      ),
+    )) as { expandedTools: Array<{ name: string }> };
+
+    expect(result.expandedTools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(
+      Buffer.byteLength(JSON.stringify(result.expandedTools), "utf8"),
+    ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
+  });
+
   it("validates request shape and only allows advertised registry tools", async () => {
     const executeTool = vi.fn();
     const { handlers } = mount({ executeTool });
     const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    const capability = await issueToolCapability(handlers);
 
     for (const body of [
       { name: "navigate", args: [], callId: "call_1" },
       { name: "navigate", args: {}, callId: "bad call id" },
       { name: "navigate", callId: "call_1" },
     ]) {
-      const event = toolEvent(body);
+      const event = toolEvent(body, withToolCapability(capability));
       expect(await handler(event)).toEqual({
         error: "Invalid realtime tool request",
       });
       expect(event.statusCode).toBe(400);
     }
 
-    const hidden = toolEvent({ name: "hidden", args: {}, callId: "call_2" });
+    const hidden = toolEvent(
+      { name: "hidden", args: {}, callId: "call_2" },
+      withToolCapability(capability),
+    );
     expect(await handler(hidden)).toEqual({
       error: "Unknown realtime voice tool",
     });
@@ -638,11 +1166,15 @@ describe("realtime voice tool route", () => {
       approvalKey: "must-not-survive",
     });
     const { handlers } = mount({ executeTool });
-    const event = toolEvent({
-      name: "navigate",
-      args: { view: "settings" },
-      callId: "call_123",
-    });
+    const capability = await issueToolCapability(handlers);
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: { view: "settings" },
+        callId: "call_123",
+      },
+      withToolCapability(capability),
+    );
 
     const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event);
 
@@ -670,6 +1202,51 @@ describe("realtime voice tool route", () => {
     });
   });
 
+  it("routes navigation execution through the active browser tab", async () => {
+    const contexts: unknown[] = [];
+    runWithRequestContext.mockImplementation(
+      async (context: unknown, callback: () => Promise<unknown>) => {
+        contexts.push(context);
+        return callback();
+      },
+    );
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "completed",
+      output: "Navigating",
+    });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers, {
+      "x-agent-native-browser-tab": "analytics-tab-1",
+    });
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: { dashboardId: "dashboard-1" },
+        callId: "call_tab",
+      },
+      withToolCapability(capability, {
+        "x-agent-native-browser-tab": "analytics-tab-1",
+      }),
+    );
+
+    await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event);
+
+    expect(contexts).toContainEqual(
+      expect.objectContaining({
+        run: expect.objectContaining({
+          browserTabId: "analytics-tab-1",
+          threadId: "realtime:call_tab",
+        }),
+      }),
+    );
+    expect(executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "navigate",
+        browserTabId: "analytics-tab-1",
+      }),
+    );
+  });
+
   it("preserves approval metadata and truncates sanitized output", async () => {
     const executeTool = vi.fn().mockResolvedValue({
       status: "approval_required",
@@ -677,11 +1254,15 @@ describe("realtime voice tool route", () => {
       approvalKey: "approval:navigate:123",
     });
     const { handlers } = mount({ executeTool });
-    const event = toolEvent({
-      name: "navigate",
-      args: {},
-      callId: "call_approval",
-    });
+    const capability = await issueToolCapability(handlers);
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: {},
+        callId: "call_approval",
+      },
+      withToolCapability(capability),
+    );
 
     const result = (await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event)) as {
       status: string;
@@ -701,11 +1282,15 @@ describe("realtime voice tool route", () => {
       .fn()
       .mockRejectedValue(new Error("action failed with api_key=private-value"));
     const { handlers } = mount({ executeTool });
-    const event = toolEvent({
-      name: "navigate",
-      args: {},
-      callId: "call_failure",
-    });
+    const capability = await issueToolCapability(handlers);
+    const event = toolEvent(
+      {
+        name: "navigate",
+        args: {},
+        callId: "call_failure",
+      },
+      withToolCapability(capability),
+    );
 
     const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(event);
     expect(event.statusCode).toBe(500);

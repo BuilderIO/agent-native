@@ -66,6 +66,8 @@ describe("secret crypto", () => {
 describe("getSecretEncryptionKey", () => {
   const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;
   const ORIGINAL_AUTH = process.env.BETTER_AUTH_SECRET;
+  const ORIGINAL_APP_NAME = process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app configuration.
+  const ORIGINAL_ANALYTICS_KEY = process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test isolates deploy-level app encryption configuration.
   const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
   afterEach(() => {
@@ -73,7 +75,44 @@ describe("getSecretEncryptionKey", () => {
     else process.env.SECRETS_ENCRYPTION_KEY = ORIGINAL_KEY;
     if (ORIGINAL_AUTH === undefined) delete process.env.BETTER_AUTH_SECRET;
     else process.env.BETTER_AUTH_SECRET = ORIGINAL_AUTH;
+    if (ORIGINAL_APP_NAME === undefined)
+      delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app configuration.
+    else process.env.APP_NAME = ORIGINAL_APP_NAME; // guard:allow-env-credential — test restores deploy-level app configuration.
+    if (ORIGINAL_ANALYTICS_KEY === undefined) {
+      delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption configuration.
+    } else {
+      process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = ORIGINAL_ANALYTICS_KEY; // guard:allow-env-credential — test restores deploy-level app encryption configuration.
+    }
     process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  });
+
+  it("prefers an app-scoped encryption key for multi-app workspaces", () => {
+    process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "shared-material";
+    process.env.BETTER_AUTH_SECRET = "auth-material";
+    const appScoped = getSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "analytics-material";
+    const expected = getSecretEncryptionKey();
+
+    expect(appScoped.equals(expected)).toBe(true);
+  });
+
+  it("normalizes hyphenated app names for app-scoped keys", () => {
+    process.env.APP_NAME = "my-analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.MY_ANALYTICS_SECRETS_ENCRYPTION_KEY = "app-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "shared-material";
+    const appScoped = getSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.MY_ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "app-material";
+    const expected = getSecretEncryptionKey();
+
+    expect(appScoped.equals(expected)).toBe(true);
   });
 
   it("derives a stable 32-byte AES key from the configured material", () => {

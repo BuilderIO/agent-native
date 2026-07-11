@@ -43,9 +43,8 @@ export function ErrorsPanel() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("issue");
-
-  const [status, setStatus] = useState<StatusFilter>("unresolved");
-  const [search, setSearch] = useState("");
+  const status = errorStatusFromSearchParams(searchParams);
+  const search = searchParams.get("q") ?? "";
   const debouncedSearch = useDebouncedValue(search, 250);
 
   const sync = useChangeVersions(["error-issues", "action"]);
@@ -96,9 +95,32 @@ export function ErrorsPanel() {
         }
       : selectedId
         ? { view: "errors", issueId: selectedId }
-        : { view: "errors" };
+        : {
+            view: "errors",
+            status,
+            ...(search.trim() ? { query: search.trim() } : {}),
+          };
     void setClientAppState("monitoring", value).catch(() => {});
-  }, [selectedIssue, selectedId]);
+  }, [search, selectedIssue, selectedId, status]);
+
+  const updateFilters = (next: { status?: StatusFilter; search?: string }) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next.status) {
+          if (next.status === "unresolved") params.delete("status");
+          else params.set("status", next.status);
+        }
+        if (next.search !== undefined) {
+          const query = next.search.trim();
+          if (query) params.set("q", next.search);
+          else params.delete("q");
+        }
+        return params;
+      },
+      { replace: true },
+    );
+  };
 
   const selectIssue = (id: string | null) => {
     setSearchParams(
@@ -188,9 +210,9 @@ export function ErrorsPanel() {
       issues={issues}
       isLoading={isLoading}
       status={status}
-      onStatusChange={setStatus}
+      onStatusChange={(nextStatus) => updateFilters({ status: nextStatus })}
       search={search}
-      onSearchChange={setSearch}
+      onSearchChange={(nextSearch) => updateFilters({ search: nextSearch })}
       onRefresh={() => void refetch()}
       isFetching={isFetching}
       onSelect={selectIssue}
@@ -199,4 +221,13 @@ export function ErrorsPanel() {
       error={error ? error.message : null}
     />
   );
+}
+
+export function errorStatusFromSearchParams(
+  searchParams: URLSearchParams,
+): StatusFilter {
+  const status = searchParams.get("status");
+  return status === "resolved" || status === "ignored" || status === "all"
+    ? status
+    : "unresolved";
 }

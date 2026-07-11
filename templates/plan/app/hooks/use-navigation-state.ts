@@ -55,7 +55,10 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname, location.search]);
 
-  // Listen for navigate commands from agent
+  // Listen for one-shot navigate commands from the agent. useDbSync
+  // invalidates this exact key when the shared SSE/poll transport receives an
+  // app-state:navigate event, so this stays idle between real commands instead
+  // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
@@ -70,7 +73,7 @@ export function useNavigationState() {
       }
       return null;
     },
-    refetchInterval: 2_000,
+    retry: false,
     structuralSharing: false,
   });
 

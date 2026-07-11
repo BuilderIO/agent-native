@@ -336,7 +336,10 @@ function ThreadCard({
                     <TooltipTrigger asChild>
                       <button
                         onClick={() =>
-                          resolveComment.mutate({ id: rootComment.id })
+                          resolveComment.mutate({
+                            id: rootComment.id,
+                            resolved: true,
+                          })
                         }
                         className="p-0.5 rounded text-muted-foreground hover:text-green-400"
                       >

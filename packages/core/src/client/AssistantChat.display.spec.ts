@@ -28,6 +28,7 @@ import {
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
+  installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
@@ -39,6 +40,50 @@ import {
   shouldShowGlobalRunningStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("installAssistantUiMessageRepositoryRecovery", () => {
+  it("patches replacement repositories exposed by a stable thread binding", () => {
+    const duplicateError = new Error(
+      "MessageRepository(performOp/link): A message with the same id already exists in the parent tree.",
+    );
+    const firstRepository = {
+      addOrUpdateMessage: vi.fn(() => {
+        throw duplicateError;
+      }),
+    };
+    const replacementRepository = {
+      addOrUpdateMessage: vi.fn(() => {
+        throw duplicateError;
+      }),
+    };
+    let currentRepository = firstRepository;
+    let runtimeChanged: (() => void) | undefined;
+    const unsubscribe = vi.fn();
+    const threadRuntime = {
+      __internal_threadBinding: {
+        getState: () => ({ repository: currentRepository }),
+        outerSubscribe: (callback: () => void) => {
+          runtimeChanged = callback;
+          return unsubscribe;
+        },
+      },
+    };
+
+    const cleanup = installAssistantUiMessageRepositoryRecovery(threadRuntime);
+    expect(() =>
+      firstRepository.addOrUpdateMessage("parent", { id: "duplicate" }),
+    ).not.toThrow();
+
+    currentRepository = replacementRepository;
+    runtimeChanged?.();
+    expect(() =>
+      replacementRepository.addOrUpdateMessage("parent", { id: "duplicate" }),
+    ).not.toThrow();
+
+    cleanup();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+});
 
 describe("displayableUserMessageText", () => {
   it("treats context-only messages as empty for user bubble display", () => {

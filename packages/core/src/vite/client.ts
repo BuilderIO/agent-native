@@ -2140,7 +2140,15 @@ function readAppChangelogMarkdown(
     .map((file) => {
       const filePath = path.join(pendingDir, file);
       watchFile(filePath);
-      return parsePendingEntry(fs.readFileSync(filePath, "utf-8"));
+      // `agent-native changelog add` prefixes every pending filename with its
+      // date. Preserve that date when a hand-written entry omits `date:` so a
+      // deployed What's new surface never groups an already-merged update
+      // under an inaccurate "Unreleased" heading.
+      const filenameDate = file.match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1];
+      return parsePendingEntry(
+        fs.readFileSync(filePath, "utf-8"),
+        filenameDate,
+      );
     });
   return mergePendingChangelog(existing, pending);
 }

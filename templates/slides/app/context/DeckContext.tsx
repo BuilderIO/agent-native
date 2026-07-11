@@ -1452,6 +1452,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         es.close();
         es = null;
       }
+      // request-storm-allow: one deck-scoped SSE with backoff and unmount cleanup carries payloads sync events omit.
       const next = new EventSource(`${appBasePath()}/api/decks/events`);
       es = next;
       next.onmessage = handleMessage;

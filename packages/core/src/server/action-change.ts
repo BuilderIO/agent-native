@@ -12,6 +12,7 @@ export interface NotifyActionChangeOptions {
   actionName: string;
   owner?: string;
   orgId?: string;
+  requestSource?: string;
 }
 
 function actionChangeTarget(
@@ -22,6 +23,7 @@ function actionChangeTarget(
     actionName: options.actionName,
     owner,
     orgId: owner ? undefined : (options.orgId ?? getRequestOrgId()),
+    requestSource: options.requestSource,
   };
 }
 
@@ -38,7 +40,7 @@ export async function writeActionChangeMarker(
       ...actionChangeMarkerValue(target),
       nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     },
-    { requestSource: "agent" },
+    { requestSource: options.requestSource ?? "agent" },
   );
 }
 
@@ -52,11 +54,13 @@ export async function notifyActionChange(
     key: options.actionName,
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
   });
 
   await writeActionChangeMarker({
     actionName: options.actionName,
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
   });
 }

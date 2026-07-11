@@ -1,6 +1,46 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 import { z } from "zod";
+
+import { listDashboardSummaries } from "../server/lib/dashboards-store";
+
+function normalizeDashboardName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+async function resolveDashboardIdByName(name: string): Promise<string> {
+  const email = getRequestUserEmail();
+  if (!email) throw new Error("Dashboard navigation requires authentication.");
+  const orgId = getRequestOrgId() || null;
+  const dashboards = await listDashboardSummaries(
+    { email, orgId },
+    { kind: "sql", archived: "active", hidden: "visible" },
+  );
+  const normalized = normalizeDashboardName(name);
+  const withoutDashboardSuffix = normalized.replace(/\s+dashboard$/, "");
+  const matches = dashboards.filter((dashboard) => {
+    const candidate = normalizeDashboardName(dashboard.name);
+    return candidate === normalized || candidate === withoutDashboardSuffix;
+  });
+  if (matches.length === 0) {
+    throw new Error(
+      `No accessible dashboard named "${name.trim()}" was found.`,
+    );
+  }
+  if (matches.length === 1) return matches[0]!.id;
+
+  const ownedMatches = matches.filter(
+    (dashboard) => dashboard.ownerEmail.toLowerCase() === email.toLowerCase(),
+  );
+  if (ownedMatches.length === 1) return ownedMatches[0]!.id;
+  throw new Error(
+    `More than one accessible dashboard is named "${name.trim()}". Use its dashboard id instead.`,
+  );
+}
 
 export default defineAction({
   description:
@@ -16,6 +56,14 @@ export default defineAction({
       .string()
       .optional()
       .describe("Dashboard ID to open (used with view=adhoc)"),
+    dashboardName: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Accessible SQL dashboard name to open when its id is unknown (for example, "Agent Native" or "Agent Native dashboard").',
+      ),
     analysisId: z
       .string()
       .optional()
@@ -70,6 +118,7 @@ export default defineAction({
     if (
       !args.view &&
       !args.dashboardId &&
+      !args.dashboardName &&
       !args.analysisId &&
       !args.extensionId &&
       !args.recordingId &&
@@ -81,13 +130,18 @@ export default defineAction({
       !args.errorIssueId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --analysisId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
+        "At least --view, --dashboardId, --dashboardName, --analysisId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
       );
     }
+    const dashboardId =
+      args.dashboardId ??
+      (args.dashboardName
+        ? await resolveDashboardIdByName(args.dashboardName)
+        : undefined);
     const nav: Record<string, string> = {};
     if (args.view) nav.view = args.view === "overview" ? "ask" : args.view;
-    if (args.dashboardId) {
-      nav.dashboardId = args.dashboardId;
+    if (dashboardId) {
+      nav.dashboardId = dashboardId;
       if (!args.view) nav.view = "adhoc";
     }
     if (args.analysisId) {
@@ -133,7 +187,7 @@ export default defineAction({
       nav.monitoringView = "errors";
       if (!args.view) nav.view = "monitoring";
     }
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
 
     const parts: string[] = [];
     if (nav.view) parts.push(nav.view);

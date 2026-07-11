@@ -79,6 +79,10 @@ function isStaticAssetPath(pathname: string): boolean {
   return /\.[A-Za-z0-9]{1,12}$/.test(lastSegment);
 }
 
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 function localPathFromAnchor(anchor: HTMLAnchorElement): string | null {
   if (!anchor.href) return null;
   try {
@@ -135,6 +139,8 @@ export function useAgentChatHomeHandoff({
 /**
  * Intercepts ordinary in-app links clicked from a full-page chat route so the
  * page chat can morph into the destination AgentSidebar and keep its thread.
+ * Settings is intentionally excluded: a user opening it keeps chat full-page.
+ * Agent-driven navigation can still opt into the handoff by marking it first.
  */
 export function useAgentChatHomeHandoffLinks({
   storageKey,
@@ -170,7 +176,8 @@ export function useAgentChatHomeHandoffLinks({
         !path ||
         matchesChatPath(pathname) ||
         isFrameworkOrApiPath(pathname) ||
-        isStaticAssetPath(pathname)
+        isStaticAssetPath(pathname) ||
+        isSettingsPath(pathname)
       ) {
         return;
       }

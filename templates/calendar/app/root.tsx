@@ -230,6 +230,7 @@ export default function Root() {
           // Calendar aggressively refetches on focus because external
           // calendar events can change without a DB sync event (e.g. Google
           // Calendar webhooks with a processing delay).
+          // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: true,
           // Flat retry: calendar data fetches don't need the auth-aware
           // retry function — auth errors surface through the booking flow.

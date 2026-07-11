@@ -164,12 +164,14 @@ function SettingsSelect({
   value,
   options,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   labelAdornment?: React.ReactNode;
   value: string;
   options: SettingsSelectOption[];
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const isPage = useSettingsSurface() === "page";
   const controlStyle = isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE;
@@ -181,10 +183,14 @@ function SettingsSelect({
         <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
-      <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
+      <SelectPrimitive.Root
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      >
         <SelectPrimitive.Trigger
           className={cn(
-            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground",
+            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60",
             isPage ? "h-10 text-sm" : "h-9 text-[12px]",
           )}
           aria-label={label}
@@ -624,8 +630,31 @@ function friendlyModelName(model: string): string {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (model.startsWith("gpt-")) {
+    const rest = model.slice(4);
+    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+    if (gpt) {
+      const suffix = gpt[3]
+        ? ` ${gpt[3]
+            .split("-")
+            .map((part) => part[0].toUpperCase() + part.slice(1))
+            .join(" ")}`
+        : "";
+      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+    }
+    return `GPT-${rest}`;
+  }
   if (/^o\d/.test(model)) return model;
+  const geminiVersioned = model.match(
+    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  );
+  if (geminiVersioned) {
+    const variant = geminiVersioned[3]
+      .split("-")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+  }
   const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
@@ -680,6 +709,77 @@ function latestModelsOnly(models: string[]): string[] {
     }
     return true;
   });
+}
+
+export function AppDefaultModelField({
+  engine,
+  models,
+  value,
+  defaultModel,
+  disabled,
+  onValueChange,
+  onEnter,
+}: {
+  engine: string;
+  models: string[];
+  value: string;
+  defaultModel?: string;
+  disabled?: boolean;
+  onValueChange: (value: string) => void;
+  onEnter?: () => void;
+}) {
+  const isPage = useSettingsSurface() === "page";
+  const modelOptions: SettingsSelectOption[] = latestModelsOnly(models).map(
+    (model) => ({ value: model, label: friendlyModelName(model) }),
+  );
+
+  // Builder models are a closed catalog (and are validated server-side), so a
+  // real select keeps every available model visible even when one is already
+  // selected. Native datalists filter against the current input value, which
+  // made this field appear to contain only the active model.
+  if (engine === "builder" && modelOptions.length > 0) {
+    return (
+      <SettingsSelect
+        label="Model"
+        value={value}
+        options={modelOptions}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p className={fieldLabelClass(isPage)}>Model</p>
+      <input
+        type="text"
+        list={`app-model-suggestions-${engine}`}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onEnter?.();
+        }}
+        placeholder={defaultModel ?? "model-id"}
+        spellCheck={false}
+        autoComplete="off"
+        className={cn(textInputClass(isPage), "disabled:opacity-60")}
+        style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
+      />
+      {modelOptions.length > 0 && (
+        <datalist id={`app-model-suggestions-${engine}`}>
+          {modelOptions.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              label={option.label}
+            />
+          ))}
+        </datalist>
+      )}
+    </div>
+  );
 }
 
 // ─── LLM Section ────────────────────────────────────────────────────────────
@@ -1388,9 +1488,6 @@ function AppModelDefaultsSectionInner({
           ? `Install ${engine.installPackage ?? "the provider packages"} to use this provider`
           : "Credentials not detected yet",
     }));
-  const modelOptions: SettingsSelectOption[] = latestModelsOnly(
-    selectedEngineInfo?.supportedModels ?? [],
-  ).map((model) => ({ value: model, label: friendlyModelName(model) }));
   const hasPendingChange =
     !!settings &&
     settings.canUpdate &&
@@ -1536,38 +1633,20 @@ function AppModelDefaultsSectionInner({
                 }}
               />
 
-              <div className="space-y-1.5">
-                <p className={fieldLabelClass(isPage)}>Model</p>
-                <input
-                  type="text"
-                  list={`app-model-suggestions-${selectedEngine}`}
-                  value={selectedModel}
-                  disabled={!settings.canUpdate || saving}
-                  onChange={(event) => {
-                    setSelectedModel(event.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && hasPendingChange) void save();
-                  }}
-                  placeholder={selectedEngineInfo?.defaultModel ?? "model-id"}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className={cn(textInputClass(isPage), "disabled:opacity-60")}
-                  style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
-                />
-                {modelOptions.length > 0 && (
-                  <datalist id={`app-model-suggestions-${selectedEngine}`}>
-                    {modelOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        label={option.label}
-                      />
-                    ))}
-                  </datalist>
-                )}
-              </div>
+              <AppDefaultModelField
+                engine={selectedEngine}
+                models={selectedEngineInfo?.supportedModels ?? []}
+                value={selectedModel}
+                defaultModel={selectedEngineInfo?.defaultModel}
+                disabled={!settings.canUpdate || saving}
+                onValueChange={(value) => {
+                  setSelectedModel(value);
+                  setError(null);
+                }}
+                onEnter={() => {
+                  if (hasPendingChange) void save();
+                }}
+              />
 
               <div className="flex items-center gap-1.5">
                 <button

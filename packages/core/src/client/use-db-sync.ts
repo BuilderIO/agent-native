@@ -5,6 +5,7 @@ import {
   refreshDemoModeFetchInterceptor,
 } from "../demo/fetch-interceptor.js";
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
@@ -16,15 +17,25 @@ interface Query {
 }
 
 interface QueryClient {
-  invalidateQueries(opts?: {
+  invalidateQueries(
+    opts?: {
+      queryKey?: string[];
+      predicate?: (query: Query) => boolean;
+    },
+    options?: { cancelRefetch?: boolean },
+  ): unknown;
+  isFetching?(filters?: {
     queryKey?: string[];
     predicate?: (query: Query) => boolean;
-  }): void;
+  }): number;
 }
 
 const POLL_ABORT_MIN_MS = 10_000;
-const SSE_FALLBACK_INTERVAL_MS = 15_000;
-const IDLE_POLL_INTERVAL_MS = 15_000;
+// SSE delivers changes immediately in the normal path. The poll is a
+// cross-process/serverless safety net, so an idle tab should not bill the host
+// four times per minute forever. Focus and active agent work still poll now.
+const SSE_FALLBACK_INTERVAL_MS = 60_000;
+const IDLE_POLL_INTERVAL_MS = 60_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
@@ -356,7 +367,7 @@ class SyncTransport {
     // full cadence. Resets on the first successful poll.
     const delay =
       this.consecutiveFailures > 0
-        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 30_000)
+        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 300_000)
         : base;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -675,7 +686,7 @@ export function subscribeSyncEvents(
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.fallbackInterval - Poll interval while SSE is connected.
- *   Default: 15000
+ *   Default: 60000
  * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
  *   Default: true
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
@@ -798,9 +809,15 @@ export function useDbSync(
 
     function invalidateForEvents(events: SyncEvent[]) {
       const ignore = ignoreSourceRef.current;
-      const relevant = ignore
-        ? events.filter((e) => e.requestSource !== ignore)
-        : events;
+      const ownBrowserSource = getBrowserTabId();
+      const relevant = events.filter(
+        (event) =>
+          !(
+            event.source === "action" &&
+            event.requestSource === ownBrowserSource
+          ) &&
+          (!ignore || event.requestSource !== ignore),
+      );
       const suppressedActions = new Set(
         suppressActionInvalidationForRef.current ?? [],
       );
@@ -838,18 +855,43 @@ export function useDbSync(
       const invalidating = relevant.filter((e) => e.source !== "awareness");
 
       if (invalidating.length > 0 && queryClient) {
+        // Sync events describe completed writes. If a matching read is already
+        // in flight, let it finish instead of aborting and immediately
+        // launching the same request again. Repeated action events otherwise
+        // turn a slow endpoint into a cancel/restart loop that never settles.
+        const invalidateWithoutCancel = (filters?: {
+          queryKey?: string[];
+          predicate?: (query: Query) => boolean;
+        }) => {
+          const needsTrailingRefresh =
+            (queryClient.isFetching?.(filters) ?? 0) > 0;
+          const completion = queryClient.invalidateQueries(filters, {
+            cancelRefetch: false,
+          });
+          // TanStack Query deliberately leaves an in-flight fetch alone when
+          // cancelRefetch is false. Queue one post-settlement invalidation so
+          // a write that landed after that read began cannot be cleared as
+          // fresh by the older response.
+          if (needsTrailingRefresh && completion instanceof Promise) {
+            void completion.then(
+              () => queryClient.invalidateQueries(filters),
+              () => {},
+            );
+          }
+        };
         const hasActionEvent = invalidating.some(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
         if (hasActionEvent) {
-          // Custom apps frequently start with raw `useQuery` calls before
-          // graduating to `useActionQuery` or source-versioned query keys.
-          // A successful mutating action is the core "agent changed app data"
-          // signal, so refresh active queries broadly as a compatibility
-          // safety net. Other event sources stay targeted to avoid request
-          // storms from noisy domain-specific writes.
+          // Action-backed reads share the ["action"] prefix. Keep the default
+          // refresh targeted to those queries; invalidating every active query
+          // makes one agent write fan out across unrelated provider reads,
+          // dashboards, and background status checks. Older apps that still
+          // need broad compatibility can opt in with a predicate.
           const predicate = actionInvalidatePredicateRef.current;
-          queryClient.invalidateQueries(predicate ? { predicate } : undefined);
+          invalidateWithoutCancel(
+            predicate ? { predicate } : { queryKey: ["action"] },
+          );
         }
 
         // Framework-level invalidate: a small, fixed list of query-key
@@ -880,32 +922,40 @@ export function useDbSync(
           const hasDataChangingEvent = invalidating.some(
             (evt) => evt.source !== "app-state",
           );
-          // The broad action invalidate above already covers every fixed
-          // framework prefix. Re-invalidating ["action"] immediately after it
-          // cancels/restarts the same active reads and creates a duplicate
-          // request wave. Keep the fixed-prefix pass for non-action sources;
-          // action batches get exactly one compatibility invalidation.
-          if (hasDataChangingEvent && !hasActionEvent) {
-            queryClient.invalidateQueries({ queryKey: ["action"] });
-            queryClient.invalidateQueries({ queryKey: ["extension"] });
-            queryClient.invalidateQueries({ queryKey: ["extensions"] });
-            queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-            queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-            queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-            queryClient.invalidateQueries({ queryKey: ["tool"] });
-            queryClient.invalidateQueries({ queryKey: ["tools"] });
+          if (hasDataChangingEvent) {
+            const hasFrameworkPrefixEvent = invalidating.some((evt) =>
+              ["extensions", "extension", "tool", "tools", "slots"].includes(
+                evt.source ?? "",
+              ),
+            );
+            // The action-specific invalidation above already refreshed
+            // ["action"]. A mixed action + extension/tool batch still needs
+            // the independent framework prefixes, while pure action batches
+            // retain their narrow storm-resistant invalidation.
+            if (!hasActionEvent) {
+              invalidateWithoutCancel({ queryKey: ["action"] });
+            }
+            if (!hasActionEvent || hasFrameworkPrefixEvent) {
+              invalidateWithoutCancel({ queryKey: ["extension"] });
+              invalidateWithoutCancel({ queryKey: ["extensions"] });
+              invalidateWithoutCancel({ queryKey: ["extension-slots"] });
+              invalidateWithoutCancel({ queryKey: ["slot-installs"] });
+              invalidateWithoutCancel({ queryKey: ["slot-available"] });
+              invalidateWithoutCancel({ queryKey: ["tool"] });
+              invalidateWithoutCancel({ queryKey: ["tools"] });
+            }
           }
           if (invalidating.some((evt) => evt.source === "app-state")) {
-            queryClient.invalidateQueries({ queryKey: ["app-state"] });
+            invalidateWithoutCancel({ queryKey: ["app-state"] });
           }
           if (hasAppStateEvent(invalidating, "navigate")) {
-            queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+            invalidateWithoutCancel({ queryKey: ["navigate-command"] });
           }
           if (hasAppStateEvent(invalidating, "show-questions")) {
-            queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+            invalidateWithoutCancel({ queryKey: ["show-questions"] });
           }
           if (hasAppStateEvent(invalidating, "__set_url__")) {
-            queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+            invalidateWithoutCancel({ queryKey: ["__set_url__"] });
           }
         }
       }

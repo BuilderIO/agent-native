@@ -316,6 +316,31 @@ describe("session replay agent context links", () => {
     ).toBe(true);
   });
 
+  it("collapses continuous same-element scroll events into bursts", async () => {
+    mockEvents([
+      { type: 4, timestamp: 1_000, data: { href: "https://app.example.com/" } },
+      { type: 3, timestamp: 2_000, data: { source: 3, id: 1, y: 100 } },
+      { type: 3, timestamp: 2_200, data: { source: 3, id: 1, y: 220 } },
+      { type: 3, timestamp: 2_500, data: { source: 3, id: 2, y: 80 } },
+      { type: 3, timestamp: 2_900, data: { source: 3, id: 1, y: 480 } },
+      { type: 3, timestamp: 4_100, data: { source: 3, id: 1, y: 900 } },
+    ]);
+
+    const context = await buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "signed-token",
+      origin: "https://analytics.example.com",
+    });
+
+    const scrolls = context.timeline.markers.filter(
+      (marker) => marker.kind === "scroll",
+    );
+    expect(scrolls).toHaveLength(3);
+    expect(scrolls.map((marker) => marker.offsetMs)).toEqual([
+      1_000, 1_500, 3_100,
+    ]);
+  });
+
   it("keeps error markers preferentially when the marker cap overflows", async () => {
     const events: unknown[] = [];
     for (let i = 0; i < 250; i += 1) events.push(clickEvent(1000 + i));

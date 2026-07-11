@@ -211,6 +211,7 @@ const messages = {
     cliRequiresDevModeDescription:
       "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
     toggleAgent: "Toggle agent",
+    checkingAiConnection: "Checking AI connection...",
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Talk to your app",
@@ -227,7 +228,47 @@ const messages = {
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
-      microphoneSettings: "Microphone settings",
+      voiceSettings: "Voice settings",
+      settings: {
+        microphone: "Microphone",
+        defaultMicrophone: "System default",
+        microphoneSwitchFailed:
+          "Could not switch microphones. Your current microphone is still active.",
+        language: "Language",
+        autoLanguage: "Auto",
+        languages: {
+          en: "English",
+          es: "Spanish",
+          fr: "French",
+          de: "German",
+          it: "Italian",
+          pt: "Portuguese",
+          ja: "Japanese",
+          ko: "Korean",
+          zh: "Chinese",
+        },
+        intelligence: "Intelligence",
+        intelligenceLevels: {
+          instant: "Instant",
+          balanced: "Balanced",
+          deep: "Deep",
+        },
+        voiceStyle: "Voice style",
+        voiceChangePending:
+          "Your new voice will apply next time you start voice mode.",
+        voiceDescriptions: {
+          marin: "Warm and natural",
+          cedar: "Clear and grounded",
+          coral: "Friendly and bright",
+          sage: "Calm and thoughtful",
+          verse: "Expressive and versatile",
+          alloy: "Balanced and neutral",
+          ash: "Smooth and confident",
+          ballad: "Warm and expressive",
+          echo: "Clear and direct",
+          shimmer: "Light and upbeat",
+        },
+      },
       status: {
         connecting: "Connecting",
         listening: "Listening",
@@ -242,6 +283,8 @@ const messages = {
         responseFailed: "OpenAI could not complete the voice response.",
         sessionFailed: "The realtime voice session encountered an error.",
         channelDisconnected: "The realtime voice control channel disconnected.",
+        connectionTimedOut:
+          "The realtime voice connection timed out. Try again after the app finishes loading.",
         connectionFailed: "The realtime voice connection failed.",
         offerFailed: "The browser did not create an audio offer.",
       },

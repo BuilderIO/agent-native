@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  appLocalEnv,
   canonicalLoopbackRedirect,
   isBrowserAssetDestination,
   markAppReady,
@@ -10,6 +14,29 @@ import {
   shouldRestartPersistent5xx,
   shouldRestartStuckApp,
 } from "./dev-lazy";
+
+describe("dev-lazy app-local environment", () => {
+  it("passes only app-scoped env values with local overrides", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dev-lazy-env-"));
+    try {
+      fs.writeFileSync(
+        path.join(dir, ".env"),
+        "ANALYTICS_DATABASE_URL=postgres://shared\nSHARED_ONLY=from-env\n",
+      );
+      fs.writeFileSync(
+        path.join(dir, ".env.local"),
+        "ANALYTICS_DATABASE_URL=postgres://local\nANALYTICS_SECRETS_ENCRYPTION_KEY=local-key\nBETTER_AUTH_SECRET=app-auth\n",
+      );
+
+      assert.deepEqual(appLocalEnv({ id: "analytics", dir }), {
+        ANALYTICS_DATABASE_URL: "postgres://local",
+        ANALYTICS_SECRETS_ENCRYPTION_KEY: "local-key",
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("dev-lazy canonical loopback origin", () => {
   it("redirects localhost to the advertised 127.0.0.1 origin", () => {

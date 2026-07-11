@@ -265,8 +265,8 @@ async function selectWorkspaceMcpResourceRows(options?: {
         AND wr.scope = ?
         AND wr.path LIKE ?
         AND (
-          (? IS NOT NULL AND wr.org_id = ?)
-          OR (? IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
+          (CAST(? AS TEXT) IS NOT NULL AND wr.org_id = ?)
+          OR (CAST(? AS TEXT) IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
         )
     `,
     args: [
@@ -304,8 +304,8 @@ async function selectWorkspaceMcpResourceRows(options?: {
         AND wg.status = ?
         AND wg.app_id = ?
         AND (
-          (? IS NOT NULL AND wr.org_id = ?)
-          OR (? IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
+          (CAST(? AS TEXT) IS NOT NULL AND wr.org_id = ?)
+          OR (CAST(? AS TEXT) IS NOT NULL AND wr.org_id IS NULL AND lower(wr.owner_email) = lower(?))
         )
         AND (
           (wr.org_id IS NOT NULL AND wg.org_id = wr.org_id)

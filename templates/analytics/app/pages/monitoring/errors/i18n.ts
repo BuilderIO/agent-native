@@ -86,6 +86,9 @@ const MESSAGES = {
     viewIssue: "View issue",
     viewIssueTooltip:
       "Open this error's issue — how many users hit it, the stack trace, and recent occurrences",
+    searchIssues: "Find similar",
+    searchIssuesTooltip:
+      "Search Monitoring for all captured issues matching this console error",
     // Toasts
     resolvedToast: "Issue resolved.",
     reopenedToast: "Issue reopened.",

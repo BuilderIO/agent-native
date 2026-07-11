@@ -604,6 +604,7 @@ function recordActionChanges(targets: ActionChangeTarget[]): void {
       key: target.actionName ?? "*",
       ...(target.owner ? { owner: target.owner } : {}),
       ...(target.orgId ? { orgId: target.orgId } : {}),
+      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
     });
   }
 }
