@@ -1,6 +1,6 @@
 # 009 — Design editor: tooltip grouping, inspector collapse, and small motion fixes
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM-HIGH (tooltip delay replay hits every inspector hover)
 - **Category**: Easing & duration / Interruptibility / Performance / Accessibility

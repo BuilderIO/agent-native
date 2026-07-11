@@ -10,10 +10,7 @@ export function SidebarLoadError({
   onRetry,
 }: SidebarLoadErrorProps) {
   return (
-    <div
-      className="px-3 py-1 text-[11px] text-destructive"
-      role="status"
-    >
+    <div className="px-3 py-1 text-[11px] text-destructive" role="status">
       <span>{message}</span>{" "}
       <button
         type="button"

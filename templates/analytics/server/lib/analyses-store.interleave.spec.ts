@@ -65,7 +65,7 @@ const state = vi.hoisted(() => ({
     instructions: "Query HubSpot for closed-lost deals in Q1.",
     dataSources: JSON.stringify(["hubspot"]),
     resultMarkdown: "# Findings v1",
-    resultData: JSON.stringify({ rows: 3 }),
+    resultData: JSON.stringify({ rows: 3 }) as string | null,
     author: "alice@example.com" as string | null,
     ownerEmail: "alice@example.com",
     orgId: null as string | null,

@@ -1768,11 +1768,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     isError: sqlDashboardsError,
     refetch: refetchSqlDashboards,
   } = useQuery({
-      queryKey: ["sql-dashboards-sidebar", dashboardsSync],
-      queryFn: () => fetchSqlDashboards(t),
-      staleTime: 30_000,
-      placeholderData: (prev) => prev,
-    });
+    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryFn: () => fetchSqlDashboards(t),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
 
   const {
     data: analysesList = [],
@@ -2808,14 +2808,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
-                        {sqlDashboardsError &&
-                          sqlDashboards.length === 0 && (
-                            <SidebarLoadError
-                              message={t("sidebar.dashboardsLoadFailed")}
-                              retryLabel={t("sidebar.retry")}
-                              onRetry={() => void refetchSqlDashboards()}
-                            />
-                          )}
+                        {sqlDashboardsError && sqlDashboards.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.dashboardsLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchSqlDashboards()}
+                          />
+                        )}
                         <NewDashboardDialog />
                       </div>
                     </SortableContext>
@@ -2961,9 +2960,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         {!analysesLoading &&
                           !analysesError &&
                           sortedAnalyses.length === 0 && (
-                          <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                            {t("sidebar.noAnalysesYet")}
-                          </p>
+                            <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                              {t("sidebar.noAnalysesYet")}
+                            </p>
                           )}
                         <NewAnalysisDialog />
                       </div>

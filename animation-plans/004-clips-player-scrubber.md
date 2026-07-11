@@ -1,6 +1,6 @@
 # 004 — Clips player: scrubber physicality + scoped card transitions
 
-- **Status**: TODO
+- **Status**: DONE (meeting cards this batch; scrubber steps landed via concurrent session edits — target state verified)
 - **Commit**: f43d34ca24
 - **Severity**: HIGH (scale(0) on a constantly-hovered surface)
 - **Category**: Physicality & origin / Performance

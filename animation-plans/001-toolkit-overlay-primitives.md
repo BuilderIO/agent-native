@@ -1,6 +1,6 @@
 # 001 — Fix transform-origin, exits, and easing across toolkit overlay primitives
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: HIGH
 - **Category**: Physicality & origin / Easing & duration / Cohesion

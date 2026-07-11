@@ -1,6 +1,6 @@
 # 002 — Core motion tokens + agent-chat micro-motion fixes
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: HIGH (cohesion foundation + highest-frequency surface)
 - **Category**: Cohesion & tokens / Easing & duration / Performance / Accessibility

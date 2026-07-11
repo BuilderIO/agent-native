@@ -1,6 +1,6 @@
 # 007 — Mail: commit swipe-to-archive on velocity, not distance alone
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM
 - **Category**: Interruptibility (gesture physics)

@@ -1,6 +1,6 @@
 # 006 — Scope transition-all to real properties across analytics/forms/mail/calendar/macros
 
-- **Status**: TODO
+- **Status**: DONE (DailyProgress.tsx item superseded by concurrent scaleX rewrite; progress.tsx corrected to transition-transform)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM (constant-frequency surfaces, mechanical fix)
 - **Category**: Performance

@@ -1,6 +1,6 @@
 # 003 — Stop clips recording surfaces from animating layout/paint properties
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: HIGH
 - **Category**: Performance / Easing & duration / Purpose & frequency

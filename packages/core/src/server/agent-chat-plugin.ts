@@ -76,7 +76,6 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import type { AgentRunSummary } from "../agent/run-store.js";
 import {
   CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
   ensureTerminalRunEvent,
@@ -97,7 +96,6 @@ import {
   extractThreadMeta,
   foldAssistantTurn,
   mergeThreadDataForClientSave,
-  normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -129,7 +127,6 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
-  type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";

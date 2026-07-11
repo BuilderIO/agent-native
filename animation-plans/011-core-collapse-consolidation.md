@@ -1,6 +1,6 @@
 # 011 — Consolidate chat disclosure rows onto AnimatedCollapse
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM
 - **Category**: Cohesion & tokens / Interruptibility

@@ -6,17 +6,17 @@ Written 2026-07-11 at commit `f43d34ca24` by the `improve-animations` audit (4 p
 
 | #                                           | Title                                                              | Severity    | Status |
 | ------------------------------------------- | ------------------------------------------------------------------ | ----------- | ------ |
-| [001](001-toolkit-overlay-primitives.md)    | Toolkit overlay primitives: origins, exits, easing, reduced-motion | HIGH        | TODO   |
-| [002](002-core-motion-tokens-and-chat.md)   | Core motion tokens + agent-chat micro-motion                       | HIGH        | TODO   |
-| [003](003-clips-recording-gpu.md)           | Clips recording surfaces: stop animating layout/paint props        | HIGH        | TODO   |
-| [004](004-clips-player-scrubber.md)         | Clips player scrubber physicality                                  | HIGH        | TODO   |
-| [005](005-content-editor-motion.md)         | Content editor: resize lag, progress, hover easing                 | HIGH        | TODO   |
-| [006](006-productivity-transition-scope.md) | transition-all sweep: analytics/forms/mail/calendar/macros         | MEDIUM      | TODO   |
-| [007](007-mail-swipe-velocity.md)           | Mail swipe: velocity-based commit                                  | MEDIUM      | TODO   |
-| [008](008-button-press-feedback.md)         | Shared Button press feedback                                       | MEDIUM      | TODO   |
-| [009](009-design-editor-motion.md)          | Design editor: tooltip grouping, inspector collapse, fixes         | MEDIUM-HIGH | TODO   |
-| [010](010-slides-editor-motion.md)          | Slides editor: broken toggle, progress, toolbar popover            | MEDIUM      | TODO   |
-| [011](011-core-collapse-consolidation.md)   | Chat disclosure rows onto AnimatedCollapse                         | MEDIUM      | TODO   |
+| [001](001-toolkit-overlay-primitives.md)    | Toolkit overlay primitives: origins, exits, easing, reduced-motion | HIGH        | DONE   |
+| [002](002-core-motion-tokens-and-chat.md)   | Core motion tokens + agent-chat micro-motion                       | HIGH        | DONE   |
+| [003](003-clips-recording-gpu.md)           | Clips recording surfaces: stop animating layout/paint props        | HIGH        | DONE   |
+| [004](004-clips-player-scrubber.md)         | Clips player scrubber physicality                                  | HIGH        | DONE   |
+| [005](005-content-editor-motion.md)         | Content editor: resize lag, progress, hover easing                 | HIGH        | DONE   |
+| [006](006-productivity-transition-scope.md) | transition-all sweep: analytics/forms/mail/calendar/macros         | MEDIUM      | DONE   |
+| [007](007-mail-swipe-velocity.md)           | Mail swipe: velocity-based commit                                  | MEDIUM      | DONE   |
+| [008](008-button-press-feedback.md)         | Shared Button press feedback                                       | MEDIUM      | DONE   |
+| [009](009-design-editor-motion.md)          | Design editor: tooltip grouping, inspector collapse, fixes         | MEDIUM-HIGH | DONE   |
+| [010](010-slides-editor-motion.md)          | Slides editor: broken toggle, progress, toolbar popover            | MEDIUM      | DONE   |
+| [011](011-core-collapse-consolidation.md)   | Chat disclosure rows onto AnimatedCollapse                         | MEDIUM      | DONE   |
 
 ## Execution order & dependencies
 

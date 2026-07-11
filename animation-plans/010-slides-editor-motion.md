@@ -1,6 +1,6 @@
 # 010 — Slides editor: broken toggle thumb, progress bar, unanimated toolbar popover
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM (includes one outright broken animation)
 - **Category**: Performance / Cohesion / Physicality & origin

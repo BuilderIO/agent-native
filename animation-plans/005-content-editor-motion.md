@@ -1,6 +1,6 @@
 # 005 — Content editor: fix resize lag, progress bar, and hover easing
 
-- **Status**: TODO
+- **Status**: DONE (4/5 steps; step 4 was already fixed by concurrent work)
 - **Commit**: f43d34ca24
 - **Severity**: HIGH (sidebar drag-resize fights its own transition)
 - **Category**: Performance / Easing & duration / Physicality & origin

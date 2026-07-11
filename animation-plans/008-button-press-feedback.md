@@ -1,6 +1,6 @@
 # 008 — Press feedback on the shared Button (and re-align macros' drifted copy)
 
-- **Status**: TODO
+- **Status**: DONE (mechanically verified; feel checks pending)
 - **Commit**: f43d34ca24
 - **Severity**: MEDIUM (every pressable in every app; a feel decision — feel-check required)
 - **Category**: Physicality & origin / Cohesion

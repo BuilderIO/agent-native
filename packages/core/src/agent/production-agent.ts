@@ -50,13 +50,6 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
-import { applyContextDirectives } from "./context-xray/apply-directives.js";
-import { loadContextDirectives } from "./context-xray/directives-store.js";
-import {
-  buildManifest,
-  writeContextManifest,
-} from "./context-xray/manifest.js";
-import { computeProtectedSegmentIds } from "./context-xray/segments.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -67,6 +60,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
+import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -3061,40 +3055,13 @@ export async function runAgentLoop(opts: {
     let contextMessages = messages;
 
     if (opts.threadId) {
-      try {
-        const directives = await loadContextDirectives(opts.threadId, {
-          ownerEmail: opts.ownerEmail ?? null,
-        });
-        const protectedSegmentIds = computeProtectedSegmentIds(messages);
-        const { messages: transformedMessages, appliedStatus } =
-          applyContextDirectives(messages, directives, {
-            protectedSegmentIds,
-          });
-        const manifest = await buildManifest({
-          threadId: opts.threadId,
-          ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          model,
-          rawMessages: messages,
-          sentMessages: transformedMessages,
-          appliedStatus,
-          directives,
-          protectedSegmentIds,
-          source: "structured",
-          enforceable: true,
-        });
-        contextMessages = transformedMessages;
-        void writeContextManifest(opts.threadId, manifest).catch((err) => {
-          console.warn(
-            "[context-xray] failed to write manifest:",
-            err instanceof Error ? err.message : String(err),
-          );
-        });
-      } catch (err) {
-        console.warn(
-          "[context-xray] context transform skipped:",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages,
+      });
 
       // Observational Memory (consumer): for long threads that have already been
       // compacted, fold the reflections+observations in as a leading context
