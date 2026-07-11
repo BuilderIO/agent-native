@@ -9,22 +9,19 @@
  */
 
 export interface SchedulingManifest {
+  manifestVersion: 1;
   name: string;
-  version: string;
   actions: string[];
   schemaEntryPoint: string;
-  docs: {
-    llms: string;
-    llmsFull: string;
-    skills: string[];
-  };
+  docs: { llms: string; llmsFull: string; skills: string[] };
   requiredSecrets: { key: string; label: string; optional?: boolean }[];
   peerProviders: string[];
+  eject?: { sourceRoot: string; targetDirectory: string };
 }
 
 export const MANIFEST: SchedulingManifest = {
+  manifestVersion: 1,
   name: "@agent-native/scheduling",
-  version: "0.1.0",
   actions: [
     // Event types
     "list-event-types",
@@ -168,7 +165,12 @@ export const MANIFEST: SchedulingManifest = {
     "google-calendar",
     "office365",
     "zoom",
+    "teams",
     "google-meet",
     "builtin-video",
   ],
+  eject: {
+    sourceRoot: "src",
+    targetDirectory: "packages/scheduling",
+  },
 };

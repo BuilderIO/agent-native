@@ -956,15 +956,16 @@ export async function approveRequest(
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be approved");
-  }
 
   const timestamp = now();
   const reviewer = ctx.ownerEmail;
 
-  // Update request status — scoped to caller's tenant.
-  await db
+  // Fence the transition on the current status — scoped to caller's tenant —
+  // so a concurrent approve can't both win: only the caller that flips
+  // pending -> approved proceeds to create the secret/grant. See
+  // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
+  // for the same pattern.
+  const claimed = await db
     .update(schema.vaultRequests)
     .set({
       status: "approved",
@@ -976,12 +977,22 @@ export async function approveRequest(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
+        eq(schema.vaultRequests.status, "pending"),
       ),
-    );
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    // Another caller already resolved this request; return its current
+    // state idempotently instead of re-applying the grant.
+    return getRequest(requestId, ctx);
+  }
+
+  const claimedRequest = claimed[0];
 
   // Secret + grant must land in the REQUEST's tenant, not the approver's
   // (the approver may be acting on behalf of another user in the same org).
-  const requestCtx = ctxForRow(request);
+  const requestCtx = ctxForRow(claimedRequest);
 
   // Check if secret already exists in the request's tenant for this key.
   const existingSecrets = await db
@@ -989,7 +1000,7 @@ export async function approveRequest(
     .from(schema.vaultSecrets)
     .where(
       and(
-        eq(schema.vaultSecrets.credentialKey, request.credentialKey),
+        eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),
         ctxScope(schema.vaultSecrets, requestCtx),
       ),
     );
@@ -998,9 +1009,9 @@ export async function approveRequest(
   if (!secret) {
     secret = await createSecret(
       {
-        credentialKey: request.credentialKey,
+        credentialKey: claimedRequest.credentialKey,
         value: secretValue,
-        name: secretName || request.credentialKey,
+        name: secretName || claimedRequest.credentialKey,
       },
       requestCtx,
     );
@@ -1008,13 +1019,13 @@ export async function approveRequest(
 
   if (secret) {
     // Create the grant in the request's tenant as well.
-    await createGrant(secret.id, request.appId, requestCtx);
+    await createGrant(secret.id, claimedRequest.appId, requestCtx);
   }
 
   await recordVaultAudit({
     action: "request.approved",
-    appId: request.appId,
-    summary: `Approved ${request.credentialKey} for ${request.appId} (requested by ${request.requestedBy})`,
+    appId: claimedRequest.appId,
+    summary: `Approved ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer },
   });
 
@@ -1029,14 +1040,11 @@ export async function denyRequest(
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be denied");
-  }
 
   const timestamp = now();
   const reviewer = ctx.ownerEmail;
 
-  await db
+  const claimed = await db
     .update(schema.vaultRequests)
     .set({
       status: "denied",
@@ -1048,13 +1056,21 @@ export async function denyRequest(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
+        eq(schema.vaultRequests.status, "pending"),
       ),
-    );
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    return getRequest(requestId, ctx);
+  }
+
+  const claimedRequest = claimed[0];
 
   await recordVaultAudit({
     action: "request.denied",
-    appId: request.appId,
-    summary: `Denied ${request.credentialKey} for ${request.appId} (requested by ${request.requestedBy})`,
+    appId: claimedRequest.appId,
+    summary: `Denied ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer, reason },
   });
 

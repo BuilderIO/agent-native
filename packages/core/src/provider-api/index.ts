@@ -47,6 +47,8 @@ export {
   listCustomProviders,
   getCustomProvider,
   validateCustomBaseUrl,
+  assertCanMutateCustomProviderScope,
+  CustomProviderAuthError,
 } from "./custom-registry.js";
 
 export const PROVIDER_API_IDS = [

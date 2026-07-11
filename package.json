@@ -103,7 +103,6 @@
     "oxlint-tsgolint": "0.24.0",
     "prettier": "^3.6.2",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "wrangler": "^4.80.0"
   },
@@ -129,8 +128,7 @@
       "fast-xml-parser": ">=5.5.6",
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
-      "hono": ">=4.12.4",
-      "kysely": "^0.28.9"
+      "hono": ">=4.12.4"
     }
   }
 }

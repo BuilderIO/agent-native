@@ -610,11 +610,13 @@ export async function approveRequest(requestId: string) {
   const ctx = requireDispatchCtx();
   const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending approvals can be approved");
-  }
+
   const timestamp = now();
-  await db
+  // Fence the transition on the current status so a concurrent approve can't
+  // both win: only the caller that flips pending -> approved proceeds to
+  // apply the (side-effecting) change. See claimAgentTeamRun in
+  // packages/core/src/server/agent-teams-run-queue.ts for the same pattern.
+  const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
       status: "approved",
@@ -622,9 +624,21 @@ export async function approveRequest(requestId: string) {
       reviewedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(schema.dispatchApprovalRequests.id, requestId));
-  const updated = await getApprovalRequest(requestId, ctx);
-  if (!updated) throw new Error("Approval request disappeared");
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        eq(schema.dispatchApprovalRequests.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    // Another caller already resolved this request; return its current
+    // state idempotently instead of re-applying the change.
+    return (await getApprovalRequest(requestId, ctx)) ?? request;
+  }
+
+  const updated = claimed[0];
   await applyApprovedRequest(updated);
   await recordAudit({
     action: "approval.approved",
@@ -638,13 +652,12 @@ export async function approveRequest(requestId: string) {
 
 export async function rejectRequest(requestId: string, reason?: string | null) {
   const db = getDb();
-  const request = await getApprovalRequest(requestId);
+  const ctx = requireDispatchCtx();
+  const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending approvals can be rejected");
-  }
+
   const timestamp = now();
-  await db
+  const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
       status: "rejected",
@@ -652,15 +665,27 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
       reviewedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(schema.dispatchApprovalRequests.id, requestId));
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        eq(schema.dispatchApprovalRequests.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    return (await getApprovalRequest(requestId, ctx)) ?? request;
+  }
+
+  const updated = claimed[0];
   await recordAudit({
     action: "approval.rejected",
-    targetType: request.targetType,
+    targetType: updated.targetType,
     targetId: requestId,
-    summary: `Rejected ${request.summary}`,
-    metadata: { request, reason: reason || null },
+    summary: `Rejected ${updated.summary}`,
+    metadata: { request: updated, reason: reason || null },
   });
-  return getApprovalRequest(requestId);
+  return updated;
 }
 
 export async function createLinkToken(platform: string) {

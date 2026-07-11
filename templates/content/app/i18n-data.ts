@@ -26,6 +26,8 @@ const databaseMessages = {
   bestWhenSameKindAdditionalRows:
     "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
+  connectNotionFirst: "Connect Notion first",
+  connected: "Connected",
   builderBulkUpdateNotStaged: "Builder bulk update not staged",
   builderBulkUpdateStaged: "Builder bulk update staged",
   builderUpdateFailed: "Builder update failed",
@@ -71,6 +73,8 @@ const databaseMessages = {
   closeSearch: "Close search",
   databaseRowsAndLocalPropertiesWereKeptIntact:
     "Database rows and local properties were kept intact.",
+  failedToAttachSource: "Failed to attach source",
+  failedToCreateRow: "Failed to create row",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -532,6 +536,8 @@ const databaseMessagesByLocale = {
     addProperty: "添加属性",
     back: "返回",
     builderSpace: "Builder 空间",
+    connectNotionFirst: "请先连接 Notion",
+    connected: "已连接",
     builderBulkUpdateNotStaged: "Builder 批量更新未暂存",
     builderBulkUpdateStaged: "Builder 批量更新已暂存",
     builderUpdateFailed: "Builder 更新失败",
@@ -539,6 +545,8 @@ const databaseMessagesByLocale = {
     closeDatabaseSettings: "关闭数据库设置",
     closeSearch: "关闭搜索",
     databaseRowsAndLocalPropertiesWereKeptIntact: "数据库行和本地属性已保留。",
+    failedToAttachSource: "附加来源失败",
+    failedToCreateRow: "创建行失败",
     failedToDeleteRow: "删除行失败",
     failedToDeleteSelectedRows: "删除所选行失败",
     failedToDuplicateEverySelectedRow: "未能复制所有选中行",
@@ -724,6 +732,8 @@ const databaseMessagesByLocale = {
     addProperty: "Añadir propiedad",
     back: "Atrás",
     builderSpace: "Espacio de Builder",
+    connectNotionFirst: "Conecta Notion primero",
+    connected: "Conectado",
     builderBulkUpdateNotStaged: "Actualización masiva de Builder no preparada",
     builderBulkUpdateStaged: "Actualización masiva de Builder preparada",
     builderUpdateFailed: "Falló la actualización de Builder",
@@ -733,6 +743,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Cerrar búsqueda",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Se conservaron las filas y propiedades locales.",
+    failedToAttachSource: "No se pudo adjuntar la fuente",
+    failedToCreateRow: "No se pudo crear la fila",
     failedToDeleteRow: "No se pudo eliminar la fila",
     failedToDeleteSelectedRows:
       "No se pudieron eliminar las filas seleccionadas",
@@ -924,6 +936,8 @@ const databaseMessagesByLocale = {
     addProperty: "Ajouter une propriété",
     back: "Retour",
     builderSpace: "Espace Builder",
+    connectNotionFirst: "Connectez d’abord Notion",
+    connected: "Connecté",
     builderBulkUpdateNotStaged: "Mise à jour groupée Builder non préparée",
     builderBulkUpdateStaged: "Mise à jour groupée Builder préparée",
     builderUpdateFailed: "Échec de la mise à jour Builder",
@@ -932,6 +946,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Fermer la recherche",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Les lignes et propriétés locales ont été conservées.",
+    failedToAttachSource: "Échec de la connexion de la source",
+    failedToCreateRow: "Échec de la création de la ligne",
     failedToDeleteRow: "Échec de la suppression de la ligne",
     failedToDeleteSelectedRows:
       "Échec de la suppression des lignes sélectionnées",
@@ -1122,6 +1138,8 @@ const databaseMessagesByLocale = {
     addProperty: "Eigenschaft hinzufügen",
     back: "Zurück",
     builderSpace: "Builder-Bereich",
+    connectNotionFirst: "Zuerst Notion verbinden",
+    connected: "Verbunden",
     builderBulkUpdateNotStaged:
       "Builder-Massenaktualisierung nicht bereitgestellt",
     builderBulkUpdateStaged: "Builder-Massenaktualisierung bereitgestellt",
@@ -1131,6 +1149,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Suche schließen",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Datenbankzeilen und lokale Eigenschaften wurden beibehalten.",
+    failedToAttachSource: "Quelle konnte nicht angehängt werden",
+    failedToCreateRow: "Zeile konnte nicht erstellt werden",
     failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
     failedToDeleteSelectedRows:
       "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -1317,6 +1337,8 @@ const databaseMessagesByLocale = {
     addProperty: "プロパティを追加",
     back: "戻る",
     builderSpace: "Builder スペース",
+    connectNotionFirst: "最初に Notion を接続",
+    connected: "接続済み",
     builderBulkUpdateNotStaged: "Builder 一括更新はステージングされていません",
     builderBulkUpdateStaged: "Builder 一括更新をステージングしました",
     builderUpdateFailed: "Builder の更新に失敗しました",
@@ -1326,6 +1348,8 @@ const databaseMessagesByLocale = {
     closeSearch: "検索を閉じる",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "データベース行とローカルプロパティは保持されました。",
+    failedToAttachSource: "ソースを接続できませんでした",
+    failedToCreateRow: "行を作成できませんでした",
     failedToDeleteRow: "行を削除できませんでした",
     failedToDeleteSelectedRows: "選択した行を削除できませんでした",
     failedToDuplicateEverySelectedRow:
@@ -1510,6 +1534,8 @@ const databaseMessagesByLocale = {
     addProperty: "속성 추가",
     back: "뒤로",
     builderSpace: "Builder 공간",
+    connectNotionFirst: "먼저 Notion 연결",
+    connected: "연결됨",
     builderBulkUpdateNotStaged: "Builder 대량 업데이트가 스테이징되지 않음",
     builderBulkUpdateStaged: "Builder 대량 업데이트가 스테이징됨",
     builderUpdateFailed: "Builder 업데이트 실패",
@@ -1518,6 +1544,8 @@ const databaseMessagesByLocale = {
     closeSearch: "검색 닫기",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "데이터베이스 행과 로컬 속성은 유지되었습니다.",
+    failedToAttachSource: "소스를 연결하지 못했습니다",
+    failedToCreateRow: "행을 생성하지 못했습니다",
     failedToDeleteRow: "행을 삭제하지 못했습니다",
     failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
     failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
@@ -1705,6 +1733,8 @@ const databaseMessagesByLocale = {
     addProperty: "Adicionar propriedade",
     back: "Voltar",
     builderSpace: "Espaço do Builder",
+    connectNotionFirst: "Conecte o Notion primeiro",
+    connected: "Conectado",
     builderBulkUpdateNotStaged: "Atualização em massa do Builder não preparada",
     builderBulkUpdateStaged: "Atualização em massa do Builder preparada",
     builderUpdateFailed: "Falha na atualização do Builder",
@@ -1713,6 +1743,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Fechar busca",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "As linhas do banco e propriedades locais foram mantidas.",
+    failedToAttachSource: "Falha ao anexar fonte",
+    failedToCreateRow: "Falha ao criar linha",
     failedToDeleteRow: "Falha ao excluir linha",
     failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
     failedToDuplicateEverySelectedRow:
@@ -1895,6 +1927,8 @@ const databaseMessagesByLocale = {
     addProperty: "प्रॉपर्टी जोड़ें",
     back: "वापस",
     builderSpace: "Builder स्पेस",
+    connectNotionFirst: "पहले Notion कनेक्ट करें",
+    connected: "कनेक्टेड",
     builderBulkUpdateNotStaged: "Builder बल्क अपडेट स्टेज नहीं हुआ",
     builderBulkUpdateStaged: "Builder बल्क अपडेट स्टेज हुआ",
     builderUpdateFailed: "Builder अपडेट विफल रहा",
@@ -1903,6 +1937,8 @@ const databaseMessagesByLocale = {
     closeSearch: "खोज बंद करें",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "डेटाबेस पंक्तियां और स्थानीय प्रॉपर्टीज़ सुरक्षित रहीं।",
+    failedToAttachSource: "स्रोत संलग्न करने में विफल",
+    failedToCreateRow: "पंक्ति बनाने में विफल",
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
     failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
@@ -2080,6 +2116,8 @@ const databaseMessagesByLocale = {
     addProperty: "إضافة خاصية",
     back: "رجوع",
     builderSpace: "مساحة Builder",
+    connectNotionFirst: "وصّل Notion أولاً",
+    connected: "متصل",
     builderBulkUpdateNotStaged: "لم يتم تجهيز تحديث Builder المجمع",
     builderBulkUpdateStaged: "تم تجهيز تحديث Builder المجمع",
     builderUpdateFailed: "فشل تحديث Builder",
@@ -2088,6 +2126,8 @@ const databaseMessagesByLocale = {
     closeSearch: "إغلاق البحث",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "تم الاحتفاظ بصفوف قاعدة البيانات والخصائص المحلية.",
+    failedToAttachSource: "فشل إرفاق المصدر",
+    failedToCreateRow: "فشل إنشاء الصف",
     failedToDeleteRow: "فشل حذف الصف",
     failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
     failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",

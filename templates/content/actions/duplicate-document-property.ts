@@ -11,6 +11,10 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
+import {
   listPropertiesForDocument,
   nanoid,
   resolvePropertyDatabaseForDocument,
@@ -45,21 +49,6 @@ export default defineAction({
       );
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
 
-    const [maxPos] = await db
-      .select({
-        max: sql<number>`COALESCE(MAX(position), -1)`,
-      })
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        and(
-          eq(
-            schema.documentPropertyDefinitions.ownerEmail,
-            document.ownerEmail,
-          ),
-          eq(schema.documentPropertyDefinitions.databaseId, database.id),
-        ),
-      );
-
     const now = new Date().toISOString();
     const newPropertyId = nanoid();
     const isBlocks = isBlocksPropertyType(
@@ -71,19 +60,39 @@ export default defineAction({
       ? serializePropertyOptions({ blocks: { primary: false } })
       : definition.optionsJson;
 
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: newPropertyId,
-      ownerEmail: definition.ownerEmail,
-      orgId: definition.orgId,
-      databaseId: database.id,
-      name: `${definition.name} copy`,
-      type: definition.type,
-      visibility: definition.visibility,
-      optionsJson,
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await withPositionLock(
+      propertyDefinitionsPositionScope(database.id),
+      async () => {
+        const [maxPos] = await db
+          .select({
+            max: sql<number>`COALESCE(MAX(position), -1)`,
+          })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            and(
+              eq(
+                schema.documentPropertyDefinitions.ownerEmail,
+                document.ownerEmail,
+              ),
+              eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            ),
+          );
+
+        await db.insert(schema.documentPropertyDefinitions).values({
+          id: newPropertyId,
+          ownerEmail: definition.ownerEmail,
+          orgId: definition.orgId,
+          databaseId: database.id,
+          name: `${definition.name} copy`,
+          type: definition.type,
+          visibility: definition.visibility,
+          optionsJson,
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
 
     // Blocks fields don't use document_property_values; a duplicate starts empty.
     if (!isBlocks) {

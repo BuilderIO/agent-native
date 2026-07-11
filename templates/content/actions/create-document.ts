@@ -18,6 +18,7 @@ import {
   createLocalFileDocument,
   isContentLocalFileMode,
 } from "./_local-file-documents.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -122,41 +123,47 @@ export default defineAction({
         .where(eq(schema.documentShares.resourceId, parentId));
     }
 
-    // Get max position among siblings
-    const maxPos = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documents)
-      .where(
-        parentId
-          ? and(
-              eq(schema.documents.ownerEmail, ownerEmail),
-              eq(schema.documents.parentId, parentId),
-            )
-          : and(
-              eq(schema.documents.ownerEmail, ownerEmail),
-              sql`parent_id IS NULL`,
-            ),
-      );
-
-    const position = (maxPos[0]?.max ?? -1) + 1;
     const now = new Date().toISOString();
     const id = args.id || nanoid();
 
-    await db.insert(schema.documents).values({
-      id,
-      ownerEmail,
-      orgId,
-      parentId,
-      title,
-      content,
-      icon,
-      position,
-      isFavorite: 0,
-      hideFromSearch,
-      visibility,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await withPositionLock(
+      documentsPositionScope(ownerEmail, parentId),
+      async () => {
+        // Get max position among siblings
+        const maxPos = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            parentId
+              ? and(
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                  eq(schema.documents.parentId, parentId),
+                )
+              : and(
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                  sql`parent_id IS NULL`,
+                ),
+          );
+
+        const position = (maxPos[0]?.max ?? -1) + 1;
+
+        await db.insert(schema.documents).values({
+          id,
+          ownerEmail,
+          orgId,
+          parentId,
+          title,
+          content,
+          icon,
+          position,
+          isFavorite: 0,
+          hideFromSearch,
+          visibility,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
 
     if (inheritedShares.length > 0) {
       await db.insert(schema.documentShares).values(

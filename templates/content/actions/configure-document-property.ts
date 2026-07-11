@@ -17,6 +17,10 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
+import {
   listPropertiesForDocument,
   nanoid,
   optionsForNewProperty,
@@ -168,34 +172,39 @@ export default defineAction({
         })
         .where(eq(schema.documentPropertyDefinitions.id, args.id));
     } else {
-      const [maxPos] = await db
-        .select({
-          max: sql<number>`COALESCE(MAX(position), -1)`,
-        })
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              document.ownerEmail,
-            ),
-            eq(schema.documentPropertyDefinitions.databaseId, database.id),
-          ),
-        );
+      await withPositionLock(
+        propertyDefinitionsPositionScope(database.id),
+        async () => {
+          const [maxPos] = await db
+            .select({
+              max: sql<number>`COALESCE(MAX(position), -1)`,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
 
-      await db.insert(schema.documentPropertyDefinitions).values({
-        id: nanoid(),
-        ownerEmail: document.ownerEmail,
-        orgId: document.orgId ?? null,
-        databaseId: database.id,
-        name,
-        type,
-        visibility: normalizePropertyVisibility(args.visibility),
-        optionsJson,
-        position: (maxPos?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
+          await db.insert(schema.documentPropertyDefinitions).values({
+            id: nanoid(),
+            ownerEmail: document.ownerEmail,
+            orgId: document.orgId ?? null,
+            databaseId: database.id,
+            name,
+            type,
+            visibility: normalizePropertyVisibility(args.visibility),
+            optionsJson,
+            position: (maxPos?.max ?? -1) + 1,
+            createdAt: now,
+            updatedAt: now,
+          });
+        },
+      );
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });

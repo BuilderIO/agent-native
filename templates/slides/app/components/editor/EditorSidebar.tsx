@@ -24,6 +24,7 @@ import {
 import { useState, useRef, useEffect } from "react";
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
@@ -35,7 +36,6 @@ import {
 } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {
@@ -402,13 +402,11 @@ function AddSlidePopover({
           }
           uploaded = (await res.json()) as UploadedFile[];
         } catch (error) {
-          toast({
-            title: t("editorSidebar.uploadFailed"),
+          toast.error(t("editorSidebar.uploadFailed"), {
             description:
               error instanceof Error
                 ? error.message
                 : t("editorSidebar.uploadAttachedFileFailed"),
-            variant: "destructive",
           });
           return;
         }

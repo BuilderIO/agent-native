@@ -9,11 +9,43 @@ import {
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(async () => ({ archivedAt: null })),
+  upsertDashboardWithRetry: vi.fn(),
   dryRunQuery: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
+
+/**
+ * Default passthrough: fetch via the mocked `getDashboard`, run the action's
+ * mutate callback once against it, then forward to the mocked
+ * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
+ * and return a DashboardRecord-shaped result carrying the mutated config.
+ * Individual tests override this with `mockImplementationOnce` to simulate a
+ * lost race and prove the action recomputes from fresh state on retry.
+ */
+function defaultUpsertDashboardWithRetry(
+  id: string,
+  ctx: unknown,
+  mutate: (existing: any) =>
+    | Promise<{ kind: string; body: unknown }>
+    | {
+        kind: string;
+        body: unknown;
+      },
+) {
+  return (async () => {
+    const existing = await mocks.getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    const { kind, body } = await mutate(existing);
+    await mocks.upsertDashboard(id, kind, body, ctx);
+    return { ...existing, kind, config: body };
+  })();
+}
 
 vi.mock("@agent-native/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agent-native/core")>();
@@ -51,6 +83,7 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
+  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
 }));
 
 vi.mock("../server/lib/bigquery", () => ({
@@ -92,6 +125,10 @@ describe("mutate-dashboard", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
     mocks.upsertDashboard.mockClear();
+    mocks.upsertDashboardWithRetry.mockReset();
+    mocks.upsertDashboardWithRetry.mockImplementation(
+      defaultUpsertDashboardWithRetry,
+    );
     mocks.dryRunQuery.mockReset();
     mocks.dryRunQuery.mockResolvedValue(null);
     mocks.hasCollabState.mockClear();
@@ -226,5 +263,62 @@ describe("mutate-dashboard", () => {
     expect(result.apiTypes).toContain("type DashboardScript");
     expect(result.examples[0]).toContain("moveToTop");
     expect(mocks.getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("recomputes the mutation against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
+    // Simulates two interleaved writers racing on the same dashboard: this
+    // call inserts panel "writer-b", but its first fenced write is lost
+    // because a concurrent writer already saved a different panel
+    // ("writer-a") in between. A correct retry re-reads that winning save and
+    // reapplies "insert writer-b" on top of it, so both panels land instead
+    // of the second writer clobbering the first's insert.
+    const beforeConcurrentWrite = {
+      kind: "sql",
+      config: dashboardConfig(),
+    };
+    const afterConcurrentWrite = {
+      kind: "sql",
+      config: {
+        ...dashboardConfig(),
+        panels: [...dashboardConfig().panels, panel("writer-a")],
+      },
+    };
+
+    let mutateCallCount = 0;
+    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+      async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
+        mutateCallCount += 1;
+        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        mutateCallCount += 1;
+        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        await mocks.upsertDashboard(id, kind, body, ctx);
+        return { ...afterConcurrentWrite, kind, config: body };
+      },
+    );
+
+    const result: any = await mutateDashboard.run({
+      dashboardId: "traffic",
+      operations: [
+        {
+          op: "insertPanel",
+          panel: panel("writer-b"),
+          position: "bottom",
+        },
+      ],
+    });
+
+    expect(mutateCallCount).toBe(2);
+    expect(result.saved).toBe(true);
+    expect(result.panelOrder).toEqual(["a", "b", "c", "writer-a", "writer-b"]);
+    const saved = mocks.upsertDashboard.mock.calls[0][2] as {
+      panels: Array<{ id: string }>;
+    };
+    expect(saved.panels.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "writer-a",
+      "writer-b",
+    ]);
   });
 });

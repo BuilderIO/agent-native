@@ -14,6 +14,7 @@ import {
   isContentLocalFileMode,
   moveLocalFileDocument,
 } from "./_local-file-documents.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -282,60 +283,75 @@ export default defineAction({
       updates.position =
         normalizedSiblingPositions?.find((document) => document.id === id)
           ?.position ?? args.position;
-    } else if (args.parentId !== undefined) {
-      const parentId = args.parentId;
-      const maxPos = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          parentId
-            ? and(
-                eq(schema.documents.ownerEmail, ownerEmail),
-                eq(schema.documents.parentId, parentId),
-              )
-            : and(
-                eq(schema.documents.ownerEmail, ownerEmail),
-                rootSectionFilter(existing),
-                sql`parent_id IS NULL`,
-              ),
-        );
-      updates.position = (maxPos[0]?.max ?? -1) + 1;
     }
 
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.documents)
-        .set(updates)
-        .where(
-          and(
-            eq(schema.documents.id, id),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        );
+    const runMoveTransaction = () =>
+      db.transaction(async (tx) => {
+        await tx
+          .update(schema.documents)
+          .set(updates)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
 
-      if (args.parentId !== undefined && blockDatabaseIdToDetach) {
-        await clearBlockDatabaseOwnership({
-          db: tx,
-          databaseId: blockDatabaseIdToDetach,
-          ownerEmail,
-          updatedAt,
-        });
-      }
-
-      if (normalizedSiblingPositions) {
-        for (const document of normalizedSiblingPositions) {
-          await tx
-            .update(schema.documents)
-            .set({ position: document.position })
-            .where(
-              and(
-                eq(schema.documents.id, document.id),
-                eq(schema.documents.ownerEmail, ownerEmail),
-              ),
-            );
+        if (args.parentId !== undefined && blockDatabaseIdToDetach) {
+          await clearBlockDatabaseOwnership({
+            db: tx,
+            databaseId: blockDatabaseIdToDetach,
+            ownerEmail,
+            updatedAt,
+          });
         }
-      }
-    });
+
+        if (normalizedSiblingPositions) {
+          for (const document of normalizedSiblingPositions) {
+            await tx
+              .update(schema.documents)
+              .set({ position: document.position })
+              .where(
+                and(
+                  eq(schema.documents.id, document.id),
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                ),
+              );
+          }
+        }
+      });
+
+    if (args.position === undefined && args.parentId !== undefined) {
+      // Appending to the end of the new parent's children reads MAX(position)
+      // then writes MAX+1. Serialize the read through the write so a
+      // concurrent move/create/add targeting the same parent can't read the
+      // same MAX and land on the same position (see _position-utils.ts).
+      const parentId = args.parentId;
+      await withPositionLock(
+        documentsPositionScope(ownerEmail, parentId),
+        async () => {
+          const maxPos = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
+            .where(
+              parentId
+                ? and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    eq(schema.documents.parentId, parentId),
+                  )
+                : and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    rootSectionFilter(existing),
+                    sql`parent_id IS NULL`,
+                  ),
+            );
+          updates.position = (maxPos[0]?.max ?? -1) + 1;
+          await runMoveTransaction();
+        },
+      );
+    } else {
+      await runMoveTransaction();
+    }
 
     const [doc] = await db
       .select()

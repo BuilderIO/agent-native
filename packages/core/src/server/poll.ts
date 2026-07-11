@@ -738,9 +738,31 @@ async function getDurableChangesSinceForUser(
   }
 
   try {
+    // Scope the fetch to rows that could ever be visible to this caller
+    // before paying to JSON.parse and visibility-check every deployment-wide
+    // event: deployment-global rows (no owner, no org), the caller's own
+    // rows, the caller's org's rows, and resource-scoped rows (owner/org
+    // don't gate those — access is decided below by
+    // `getChangeVisibilityForUser`'s access-aware branch, which can grant a
+    // non-owner sharee, so resource-scoped rows must still flow through that
+    // check regardless of who owns them). This lets Postgres/SQLite use the
+    // `sync_events_owner_version_idx` / `sync_events_org_version_idx` indexes
+    // instead of scanning every tenant's activity on every poll. The OR group
+    // is parenthesized so `version > ?` ANDs against the whole group, not
+    // just the first term. A caller with no org passes a null `orgId` bind
+    // param, which makes `org_id = ?` evaluate to no match for every row
+    // (including null-org rows) in both dialects — mirroring the
+    // `event.orgId && orgId` truthy check in `getChangeVisibilityForUser`.
     const result = await getDbExec().execute({
-      sql: `SELECT version, event_json FROM sync_events WHERE version > ? ORDER BY version ASC LIMIT ?`,
-      args: [since, DURABLE_READ_LIMIT + 1],
+      sql: `SELECT version, event_json FROM sync_events WHERE version > ?
+              AND (
+                (owner IS NULL AND org_id IS NULL)
+                OR owner = ?
+                OR org_id = ?
+                OR resource_type IS NOT NULL
+              )
+            ORDER BY version ASC LIMIT ?`,
+      args: [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
     });
     const events: ChangeEvent[] = [];
     let version = Math.max(_version, since);

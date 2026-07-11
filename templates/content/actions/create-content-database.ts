@@ -15,6 +15,7 @@ import type {
   CreateDatabaseRequest,
 } from "../shared/api.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 import { nanoid, seedDefaultBlocksField } from "./_property-utils.js";
 
 const createContentDatabaseSchema = z.object({
@@ -132,37 +133,46 @@ export async function createContentDatabaseRecord(
         .where(eq(schema.documentShares.resourceId, parentId));
     }
 
-    const [maxPos] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documents)
-      .where(
-        parentId
-          ? and(
-              eq(schema.documents.ownerEmail, ownerEmail),
-              eq(schema.documents.parentId, parentId),
-            )
-          : and(
-              eq(schema.documents.ownerEmail, ownerEmail),
-              sql`parent_id IS NULL`,
-            ),
-      );
-
     documentId = nanoid();
-    await db.insert(schema.documents).values({
-      id: documentId,
-      ownerEmail,
-      orgId,
-      parentId,
-      title,
-      content: "",
-      icon: null,
-      position: (maxPos?.max ?? -1) + 1,
-      isFavorite: 0,
-      hideFromSearch,
-      visibility,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Snapshot as a const so the closure below keeps TypeScript's
+    // non-undefined narrowing from the guard above (`let` bindings lose
+    // narrowing across a closure boundary).
+    const resolvedOwnerEmail = ownerEmail;
+    await withPositionLock(
+      documentsPositionScope(resolvedOwnerEmail, parentId),
+      async () => {
+        const [maxPos] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            parentId
+              ? and(
+                  eq(schema.documents.ownerEmail, resolvedOwnerEmail),
+                  eq(schema.documents.parentId, parentId),
+                )
+              : and(
+                  eq(schema.documents.ownerEmail, resolvedOwnerEmail),
+                  sql`parent_id IS NULL`,
+                ),
+          );
+
+        await db.insert(schema.documents).values({
+          id: documentId!,
+          ownerEmail: resolvedOwnerEmail,
+          orgId,
+          parentId,
+          title,
+          content: "",
+          icon: null,
+          position: (maxPos?.max ?? -1) + 1,
+          isFavorite: 0,
+          hideFromSearch,
+          visibility,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
 
     if (inheritedShares.length > 0) {
       await db.insert(schema.documentShares).values(
