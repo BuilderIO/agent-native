@@ -1064,12 +1064,14 @@ function ReplayPlayer({
                 ) : null}
               </button>
 
-              <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
-                {t("sessions.replayEventCount", {
-                  events: String(response.eventCount),
-                })}
-                {response.truncated ? ` ${t("sessions.truncated")}` : ""}
-              </span>
+              {response.isComplete ? (
+                <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
+                  {t("sessions.replayEventCount", {
+                    events: String(response.eventCount),
+                  })}
+                  {response.truncated ? ` ${t("sessions.truncated")}` : ""}
+                </span>
+              ) : null}
             </div>
 
             {devToolsOpen ? (

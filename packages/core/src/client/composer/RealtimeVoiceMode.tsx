@@ -19,6 +19,7 @@ import {
 } from "@tabler/icons-react";
 import {
   type MouseEvent,
+  useCallback,
   useEffect,
   useId,
   useState,
@@ -140,6 +141,16 @@ export function RealtimeVoiceModeEntry({
   const open = controlledOpen ?? uncontrolledOpen;
   const titleId = useId();
   const descriptionId = useId();
+  const [collisionBoundary, setCollisionBoundary] =
+    useState<HTMLElement | null>(null);
+
+  const setTriggerNode = useCallback((node: HTMLButtonElement | null) => {
+    const nextBoundary =
+      node?.closest<HTMLElement>(".agent-panel-root") ?? null;
+    setCollisionBoundary((currentBoundary) =>
+      currentBoundary === nextBoundary ? currentBoundary : nextBoundary,
+    );
+  }, []);
 
   const setOpen = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
@@ -157,6 +168,7 @@ export function RealtimeVoiceModeEntry({
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <Button
+              ref={setTriggerNode}
               type="button"
               variant="ghost"
               size="icon"
@@ -179,11 +191,14 @@ export function RealtimeVoiceModeEntry({
         side="top"
         align="end"
         sideOffset={10}
+        collisionBoundary={collisionBoundary ?? undefined}
+        collisionPadding={16}
+        data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
           "p-4",
           setupRequired
-            ? "w-[min(30rem,calc(100vw-2rem))]"
-            : "w-[min(22rem,calc(100vw-2rem))]",
+            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
+            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,22rem),22rem)]",
         )}
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
@@ -201,7 +216,7 @@ export function RealtimeVoiceModeEntry({
             </p>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-nowrap sm:justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button
               type="button"
               variant="ghost"

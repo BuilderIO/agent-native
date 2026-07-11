@@ -167,26 +167,31 @@ describe("RealtimeVoiceMode", () => {
     const onUseOpenAiKey = vi.fn();
 
     render(
-      <RealtimeVoiceModeEntry
-        copy={copy}
-        open
-        setupRequired
-        onStartVoiceMode={vi.fn()}
-        onKeepDictating={vi.fn()}
-        onConnectBuilder={onConnectBuilder}
-        onUseOpenAiKey={onUseOpenAiKey}
-      />,
+      <div className="agent-panel-root">
+        <RealtimeVoiceModeEntry
+          copy={copy}
+          open
+          setupRequired
+          onStartVoiceMode={vi.fn()}
+          onKeepDictating={vi.fn()}
+          onConnectBuilder={onConnectBuilder}
+          onUseOpenAiKey={onUseOpenAiKey}
+        />
+      </div>,
     );
 
     expect(document.body.textContent).toContain("Set up voice mode");
     const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(prompt?.className).toContain("w-[min(30rem,calc(100vw-2rem))]");
+    expect(prompt?.className).toContain(
+      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]",
+    );
+    expect(prompt?.dataset.collisionBoundary).toBe("agent-panel");
     const actions = Array.from(prompt?.querySelectorAll("div") ?? []).find(
       (element) => element.className.includes("sm:flex-row"),
     );
     const actionClasses = actions?.className.split(/\s+/) ?? [];
-    expect(actionClasses).toContain("sm:flex-nowrap");
-    expect(actionClasses).not.toContain("sm:flex-wrap");
+    expect(actionClasses).toContain("sm:flex-wrap");
+    expect(actionClasses).not.toContain("sm:flex-nowrap");
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
