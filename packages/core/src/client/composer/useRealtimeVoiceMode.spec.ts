@@ -502,6 +502,9 @@ describe("Realtime voice dynamic tool manifests", () => {
       "response.create",
       "session.update",
     ]);
+    expect(
+      JSON.parse(String((sent[1]?.item as { output: string }).output)).status,
+    ).toBe("failed");
     vi.advanceTimersByTime(1_000);
     expect(sent.map((event) => event.type)).toEqual([
       "session.update",
@@ -511,6 +514,9 @@ describe("Realtime voice dynamic tool manifests", () => {
       "conversation.item.create",
       "response.create",
     ]);
+    expect(
+      JSON.parse(String((sent[4]?.item as { output: string }).output)).status,
+    ).toBe("failed");
   });
 });
 

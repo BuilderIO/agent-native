@@ -994,6 +994,66 @@ describe("realtime voice tool route", () => {
     }
   });
 
+  it("keeps an actively used capability alive with sliding expiration", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
+    try {
+      const actions = discoveryActions();
+      const executeTool = vi.fn(async (request: { name: string }) => ({
+        status: "completed" as const,
+        output:
+          request.name === "tool-search"
+            ? JSON.stringify({ results: [{ name: "rare-action" }] })
+            : "done",
+      }));
+      const { handlers } = mount({ actions, executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+      const headers = withToolCapability(capability);
+
+      await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args: { query: "rare" },
+            callId: "call_search_sliding",
+          },
+          headers,
+        ),
+      );
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
+      expect(
+        await handler(
+          toolEvent(
+            { name: "rare-action", args: {}, callId: "call_refresh" },
+            headers,
+          ),
+        ),
+      ).toEqual({
+        callId: "call_refresh",
+        status: "completed",
+        output: "done",
+      });
+
+      vi.advanceTimersByTime(REALTIME_VOICE_TOOL_GRANT_TTL_MS - 1);
+      expect(
+        await handler(
+          toolEvent(
+            { name: "rare-action", args: {}, callId: "call_still_live" },
+            headers,
+          ),
+        ),
+      ).toEqual({
+        callId: "call_still_live",
+        status: "completed",
+        output: "done",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retains bounded discoveries across sequential specific searches", async () => {
     const actions = discoveryActions();
     const executeTool = vi.fn(async (request: { name: string; args: any }) => {
