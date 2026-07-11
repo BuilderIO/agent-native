@@ -18,6 +18,7 @@
 // branches be exercised without flaky timing.
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -102,23 +103,32 @@ describe("swapCorpusDirIntoPlace", () => {
 
   it("accepts a concurrent run's equivalent corpus instead of crashing when the rename loses", () => {
     const root = makeScratchDir();
-    // Simulates the losing side of a real race: by the time this run tries
-    // to swap, its temp dir is gone (renameSync throws ENOENT, one of the
-    // tolerated codes) while a concurrent run has already produced a valid,
-    // fully-materialized corpus at targetDir.
+    // Simulates the losing side of a real race: a concurrent run has already
+    // produced a valid, fully-materialized corpus at targetDir. Making
+    // targetDir read-only stands in for the real race window (another
+    // process's write landing between our rmSync and renameSync) by making
+    // our own rmSync unable to clear it, so renameSync fails with a tolerated
+    // code (EPERM/EACCES surface through renameSync here since the directory
+    // entry itself can't be unlinked) instead of the swap silently destroying
+    // the winner's output first.
     const missingTempDir = join(root, "corpus.tmp-3-ccc-already-gone");
     const targetDir = join(root, "corpus");
     mkdirSync(targetDir, { recursive: true });
     writeFileSync(join(targetDir, "README.md"), "produced by the winner");
+    chmodSync(targetDir, 0o555);
 
-    const applied = swapCorpusDirIntoPlace(missingTempDir, targetDir);
+    try {
+      const applied = swapCorpusDirIntoPlace(missingTempDir, targetDir);
 
-    assert.equal(applied, false);
-    assert.equal(looksLikeMaterializedCorpus(targetDir), true);
-    assert.equal(
-      readFileSync(join(targetDir, "README.md"), "utf8"),
-      "produced by the winner",
-    );
+      assert.equal(applied, false);
+      assert.equal(looksLikeMaterializedCorpus(targetDir), true);
+      assert.equal(
+        readFileSync(join(targetDir, "README.md"), "utf8"),
+        "produced by the winner",
+      );
+    } finally {
+      chmodSync(targetDir, 0o755);
+    }
   });
 
   it("still throws when the target never becomes a valid corpus", () => {

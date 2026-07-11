@@ -2201,17 +2201,39 @@ export function createAgentChatPlugin(
       };
 
       /**
-       * Returns whether this request is for a brand-new thread (no prior
-       * messages). Used to gate the First-Session Personalization block:
-       * once a thread has history the block is dead weight on every request.
+       * Returns whether `owner` has already finished (or explicitly skipped)
+       * the First-Session Personalization flow, via the owner-scoped
+       * `application_state` "personalization" flag the agent itself writes
+       * (`writeAppState("personalization", { done: true })` — see
+       * FIRST_SESSION_PERSONALIZATION in prompts/framework-core.ts).
        *
-       * prepareRequest stashes `details.threadId` as `_requestThreadId` on
-       * runCtx before systemPrompt is assembled. A new thread has no threadId
-       * (the UI passes undefined until the first message creates the thread).
+       * This used to be gated on "does this thread have prior messages",
+       * which flips false the instant a second request comes in for the
+       * SAME thread — making turn 2's system prompt diverge from turn 1's
+       * and invalidating the prompt-cache prefix on every thread's second
+       * request. The flow itself spans two turns (turn 1 asks the
+       * personalization questions and waits; turn 2 answers them and only
+       * then writes the "done" flag), so this flag is still false when BOTH
+       * turns' system prompts are assembled — turn 1 and turn 2 come out
+       * byte-identical. It only flips once the flow completes, and it never
+       * flips back, so every later turn (and every later thread the same
+       * owner creates) stays consistent from then on. As a bonus, it also
+       * fixes a latent waste: the old gate re-included the ~1.5KB block on
+       * turn 1 of every new thread a user ever created, even long after
+       * they'd completed personalization once.
        */
-      const isNewThread = (): boolean => {
-        const runCtx = ensureRequestRunContext();
-        return !(runCtx as any)?._requestThreadId;
+      const hasCompletedFirstSessionPersonalization = async (
+        owner: string,
+      ): Promise<boolean> => {
+        try {
+          const state = await appStateGet(owner, "personalization");
+          return state?.done === true;
+        } catch {
+          // Fail open to "not done" — same default as a brand-new user
+          // (block shown) rather than silently skipping personalization
+          // because of a transient appstate read error.
+          return false;
+        }
       };
 
       const runtimeContextForEvent = (event: any): string => {
@@ -2276,11 +2298,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           )
             ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
-          // Personalization block: only include on new threads (no prior messages).
-          // Once a thread exists, the agent has already run (or skipped) the flow.
-          const personalizationBlock = isNewThread()
-            ? FIRST_SESSION_PERSONALIZATION
-            : "";
+          // Personalization block: included until this owner has finished (or
+          // skipped) the flow — see hasCompletedFirstSessionPersonalization
+          // for why this is gated on the owner-scoped appstate flag rather
+          // than "is this a new thread" (keeps turn 1 and turn 2 identical).
+          const personalizationBlock =
+            (await hasCompletedFirstSessionPersonalization(owner))
+              ? ""
+              : FIRST_SESSION_PERSONALIZATION;
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
           // Stable-first ordering: base prompt / schema / extra come before
@@ -2329,12 +2354,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         durableBackgroundRuns: options?.durableBackgroundRuns,
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
-          // Stash the threadId on runCtx so systemPrompt can check isNewThread().
-          // prepareRequest fires before systemPromptPromise starts, so this is safe.
-          const runCtxForPrepare = ensureRequestRunContext();
-          if (runCtxForPrepare && details.threadId) {
-            (runCtxForPrepare as any)._requestThreadId = details.threadId;
-          }
           if (details.threadId && details.ownerEmail) {
             const existingThread = await getThread(details.threadId);
             if (existingThread) {
@@ -2534,9 +2553,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const runtimeContext = runtimeContextForEvent(event);
-            const personalizationBlock = isNewThread()
-              ? FIRST_SESSION_PERSONALIZATION
-              : "";
+            const personalizationBlock =
+              (await hasCompletedFirstSessionPersonalization(owner))
+                ? ""
+                : FIRST_SESSION_PERSONALIZATION;
             const modelOverlay = resolveModelOverlay();
             // Stable-first ordering: runtimeContext (day-granular) is
             // appended LAST so a day rollover invalidates as little of the
@@ -2574,10 +2594,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
-            const runCtxForPrepare = ensureRequestRunContext();
-            if (runCtxForPrepare && details.threadId) {
-              (runCtxForPrepare as any)._requestThreadId = details.threadId;
-            }
             if (details.threadId && details.ownerEmail) {
               const existingThread = await getThread(details.threadId);
               if (existingThread) {
