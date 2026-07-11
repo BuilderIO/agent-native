@@ -21,6 +21,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -480,9 +481,11 @@ function useChatPanelTranslation(chatVisible: boolean): number {
 function VoiceSettingRow({
   icon: Icon,
   setting,
+  onSelectOpenChange,
 }: {
   icon: typeof IconLanguage;
   setting: RealtimeVoiceModeSelectSetting;
+  onSelectOpenChange: (open: boolean) => void;
 }) {
   const selected = setting.options.find(
     (option) => option.value === setting.value,
@@ -492,6 +495,7 @@ function VoiceSettingRow({
     <Select
       value={setting.value}
       onValueChange={setting.onValueChange}
+      onOpenChange={onSelectOpenChange}
       disabled={setting.disabled}
     >
       <SelectTrigger
@@ -535,9 +539,11 @@ function VoiceSettingRow({
 function VoiceInlineSettings({
   settings,
   disabled,
+  onSelectOpenChange,
 }: {
   settings: RealtimeVoiceModeInlineSettings;
   disabled: boolean;
+  onSelectOpenChange: (open: boolean) => void;
 }) {
   const selectedVoice = settings.voiceStyle.options.find(
     (option) => option.value === settings.voiceStyle.value,
@@ -563,6 +569,7 @@ function VoiceInlineSettings({
             ...settings.microphone,
             disabled: disabled || settings.microphone.disabled,
           }}
+          onSelectOpenChange={onSelectOpenChange}
         />
         <div className="mx-3 h-px bg-border/70" />
         <VoiceSettingRow
@@ -571,6 +578,7 @@ function VoiceInlineSettings({
             ...settings.language,
             disabled: disabled || settings.language.disabled,
           }}
+          onSelectOpenChange={onSelectOpenChange}
         />
         <div className="mx-3 h-px bg-border/70" />
         <VoiceSettingRow
@@ -579,6 +587,7 @@ function VoiceInlineSettings({
             ...settings.intelligence,
             disabled: disabled || settings.intelligence.disabled,
           }}
+          onSelectOpenChange={onSelectOpenChange}
         />
         <div className="mx-3 h-px bg-border/70" />
         <VoiceSettingRow
@@ -587,6 +596,7 @@ function VoiceInlineSettings({
             ...settings.voiceStyle,
             disabled: disabled || settings.voiceStyle.disabled,
           }}
+          onSelectOpenChange={onSelectOpenChange}
         />
       </div>
       {settings.microphoneError ? (
@@ -622,6 +632,8 @@ export function RealtimeVoiceModeDock({
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const selectInteractionRef = useRef(false);
+  const selectInteractionFrameRef = useRef<number | null>(null);
   const levels = useSyncExternalStore(
     audioLevels.subscribe,
     audioLevels.getSnapshot,
@@ -647,6 +659,31 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const controlsVisible = controlsOpen || settingsOpen;
   const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+
+  const handleSelectOpenChange = useCallback((open: boolean) => {
+    if (selectInteractionFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectInteractionFrameRef.current);
+      selectInteractionFrameRef.current = null;
+    }
+    selectInteractionRef.current = true;
+    if (!open) {
+      // Radix closes the portalled Select before its focus/outside events have
+      // fully settled. Keep the parent protected through the current frame.
+      selectInteractionFrameRef.current = window.requestAnimationFrame(() => {
+        selectInteractionRef.current = false;
+        selectInteractionFrameRef.current = null;
+      });
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (selectInteractionFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectInteractionFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const closeControlsUnlessFocused = (event: MouseEvent<HTMLDivElement>) => {
     if (settingsOpen) return;
@@ -738,19 +775,25 @@ export function RealtimeVoiceModeDock({
                 align="end"
                 sideOffset={10}
                 className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden p-0"
+                onOpenAutoFocus={(event) => event.preventDefault()}
                 onInteractOutside={(event) => {
                   const target = event.target;
                   if (
-                    target instanceof Element &&
-                    target.closest(
-                      '[data-realtime-voice-setting-options="true"]',
-                    )
+                    selectInteractionRef.current ||
+                    (target instanceof Element &&
+                      target.closest(
+                        '[data-realtime-voice-setting-options="true"]',
+                      ))
                   ) {
                     event.preventDefault();
                   }
                 }}
               >
-                <VoiceInlineSettings settings={settings} disabled={ending} />
+                <VoiceInlineSettings
+                  settings={settings}
+                  disabled={ending}
+                  onSelectOpenChange={handleSelectOpenChange}
+                />
               </PopoverContent>
             </Popover>
           ) : null}

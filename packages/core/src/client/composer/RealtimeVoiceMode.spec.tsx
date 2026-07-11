@@ -393,6 +393,9 @@ describe("RealtimeVoiceMode", () => {
       "Intelligence: Instant",
       "Voice style: Marin",
     ]);
+    expect(document.activeElement).not.toBe(
+      document.querySelector('[role="combobox"]'),
+    );
 
     const language = document.querySelector<HTMLElement>(
       '[role="combobox"][aria-label="Language: English"]',
@@ -411,15 +414,52 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).find((option) => option.textContent?.includes("Auto"));
     expect(auto).toBeDefined();
+    const settingsPanel = document.querySelector<HTMLElement>(
+      '[data-realtime-voice-settings="true"]',
+    );
     act(() => {
-      auto?.dispatchEvent(
+      settingsPanel?.dispatchEvent(
         new PointerEvent("pointerdown", {
           bubbles: true,
           button: 0,
           pointerType: "mouse",
         }),
       );
-      auto?.dispatchEvent(
+      settingsPanel?.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    expect(settingsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('[data-realtime-voice-settings="true"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      language?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const reopenedAuto = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Auto"));
+    expect(reopenedAuto).toBeDefined();
+    act(() => {
+      reopenedAuto?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      reopenedAuto?.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,
           button: 0,
