@@ -10,6 +10,8 @@ const enUS = {
     clipboardUnavailable: "Clipboard access is unavailable",
     disconnect: "Disconnect",
     notConnected: "Not connected",
+    loadFailed: "Could not load this data.",
+    retry: "Retry",
     saving: "Saving...",
   },
   root: {

@@ -304,6 +304,7 @@ const messages = {
     groupAppearance: "外觀",
     groupHelp: "幫助",
     groupSavedCharts: "已儲存圖表",
+    loadFailed: "部分結果無法載入。",
     hidden: "已隱藏",
     toggleLightMode: "切換到淺色模式",
     toggleDarkMode: "切換到深色模式",

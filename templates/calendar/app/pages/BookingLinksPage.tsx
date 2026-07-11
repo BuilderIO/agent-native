@@ -612,7 +612,14 @@ export default function BookingLinksPage({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
-  const { data: bookingLinks = [], isLoading } = useBookingLinks();
+  const bookingLinksQuery = useBookingLinks();
+  const {
+    data: bookingLinks = [],
+    isLoading,
+    isError: bookingLinksError,
+    isFetching: bookingLinksFetching,
+    refetch: refetchBookingLinks,
+  } = bookingLinksQuery;
   const createBookingLink = useCreateBookingLink();
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
@@ -1511,6 +1518,20 @@ export default function BookingLinksPage({
           <div className="space-y-6">
             {isLoading ? (
               <BookingLinksListSkeleton />
+            ) : bookingLinksError ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 px-6 py-16 text-center">
+                <p className="text-sm text-destructive">
+                  {t("common.loadFailed")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void refetchBookingLinks()}
+                  disabled={bookingLinksFetching}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
             ) : !hasLinks ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 px-6 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">

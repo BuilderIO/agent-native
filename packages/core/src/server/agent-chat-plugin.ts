@@ -589,35 +589,6 @@ async function loadResourceIndexForPrompt(
   }
 }
 
-/**
- * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
- * concurrent tool calls do not corrupt the global console/stdout pointers
- * (see `cli-capture.ts`).
- */
-function wrapCliScript(
-  tool: ActionTool,
-  cliDefault: (args: string[]) => Promise<void>,
-  opts?: { readOnly?: boolean },
-): ActionEntry {
-  return {
-    tool,
-    ...(opts?.readOnly ? { readOnly: true as const } : {}),
-    run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
-      }
-      return captureCliOutput(() => cliDefault(cliArgs));
-    },
-  };
-}
-
 import {
   filterReadOnlyActions,
   filterAgentTools,
