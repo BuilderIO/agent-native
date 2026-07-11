@@ -1510,6 +1510,13 @@ export function TiptapComposer({
         } catch {}
       }, 300);
     },
+    onSelectionUpdate: ({ editor: ed }) => {
+      const { from, to } = ed.state.selection;
+      if (selectedContextItemKeyRef.current && (from !== to || from > 1)) {
+        selectedContextItemKeyRef.current = null;
+        setSelectedContextItemKey(null);
+      }
+    },
     editorProps: {
       attributes: {
         "data-agent-composer-variant": layoutVariant,
@@ -1644,7 +1651,7 @@ export function TiptapComposer({
 
         const { from, to } = view.state.selection;
         const cursorAtStart = from === to && from <= 1;
-        if (event.key === "Backspace") {
+        if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
             contextItemKeys: contextItemsRef.current.map((item) => item.key),
             selectedKey: selectedContextItemKeyRef.current,
@@ -1658,6 +1665,9 @@ export function TiptapComposer({
             } else {
               selectedContextItemKeyRef.current = null;
               setSelectedContextItemKey(null);
+              contextItemsRef.current = contextItemsRef.current.filter(
+                (item) => item.key !== chipAction.key,
+              );
               onRemoveContextItemRef.current?.(chipAction.key);
             }
             return true;
