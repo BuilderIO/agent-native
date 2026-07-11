@@ -378,5 +378,6 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({ model: chatModel }),
     );
+    expect(engine.preserveCustomModels).toBe(true);
   });
 });

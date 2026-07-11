@@ -34,14 +34,21 @@ on:
       # Coding-agent backend.  Validated in the gate; mis-cased values are
       # normalized to lowercase.
       agent:
-        description: "Coding-agent backend: 'claude' (default) or 'codex'"
+        description: "Coding-agent backend: 'claude' (default), 'codex', or 'openai-compatible'"
         required: false
         type: string
         default: "claude"
-      # Optional model override passed to the agent CLI via --model.  Must
-      # match [a-zA-Z0-9._-]{1,80}.  Leave empty to use the CLI default.
+      # Model override passed to the agent CLI via --model. Must match
+      # [a-zA-Z0-9._-]{1,80}; required when agent=openai-compatible.
       model:
-        description: "Model name passed to the agent CLI (leave empty for CLI default)"
+        description: "Model name passed to the agent CLI (required for openai-compatible)"
+        required: false
+        type: string
+        default: ""
+      # Base URL for an OpenAI-compatible backend such as DeepSeek, Kimi, or a
+      # self-hosted gateway. Required when agent=openai-compatible.
+      base-url:
+        description: "OpenAI-compatible API base URL"
         required: false
         type: string
         default: ""
@@ -83,6 +90,9 @@ on:
       # Required when agent=codex; ignored otherwise.
       OPENAI_API_KEY:
         required: false
+      # Required when agent=openai-compatible; ignored otherwise.
+      VISUAL_RECAP_API_KEY:
+        required: false
       # Override only when self-hosting the Plan app at a non-default origin.
       # Must match the plan-url input origin.
       PLAN_RECAP_APP_URL:
@@ -115,8 +125,10 @@ jobs:
           HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
+          HAS_COMPATIBLE: ${{ secrets.VISUAL_RECAP_API_KEY != '' }}
           AGENT: ${{ inputs.agent }}
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
+          VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -153,13 +165,26 @@ jobs:
             if (!isFork && process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
             // Normalize + validate the agent.
-            const agent = (process.env.AGENT || 'claude').toLowerCase();
-            if (agent !== 'claude' && agent !== 'codex') {
-              reasons.push(`unsupported agent input "${process.env.AGENT}" (expected "claude" or "codex")`);
+            const rawAgent = (process.env.AGENT || 'claude').toLowerCase();
+            const agent = ['deepseek', 'kimi', 'moonshot', 'custom'].includes(rawAgent) ? 'openai-compatible' : rawAgent;
+            if (!['claude', 'codex', 'openai-compatible'].includes(agent)) {
+              reasons.push(`unsupported agent input "${process.env.AGENT}" (expected "claude", "codex", or "openai-compatible")`);
             } else if (agent === 'codex') {
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
-            } else {
+            } else if (agent === 'claude') {
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+            } else {
+              if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
+              if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
+              const baseUrl = process.env.VISUAL_RECAP_BASE_URL || '';
+              try {
+                const parsed = new URL(baseUrl);
+                if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+                  reasons.push('OpenAI-compatible API base URL must be an http(s) URL without credentials');
+                }
+              } catch {
+                reasons.push('OpenAI-compatible API base URL must be a valid http(s) URL');
+              }
             }
 
             // Validate the model before it reaches the agent CLI.
@@ -285,6 +310,7 @@ jobs:
       PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       VISUAL_RECAP_MODEL: ${{ inputs.model }}
+      VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
       VISUAL_RECAP_REASONING: ${{ inputs.reasoning }}
       VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
       VISUAL_RECAP_SECRET_SCAN: ${{ inputs.secret-scan || 'high-confidence' }}
@@ -322,6 +348,12 @@ jobs:
           done
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
+
+      - name: Install OpenAI-compatible provider runtime
+        if: needs.gate.outputs.agent == 'openai-compatible'
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund ai @ai-sdk/openai
 
       - name: Start visual recap check
         id: recap_check
@@ -543,6 +575,34 @@ jobs:
             run_codex
           fi
 
+      - name: Run agent (OpenAI-compatible)
+        id: openai_compatible
+        if: needs.gate.outputs.agent == 'openai-compatible' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
+          OPENAI_BASE_URL: ${{ inputs.base-url }}
+          AGENT_ENGINE: ai-sdk:openai
+          AGENT_MODEL: ${{ inputs.model }}
+          AGENT_NATIVE_CODE_USAGE_FILE: openai-compatible-usage.json
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
+        run: |
+          set -uo pipefail
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
+          run_openai_compatible() {
+            set +e
+            $RECAP_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            OPENAI_COMPATIBLE_STATUS="$?"
+            set -e
+            echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
+          }
+          run_openai_compatible
+          if [ ! -s recap-source.json ]; then
+            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+            sleep 5
+            run_openai_compatible
+          fi
+
       - name: Publish recap source
         id: publish
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
@@ -666,6 +726,10 @@ jobs:
             RESULT=codex-events.jsonl
             STDERR=codex-stderr.log
             EXIT_CODE=codex-exit-code.txt
+          elif [ "$RECAP_AGENT" = "openai-compatible" ]; then
+            RESULT=openai-compatible-result.txt
+            STDERR=openai-compatible-stderr.log
+            EXIT_CODE=openai-compatible-exit-code.txt
           fi
           $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || true
 
@@ -679,6 +743,7 @@ jobs:
           set -uo pipefail
           RESULT=claude-result.json
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       - name: Cache Playwright browsers
@@ -768,6 +833,9 @@ jobs:
             claude-stderr.log
             codex-events.jsonl
             codex-stderr.log
+            openai-compatible-result.txt
+            openai-compatible-usage.json
+            openai-compatible-stderr.log
           if-no-files-found: ignore
           retention-days: 14
 
