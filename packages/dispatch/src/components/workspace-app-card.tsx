@@ -21,6 +21,7 @@ import {
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
+import { ActionQueryError } from "./action-query-error";
 import { AppKeysPopover } from "./app-keys-popover";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -44,7 +45,6 @@ import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack";
-import { ActionQueryError } from "./action-query-error";
 
 export function WorkspaceAppCard({
   app,

@@ -1296,7 +1296,7 @@ function AllAssetsBrowser() {
               onClick={() => void refetch()}
               disabled={isFetching}
             >
-              {t("library.refresh")}
+              {t("brandKitDetail.refresh")}
             </Button>
           </div>
         ) : assets.length === 0 ? (
@@ -1918,7 +1918,7 @@ export function LibraryWorkspace({
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
     "list-libraries",
     {
-    includeFolders: true,
+      includeFolders: true,
     } as any,
   );
   const libraries = ((data as any)?.libraries ?? []) as ImageLibrarySummary[];
@@ -1980,7 +1980,7 @@ export function LibraryWorkspace({
                 onClick={() => void refetch()}
                 disabled={isFetching}
               >
-                {t("library.refresh")}
+                {t("brandKitDetail.refresh")}
               </Button>
             </div>
           ) : routeSelectedLibraryId || hasLibraries ? (

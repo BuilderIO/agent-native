@@ -47,10 +47,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
-import type {
-  AgentEngine,
-  EngineMessage,
-} from "../agent/engine/types.js";
+import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
@@ -123,11 +120,8 @@ import {
   mountMcpHubRoutes,
   buildMergedConfig,
   startMcpConfigRefresh,
-  areBuiltinMcpCapabilitiesSupported,
-  setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
-  type BuiltinMcpCapabilityId,
 } from "../mcp-client/index.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import {
@@ -169,10 +163,6 @@ import {
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
 import { getSession } from "./auth.js";
-import {
-  getBuilderBrowserConnectUrlForOwner,
-  resolveBuilderBranchProjectId,
-} from "./builder-browser.js";
 import { captureError } from "./capture-error.js";
 import {
   getH3App,

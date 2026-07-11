@@ -8,6 +8,7 @@ import {
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "./action-query-error";
 import { Button } from "./ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Skeleton } from "./ui/skeleton";
@@ -76,20 +77,23 @@ export function AppKeysPopover({
   );
 }
 
-function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
-  const { data: secrets = [], isLoading: secretsLoading } = useActionQuery(
-    "list-vault-secret-options",
-    {},
-  );
+export function AppKeysPanel({
+  appId,
+  appName,
+}: {
+  appId: string;
+  appName: string;
+}) {
+  const secretsQuery = useActionQuery("list-vault-secret-options", {});
+  const grantsQuery = useActionQuery("list-vault-grants", { appId });
+  const accessQuery = useActionQuery("get-vault-access-settings", {});
+  const { data: secrets = [], isLoading: secretsLoading } = secretsQuery;
   const {
     data: grants = [],
     isLoading: grantsLoading,
     refetch: refetchGrants,
-  } = useActionQuery("list-vault-grants", { appId });
-  const { data: accessSettings, isLoading: accessLoading } = useActionQuery(
-    "get-vault-access-settings",
-    {},
-  );
+  } = grantsQuery;
+  const { data: accessSettings, isLoading: accessLoading } = accessQuery;
   const accessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
@@ -139,6 +143,7 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
   });
 
   const isLoading = secretsLoading || grantsLoading || accessLoading;
+  const error = secretsQuery.error ?? grantsQuery.error ?? accessQuery.error;
   const grantedCount = grantBySecretId.size;
   const typedSecrets = secrets as VaultSecret[];
   const allApps = accessMode !== "manual";
@@ -164,34 +169,47 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
             Keys for {appName}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            {allApps
-              ? `${typedSecrets.length} available`
-              : `${grantedCount} of ${typedSecrets.length} granted`}
+            {error
+              ? null
+              : allApps
+                ? `${typedSecrets.length} available`
+                : `${grantedCount} of ${typedSecrets.length} granted`}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={
-            syncMutation.isPending ||
-            typedSecrets.length === 0 ||
-            (!allApps && grantedCount === 0)
-          }
-          onClick={() => syncMutation.mutate({ appId })}
-          className="h-7 px-2"
-        >
-          {syncMutation.isPending ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <IconRefresh className="h-3 w-3" />
-          )}
-          <span className="ml-1 text-xs">Sync</span>
-        </Button>
+        {!error ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              syncMutation.isPending ||
+              typedSecrets.length === 0 ||
+              (!allApps && grantedCount === 0)
+            }
+            onClick={() => syncMutation.mutate({ appId })}
+            className="h-7 px-2"
+          >
+            {syncMutation.isPending ? (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <IconRefresh className="h-3 w-3" />
+            )}
+            <span className="ml-1 text-xs">Sync</span>
+          </Button>
+        ) : null}
       </div>
 
       <div className="max-h-[320px] space-y-1.5 overflow-y-auto rounded-md border border-border bg-card p-1.5">
-        {isLoading ? (
+        {error ? (
+          <ActionQueryError
+            error={error}
+            onRetry={() => {
+              void secretsQuery.refetch();
+              void grantsQuery.refetch();
+              void accessQuery.refetch();
+            }}
+          />
+        ) : isLoading ? (
           <div className="space-y-1.5 p-1.5">
             {Array.from({ length: 3 }).map((_, index) => (
               <div

@@ -2557,8 +2557,13 @@ const prototypeScreenPatchSchema = z
     message: "Patch must include at least one prototype screen field.",
   });
 
-export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
-  z.discriminatedUnion("op", [
+/**
+ * Raw (uncast) discriminated union behind `planContentPatchSchema`, kept as a
+ * named const so `agentPlanContentPatchSchema` below can walk `.options` and
+ * swap only the block-carrying ops for the compact `agentPlanBlockSchema`
+ * instead of duplicating this whole 20-branch union.
+ */
+const planContentPatchUnion = z.discriminatedUnion("op", [
     z
       .object({
         op: z.literal("set-metadata"),
@@ -2745,9 +2750,50 @@ export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
       op: z.literal("set-notion-sync"),
       value: z.boolean(),
     }),
-  ]) as z.ZodType<PlanContentPatch>;
+]);
+
+export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
+  planContentPatchUnion as unknown as z.ZodType<PlanContentPatch>;
 
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
+ * part of `defineAction`'s `agentInputSchema`. Same 20 `op` branches as the
+ * real union — only the three block-carrying ops (`replace-block`,
+ * `replace-blocks`, `append-block`) swap in the compact `agentPlanBlockSchema`
+ * instead of the full per-block-type union. Runtime validation of
+ * `contentPatches` always goes through the real `planContentPatchesSchema`.
+ */
+const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
+  (option) => {
+    const opLiteral = (option.shape as { op: { value: string } }).op.value;
+    if (opLiteral === "replace-block" || opLiteral === "append-block") {
+      return option.extend({ block: agentPlanBlockSchema });
+    }
+    if (opLiteral === "replace-blocks") {
+      return option.extend({
+        blocks: z.array(agentPlanBlockSchema).max(200),
+      });
+    }
+    return option;
+  },
+);
+
+export const agentPlanContentPatchSchema = z.discriminatedUnion(
+  "op",
+  agentPlanContentPatchOptions as unknown as Parameters<
+    typeof z.discriminatedUnion
+  >[1],
+);
+
+export const agentPlanContentPatchesSchema = z
+  .array(agentPlanContentPatchSchema)
+  .max(80)
+  .describe(
+    "Structured edits to plan content. Call get-plan-blocks before " +
+      "replace-block / replace-blocks / append-block.",
+  );
 
 export function applyPlanContentPatches(
   content: PlanContent,

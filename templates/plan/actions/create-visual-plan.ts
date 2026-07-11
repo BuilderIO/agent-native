@@ -36,7 +36,10 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { planContentSchema } from "../shared/plan-content.js";
+import {
+  agentPlanContentSchema,
+  planContentSchema,
+} from "../shared/plan-content.js";
 
 function inferImportedPlanTitle(planText: string): string {
   const firstHeading = planText

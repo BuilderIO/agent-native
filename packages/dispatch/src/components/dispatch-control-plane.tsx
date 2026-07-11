@@ -16,9 +16,9 @@ import { Link, useNavigate } from "react-router";
 
 import { submitOverviewPrompt } from "../lib/overview-chat";
 import type { WorkspaceAppSummary } from "../lib/workspace-apps";
+import { ActionQueryError } from "./action-query-error";
 import { CreateAppPopover } from "./create-app-popover";
 import { DispatchShell } from "./dispatch-shell";
-import { ActionQueryError } from "./action-query-error";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { WorkspaceAppCard } from "./workspace-app-card";
@@ -210,9 +210,10 @@ function AppsPanel({
 }
 
 export function DispatchControlPlane() {
-  const appsQuery = useActionQuery<
-    WorkspaceAppSummary[]
-  >("list-workspace-apps", { includeAgentCards: false, includeArchived: true });
+  const appsQuery = useActionQuery<WorkspaceAppSummary[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false, includeArchived: true },
+  );
   const { data: workspaceApps = [], isLoading: appsLoading } = appsQuery;
 
   return (

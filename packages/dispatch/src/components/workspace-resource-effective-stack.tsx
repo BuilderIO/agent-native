@@ -1,7 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client";
 
-import { ActionQueryError } from "./action-query-error";
 import { cn } from "../lib/utils";
+import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 
 export function appAvailabilityLabel(value?: string) {
