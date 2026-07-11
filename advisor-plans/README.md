@@ -7,10 +7,10 @@ and update its row when done.
 
 ## Execution order and status
 
-| Plan | Title | Priority | Effort | Depends on | Status |
-| --- | --- | --- | --- | --- | --- |
-| 001 | Require same-origin realtime voice writes | P1 | S | - | TODO |
-| 002 | Cancel BigQuery jobs when polling times out | P1 | S | - | TODO |
+| Plan | Title                                       | Priority | Effort | Depends on | Status |
+| ---- | ------------------------------------------- | -------- | ------ | ---------- | ------ |
+| 001  | Require same-origin realtime voice writes   | P1       | S      | -          | TODO   |
+| 002  | Cancel BigQuery jobs when polling times out | P1       | S      | -          | TODO   |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) |
 REJECTED (with one-line rationale).
@@ -37,4 +37,3 @@ posture, broad performance, documentation, DX, or product direction.
   user-impacting failure was established in the quick pass.
 - BigQuery L2 cache delete-plus-insert: not planned because same-key races still
   leave a usable cache entry and write failures are intentionally non-fatal.
-

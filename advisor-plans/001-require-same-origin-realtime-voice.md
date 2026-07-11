@@ -50,11 +50,11 @@ host.
 
 ## Commands you will need
 
-| Purpose | Command | Expected on success |
-| --- | --- | --- |
-| Focused tests | `corepack pnpm --filter @agent-native/core exec vitest --run src/server/realtime-voice.spec.ts src/server/transcribe-voice.spec.ts src/server/google-realtime-session.spec.ts --passWithNoTests` | exit 0; all selected tests pass |
-| Typecheck | `corepack pnpm --filter @agent-native/core typecheck` | exit 0; no errors |
-| Format check | `corepack pnpm exec oxfmt --check packages/core/src/server/request-origin.ts packages/core/src/server/request-origin.spec.ts packages/core/src/server/realtime-voice.ts packages/core/src/server/realtime-voice.spec.ts packages/core/src/server/transcribe-voice.ts packages/core/src/server/google-realtime-session.ts` | exit 0 |
+| Purpose       | Command                                                                                                                                                                                                                                                                                                                   | Expected on success             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Focused tests | `corepack pnpm --filter @agent-native/core exec vitest --run src/server/realtime-voice.spec.ts src/server/transcribe-voice.spec.ts src/server/google-realtime-session.spec.ts --passWithNoTests`                                                                                                                          | exit 0; all selected tests pass |
+| Typecheck     | `corepack pnpm --filter @agent-native/core typecheck`                                                                                                                                                                                                                                                                     | exit 0; no errors               |
+| Format check  | `corepack pnpm exec oxfmt --check packages/core/src/server/request-origin.ts packages/core/src/server/request-origin.spec.ts packages/core/src/server/realtime-voice.ts packages/core/src/server/realtime-voice.spec.ts packages/core/src/server/transcribe-voice.ts packages/core/src/server/google-realtime-session.ts` | exit 0                          |
 
 ## Suggested executor toolkit
 
@@ -164,4 +164,3 @@ check both exit 0.
 All future cookie-authenticated browser POST routes should reuse the shared
 helper. Reviewers should scrutinize exact host/protocol comparisons and ensure
 the fallback still rejects `sec-fetch-site: cross-site`.
-

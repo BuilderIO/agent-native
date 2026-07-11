@@ -991,9 +991,14 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
-  // Token-gated and otherwise personalized routes explicitly opt out of
-  // shared caching. Never replace their private/no-store policy.
-  if (headers.has("cache-control")) return;
+  // React Router marks every .data response as no-cache, but those loader
+  // payloads are safe to cache at the shared edge. Preserve only explicit
+  // private/no-store policies, which token-gated and personalized routes use
+  // to opt out of shared caching.
+  const cacheControl = headers.get("cache-control")?.toLowerCase() ?? "";
+  if (cacheControl.includes("private") || cacheControl.includes("no-store")) {
+    return;
+  }
 
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);

@@ -44,11 +44,11 @@ existing, actionable timeout error.
 
 ## Commands you will need
 
-| Purpose | Command | Expected on success |
-| --- | --- | --- |
-| Focused tests | `corepack pnpm --filter analytics exec vitest --run server/lib/bigquery.spec.ts --config vitest.config.ts --passWithNoTests` | exit 0; all tests pass |
-| Typecheck | `corepack pnpm --filter analytics typecheck` | exit 0; no errors |
-| Format check | `corepack pnpm exec oxfmt --check templates/analytics/server/lib/bigquery.ts templates/analytics/server/lib/bigquery.spec.ts` | exit 0 |
+| Purpose       | Command                                                                                                                       | Expected on success    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Focused tests | `corepack pnpm --filter analytics exec vitest --run server/lib/bigquery.spec.ts --config vitest.config.ts --passWithNoTests`  | exit 0; all tests pass |
+| Typecheck     | `corepack pnpm --filter analytics typecheck`                                                                                  | exit 0; no errors      |
+| Format check  | `corepack pnpm exec oxfmt --check templates/analytics/server/lib/bigquery.ts templates/analytics/server/lib/bigquery.spec.ts` | exit 0                 |
 
 ## Scope
 
@@ -138,4 +138,3 @@ new pending changelog entry exists.
 If polling later becomes configurable or moves to a durable job runner, retain
 cleanup for every terminal local wait path. Reviewers should confirm the cancel
 call targets the submitted job id and remains best-effort.
-

@@ -2545,7 +2545,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask section */}
               <div className="group/section min-w-0 space-y-1">
-                <div className="flex w-full min-w-0 items-center rounded-lg text-muted-foreground transition-all hover:bg-sidebar-accent/50 hover:text-primary">
+                <div
+                  className={cn(
+                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    isAskRoute
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
                   <Link
                     to="/ask"
                     onClick={(event) => {

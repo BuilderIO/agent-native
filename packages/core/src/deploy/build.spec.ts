@@ -352,7 +352,7 @@ export default (event) =>
     expectRouteCachePolicy(response, "private, no-store");
   });
 
-  it("preserves React Router's default no-cache policy on Cloudflare worker data responses", async () => {
+  it("hard-caches React Router data responses with the default no-cache policy", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -361,10 +361,10 @@ export default (event) =>
       {},
     );
 
-    expectRouteCachePolicy(response, "no-cache");
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
-  it("preserves no-cache .data responses for authenticated Cloudflare worker requests", async () => {
+  it("hard-caches .data responses for authenticated Cloudflare worker requests", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
     const response = await worker.fetch(
@@ -375,7 +375,7 @@ export default (event) =>
       {},
     );
 
-    expectRouteCachePolicy(response, "no-cache");
+    expectDefaultWorkerSsrCacheHeaders(response);
   });
 
   it("preserves a route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
