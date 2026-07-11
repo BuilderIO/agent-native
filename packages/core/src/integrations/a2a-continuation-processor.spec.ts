@@ -734,6 +734,82 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
+  it("includes a safe downstream error code and request ID in failure replies", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        id: "cont-slack-lookup-456",
+        integrationTaskId: "task-slack-lookup-123",
+        a2aTaskId: "a2a-slack-lookup-789",
+      }),
+    );
+    claimA2AContinuationDeliveryMock.mockResolvedValueOnce(
+      continuation({
+        id: "cont-slack-lookup-456",
+        integrationTaskId: "task-slack-lookup-123",
+        a2aTaskId: "a2a-slack-lookup-789",
+      }),
+    );
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: "I ran out of time before finishing this step. code: run_budget_exhausted",
+            },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
+    expect(sentText).toContain("Error code: `run_budget_exhausted`");
+    expect(sentText).toContain("Request ID: `task-slack-lookup-123`");
+    expect(sentText).toContain("Continuation ID: `cont-slack-lookup-456`");
+    expect(sentText).toContain("Downstream task ID: `a2a-slack-lookup-789`");
+  });
+
+  it("normalizes explicit code= markers before including them in failure replies", async () => {
+    const sendResponse = vi.fn(async () => undefined);
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: "Analysis failed. code=UPSTREAM_UNAVAILABLE",
+            },
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
+    expect(sentText).toContain("Error code: `upstream_unavailable`");
+  });
+
   it("describes downstream LLM credential failures without naming a raw env var", async () => {
     const sendResponse = vi.fn(async () => undefined);
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
@@ -759,6 +835,8 @@ describe("A2A continuation processor", () => {
     expect(sentText).toContain("needs an LLM connection");
     expect(sentText).toContain("Agent settings > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
+    expect(sentText).toContain("Error code: `missing_credentials`");
+    expect(sentText).toContain("Request ID: `task-1`");
     expect(failA2AContinuationMock).toHaveBeenCalledWith(
       "cont-1",
       "ANTHROPIC_API_KEY is not set",

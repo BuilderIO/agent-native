@@ -321,7 +321,14 @@ export async function run(
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
           onUpdate: onRemotePollUpdate,
-          ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
+          ...(callTimeoutMs
+            ? {
+                timeoutMs: callTimeoutMs,
+                // Integration callers must keep the timeout task id so the
+                // catch below can enqueue durable continuation polling.
+                returnRecoverableArtifactsOnTimeout: false,
+              }
+            : {}),
         });
         responseText =
           formatDownstreamLlmCredentialFailure(agent.name, responseText) ??

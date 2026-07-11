@@ -401,6 +401,7 @@ describe("call-agent action", () => {
         expect.objectContaining({
           timeoutMs: 2_000,
           onUpdate: expect.any(Function),
+          returnRecoverableArtifactsOnTimeout: false,
         }),
       );
     });

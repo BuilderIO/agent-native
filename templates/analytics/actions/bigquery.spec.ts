@@ -4,7 +4,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const runQuery = vi.fn();
 
 vi.mock("../server/lib/bigquery", () => ({
-  runQuery: (sql: string) => runQuery(sql),
+  runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
+    runQuery(sql, options),
 }));
 
 // Imported after the mock is registered so the action picks up the stub.
@@ -66,5 +67,23 @@ describe("bigquery action error handling", () => {
     const result = await bigquery.run({ sql: "SELECT 1" });
 
     expect(result).toEqual([{ week: "2026-05-11", signups: 42 }]);
+  });
+
+  it("forwards the agent run signal and preserves cancellation", async () => {
+    const controller = new AbortController();
+    const aborted = new DOMException("BigQuery query aborted", "AbortError");
+    controller.abort();
+    runQuery.mockRejectedValue(aborted);
+
+    await expect(
+      bigquery.run(
+        { sql: "SELECT 1" },
+        { caller: "tool", signal: controller.signal },
+      ),
+    ).rejects.toBe(aborted);
+
+    expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
+      signal: controller.signal,
+    });
   });
 });
