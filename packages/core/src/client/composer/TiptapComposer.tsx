@@ -1859,11 +1859,7 @@ export function TiptapComposer({
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
       const ed = editor;
-      if (
-        !isComposerEditorUsable(ed) ||
-        disabled ||
-        composerModeRef.current
-      )
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
         return;
       const normalized = normalizeAgentComposerReference(payload);
       if (normalized?.slotKey) {
