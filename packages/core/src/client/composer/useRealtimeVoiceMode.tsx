@@ -148,6 +148,36 @@ export function createRealtimeVoiceAudioConstraints(
   };
 }
 
+export async function replaceRealtimeVoiceMicrophone(options: {
+  mediaDevices: Pick<MediaDevices, "getUserMedia">;
+  peer: Pick<RTCPeerConnection, "getSenders">;
+  currentStream: MediaStream | null;
+  deviceId: string;
+}): Promise<MediaStream> {
+  const replacementStream = await options.mediaDevices.getUserMedia({
+    audio: createRealtimeVoiceAudioConstraints(options.deviceId, true),
+  });
+  try {
+    const replacementTrack = replacementStream.getAudioTracks()[0];
+    const sender = options.peer
+      .getSenders()
+      .find((candidate) => candidate.track?.kind === "audio");
+    if (!replacementTrack || !sender) {
+      throw new Error("No active microphone track is available.");
+    }
+
+    await sender.replaceTrack(replacementTrack);
+    for (const track of options.currentStream?.getTracks() ?? []) {
+      track.onended = null;
+      track.stop();
+    }
+    return replacementStream;
+  } catch (error) {
+    for (const track of replacementStream.getTracks()) track.stop();
+    throw error;
+  }
+}
+
 function readRealtimeVoiceMicrophoneId(): string {
   if (typeof window === "undefined") return "default";
   try {
@@ -811,6 +841,9 @@ function useRealtimeVoiceModeController(
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const switchMicrophoneRef = useRef<
+    (deviceId: string, force?: boolean) => Promise<void>
+  >(async () => undefined);
 
   useEffect(() => {
     stateRef.current = state;
@@ -1029,38 +1062,35 @@ function useRealtimeVoiceModeController(
   );
 
   const setMicrophone = useCallback(
-    async (deviceId: string) => {
-      if (deviceId === microphoneDeviceId || microphoneSwitching) return;
+    async (deviceId: string, force = false) => {
+      if ((!force && deviceId === microphoneDeviceId) || microphoneSwitching) {
+        return;
+      }
       const mediaDevices = navigator.mediaDevices;
       const peer = peerRef.current;
       if (!mediaDevices?.getUserMedia || !peer) return;
 
       setMicrophoneSwitching(true);
       setMicrophoneError(null);
-      let replacementStream: MediaStream | null = null;
       try {
-        replacementStream = await mediaDevices.getUserMedia({
-          audio: createRealtimeVoiceAudioConstraints(deviceId, true),
+        const replacementStream = await replaceRealtimeVoiceMicrophone({
+          mediaDevices,
+          peer,
+          currentStream: streamRef.current,
+          deviceId,
         });
         const replacementTrack = replacementStream.getAudioTracks()[0];
-        const sender = peer
-          .getSenders()
-          .find((candidate) => candidate.track?.kind === "audio");
-        if (!replacementTrack || !sender) {
-          throw new Error("No active microphone track is available.");
-        }
-
-        await sender.replaceTrack(replacementTrack);
-        const previousStream = streamRef.current;
         streamRef.current = replacementStream;
-        replacementStream = null;
+        if (replacementTrack) {
+          replacementTrack.onended = () => {
+            void switchMicrophoneRef.current("default", true);
+          };
+        }
         attachAudioMeter(streamRef.current, "input");
-        for (const track of previousStream?.getTracks() ?? []) track.stop();
         writeRealtimeVoiceMicrophoneId(deviceId);
         setMicrophoneDeviceId(deviceId);
         await refreshMicrophones();
       } catch {
-        for (const track of replacementStream?.getTracks() ?? []) track.stop();
         setMicrophoneError(
           copy?.settings.microphoneSwitchFailed ??
             "Could not switch microphones. Your current microphone is still active.",
@@ -1077,6 +1107,7 @@ function useRealtimeVoiceModeController(
       refreshMicrophones,
     ],
   );
+  switchMicrophoneRef.current = setMicrophone;
 
   const cleanupTransport = useCallback(() => {
     connectionGateRef.current?.cancel();
@@ -1087,7 +1118,10 @@ function useRealtimeVoiceModeController(
     channelRef.current = null;
     peerRef.current?.close();
     peerRef.current = null;
-    for (const track of streamRef.current?.getTracks() ?? []) track.stop();
+    for (const track of streamRef.current?.getTracks() ?? []) {
+      track.onended = null;
+      track.stop();
+    }
     streamRef.current = null;
     if (audioRef.current) {
       audioRef.current.pause();
@@ -1334,6 +1368,11 @@ function useRealtimeVoiceModeController(
         return;
       }
       streamRef.current = stream;
+      for (const track of stream.getAudioTracks()) {
+        track.onended = () => {
+          void switchMicrophoneRef.current("default", true);
+        };
+      }
       attachAudioMeter(stream, "input");
       void refreshMicrophones().then((inputs) => {
         const selected = readRealtimeVoiceMicrophoneId();

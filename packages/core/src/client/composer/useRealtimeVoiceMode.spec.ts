@@ -19,6 +19,7 @@ import {
   listenForRealtimeVoicePageHide,
   normalizeRealtimeVoicePreferences,
   REALTIME_VOICE_AUDIO_CONSTRAINTS,
+  replaceRealtimeVoiceMicrophone,
   realtimeVoiceReasoningEffort,
   resolveRealtimeVoiceLanguage,
   shouldRestoreRealtimeVoiceTranscriptThread,
@@ -90,6 +91,79 @@ describe("Realtime voice client transport", () => {
     expect(createRealtimeVoiceAudioConstraints("studio")).toEqual(
       expect.objectContaining({ deviceId: { ideal: "studio" } }),
     );
+  });
+
+  it("replaces the live microphone before stopping the previous track", async () => {
+    const events: string[] = [];
+    const oldTrack = {
+      kind: "audio",
+      onended: vi.fn(),
+      stop: vi.fn(() => events.push("old-stopped")),
+    };
+    const replacementTrack = { kind: "audio", stop: vi.fn() };
+    const replacementStream = {
+      getAudioTracks: () => [replacementTrack],
+      getTracks: () => [replacementTrack],
+    };
+    const sender = {
+      track: oldTrack,
+      replaceTrack: vi.fn(async () => {
+        events.push("replaced");
+      }),
+    };
+
+    await expect(
+      replaceRealtimeVoiceMicrophone({
+        mediaDevices: {
+          getUserMedia: vi.fn(async () => replacementStream),
+        } as unknown as Pick<MediaDevices, "getUserMedia">,
+        peer: {
+          getSenders: () => [sender],
+        } as unknown as Pick<RTCPeerConnection, "getSenders">,
+        currentStream: {
+          getTracks: () => [oldTrack],
+        } as unknown as MediaStream,
+        deviceId: "studio",
+      }),
+    ).resolves.toBe(replacementStream);
+
+    expect(events).toEqual(["replaced", "old-stopped"]);
+    expect(oldTrack.onended).toBeNull();
+    expect(replacementTrack.stop).not.toHaveBeenCalled();
+  });
+
+  it("keeps the current microphone when replacing its track fails", async () => {
+    const oldTrack = { kind: "audio", stop: vi.fn() };
+    const replacementTrack = { kind: "audio", stop: vi.fn() };
+    const replacementStream = {
+      getAudioTracks: () => [replacementTrack],
+      getTracks: () => [replacementTrack],
+    };
+
+    await expect(
+      replaceRealtimeVoiceMicrophone({
+        mediaDevices: {
+          getUserMedia: vi.fn(async () => replacementStream),
+        } as unknown as Pick<MediaDevices, "getUserMedia">,
+        peer: {
+          getSenders: () => [
+            {
+              track: oldTrack,
+              replaceTrack: vi.fn(async () => {
+                throw new Error("replace failed");
+              }),
+            },
+          ],
+        } as unknown as Pick<RTCPeerConnection, "getSenders">,
+        currentStream: {
+          getTracks: () => [oldTrack],
+        } as unknown as MediaStream,
+        deviceId: "studio",
+      }),
+    ).rejects.toThrow("replace failed");
+
+    expect(oldTrack.stop).not.toHaveBeenCalled();
+    expect(replacementTrack.stop).toHaveBeenCalledOnce();
   });
 
   it("times out a connection attempt and supports idempotent cancellation", () => {
