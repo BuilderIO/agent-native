@@ -87,6 +87,7 @@ export {
 } from "./embed-auth.js";
 export {
   codeAgentTranscriptEventsToContent,
+  codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   type CodeAgentChatController,
   type CodeAgentChatControlResult,

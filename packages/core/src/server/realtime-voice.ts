@@ -18,7 +18,12 @@ import {
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
 import { getSession } from "./auth.js";
-import { resolveSecret } from "./credential-provider.js";
+import {
+  getBuilderGatewayBaseUrl,
+  resolveBuilderCredentials,
+  resolveSecret,
+} from "./credential-provider.js";
+import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway-headers.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -336,12 +341,19 @@ function createSessionHandler(
           : undefined,
       },
       async () => {
-        const apiKey = (await resolveSecret("OPENAI_API_KEY"))?.trim();
-        if (!apiKey) {
-          setResponseStatus(event, 400);
+        const builderCredentials = await resolveBuilderCredentials();
+        const builderConfigured = Boolean(
+          builderCredentials.privateKey?.trim() &&
+            builderCredentials.publicKey?.trim(),
+        );
+        const apiKey = builderConfigured
+          ? null
+          : (await resolveSecret("OPENAI_API_KEY"))?.trim();
+        if (!builderConfigured && !apiKey) {
+          setResponseStatus(event, 409);
           return {
-            error:
-              "Configure OPENAI_API_KEY in Settings to use realtime voice.",
+            error: "Connect Builder or configure an OpenAI API key to use realtime voice.",
+            code: "realtime_voice_setup_required",
           };
         }
 
@@ -369,39 +381,73 @@ function createSessionHandler(
           tool_choice: "auto",
         };
 
-        const form = new FormData();
-        form.set("sdp", sdp);
-        form.set("session", JSON.stringify(session));
-
         let upstream: Response;
         try {
-          upstream = await fetch(OPENAI_REALTIME_CALLS_URL, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "OpenAI-Safety-Identifier": await realtimeVoiceSafetyIdentifier(
-                auth.userEmail,
-              ),
-            },
-            body: form,
-          });
+          if (builderConfigured) {
+            const gatewayUrl = new URL(
+              "realtime/calls",
+              getBuilderGatewayBaseUrl().endsWith("/")
+                ? getBuilderGatewayBaseUrl()
+                : `${getBuilderGatewayBaseUrl()}/`,
+            );
+            gatewayUrl.searchParams.set(
+              "apiKey",
+              builderCredentials.publicKey!.trim(),
+            );
+            upstream = await fetch(gatewayUrl.toString(), {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${builderCredentials.privateKey!.trim()}`,
+                "x-builder-api-key": builderCredentials.publicKey!.trim(),
+                ...getBuilderGatewayRequestHeaders(),
+                ...(builderCredentials.userId
+                  ? { "x-builder-user-id": builderCredentials.userId }
+                  : {}),
+              },
+              body: JSON.stringify({ sdp, session }),
+            });
+          } else {
+            const form = new FormData();
+            form.set("sdp", sdp);
+            form.set("session", JSON.stringify(session));
+            upstream = await fetch(OPENAI_REALTIME_CALLS_URL, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "OpenAI-Safety-Identifier": await realtimeVoiceSafetyIdentifier(
+                  auth.userEmail,
+                ),
+              },
+              body: form,
+            });
+          }
         } catch {
           setResponseStatus(event, 502);
-          return { error: "Could not reach the OpenAI Realtime API" };
+          return {
+            error: builderConfigured
+              ? "Could not reach the Builder realtime voice gateway"
+              : "Could not reach the OpenAI Realtime API",
+          };
         }
 
         if (!upstream.ok) {
-          const detail = await safeOpenAiErrorDetail(upstream, apiKey);
-          setResponseStatus(event, 502);
+          const detail = await safeOpenAiErrorDetail(
+            upstream,
+            builderConfigured ? builderCredentials.privateKey! : apiKey!,
+          );
+          setResponseStatus(event, builderConfigured ? upstream.status : 502);
           return {
-            error: `OpenAI rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
+            error: `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
           };
         }
 
         const answerSdp = await upstream.text().catch(() => "");
         if (!answerSdp.trim()) {
           setResponseStatus(event, 502);
-          return { error: "OpenAI returned an empty realtime session answer" };
+          return {
+            error: `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`,
+          };
         }
 
         setResponseStatus(event, upstream.status);

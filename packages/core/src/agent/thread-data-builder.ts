@@ -1140,6 +1140,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       ? { result: previewCodeAgentTranscriptValue(item.result) ?? "" }
       : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 

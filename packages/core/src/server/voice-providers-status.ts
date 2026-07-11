@@ -22,7 +22,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
-  resolveHasBuilderPrivateKey,
+  resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
@@ -90,7 +90,7 @@ export function createVoiceProvidersStatusHandler() {
     let builder = false;
     try {
       builder =
-        (await withRequestContext(() => resolveHasBuilderPrivateKey())) ===
+        (await withRequestContext(() => resolveHasCompleteBuilderConnection())) ===
         true;
     } catch {
       builder = false;

@@ -3,6 +3,7 @@ import {
   ChatHistoryList,
   PromptComposer,
   buildRepositoryFromCodeAgentTranscript,
+  codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
@@ -3337,6 +3338,16 @@ function RunDetailCard({
   );
   const hasCredentialGap = providerBlocked && hasCredentialHistory;
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
+  // The inline per-tool-call approval affordance (rendered by AssistantChat /
+  // ToolCallDisplay via the tool-call's `approval` field) already covers this
+  // pending approval when the transcript join succeeds. Keep this standalone
+  // banner only as a fallback for transcripts where that join is missing
+  // (legacy runs, or a pending approval whose bash result isn't present in
+  // the rendered window) so the two affordances don't double up.
+  const hasInlineApprovalAffordance = pendingApproval
+    ? codeAgentTranscriptHasPendingApproval(transcriptEvents)
+    : false;
+  const showApprovalBanner = Boolean(pendingApproval) && !hasInlineApprovalAffordance;
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -3358,7 +3369,7 @@ function RunDetailCard({
         />
       )}
 
-      {pendingApproval && (
+      {showApprovalBanner && pendingApproval && (
         <div className="code-agents-approval-callout">
           <IconAlertCircle size={16} strokeWidth={1.8} />
           <div>
@@ -3412,6 +3423,8 @@ function RunDetailCard({
         onPermissionModeChange={onPermissionModeChange}
         onModelSelectionChange={onModelSelectionChange}
         onStop={onStop}
+        onDeny={onDeny}
+        onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
       />
     </div>
@@ -3433,6 +3446,8 @@ function TranscriptPanel({
   onPermissionModeChange,
   onModelSelectionChange,
   onStop,
+  onDeny,
+  onApproveAlways,
   onConnectProvider,
 }: {
   host: CodeAgentsHost;
@@ -3449,6 +3464,10 @@ function TranscriptPanel({
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
   onStop: () => void;
+  /** Resolves the run's pending approval as denied — same command the standalone approval banner uses. */
+  onDeny?: () => void;
+  /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
+  onApproveAlways?: () => void;
   onConnectProvider?: () => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
@@ -3479,7 +3498,8 @@ function TranscriptPanel({
   attachOnlyRef.current = false;
 
   const controller = useMemo(
-    () => createHostCodeAgentChatController(host, goal.id),
+    () =>
+      createHostCodeAgentChatController(host, goal.id, permissionModeRef),
     [goal.id, host],
   );
   const createAdapter = useCallback(
@@ -3543,6 +3563,11 @@ function TranscriptPanel({
           loadHistoryRepository={loadHistoryRepository}
           historyReloadKey={historyReloadKey}
           externalStreaming={runIsActive}
+          approvalActions={
+            onDeny || onApproveAlways
+              ? { onDeny, onAlwaysAllow: onApproveAlways }
+              : undefined
+          }
           availableModels={availableModels}
           selectedModel={selectedModel}
           selectedEngine={selectedEngine}
@@ -3594,6 +3619,7 @@ function CodeAgentStopButton({ onStop }: { onStop: () => void }) {
 function createHostCodeAgentChatController(
   host: CodeAgentsHost,
   goalId: string,
+  permissionModeRef?: { current: string | undefined },
 ): CodeAgentChatController {
   return {
     async get(runId) {
@@ -3625,7 +3651,12 @@ function createHostCodeAgentChatController(
       };
     },
     async control(input) {
-      const result = await host.controlRun(goalId, input.runId, "stop");
+      const result = await host.controlRun(
+        goalId,
+        input.runId,
+        input.command,
+        permissionModeRef?.current as CodeAgentPermissionMode | undefined,
+      );
       return {
         ok: result.ok,
         run: result.run ?? null,

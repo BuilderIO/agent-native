@@ -1629,6 +1629,17 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /**
+   * Optional host hooks for the inline `needsApproval` affordance beyond the
+   * built-in Approve. Additive: omit entirely to keep today's default
+   * behavior (Deny is local-only, no "Always allow" button). Code sessions
+   * pass these through to the same `host.controlRun` commands their
+   * standalone approval banner already uses (see CodeAgentsApp).
+   */
+  approvalActions?: {
+    onDeny?: (approvalKey: string) => void;
+    onAlwaysAllow?: (approvalKey: string) => void;
+  };
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1852,6 +1863,7 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    approvalActions,
     planModeDisabled,
     planModeDisabledReason,
     selectedModel,
@@ -4640,8 +4652,12 @@ const AssistantChatInner = forwardRef<
           ),
         } as Parameters<typeof threadRuntime.append>[0]);
       },
+      ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
+      ...(approvalActions?.onAlwaysAllow
+        ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
+        : {}),
     }),
-    [appendThreadMessage, execMode, markOptimisticRunning],
+    [appendThreadMessage, execMode, markOptimisticRunning, approvalActions],
   );
 
   return (
