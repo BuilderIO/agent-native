@@ -132,7 +132,14 @@ export function useAutoTitleBridge(): void {
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function tick() {
-      if (cancelled || inflight.current) return;
+      if (cancelled) return;
+      if (inflight.current) {
+        // A new request-state version can arrive while the previous list read
+        // is in flight. Recheck after it settles so that event is not the last
+        // chance to dispatch the queued work.
+        fallbackTimer = setTimeout(() => void tick(), 50);
+        return;
+      }
       inflight.current = true;
       try {
         const requestsById = await listRequests();

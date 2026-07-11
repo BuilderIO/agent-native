@@ -138,7 +138,7 @@ describe("buildChatModelGroups", () => {
     });
   });
 
-  it("does not restore a hidden provider when it is the current engine", () => {
+  it("keeps a hidden provider visible when it is the current engine", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:groq",
       currentModel: "llama-3.3-70b-versatile",
@@ -152,7 +152,14 @@ describe("buildChatModelGroups", () => {
       ],
     });
 
-    expect(groups).toEqual([]);
+    expect(groups).toEqual([
+      {
+        engine: "ai-sdk:groq",
+        label: "Groq",
+        models: ["llama-3.3-70b-versatile"],
+        configured: false,
+      },
+    ]);
   });
 
   it("puts OpenRouter after other installed custom providers", () => {

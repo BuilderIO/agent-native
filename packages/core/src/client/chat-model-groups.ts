@@ -99,7 +99,15 @@ function shouldShowDirectEngine(
   engine: ChatModelEngineEntry,
   currentEngineName?: string,
 ): boolean {
-  if (HIDDEN_CHAT_MODEL_ENGINES.has(engine.name)) return false;
+  // Keep a persisted selection usable after an engine is hidden from the
+  // picker; users can choose a supported replacement instead of landing on a
+  // model that no longer has a rendered group.
+  if (
+    HIDDEN_CHAT_MODEL_ENGINES.has(engine.name) &&
+    engine.name !== currentEngineName
+  ) {
+    return false;
+  }
   if (engine.name === currentEngineName) return true;
   if (engine.name === "builder") return false;
   if (engine.name === "ai-sdk:anthropic") return false;
