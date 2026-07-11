@@ -507,7 +507,6 @@ import { isRadixOverlayOpen } from "./design-editor/dom-guards";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
-  designSystemGenerationDirectives,
   designTemplateRefinementDirectives,
   designVariantGenerationDirectives,
   formatTweakDefinitionsContext,
