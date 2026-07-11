@@ -52,8 +52,8 @@ describe("VideoPlayer playback", () => {
   let container: HTMLDivElement;
   let root: Root;
   let handleRef: { current: VideoPlayerHandle | null };
-  let onPlay: ReturnType<typeof vi.fn>;
-  let onPause: ReturnType<typeof vi.fn>;
+  let onPlay = vi.fn<() => void>();
+  let onPause = vi.fn<() => void>();
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -61,8 +61,8 @@ describe("VideoPlayer playback", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     handleRef = { current: null };
-    onPlay = vi.fn();
-    onPause = vi.fn();
+    onPlay = vi.fn<() => void>();
+    onPause = vi.fn<() => void>();
 
     act(() => {
       root.render(
