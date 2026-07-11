@@ -71,7 +71,14 @@ describe("CommandMenu docs group", () => {
   }
 
   it("opens chat surfaces before requesting settings on the next task", () => {
-    vi.useFakeTimers();
+    let scheduledFrame: FrameRequestCallback | undefined;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        scheduledFrame = callback;
+        return 1;
+      }),
+    );
     const events: string[] = [];
     const onSettings = (event: Event) =>
       events.push(
@@ -84,11 +91,10 @@ describe("CommandMenu docs group", () => {
     openAgentSettings("voice");
 
     expect(events).toEqual(["open"]);
-    vi.runAllTimers();
+    scheduledFrame?.(0);
     expect(events).toEqual(["open", "settings:voice"]);
     window.removeEventListener("agent-panel:open-settings", onSettings);
     window.removeEventListener("agent-panel:open", onOpen);
-    vi.useRealTimers();
   });
 
   it("filters app docs entries through the shared search field", () => {

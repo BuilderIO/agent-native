@@ -75,14 +75,20 @@ export function openAgentSettings(
   openAgentSidebar();
   // Voice mode unmounts the chat surface while its dock is collapsed, so its
   // settings listener does not exist until opening the sidebar remounts it.
-  // Deliver the destination on the next task instead of racing that remount.
-  window.setTimeout(() => {
+  // Deliver after the open-state render can commit instead of racing React's
+  // concurrent remount. Non-visual runtimes fall back to the next task.
+  const dispatchSettings = () => {
     window.dispatchEvent(
       new CustomEvent("agent-panel:open-settings", {
         detail: normalizedSection ? { section: normalizedSection } : undefined,
       }),
     );
-  }, 0);
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(dispatchSettings);
+  } else {
+    window.setTimeout(dispatchSettings, 0);
+  }
 }
 
 export function focusAgentChat() {
