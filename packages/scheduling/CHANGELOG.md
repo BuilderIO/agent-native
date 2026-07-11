@@ -1,5 +1,13 @@
 # @agent-native/scheduling
 
+## 0.1.25
+
+### Patch Changes
+
+- 38ca6fa: Require host identity (or the booking's capability token) before mutating bookings, revoking private links, duplicating event types, and returning reschedule tokens, closing cross-tenant write/disclosure gaps.
+- Updated dependencies [38ca6fa]
+  - @agent-native/toolkit@0.4.7
+
 ## 0.1.24
 
 ### Patch Changes
