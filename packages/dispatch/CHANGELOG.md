@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.2
+
+### Patch Changes
+
+- 6baca78: Move Slack's legacy single-workspace token under advanced setup while keeping managed OAuth credentials primary.
+
 ## 0.14.1
 
 ### Patch Changes
