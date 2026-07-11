@@ -28,7 +28,6 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
-import { attachToolSearch } from "../agent/tool-search.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -37,6 +36,7 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread, getThread } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";

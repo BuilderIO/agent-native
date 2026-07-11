@@ -420,7 +420,10 @@ async function dispatchAgentic(
           ? attachToolSearch({ ...baseActions })
           : baseActions;
         const availableTools = actionsToEngineTools(actions);
-        const tools = filterInitialEngineTools(availableTools, initialToolNames);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         const engine = await resolveEngine({
           apiKey,

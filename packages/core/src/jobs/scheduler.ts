@@ -487,7 +487,10 @@ async function executeJob(
           ? attachToolSearch({ ...baseActions })
           : baseActions;
         const availableTools = actionsToEngineTools(actions);
-        const tools = filterInitialEngineTools(availableTools, initialToolNames);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         // Prefer the job runner's saved Anthropic key so recurring jobs
         // don't silently bill the shared platform key once a user has

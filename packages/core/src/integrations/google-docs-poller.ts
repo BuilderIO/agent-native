@@ -7,11 +7,11 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
-import { attachToolSearch } from "../agent/tool-search.js";
 import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import {
   createThread,
   getThread,

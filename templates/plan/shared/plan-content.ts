@@ -2885,11 +2885,11 @@ const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
   (option) => {
     const opLiteral = (option.shape as { op: { value: string } }).op.value;
     if (opLiteral === "replace-block" || opLiteral === "append-block") {
-      return option.extend({ block: agentPlanBlockSchema });
+      return option.extend({ block: agentPlanBlockSchemaTerse });
     }
     if (opLiteral === "replace-blocks") {
       return option.extend({
-        blocks: z.array(agentPlanBlockSchema).max(200),
+        blocks: z.array(agentPlanBlockSchemaTerse).max(200),
       });
     }
     if (opLiteral === "update-canvas-frame") {

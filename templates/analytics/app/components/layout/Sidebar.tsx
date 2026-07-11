@@ -601,7 +601,7 @@ function SortableRow({
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
-        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
         aria-label={t("sidebar.dragItemPersonal", { name })}
         {...attributes}
         {...listeners}

@@ -40,13 +40,13 @@ import {
   type ActiveRun,
 } from "../agent/run-manager.js";
 import { getRunEventsSince } from "../agent/run-store.js";
-import { attachToolSearch } from "../agent/tool-search.js";
 import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
 import {
