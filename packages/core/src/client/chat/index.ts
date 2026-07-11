@@ -151,5 +151,11 @@ export {
   type ChatThreadShareState,
   type UseChatThreadsOptions,
 } from "../use-chat-threads.js";
+export {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+  type ChatHistoryListProps,
+} from "./ChatHistoryList.js";
 export * from "../composer/index.js";
 export * from "../conversation/index.js";

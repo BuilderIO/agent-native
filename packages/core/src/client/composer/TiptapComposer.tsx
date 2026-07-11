@@ -861,6 +861,25 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
+export function compactComposerModelName(model: string): string {
+  const gpt56Variant = model.match(
+    /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
+  )?.[1];
+  if (gpt56Variant) {
+    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+  }
+  return friendlyModelName(model);
+}
+
+export function compactComposerReasoningEffortLabel(
+  effort: ReasoningEffort,
+): string {
+  if (effort === "medium" || effort === "auto") return "Med";
+  if (effort === "minimal") return "Min";
+  if (effort === "xhigh") return "XHigh";
+  return reasoningEffortLabel(effort);
+}
+
 /**
  * Deduplicate models to only the latest version per family.
  * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
@@ -1031,12 +1050,19 @@ function ModelSelector({
         <button
           type="button"
           data-agent-composer-slot="model-button"
+          aria-label={`Model: ${friendlyModelName(model)}${
+            effortOptions.length > 0
+              ? `. Reasoning: ${reasoningEffortLabel(selectedEffort)}`
+              : ""
+          }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
+          <span className="min-w-0 truncate">
+            {compactComposerModelName(model)}
+          </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {reasoningEffortLabel(selectedEffort)}
+              · {compactComposerReasoningEffortLabel(selectedEffort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />

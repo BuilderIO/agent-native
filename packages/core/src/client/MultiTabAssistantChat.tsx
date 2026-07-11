@@ -2,7 +2,6 @@ import {
   IconX,
   IconPlus,
   IconHistory,
-  IconSearch,
   IconLink,
   IconLinkOff,
   IconCheck,
@@ -47,6 +46,11 @@ import {
   buildChatModelGroups,
   type EngineModelGroup,
 } from "./chat-model-groups.js";
+import {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+} from "./chat/ChatHistoryList.js";
 import {
   Popover,
   PopoverAnchor,
@@ -532,6 +536,39 @@ function HistoryPopover({
       }
     : null;
 
+  const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
+    const isActive = thread.id === activeThreadId;
+    return {
+      id: thread.id,
+      title: thread.title || thread.preview || "Chat",
+      subtitle:
+        thread.preview && thread.title !== thread.preview
+          ? thread.preview
+          : undefined,
+      detail: thread.scope?.label || undefined,
+      timestamp: isActive
+        ? "Active"
+        : openTabIds.has(thread.id)
+          ? "Open"
+          : formatThreadTime(thread.updatedAt),
+    };
+  };
+
+  const historySections: ChatHistorySection[] = sectionedThreads
+    ? [
+        {
+          id: "scoped",
+          label: `This ${currentScope!.type}`,
+          items: sectionedThreads.scoped.map(toHistoryItem),
+        },
+        {
+          id: "other",
+          label: "All chats",
+          items: sectionedThreads.other.map(toHistoryItem),
+        },
+      ]
+    : [{ id: "all", items: filtered.map(toHistoryItem) }];
+
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
       <PopoverAnchor asChild>
@@ -547,90 +584,37 @@ function HistoryPopover({
         }}
         className="w-72 rounded-lg p-0"
       >
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-          <IconSearch size={13} />
-          <input
-            ref={inputRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
-          />
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {loadError && !search.trim() ? (
-            <div className="px-3 py-4 text-xs text-amber-500 text-center">
-              {loadError}
-            </div>
-          ) : isSearching ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              Searching...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              {search ? "No matching chats" : "No chats yet"}
-            </div>
-          ) : sectionedThreads ? (
-            <>
-              {sectionedThreads.scoped.length > 0 && (
-                <>
-                  <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    This {currentScope!.type}
-                  </div>
-                  {sectionedThreads.scoped.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-              {sectionedThreads.other.length > 0 && (
-                <>
-                  <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    All chats
-                  </div>
-                  {sectionedThreads.other.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            filtered.map((thread) =>
-              renderThreadRow(
-                thread,
-                activeThreadId,
-                openTabIds,
-                formatThreadTime,
-                onSelect,
-                onClose,
-              ),
-            )
-          )}
-          {!search.trim() && hasMoreThreads && (
-            <button
-              type="button"
-              onClick={() => onLoadMore?.()}
-              disabled={isLoadingMoreThreads}
-              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
-            >
-              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
-            </button>
-          )}
-        </div>
+        <ChatHistoryList
+          sections={historySections}
+          activeId={activeThreadId}
+          onSelect={(id) => {
+            onSelect(id);
+            onClose();
+          }}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search chats..."
+          searchInputRef={inputRef}
+          loading={isSearching}
+          loadingLabel="Searching..."
+          error={
+            loadError && !search.trim() ? loadError : undefined
+          }
+          emptyLabel="No chats yet"
+          emptySearchLabel="No matching chats"
+          footer={
+            !search.trim() && hasMoreThreads ? (
+              <button
+                type="button"
+                onClick={() => onLoadMore?.()}
+                disabled={isLoadingMoreThreads}
+                className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+              >
+                {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+              </button>
+            ) : undefined
+          }
+        />
       </PopoverContent>
     </Popover>
   );

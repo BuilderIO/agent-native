@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   canSubmitComposerContent,
+  compactComposerModelName,
+  compactComposerReasoningEffortLabel,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
@@ -30,6 +32,16 @@ describe("createTiptapComposerExtensions", () => {
     expect(getComposerReasoningEffortOptions("claude-sonnet-5")).not.toContain(
       "auto",
     );
+  });
+
+  it("uses compact GPT-5.6 model and effort names in the collapsed trigger", () => {
+    expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
+    expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
+    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
+    expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
+    expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");
   });
 
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {

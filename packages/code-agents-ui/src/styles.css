@@ -1942,12 +1942,12 @@
 .desktop-select-trigger:hover,
 .desktop-select-trigger[data-state="open"] {
   border-color: hsl(var(--border, 0 0% 90%));
-  background: hsl(var(--accent, 0 0% 18%));
+  background: hsl(var(--accent, 0 0% 95%));
   color: hsl(var(--foreground, 0 0% 10%));
 }
 
 .desktop-select-trigger:focus-visible {
-  box-shadow: 0 0 0 2px hsl(var(--ring, 0 0% 60%) / 0.28);
+  box-shadow: 0 0 0 2px hsl(var(--ring, 0 0% 40%) / 0.28);
 }
 
 .desktop-select-trigger:disabled {
@@ -1957,7 +1957,43 @@
 
 .desktop-select-trigger svg {
   flex: 0 0 auto;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
+}
+
+/* Radix Select/DropdownMenu also portal to `document.body`, same as the
+   tooltip/composer-popover and `.code-agents-select-content` blocks above —
+   give both portal roots their own light/dark token copy so the `var(--x,
+   fallback)` references below resolve correctly regardless of theme. */
+.desktop-select-content,
+.desktop-dropdown-content {
+  --border: 0 0% 90%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --foreground: 0 0% 10%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+}
+
+.dark .desktop-select-content,
+.dark .desktop-dropdown-content {
+  --border: 0 0% 24%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --foreground: 0 0% 90%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .desktop-select-content,
+  :root:not(.light) .desktop-dropdown-content {
+    --border: 0 0% 24%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 90%;
+    --foreground: 0 0% 90%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 18%;
+  }
 }
 
 .desktop-select-content {
@@ -1967,15 +2003,29 @@
   overflow: hidden;
   border: 1px solid hsl(var(--border, 0 0% 90%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
-  background: hsl(var(--popover, 0 0% 15%));
-  color: hsl(var(--popover-foreground, 0 0% 90%));
+  background: hsl(var(--popover, 0 0% 100%));
+  color: hsl(var(--popover-foreground, 0 0% 10%));
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.42),
+    0 18px 44px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
   /* shadcn-style enter/exit animations */
   transform-origin: var(--radix-select-content-transform-origin);
   animation-duration: 140ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark .desktop-select-content {
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .desktop-select-content {
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+  }
 }
 
 .desktop-select-content[data-state="open"] {
@@ -2000,7 +2050,7 @@
   display: grid;
   place-items: center;
   height: 22px;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
 }
 
 .desktop-select-item {
@@ -2021,7 +2071,7 @@
 }
 
 .desktop-select-item[data-highlighted] {
-  background: hsl(var(--accent, 0 0% 18%));
+  background: hsl(var(--accent, 0 0% 95%));
   color: hsl(var(--foreground, 0 0% 10%));
 }
 
@@ -2053,7 +2103,7 @@
 
 .desktop-select-item__description {
   display: block;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
   font-size: 11px;
   line-height: 1.35;
 }
@@ -2064,16 +2114,30 @@
   overflow: hidden;
   border: 1px solid hsl(var(--border, 0 0% 90%));
   border-radius: calc(var(--radius, 0.5rem) + 2px);
-  background: hsl(var(--popover, 0 0% 15%));
-  color: hsl(var(--popover-foreground, 0 0% 90%));
+  background: hsl(var(--popover, 0 0% 100%));
+  color: hsl(var(--popover-foreground, 0 0% 10%));
   padding: 5px;
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.42),
+    0 18px 44px rgba(0, 0, 0, 0.16),
     inset 0 1px 0 hsl(var(--foreground, 0 0% 10%) / 0.04);
   /* shadcn-style enter/exit animations via Radix data-state */
   transform-origin: var(--radix-dropdown-menu-content-transform-origin);
   animation-duration: 140ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark .desktop-dropdown-content {
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .desktop-dropdown-content {
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+  }
 }
 
 .desktop-dropdown-content[data-state="open"] {
@@ -2110,7 +2174,7 @@
 
 .desktop-dropdown-label {
   padding: 7px 9px 5px;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
   font-size: 11px;
   font-weight: 500;
 }
@@ -2138,7 +2202,7 @@
   position: absolute;
   left: 9px;
   top: 10px;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
 }
 
 .desktop-dropdown-item__main {
@@ -2151,13 +2215,13 @@
 
 .desktop-dropdown-item__description {
   padding-left: 22px;
-  color: hsl(var(--muted-foreground, 0 0% 60%));
+  color: hsl(var(--muted-foreground, 0 0% 45%));
   font-size: 11px;
   line-height: 1.35;
 }
 
 .desktop-dropdown-item[data-highlighted] {
-  background: hsl(var(--accent, 0 0% 18%));
+  background: hsl(var(--accent, 0 0% 95%));
   color: hsl(var(--foreground, 0 0% 10%));
 }
 
@@ -2543,8 +2607,23 @@ button.code-agents-capability:focus-visible {
   color: hsl(142 55% 68%);
 }
 
+/* Dialog also portals to `document.body` (see ui/dialog.tsx), so it needs
+   its own light/dark token copy like the other portal roots above. */
 .code-agents-dialog-overlay,
 .code-agents-dialog-content {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --border: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --radius: 0.5rem;
+}
+
+.dark .code-agents-dialog-overlay,
+.dark .code-agents-dialog-content {
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;
@@ -2553,7 +2632,20 @@ button.code-agents-capability:focus-visible {
   --accent: 0 0% 18%;
   --border: 0 0% 24%;
   --ring: 0 0% 60%;
-  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-dialog-overlay,
+  :root:not(.light) .code-agents-dialog-content {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 15%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 18%;
+    --border: 0 0% 24%;
+    --ring: 0 0% 60%;
+  }
 }
 
 .code-agents-dialog-overlay {
@@ -2579,7 +2671,7 @@ button.code-agents-capability:focus-visible {
   border-radius: calc(var(--radius) + 4px);
   background: hsl(var(--card));
   color: hsl(var(--foreground));
-  box-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.18);
   font-family:
     "Inter",
     system-ui,
@@ -2588,6 +2680,16 @@ button.code-agents-capability:focus-visible {
     "Segoe UI",
     sans-serif;
   animation: code-agents-dialog-enter 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark .code-agents-dialog-content {
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-dialog-content {
+    box-shadow: 0 24px 80px rgb(0 0 0 / 0.48);
+  }
 }
 
 .code-agents-dialog-close {
@@ -2659,8 +2761,18 @@ button.code-agents-capability:focus-visible {
   padding: 11px 12px;
   border: 1px solid hsl(142 45% 42% / 0.35);
   border-radius: 9px;
-  color: hsl(142 55% 68%);
+  color: hsl(142 48% 32%);
   background: hsl(142 50% 45% / 0.08);
+}
+
+.dark .code-agents-computer-ready {
+  color: hsl(142 55% 68%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-computer-ready {
+    color: hsl(142 55% 68%);
+  }
 }
 
 .code-agents-computer-ready strong,
@@ -2729,16 +2841,36 @@ button.code-agents-capability:focus-visible {
 .code-agents-computer-step__status {
   padding: 2px 6px;
   border-radius: 999px;
-  color: hsl(38 92% 62%);
+  color: hsl(32 80% 38%);
   background: hsl(38 92% 50% / 0.11);
   font-size: 9px;
   font-weight: 650;
   line-height: 1.35;
 }
 
+.dark .code-agents-computer-step__status {
+  color: hsl(38 92% 62%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-computer-step__status {
+    color: hsl(38 92% 62%);
+  }
+}
+
 .code-agents-computer-step__status--ready {
-  color: hsl(142 55% 68%);
+  color: hsl(142 48% 32%);
   background: hsl(142 50% 45% / 0.1);
+}
+
+.dark .code-agents-computer-step__status--ready {
+  color: hsl(142 55% 68%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .code-agents-computer-step__status--ready {
+    color: hsl(142 55% 68%);
+  }
 }
 
 .code-agents-computer-step__action {

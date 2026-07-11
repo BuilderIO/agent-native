@@ -6185,11 +6185,11 @@ export function createProductionAgentHandler(
       | "configured"
       | "stored"
       | "default"
-      | "experiment" = requestModel
+      | "experiment" = requestModel != null
       ? "request"
-      : configuredModel
+      : configuredModel != null
         ? "configured"
-        : storedModel
+        : storedModel != null
           ? "stored"
           : "default";
     let experimentAssignments: Array<{
@@ -6207,7 +6207,7 @@ export function createProductionAgentHandler(
           await import("../observability/experiments.js");
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
-          experimentAssignments = expConfig.assignments;
+          experimentAssignments = [...expConfig.assignments];
           if (typeof expConfig.configs.model === "string") {
             effectiveModel = normalizeModelForEngine(
               engine,

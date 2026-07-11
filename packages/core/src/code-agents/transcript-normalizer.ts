@@ -70,6 +70,7 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
   statusKind: CodeAgentTranscriptEvent["kind"];
   status?: string;
   phase?: string;
+  signal?: CodeAgentTranscriptEvent["signal"];
   metadata?: Record<string, unknown>;
 }
 
@@ -80,6 +81,35 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
 export interface NormalizedCodeAgentThinkingEvent extends NormalizedCodeAgentTranscriptBase {
   type: "thinking";
   text: string;
+}
+
+/** Structured signal value stamped on the "no LLM provider key" status event. */
+export const CREDENTIAL_GAP_SIGNAL: NonNullable<
+  CodeAgentTranscriptEvent["signal"]
+> = "credential-gap";
+
+/**
+ * Shared "credential gap" detection for code-agent transcript events and the
+ * normalized status items built from them. Prefers the structured `signal`
+ * field the executor stamps on the event (see `code-agent-executor.ts`); only
+ * falls back to matching the legacy hint text for transcripts persisted
+ * before the structured signal existed. Accepts either a raw
+ * `CodeAgentTranscriptEvent` (`message`) or a `NormalizedCodeAgentStatusEvent`
+ * (`text`), and any of the other UI-facing transcript event shapes that carry
+ * the same field names, so every consumer can share one implementation
+ * instead of re-implementing the regex.
+ */
+export function isCredentialGapCodeAgentEvent(event: {
+  signal?: string;
+  text?: string;
+  message?: string;
+}): boolean {
+  if (event.signal === CREDENTIAL_GAP_SIGNAL) return true;
+  return isLegacyCredentialGapHintText(event.text ?? event.message ?? "");
+}
+
+function isLegacyCredentialGapHintText(value: string): boolean {
+  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 export function normalizeCodeAgentTranscript(
@@ -253,6 +283,7 @@ function createStatusEvent(
     statusKind: event.kind,
     status: stringMetadata(metadata, "status"),
     phase: stringMetadata(metadata, "phase"),
+    signal: event.signal,
     metadata,
     createdAt: event.createdAt,
     updatedAt: event.createdAt,
