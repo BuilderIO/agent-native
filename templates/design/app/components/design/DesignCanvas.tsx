@@ -249,9 +249,6 @@ const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-component-strong-color",
   "--design-editor-component-contrast-color",
   "--design-editor-measure-color",
-  "--background",
-  "--foreground",
-  "--border",
 ];
 
 function readEditorBridgeThemeVars(): Record<string, string> {
@@ -1948,6 +1945,15 @@ export function DesignCanvas({
     // content-key change (screen switch / explicit remount) should replace the
     // iframe document here; the bridge replays inspector state after that load.
   }, [content, contentKey, runtimeReplacementContent, runtimeReplacementKey]);
+
+  useEffect(() => {
+    if (!interactMode) return;
+    // Interact renders the authoritative persisted source because the editor
+    // bridge is intentionally absent. Keep that same source as the next
+    // edit-mode baseline so leaving Interact cannot resurrect the older
+    // bridge-managed snapshot and make the design visibly jump backward.
+    setRenderedContent(content);
+  }, [content, interactMode]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,

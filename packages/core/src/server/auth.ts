@@ -1627,7 +1627,7 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       // The sign-in document is part of the public server shell. Keep it on the
-      // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
+      // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
       // template roots do not invoke origin just to render anonymous login UI.
       // The login HTML is env-INDEPENDENT (a Google-only app always renders a
       // working button), so a cached copy is never "wrong" — never downgrade

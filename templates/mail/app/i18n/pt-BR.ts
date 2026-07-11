@@ -521,10 +521,10 @@ const messages = {
     slackUpdateFailed: "Falha ao atualizar entrada do Slack",
     slackConfigured: "As credenciais do Slack estão configuradas.",
     slackNeedsCredentials:
-      "Adicione SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET para ativar a entrada do Slack.",
-    slackIntake: "Entrada do Slack",
+      "A entrada personalizada legada requer SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET. Para novas automações de mensagens do Slack, conecte um workspace em Configurações > Mensagens.",
+    slackIntake: "Entrada do Slack (legada)",
     slackDescription:
-      "Permita que membros da organização coloquem rascunhos de email na fila pelo Slack.",
+      "Integração personalizada legada que permite colocar rascunhos de email na fila pelo Slack.",
     enabled: "Ativado",
     disable: "Desativar",
     enable: "Ativar",

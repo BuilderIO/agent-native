@@ -952,13 +952,21 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("does not consult process.env in a signed-in production shared-database request", async () => {
+  it("uses app-provided Google OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "deploy-client-id";
     process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBeNull();
+    expect(await resolveSecret("GOOGLE_CLIENT_ID")).toBe("deploy-client-id");
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe("deploy-secret");
+    expect(canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
   });
 
   it("blocks generic deploy env secrets for signed-in production shared-database users even when an LLM key is allowed", async () => {

@@ -340,7 +340,7 @@ function OptionButton({
         compact ? "px-2.5 py-1.5" : "px-3 py-2",
         selected
           ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-          : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
+          : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
       )}
     >
       <span
@@ -418,7 +418,7 @@ function ColorOptions({
               "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
               selected
                 ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
+                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
             )}
           >
             <span

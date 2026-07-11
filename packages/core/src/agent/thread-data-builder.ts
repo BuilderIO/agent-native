@@ -152,9 +152,9 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       toolCallCounter += 1;
-      const toolCallId = runId
-        ? `${runId}:tc_${toolCallCounter}`
-        : `tc_${toolCallCounter}`;
+      const toolCallId =
+        event.id?.trim() ||
+        (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
         type: "tool-call",
@@ -167,22 +167,46 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_done") {
-      for (let i = content.length - 1; i >= 0; i--) {
-        const part = content[i];
-        if (
-          part.type === "tool-call" &&
-          part.toolName === event.tool &&
-          part.result === undefined
-        ) {
-          part.result = event.result ?? "";
-          if (event.isError !== undefined) part.isError = event.isError;
-          if (event.completedSideEffect !== undefined) {
-            part.completedSideEffect = event.completedSideEffect;
+      const eventToolCallId = event.id?.trim();
+      let matchingIndex = -1;
+
+      if (eventToolCallId) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolCallId === eventToolCallId &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
           }
-          if (event.mcpApp) part.mcpApp = event.mcpApp;
-          if (event.chatUI) part.chatUI = event.chatUI;
-          break;
         }
+      }
+
+      if (matchingIndex === -1) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolName === event.tool &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
+        }
+      }
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.result = event.result ?? "";
+        if (event.isError !== undefined) part.isError = event.isError;
+        if (event.completedSideEffect !== undefined) {
+          part.completedSideEffect = event.completedSideEffect;
+        }
+        if (event.mcpApp) part.mcpApp = event.mcpApp;
+        if (event.chatUI) part.chatUI = event.chatUI;
       }
       continue;
     }

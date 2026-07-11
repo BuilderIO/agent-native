@@ -78,6 +78,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENROUTER_API_KEY",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
@@ -93,9 +95,11 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
  * single-tenant contexts. In hosted production with a shared database, every
  * signed-in user needs their own user/org/workspace credential for
  * identity-bearing provider keys so one deploy key does not silently
- * impersonate another tenant. App-provided LLM provider keys are different:
- * they intentionally let the app developer pay for model usage for users of
- * that deployed app, so key-aware callers may use those env vars.
+ * impersonate another tenant. App-provided service credentials are different:
+ * they configure the deployed app itself rather than identifying a user. This
+ * includes LLM keys that let the app developer pay for model usage and OAuth
+ * client credentials whose per-user identity remains in scoped OAuth tokens.
+ * Key-aware callers may use those env vars.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with

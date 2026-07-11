@@ -130,6 +130,9 @@ export interface MultiScreenCanvasProps {
    * transformed directly from the overview canvas. */
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
+  /** Lets every live frame receive native pointer interaction while the
+   * overview camera and frame chrome remain available. */
+  interactMode?: boolean;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;

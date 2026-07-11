@@ -976,7 +976,7 @@ export function ReasoningCell({
   durationMs?: number | null;
 }) {
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
-  const [open, setOpen] = useState(defaultOpen ?? isStreaming);
+  const [open, setOpen] = useState(defaultOpen ?? true);
   const trimmed = text.trim();
   if (!trimmed && !isStreaming) return null;
 

@@ -108,6 +108,25 @@ function inlinePreloadChunksPlugin(): Plugin {
   };
 }
 
+function assertElectronIsExternalPlugin(): Plugin {
+  return {
+    name: "agent-native:assert-electron-is-external",
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "chunk") continue;
+        if (
+          output.code.includes("Electron failed to install correctly") ||
+          output.code.includes("node_modules/electron/index.js")
+        ) {
+          throw new Error(
+            `Electron's npm bootstrap was bundled into ${output.fileName}. Keep electron external in the main build.`,
+          );
+        }
+      }
+    },
+  };
+}
+
 function firstNonEmpty(...values: Array<string | undefined>): string {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -192,6 +211,7 @@ export default defineConfig({
           "zod",
         ],
       }),
+      assertElectronIsExternalPlugin(),
     ],
     resolve: {
       alias: {
@@ -200,6 +220,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
+        external: ["electron", /^electron\/.+/],
         input: {
           index: resolve("src/main/index.ts"),
           "browser-control-host": resolve(
@@ -257,7 +278,7 @@ export default defineConfig({
         ),
         "react/jsx-runtime": resolve("node_modules/react/jsx-runtime.js"),
       },
-      dedupe: ["react", "react-dom"],
+      dedupe: ["react", "react-dom", "@tanstack/react-query"],
     },
     plugins: [react(), tailwindcss({ optimize: false })],
   },

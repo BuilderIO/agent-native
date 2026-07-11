@@ -516,10 +516,10 @@ const messages = {
     slackUpdateFailed: "Slack intake update करने में विफल",
     slackConfigured: "Slack credentials configured हैं।",
     slackNeedsCredentials:
-      "Slack intake सक्षम करने के लिए SLACK_BOT_TOKEN और SLACK_SIGNING_SECRET जोड़ें।",
-    slackIntake: "Slack intake",
+      "Legacy custom intake के लिए SLACK_BOT_TOKEN और SLACK_SIGNING_SECRET आवश्यक हैं। नए Slack messaging automations के लिए Settings > Messaging में workspace connect करें।",
+    slackIntake: "Slack intake (legacy)",
     slackDescription:
-      "Organization members को Slack से email drafts queue करने दें।",
+      "Legacy custom integration जो organization members को Slack से email drafts queue करने देता है।",
     enabled: "सक्षम",
     disable: "अक्षम करें",
     enable: "सक्षम करें",

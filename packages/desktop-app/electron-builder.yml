@@ -19,6 +19,8 @@ extraResources:
     to: native/agent-native-computer-helper
   - from: ../agent-chrome-extension/dist
     to: chrome-extension
+  - from: build/Assets.car
+    to: Assets.car
 
 protocols:
   - name: Agent Native
@@ -29,6 +31,8 @@ mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   icon: build/icon.icns
+  extendInfo:
+    CFBundleIconName: agent-native
   notarize: true
   target:
     - target: dmg

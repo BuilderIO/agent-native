@@ -154,6 +154,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   );
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
+  const sidebarHasNewRecordingAction = isMobile
+    ? sidebarOpen
+    : !sidebarCollapsed;
 
   // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
   // + AgentSidebar, but skips its own header so there's no double-header.
@@ -603,7 +606,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </div>
           )}
           <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <PageHeaderSlotProvider slot={headerSlot}>
+            <PageHeaderSlotProvider
+              slot={headerSlot}
+              sidebarHasNewRecordingAction={sidebarHasNewRecordingAction}
+            >
               {children}
             </PageHeaderSlotProvider>
           </main>

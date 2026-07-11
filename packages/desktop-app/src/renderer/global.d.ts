@@ -490,6 +490,22 @@ type CodeAgentHostMetadata = {
   error?: string;
 };
 
+type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+type CodeAgentComputerSetupResult = {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
+  error?: string;
+};
+
 type DesktopOpenRequest = {
   app?: string;
   goalId?: string;
@@ -708,6 +724,9 @@ interface ElectronAPI {
       permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
     getHostMetadata(): Promise<CodeAgentHostMetadata>;
+    runComputerSetupAction(
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult>;
     listCodePacks(cwd?: string): Promise<CodeAgentCodePackResult>;
     listProjects(): Promise<CodeAgentProjectListResult>;
     selectProject(cwd: string): Promise<CodeAgentProjectSelectResult>;

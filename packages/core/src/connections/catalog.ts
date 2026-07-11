@@ -66,9 +66,9 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: [
       {
         key: "SLACK_BOT_TOKEN",
-        label: "Slack bot token",
+        label: "Slack bot token (legacy)",
         description:
-          "Bot token with the smallest channel and history scopes needed by the template.",
+          "Legacy single-workspace fallback. For new messaging automations, connect Slack from Settings → Messaging instead.",
         required: true,
       },
     ],

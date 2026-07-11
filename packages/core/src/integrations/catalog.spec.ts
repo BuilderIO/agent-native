@@ -44,6 +44,15 @@ describe("integration catalog", () => {
     expect(getIntegrationCatalogEntry("slack")?.caveats).toContain(
       "Replies stay in Slack's native message thread when a thread timestamp is available.",
     );
+    expect(
+      getIntegrationCatalogEntry("slack")?.credentialRequirements.find(
+        (credential) => credential.key === "SLACK_BOT_TOKEN",
+      ),
+    ).toMatchObject({
+      label: "Slack Bot Token (legacy)",
+      required: false,
+      helpText: expect.stringMatching(/Settings → Messaging/),
+    });
     expect(getIntegrationCatalogEntry("telegram")?.caveats.join(" ")).toMatch(
       /message_thread_id/i,
     );

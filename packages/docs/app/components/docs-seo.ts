@@ -1,4 +1,4 @@
-import { hasLocalizedDoc } from "./docs-content";
+import { hasAvailableDoc } from "./docs-availability";
 import {
   DEFAULT_DOCS_LOCALE,
   DOCS_LOCALES,
@@ -42,10 +42,10 @@ export function docsMarkdownPathForDoc(
   slug: string,
   locale: DocsLocale = DEFAULT_DOCS_LOCALE,
 ) {
-  const markdownLocale = hasLocalizedDoc(locale, slug)
+  const markdownLocale = hasAvailableDoc(locale, slug)
     ? locale
     : DEFAULT_DOCS_LOCALE;
-  if (!hasLocalizedDoc(markdownLocale, slug)) return null;
+  if (!hasAvailableDoc(markdownLocale, slug)) return null;
   return docsMarkdownPathForSlug(slug, markdownLocale);
 }
 
@@ -62,7 +62,7 @@ export function docsAlternateLinksForPath(
   pathname: string,
 ): DocsAlternateLink[] {
   const slug = docsSlugFromPathname(pathname);
-  if (!slug || !hasLocalizedDoc(DEFAULT_DOCS_LOCALE, slug)) return [];
+  if (!slug || !hasAvailableDoc(DEFAULT_DOCS_LOCALE, slug)) return [];
 
   const links: DocsAlternateLink[] = [
     {
@@ -73,7 +73,7 @@ export function docsAlternateLinksForPath(
 
   for (const locale of DOCS_LOCALES) {
     if (locale === DEFAULT_DOCS_LOCALE) continue;
-    if (!hasLocalizedDoc(locale, slug)) continue;
+    if (!hasAvailableDoc(locale, slug)) continue;
     links.push({
       hrefLang: locale,
       path: canonicalDocsPathForSlug(slug, locale),

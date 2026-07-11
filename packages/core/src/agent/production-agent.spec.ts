@@ -4836,9 +4836,15 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(1);
     expect(events).toEqual([
-      { type: "tool_start", tool: "bigquery", input: { sql: "select nope" } },
+      {
+        type: "tool_start",
+        id: "query-1",
+        tool: "bigquery",
+        input: { sql: "select nope" },
+      },
       {
         type: "tool_done",
+        id: "query-1",
         tool: "bigquery",
         input: { sql: "select nope" },
         result: JSON.stringify({
@@ -4915,12 +4921,14 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({
       type: "tool_start",
+      id: "bad-call",
       tool: "add-slide",
       input: { deckId: "deck-1", content: "<div></div>", position: "x" },
     });
     const toolDone = events.find(
       (event) => event.type === "tool_done" && event.tool === "add-slide",
     );
+    expect(toolDone?.id).toBe("bad-call");
     expect(toolDone?.result).toContain("Invalid action parameters");
     expect(toolDone?.result).toContain("position must be a number");
     expect(events).toContainEqual({
@@ -5038,6 +5046,7 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({
       type: "tool_done",
+      id: "mcp-call",
       tool: "mcp__x__fail",
       input: {},
       result: "Error calling MCP tool mcp__x__fail: boom",
@@ -5150,6 +5159,7 @@ describe("runAgentLoop", () => {
     ]);
     expect(events).toContainEqual({
       type: "tool_start",
+      id: "query-1",
       tool: "query-data",
       input: { sql: "select count(*)" },
     });

@@ -84,6 +84,11 @@
   --design-editor-panel-raised-bg: hsl(var(--secondary));
   --design-editor-control-bg: hsl(var(--muted));
   --design-editor-control-border: hsl(var(--border));
+  --design-editor-question-option-bg: color-mix(
+    in srgb,
+    var(--design-editor-control-bg) 58%,
+    transparent
+  );
   --design-editor-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-panel-ghost-bg: color-mix(
@@ -162,6 +167,11 @@
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
   --design-editor-control-bg: hsl(0 0% 18%);
   --design-editor-control-border: hsl(0 0% 24%);
+  --design-editor-question-option-bg: color-mix(
+    in srgb,
+    var(--design-editor-control-bg) 58%,
+    transparent
+  );
   --design-editor-canvas-bg: hsl(0 0% 10%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 11%);
 }

@@ -1394,7 +1394,7 @@ function designVariantGenerationDirectives(
     `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
-    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.",
+    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Every web design must be responsive; default each desktop direction to width 1440 and height 1024. Use mobile dimensions only when the user explicitly requested a mobile-first primary artboard.",
     'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
   ];
 }
@@ -1407,8 +1407,9 @@ function designGenerationDirectives(
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     ...designSystemGenerationDirectives(designSystemId),
     'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
+    'Responsive behavior is mandatory for every web design: use a mobile-first layout, include a viewport meta tag, stack or collapse desktop columns at narrow widths, and never rely on a fixed-width desktop shell. Default to a desktop primary artboard. For a Desktop or Both/responsive intake answer, pass `primaryViewport: "desktop"` and `canvasFrames` with width 1440 and height 1024; pass `primaryViewport: "mobile"` only when the user explicitly chooses a mobile-primary artboard.',
     "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
-    "After generate-design succeeds, stop and summarize what was created.",
+    "After generate-design succeeds, run `take-design-screenshot` at desktop and mobile viewports. Fix any horizontal overflow or layout breakage with edit-design before summarizing what was created.",
   ];
 }
 
@@ -2996,7 +2997,7 @@ function DesignWorkspaceRail({
   return (
     <nav
       aria-label={t("designEditor.leftRail.label")}
-      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain bg-[var(--design-editor-panel-bg)] py-3"
+      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
     >
       <div className="mb-3 flex h-8 items-center justify-center">
         {projectMenu}
@@ -22346,7 +22347,12 @@ function DesignEditor() {
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
-      setMode("edit");
+      // Returning from a focused prototype keeps Interact active so the user
+      // lands back on the large interactive canvas. Other overview-entry
+      // paths retain the existing Edit default.
+      setMode((currentMode) =>
+        currentMode === "interact" ? "interact" : "edit",
+      );
       setSelectedElement(null);
       setHoveredElement(null);
       setActiveTool("move");
@@ -22466,10 +22472,14 @@ function DesignEditor() {
       options?: {
         discardPendingLiveEdits?: boolean;
         pendingLiveEditsAlreadyHandled?: boolean;
+        targetFileId?: string;
       },
     ) => {
+      const nextActiveFile = options?.targetFileId
+        ? files.find((file) => file.id === options.targetFileId)
+        : activeFile;
       if (!canEditDesign && next === "annotate") return;
-      if ((next === "annotate" || next === "interact") && !activeFile) {
+      if ((next === "annotate" || next === "interact") && !nextActiveFile) {
         return;
       }
       if (
@@ -22488,14 +22498,7 @@ function DesignEditor() {
         clearPendingLiveEditState();
       }
 
-      // Interact operates inside one live screen. Annotate is different: its
-      // overlay is intentionally board-wide in overview so users can mark the
-      // canvas around/across screens without remounting their preview iframes.
-      if (next === "interact" && activeFile && viewMode === "overview") {
-        viewModeRef.current = "single";
-        setScreenZoom(FOCUSED_SCREEN_ZOOM);
-        setViewMode("single");
-      }
+      if (options?.targetFileId) setActiveFileId(options.targetFileId);
       setMode(next);
       setSelectedElement(null);
 
@@ -22522,8 +22525,18 @@ function DesignEditor() {
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
       t,
-      viewMode,
+      files,
     ],
+  );
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (mode === "interact") {
+        enterSingleScreenInteract(screenId);
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
+    },
+    [enterSingleScreenInteract, handleModeChange, mode],
   );
 
   useEffect(() => {
@@ -28533,7 +28546,7 @@ function DesignEditor() {
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={mode === "edit"}
-          interactMode={false}
+          interactMode={mode === "interact"}
           readOnly={!canEditDesign}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
@@ -29093,9 +29106,9 @@ function DesignEditor() {
   // base frame's onEdit={enterSingleScreen}.
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
-      enterSingleScreenInteract(screenId);
+      handleOverviewFrameAction(screenId);
     },
-    [enterSingleScreenInteract],
+    [handleOverviewFrameAction],
   );
 
   // Hooks must not be called conditionally; keep navigate as an effect so the
@@ -29869,7 +29882,7 @@ function DesignEditor() {
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
+              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
               style={{ width: leftContentWidth }}
             >
               <div
@@ -30479,6 +30492,7 @@ function DesignEditor() {
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
+                        interactMode={mode === "interact"}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -30610,7 +30624,7 @@ function DesignEditor() {
                           selectedLayerSelectorGroupsByScreen
                         }
                         onPick={handleOverviewScreenPick}
-                        onEdit={enterSingleScreenInteract}
+                        onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         onActiveBreakpointChange={
@@ -30995,7 +31009,7 @@ function DesignEditor() {
         {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
-            className="relative hidden h-full min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] md:flex"
+            className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
             <div

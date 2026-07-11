@@ -367,6 +367,22 @@ editing the DOM/code layers inside one rendered file. The layers panel reflects
 that split: screens are top-level frames, with nested DOM/code layers for the
 active screen.
 
+### Tweaks
+
+Tweaks are named controls for quickly changing the most useful visual properties
+of a design without editing its source. A design can expose color swatches,
+segmented choices, sliders, and toggles for properties such as accent color,
+corner radius, spacing, density, or visibility. Each control is connected to a
+CSS custom property used by the rendered design, so the preview updates as you
+adjust it.
+
+Tweaks follow the editor's cascade. A value set on the base design is inherited
+by its responsive breakpoints and states. Changing a tweak while a breakpoint or
+state is active creates an override for that context; resetting the control
+removes the override and returns to the inherited value. Saved tweak values stay
+with the design. Use **Add tweak controls** or ask the agent to expose another
+visual property when the panel does not include the control you need.
+
 Install `/visual-edit` when a coding agent should open a running local app in
 Design instead of generating standalone prototype HTML:
 

@@ -137,10 +137,10 @@ const BUILT_IN_CHANNEL_CATALOG = [
     credentialRequirements: [
       {
         key: "SLACK_BOT_TOKEN",
-        label: "Slack Bot Token",
+        label: "Slack Bot Token (legacy)",
         required: false,
         helpText:
-          "OAuth & Permissions → Bot User OAuth Token (starts with `xoxb-`).",
+          "Legacy single-workspace fallback only. For new setups, install Slack from Settings → Messaging; managed OAuth stores each workspace token automatically.",
       },
       {
         key: "SLACK_CLIENT_ID",

@@ -53,14 +53,29 @@ interface MovingRect {
   height: number;
 }
 
-function loadSnapMath(): {
-  rectBounds: (rect: MovingRect | DOMRect) => RectBounds;
-  computeMoveSnapOffset: (
-    movingRect: MovingRect,
-    candidates: RectBounds[],
-    threshold: number,
-  ) => SnapResult;
-} {
+function extractFunction(src: string, name: string): string {
+  const startMarker = `function ${name}(`;
+  const startIdx = src.indexOf(startMarker);
+  if (startIdx === -1) {
+    throw new Error(`${name} not found in compiled editor-chrome bridge`);
+  }
+  const braceStart = src.indexOf("{", startIdx);
+  let depth = 0;
+  let i = braceStart;
+  for (; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        i += 1;
+        break;
+      }
+    }
+  }
+  return src.slice(startIdx, i);
+}
+
+function loadEditorChromeBridgeScript(): string {
   const generatedPath = fileURLToPath(
     new URL(
       "../../../.generated/bridge/editor-chrome.generated.ts",
@@ -71,32 +86,18 @@ function loadSnapMath(): {
   const { editorChromeBridgeScript } = require(generatedPath) as {
     editorChromeBridgeScript: string;
   };
+  return editorChromeBridgeScript;
+}
 
-  // Isolate just the two pure function declarations by brace-matching from
-  // their `function <name>(` marker, rather than running the whole bridge
-  // body (which creates DOM overlays / event listeners on load and would
-  // need a much richer document/window stub than these functions need).
-  function extractFunction(src: string, name: string): string {
-    const startMarker = `function ${name}(`;
-    const startIdx = src.indexOf(startMarker);
-    if (startIdx === -1) {
-      throw new Error(`${name} not found in compiled editor-chrome bridge`);
-    }
-    const braceStart = src.indexOf("{", startIdx);
-    let depth = 0;
-    let i = braceStart;
-    for (; i < src.length; i += 1) {
-      if (src[i] === "{") depth += 1;
-      else if (src[i] === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          i += 1;
-          break;
-        }
-      }
-    }
-    return src.slice(startIdx, i);
-  }
+function loadSnapMath(): {
+  rectBounds: (rect: MovingRect | DOMRect) => RectBounds;
+  computeMoveSnapOffset: (
+    movingRect: MovingRect,
+    candidates: RectBounds[],
+    threshold: number,
+  ) => SnapResult;
+} {
+  const editorChromeBridgeScript = loadEditorChromeBridgeScript();
 
   const rectBoundsSrc = extractFunction(editorChromeBridgeScript, "rectBounds");
   const computeMoveSnapOffsetSrc = extractFunction(
@@ -112,6 +113,27 @@ function loadSnapMath(): {
 }
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
+
+function loadSelectionTargetForHit(documentRoot: {
+  body: Element;
+  documentElement: Element;
+}): (hit: Element | null) => Element | null {
+  const editorChromeBridgeScript = loadEditorChromeBridgeScript();
+  const rootCheck = extractFunction(
+    editorChromeBridgeScript,
+    "isDocumentRootElement",
+  );
+  const selectionTarget = extractFunction(
+    editorChromeBridgeScript,
+    "selectionTargetForHit",
+  );
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(
+    "document",
+    `${rootCheck}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+  );
+  return factory(documentRoot);
+}
 
 describe("editor-chrome bridge — rectBounds", () => {
   it("derives right/bottom/center from left/top/width/height for a plain drag rect", () => {
@@ -142,6 +164,26 @@ describe("editor-chrome bridge — rectBounds", () => {
       centerX: 20,
       centerY: 20,
     });
+  });
+});
+
+describe("editor-chrome bridge — selectionTargetForHit", () => {
+  it("selects an id-less nested list item directly instead of its tagged parent", () => {
+    const body = {} as Element;
+    const documentElement = {} as Element;
+    const selectionTargetForHit = loadSelectionTargetForHit({
+      body,
+      documentElement,
+    });
+    const taggedParent = {
+      getAttribute: () => "list",
+    } as unknown as Element;
+    const child = {
+      parentElement: taggedParent,
+      textContent: "Active",
+    } as unknown as Element;
+
+    expect(selectionTargetForHit(child)).toBe(child);
   });
 });
 

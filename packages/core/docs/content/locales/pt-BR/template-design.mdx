@@ -364,6 +364,22 @@ protótipo e editar as camadas DOM/código dentro de um arquivo renderizado. O
 painel de camadas reflete essa divisão: telas são frames de nível superior, com
 camadas DOM/código aninhadas para a tela ativa.
 
+### Tweaks
+
+Tweaks são controles nomeados para alterar rapidamente as propriedades visuais
+mais úteis de um design sem editar o código-fonte. Um design pode oferecer
+amostras de cor, opções segmentadas, controles deslizantes e alternâncias para
+propriedades como cor de destaque, raio dos cantos, espaçamento, densidade ou
+visibilidade. Cada controle se conecta a uma propriedade CSS personalizada usada
+pelo design renderizado, então a visualização é atualizada durante o ajuste.
+
+Tweaks seguem a cascata do editor. Breakpoints responsivos e estados herdam o
+valor definido no design base. Alterar um tweak enquanto um breakpoint ou estado
+está ativo cria uma substituição para esse contexto; redefinir o controle remove
+a substituição e restaura o valor herdado. Os valores salvos permanecem com o
+design. Use **Adicionar controles de ajuste** ou peça ao agente para expor outra
+propriedade visual quando o controle necessário não estiver no painel.
+
 Instale `/visual-edit` quando um agente de código precisar abrir um app local em
 execução no Design em vez de gerar HTML de protótipo independente:
 

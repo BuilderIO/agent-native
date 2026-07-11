@@ -513,9 +513,10 @@ const messages = {
     slackUpdateFailed: "Failed to update Slack intake",
     slackConfigured: "Slack credentials are configured.",
     slackNeedsCredentials:
-      "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.",
-    slackIntake: "Slack Intake",
-    slackDescription: "Let organization members queue email drafts from Slack.",
+      "Legacy custom intake requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET. For new Slack messaging automations, connect a workspace in Settings > Messaging.",
+    slackIntake: "Slack Intake (legacy)",
+    slackDescription:
+      "Legacy custom integration that lets organization members queue email drafts from Slack.",
     enabled: "Enabled",
     disable: "Disable",
     enable: "Enable",

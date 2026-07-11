@@ -9,7 +9,7 @@ metadata:
 
 # Ship Desktop
 
-End-to-end local install of the Agent Native Electron app. Produces an **unsigned, un-notarized arm64 DMG** — fine for local use on Steve's M-series Mac. This skill intentionally bypasses codesign/notarize because they only work in CI (`.github/workflows/desktop-release.yml`) where the Apple secrets live.
+End-to-end local install of the Agent Native Electron app. Produces a **signed, un-notarized arm64 DMG** on Steve's Mac when the Builder Developer ID certificate is available. Stable local signing is required so Electron Safe Storage does not ask for Keychain access again after every rebuild. If no signing identity is installed, fall back to an ad-hoc build and warn that saved-provider access may prompt again.
 
 ## When to use
 
@@ -27,19 +27,28 @@ pgrep -f "/Applications/Agent Native.app" # note if it's currently running
 
 ## Steps
 
-### 1. Build arm64 DMG (unsigned)
+### 1. Build arm64 DMG
 
 Universal builds silently stall during the merge step locally (npm dep collector noise). Build arm64-only — it's what Steve's machine runs anyway.
 
 ```bash
 cd packages/desktop-app
 pnpm exec electron-vite build
-CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dmg --arm64 \
-  -c.mac.notarize=false \
-  -c.mac.identity=null \
-  -c.mac.target.target=dmg \
-  -c.mac.target.arch=arm64 \
-  > /tmp/desktop-build.log 2>&1
+if security find-identity -v -p codesigning | grep -q 'Developer ID Application: Builder.io, Inc (W3PMF2T3MW)'; then
+  pnpm exec electron-builder --mac dmg --arm64 \
+    -c.mac.notarize=false \
+    -c.mac.target.target=dmg \
+    -c.mac.target.arch=arm64 \
+    > /tmp/desktop-build.log 2>&1
+else
+  echo "Warning: Builder Developer ID is unavailable; building ad-hoc." >&2
+  CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac dmg --arm64 \
+    -c.mac.notarize=false \
+    -c.mac.identity=null \
+    -c.mac.target.target=dmg \
+    -c.mac.target.arch=arm64 \
+    > /tmp/desktop-build.log 2>&1
+fi
 ```
 
 The build runs for ~1–2 minutes. Watch for `building target=DMG arch=arm64 file=dist/Agent Native.dmg` near the end. Skip the `npm error missing/invalid` noise — it's from the `npm ls` dep collector inside a pnpm workspace and is harmless.
@@ -54,15 +63,15 @@ sleep 2
 pgrep -f "/Applications/Agent Native.app/Contents/MacOS/Agent Native" | xargs -r kill
 ```
 
-### 3. Patch the built .app for macOS Tahoe Liquid Glass
+### 3. Verify macOS Tahoe Liquid Glass assets
 
-electron-builder ships only `icon.icns`. macOS 26 (Tahoe) draws the dynamic Liquid Glass bezel/specular only when an app has both `Assets.car` (compiled from our `.icon` bundle) AND `CFBundleIconName` set in `Info.plist`. `scripts/build-branding-assets.mjs` produces `packages/desktop-app/build/Assets.car` from `packages/core/src/assets/branding/agent-native.icon`. Install it directly into the unpacked `.app` before copying it to `/Applications` (skip the DMG — it's just compressed packaging).
+macOS 26 (Tahoe) draws the dynamic Liquid Glass bezel/specular only when an app has both `Assets.car` (compiled from our `.icon` bundle) and `CFBundleIconName` set in `Info.plist`. Both are included by `electron-builder.yml` before signing. Verify them without changing the signed bundle.
 
 ```bash
 APP="packages/desktop-app/dist/mac-arm64/Agent Native.app"
-cp packages/desktop-app/build/Assets.car "$APP/Contents/Resources/Assets.car"
-/usr/libexec/PlistBuddy -c "Add :CFBundleIconName string agent-native" "$APP/Contents/Info.plist" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c "Set :CFBundleIconName agent-native" "$APP/Contents/Info.plist"
+test -f "$APP/Contents/Resources/Assets.car"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP/Contents/Info.plist")" = "agent-native"
+codesign --verify --deep --strict "$APP"
 ```
 
 ### 4. Install to /Applications
@@ -87,7 +96,7 @@ open "/Applications/Agent Native.app"
 
 ## Notes
 
-- **Why not `pnpm run build:mac`?** That script runs universal + notarize + sign, which hangs on missing `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` env vars (only set in GitHub Actions). The universal merge step also silently aborts locally.
+- **Why not `pnpm run build:mac`?** That script runs universal + notarize, which hangs on missing notarization credentials (only set in GitHub Actions). The universal merge step also silently aborts locally.
 - **Shipping for real** — use the `Desktop App Release` GitHub Actions workflow (`.github/workflows/desktop-release.yml`). Never publish a locally-built artifact.
 - **Data preserved** — user settings live in `~/Library/Application Support/Agent Native/`. Reinstalling does not touch them.
 - **If the app won't open** after install, check Console.app for `Agent Native` entries — common cause is a stale Electron helper still running from the old version.

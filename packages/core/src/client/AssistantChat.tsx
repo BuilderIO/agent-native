@@ -123,6 +123,7 @@ import {
   type ApprovalContextValue,
   ReconnectStreamMessage,
 } from "./chat/tool-call-display.js";
+import { useReconnectReaderOwner } from "./chat/use-reconnect-reader-owner.js";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -764,6 +765,20 @@ function toolCallIdsRepresentSameLocalCall(
   return renderedId === reconnectId || renderedId.endsWith(`:${reconnectId}`);
 }
 
+function toolCallIdIsReaderLocal(id: string): boolean {
+  return (
+    /^tc_\d+$/.test(id) ||
+    /:tc_\d+$/.test(id) ||
+    id.startsWith("reconnect-activity:")
+  );
+}
+
+function toolCallReaderLocalKey(id: string): string | null {
+  const counterMatch = id.match(/(?:^|:)(tc_\d+)$/);
+  if (counterMatch?.[1]) return counterMatch[1];
+  return id.startsWith("reconnect-activity:") ? id : null;
+}
+
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
   byId: Map<string, { rank: number }>;
   latestAssistantByFingerprint: Map<string, { rank: number }>;
@@ -862,7 +877,14 @@ function latestRenderedAssistantText(messages: readonly unknown[]): string {
 function dedupePendingToolCallReplaysWithinContent(
   content: ContentPart[],
 ): ContentPart[] {
-  const seenLaterFingerprints = new Set<string>();
+  const laterStatesByFingerprint = new Map<
+    string,
+    {
+      ids: Set<string>;
+      readerLocalKeys: Set<string>;
+      hasStableId: boolean;
+    }
+  >();
   let changed = false;
   const nextReversed: ContentPart[] = [];
 
@@ -870,53 +892,153 @@ function dedupePendingToolCallReplaysWithinContent(
     const part = content[i];
     if (!part) continue;
     const fingerprint = toolCallFingerprintFromContentPart(part);
-    if (
-      fingerprint &&
-      !toolCallPartHasResult(part) &&
-      seenLaterFingerprints.has(fingerprint)
-    ) {
+    const laterState = fingerprint
+      ? laterStatesByFingerprint.get(fingerprint)
+      : undefined;
+    const id = toolCallIdFromContentPart(part);
+    const readerLocalKey = id ? toolCallReaderLocalKey(id) : null;
+    const isReaderReplay = Boolean(
+      id &&
+      laterState &&
+      (laterState.ids.has(id) ||
+        (readerLocalKey && laterState.readerLocalKeys.has(readerLocalKey)) ||
+        (toolCallIdIsReaderLocal(id) && laterState.hasStableId)),
+    );
+    if (fingerprint && !toolCallPartHasResult(part) && isReaderReplay) {
       changed = true;
       continue;
     }
-    if (fingerprint) seenLaterFingerprints.add(fingerprint);
+    if (fingerprint) {
+      const state = laterState ?? {
+        ids: new Set(),
+        readerLocalKeys: new Set(),
+        hasStableId: false,
+      };
+      if (id) {
+        state.ids.add(id);
+        const key = toolCallReaderLocalKey(id);
+        if (key) state.readerLocalKeys.add(key);
+        else state.hasStableId = true;
+      }
+      laterStatesByFingerprint.set(fingerprint, state);
+    }
     nextReversed.push(part);
   }
 
   return changed ? nextReversed.reverse() : content;
 }
 
+function pendingToolCallCountsByName(
+  content: readonly ContentPart[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const part of content) {
+    const name = toolCallNameFromContentPart(part);
+    if (!name || toolCallProgressRank(part) >= 4) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Linear-time longest overlap where a suffix of `renderedText` equals a prefix
+ * of `reconnectText`. The reconnect overlay is recalculated during render on
+ * every stream tick, so a descending slice/endsWith scan becomes quadratic on
+ * large repeated output.
+ */
+function longestSuffixPrefixOverlap(
+  renderedText: string,
+  reconnectText: string,
+): number {
+  const maxOverlap = Math.min(renderedText.length, reconnectText.length);
+  if (maxOverlap === 0) return 0;
+
+  const pattern = reconnectText.slice(0, maxOverlap);
+  const prefixLengths = new Array<number>(pattern.length).fill(0);
+  for (let index = 1; index < pattern.length; index += 1) {
+    let matched = prefixLengths[index - 1] ?? 0;
+    while (matched > 0 && pattern[index] !== pattern[matched]) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+    if (pattern[index] === pattern[matched]) matched += 1;
+    prefixLengths[index] = matched;
+  }
+
+  let matched = 0;
+  const renderedStart = renderedText.length - maxOverlap;
+  for (let index = renderedStart; index < renderedText.length; index += 1) {
+    const character = renderedText[index];
+    while (matched > 0 && character !== pattern[matched]) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+    if (character === pattern[matched]) matched += 1;
+    if (matched === pattern.length && index < renderedText.length - 1) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+  }
+  return matched;
+}
+
 function trimReconnectTextAlreadyRendered(
   content: ContentPart[],
   renderedAssistantText: string,
+  options?: { trimTailOverlap?: boolean },
 ): ContentPart[] {
   if (!renderedAssistantText) return content;
 
-  let remainingOverlap = renderedAssistantText;
+  const reconnectText = assistantTextFromContent(content);
+  if (!reconnectText) return content;
+
+  let overlapLength = 0;
+  if (reconnectText.startsWith(renderedAssistantText)) {
+    overlapLength = renderedAssistantText.length;
+  } else if (renderedAssistantText.startsWith(reconnectText)) {
+    overlapLength = reconnectText.length;
+  } else if (options?.trimTailOverlap) {
+    const tailOverlap = longestSuffixPrefixOverlap(
+      renderedAssistantText,
+      reconnectText,
+    );
+    if (tailOverlap > 0) {
+      // Tail reconnects begin after the last remembered event, so their first
+      // text can be the final suffix of a thread snapshot imported in parallel.
+      // For a partial overlap, require a whole word/phrase boundary so a
+      // coincidental shared character at the join cannot eat legitimate text.
+      const renderedBeforeOverlap =
+        renderedAssistantText[renderedAssistantText.length - tailOverlap - 1];
+      const reconnectAfterOverlap = reconnectText[tailOverlap];
+      const isWordCharacter = (value: string | undefined) =>
+        value ? /[\p{L}\p{N}_]/u.test(value) : false;
+      const isWholeBoundary =
+        !isWordCharacter(renderedBeforeOverlap) &&
+        !isWordCharacter(reconnectAfterOverlap);
+      if (tailOverlap === reconnectText.length || isWholeBoundary) {
+        overlapLength = tailOverlap;
+      }
+    }
+  }
+
+  if (overlapLength === 0) return content;
+
+  let remainingOverlap = overlapLength;
   let changed = false;
   const next: ContentPart[] = [];
 
   for (const part of content) {
-    if (part.type !== "text" || remainingOverlap.length === 0) {
+    if (part.type !== "text" || remainingOverlap === 0) {
       next.push(part);
       continue;
     }
 
-    if (remainingOverlap.startsWith(part.text)) {
-      remainingOverlap = remainingOverlap.slice(part.text.length);
+    if (part.text.length <= remainingOverlap) {
+      remainingOverlap -= part.text.length;
       changed = true;
       continue;
     }
 
-    if (part.text.startsWith(remainingOverlap)) {
-      const text = part.text.slice(remainingOverlap.length);
-      remainingOverlap = "";
-      changed = true;
-      if (text) next.push({ ...part, text });
-      continue;
-    }
-
-    remainingOverlap = "";
-    next.push(part);
+    next.push({ ...part, text: part.text.slice(remainingOverlap) });
+    remainingOverlap = 0;
+    changed = true;
   }
 
   return changed ? next : content;
@@ -925,10 +1047,14 @@ function trimReconnectTextAlreadyRendered(
 export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],
-  options?: { suppressToolRepeats?: boolean },
+  options?: {
+    suppressToolRepeats?: boolean;
+    trimTailTextOverlap?: boolean;
+  },
 ): ContentPart[] {
   if (content.length === 0) return content;
   const snapshotDeduped = dedupePendingToolCallReplaysWithinContent(content);
+  const reconnectPendingCounts = pendingToolCallCountsByName(snapshotDeduped);
   let changed = snapshotDeduped !== content;
   if (messages.length === 0) return changed ? snapshotDeduped : content;
   const { byId, latestAssistantByFingerprint, latestAssistantByName } =
@@ -1009,6 +1135,31 @@ export function dedupeReconnectContentAgainstMessages(
             const latestByName = name
               ? latestAssistantByName.get(name)
               : undefined;
+            const reconnectPendingCount = name
+              ? (reconnectPendingCounts.get(name) ?? 0)
+              : 0;
+            const hasReaderLocalIdentity = Boolean(
+              (id && toolCallIdIsReaderLocal(id)) ||
+              (latestByName &&
+                Array.from(latestByName.pendingIds).some(
+                  toolCallIdIsReaderLocal,
+                )),
+            );
+            if (
+              options?.suppressToolRepeats &&
+              latestByName &&
+              latestByName.pendingIds.size === 1 &&
+              reconnectPendingCount === 1 &&
+              hasReaderLocalIdentity &&
+              latestByName.pendingRank >= reconnectRank
+            ) {
+              // During reconnect -> live-adapter handoff both accumulators own
+              // the same run. Their pre-tool-start activity cards can have
+              // unrelated reader-local ids and no args fingerprint, so name +
+              // pending progress is the only stable identity available.
+              changed = true;
+              return false;
+            }
             const matchesRenderedLocalId =
               id && latestByName
                 ? Array.from(latestByName.ids).some((renderedId) =>
@@ -1037,6 +1188,7 @@ export function dedupeReconnectContentAgainstMessages(
   const textDeduped = trimReconnectTextAlreadyRendered(
     filtered,
     renderedAssistantText,
+    { trimTailOverlap: options?.trimTailTextOverlap },
   );
   if (textDeduped !== filtered) changed = true;
   return changed ? textDeduped : content;
@@ -1151,19 +1303,40 @@ function contentHasVisibleReasoning(content: unknown): boolean {
   });
 }
 
+function contentHasUnresolvedToolCall(
+  content: unknown,
+  toolName?: string | null,
+): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const candidate = part as {
+      type?: unknown;
+      toolName?: unknown;
+      result?: unknown;
+    };
+    return (
+      candidate.type === "tool-call" &&
+      candidate.result === undefined &&
+      (!toolName || candidate.toolName === toolName)
+    );
+  });
+}
+
 export function shouldShowGlobalRunningStatus({
   showRunningInUI,
   runningActivityLabel,
+  runningActivityTool,
   latestMessage,
   reconnectContent,
 }: {
   showRunningInUI: boolean;
   runningActivityLabel: string | null | undefined;
+  runningActivityTool?: string | null;
   latestMessage: unknown;
   reconnectContent: readonly ContentPart[];
 }): boolean {
   if (!showRunningInUI) return false;
-  if (runningActivityLabel) return true;
 
   const message =
     latestMessage && typeof latestMessage === "object"
@@ -1172,6 +1345,30 @@ export function shouldShowGlobalRunningStatus({
   const latestMessageHasReasoning =
     message?.role === "assistant" &&
     contentHasVisibleReasoning(message.content);
+  const latestMessageHasUnresolvedTool =
+    message?.role === "assistant" &&
+    contentHasUnresolvedToolCall(message.content);
+  const matchingActivityToolIsVisible = Boolean(
+    runningActivityTool &&
+    ((message?.role === "assistant" &&
+      contentHasUnresolvedToolCall(message.content, runningActivityTool)) ||
+      contentHasUnresolvedToolCall(reconnectContent, runningActivityTool)),
+  );
+
+  // A pending card for the same tool is already the running indicator.
+  // Rendering its global activity label as well shows the logical call twice
+  // (for example, `generate design` plus `Writing generate design...`).
+  if (runningActivityLabel && matchingActivityToolIsVisible) {
+    return false;
+  }
+  if (
+    !runningActivityLabel &&
+    (latestMessageHasUnresolvedTool ||
+      contentHasUnresolvedToolCall(reconnectContent))
+  ) {
+    return false;
+  }
+  if (runningActivityLabel) return true;
 
   return (
     !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
@@ -2041,6 +2238,10 @@ const AssistantChatInner = forwardRef<
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   const reconnectAutoRecoveryCountRef = useRef(0);
+  const reconnectOwnerMountedRef = useReconnectReaderOwner(
+    reconnectRunIdRef,
+    reconnectAbortRef,
+  );
   const [pendingReconnectRecovery, setPendingReconnectRecovery] =
     useState<PendingReconnectRecovery | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
@@ -2386,6 +2587,7 @@ const AssistantChatInner = forwardRef<
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
       if (
+        !reconnectOwnerMountedRef.current ||
         !threadId ||
         !runInfo.runId ||
         (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo))
@@ -2596,6 +2798,12 @@ const AssistantChatInner = forwardRef<
               rafPending = true;
               requestAnimationFrame(() => {
                 rafPending = false;
+                if (
+                  !reconnectOwnerMountedRef.current ||
+                  reconnectRunIdRef.current !== runId
+                ) {
+                  return;
+                }
                 setReconnectContent(latestSnapshot);
               });
             };
@@ -2664,6 +2872,11 @@ const AssistantChatInner = forwardRef<
           clearInterval(watchdog);
           clearInterval(idleCheck);
         }
+
+        // A newer reader, live adapter, stop action, or component unmount took
+        // ownership while this async loop was unwinding. Do not let the stale
+        // generation refresh/import or update reconnect state afterwards.
+        if (reconnectRunIdRef.current !== runId) return;
 
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
           const reconnectErrorCode =
@@ -3630,6 +3843,7 @@ const AssistantChatInner = forwardRef<
     const stillNeeded =
       dedupeReconnectContentAgainstMessages(reconnectContent, messages, {
         suppressToolRepeats: true,
+        trimTailTextOverlap: true,
       }).length > 0;
     if (!stillNeeded) {
       setReconnectContent([]);
@@ -4236,7 +4450,11 @@ const AssistantChatInner = forwardRef<
   const visibleReconnectContent = dedupeReconnectContentAgainstMessages(
     reconnectContent,
     messages,
-    { suppressToolRepeats: adapterHandoffPending },
+    {
+      suppressToolRepeats: adapterHandoffPending,
+      trimTailTextOverlap:
+        adapterHandoffPending || reconnectTailOnlyRef.current,
+    },
   );
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
@@ -4262,11 +4480,18 @@ const AssistantChatInner = forwardRef<
   );
   const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
+  const reconnectStatusContent =
+    visibleReconnectContent.length > 0
+      ? visibleReconnectContent
+      : reconnectContent.length === 0
+        ? reconnectActivityContent
+        : [];
   const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
     showRunningInUI,
     runningActivityLabel,
+    runningActivityTool,
     latestMessage,
-    reconnectContent: visibleReconnectContent,
+    reconnectContent: reconnectStatusContent,
   });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&

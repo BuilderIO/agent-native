@@ -4,6 +4,8 @@ import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
+  type CodeAgentComputerSetupAction,
+  type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
@@ -296,6 +298,10 @@ const electronAPI = {
       }),
     getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
+    runComputerSetupAction: (
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_COMPUTER_SETUP, action),
     listCodePacks: (cwd?: string): Promise<CodeAgentCodePackResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS, { cwd }),
     listProjects: (): Promise<CodeAgentProjectListResult> =>

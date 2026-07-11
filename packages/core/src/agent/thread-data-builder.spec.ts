@@ -167,6 +167,98 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("preserves stable tool call ids and pairs parallel same-name results by id", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "search-call-1",
+            tool: "search",
+            input: { q: "first" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            id: "search-call-2",
+            tool: "search",
+            input: { q: "second" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "search-call-1",
+            tool: "search",
+            result: "first result",
+          },
+        },
+        {
+          seq: 3,
+          event: {
+            type: "tool_done",
+            id: "search-call-2",
+            tool: "search",
+            result: "second result",
+          },
+        },
+      ],
+      "run-parallel-tools",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "search-call-1",
+        args: { q: "first" },
+        result: "first result",
+      }),
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "search-call-2",
+        args: { q: "second" },
+        result: "second result",
+      }),
+    ]);
+  });
+
+  it("falls back to legacy name matching when a done id has no matching start", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            tool: "search",
+            input: { q: "legacy" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "new-server-id",
+            tool: "search",
+            result: "legacy result",
+          },
+        },
+      ],
+      "run-legacy-tool",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "run-legacy-tool:tc_1",
+        result: "legacy result",
+      }),
+    ]);
+  });
+
   it("settles unresolved tool calls on terminal rebuilt messages", () => {
     const message = buildAssistantMessage(
       [

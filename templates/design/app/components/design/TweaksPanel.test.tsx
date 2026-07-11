@@ -20,5 +20,7 @@ describe("TweaksPanelContent", () => {
     );
     expect(html).toContain("data-tweaks-help");
     expect(html).toContain("designEditor.tweaksHelp");
+    expect(html).toContain("designEditor.tweaksDocs");
+    expect(html).toContain("/docs/template-design#tweaks");
   });
 });

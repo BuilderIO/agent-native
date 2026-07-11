@@ -364,6 +364,22 @@ comportamiento del prototipo y editar las capas DOM/código dentro de un archivo
 renderizado. El panel de capas refleja esa división: las pantallas son marcos de
 nivel superior, con capas DOM/código anidadas para la pantalla activa.
 
+### Tweaks
+
+Los tweaks son controles con nombre para cambiar rápidamente las propiedades visuales
+más útiles de un diseño sin editar su código fuente. Un diseño puede ofrecer muestras
+de color, opciones segmentadas, deslizadores e interruptores para propiedades como el
+color de acento, el radio de las esquinas, el espaciado, la densidad o la visibilidad.
+Cada control está conectado a una propiedad CSS personalizada utilizada por el diseño,
+por lo que la vista previa se actualiza al ajustarlo.
+
+Los tweaks siguen la cascada del editor. Los puntos de quiebre y estados heredan el
+valor definido en el diseño base. Cambiar un tweak mientras un punto de quiebre o
+estado está activo crea una modificación para ese contexto; restablecer el control
+elimina la modificación y recupera el valor heredado. Los valores guardados permanecen
+con el diseño. Usa **Agregar controles de ajuste** o pide al agente que exponga otra
+propiedad visual cuando falte el control que necesitas.
+
 Instala `/visual-edit` cuando un agente de código deba abrir una app local en
 ejecución dentro de Design en lugar de generar HTML de prototipo independiente:
 

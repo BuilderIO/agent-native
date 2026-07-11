@@ -34,11 +34,12 @@ import {
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+const DEFAULT_SSR_CDN_CACHE_CONTROL =
+  "public, s-maxage=3600, stale-while-revalidate=604800, stale-if-error=3600";
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=5, stale-while-revalidate=604800, stale-if-error=3600";
+  "public, durable, s-maxage=3600, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_NETLIFY_VARY = "query=_routes";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -63,6 +64,7 @@ function expectDefaultWorkerSsrCacheHeaders(response: Response) {
   expect(response.headers.get("netlify-cdn-cache-control")).toBe(
     DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   );
+  expect(response.headers.get("netlify-vary")).toBe(DEFAULT_SSR_NETLIFY_VARY);
 }
 
 function makeTempDir(): string {

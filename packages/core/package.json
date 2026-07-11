@@ -346,7 +346,7 @@
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-query": "^5.101.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",

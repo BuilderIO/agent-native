@@ -505,9 +505,9 @@ const messages = {
     slackUpdateFailed: "更新 Slack 收件入口失败",
     slackConfigured: "Slack 凭据已配置。",
     slackNeedsCredentials:
-      "添加 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET 以启用 Slack 收件入口。",
-    slackIntake: "Slack 收件入口",
-    slackDescription: "允许组织成员从 Slack 排队邮件草稿。",
+      "旧版自定义收件入口需要 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET。新的 Slack 消息自动化请在设置 > 消息中连接工作区。",
+    slackIntake: "Slack 收件入口（旧版）",
+    slackDescription: "允许组织成员从 Slack 排队邮件草稿的旧版自定义集成。",
     enabled: "已启用",
     disable: "停用",
     enable: "启用",

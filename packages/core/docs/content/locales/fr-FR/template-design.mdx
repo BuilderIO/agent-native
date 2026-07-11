@@ -364,6 +364,23 @@ prototype et modifier les couches DOM/code dans un fichier rendu. Le panneau des
 couches reflète cette séparation : les écrans sont des cadres de niveau
 supérieur, avec les couches DOM/code imbriquées pour l'écran actif.
 
+### Tweaks
+
+Les tweaks sont des contrôles nommés qui permettent de modifier rapidement les
+propriétés visuelles les plus utiles d'un design sans éditer sa source. Un design
+peut proposer des nuanciers, des choix segmentés, des curseurs et des interrupteurs
+pour la couleur d'accent, le rayon des angles, l'espacement, la densité ou la
+visibilité. Chaque contrôle est relié à une propriété CSS personnalisée utilisée
+par le design rendu, de sorte que l'aperçu se met à jour pendant le réglage.
+
+Les tweaks suivent la cascade de l'éditeur. Les points d'arrêt responsive et les
+états héritent de la valeur définie sur le design de base. Modifier un tweak pendant
+qu'un point d'arrêt ou un état est actif crée une surcharge pour ce contexte ;
+réinitialiser le contrôle supprime la surcharge et rétablit la valeur héritée. Les
+valeurs enregistrées restent avec le design. Utilisez **Ajouter des contrôles de
+réglage** ou demandez à l'agent d'exposer une autre propriété visuelle si le contrôle
+nécessaire manque.
+
 Installez `/visual-edit` lorsqu'un agent de code doit ouvrir une app locale en
 cours d'exécution dans Design au lieu de générer du HTML de prototype autonome :
 

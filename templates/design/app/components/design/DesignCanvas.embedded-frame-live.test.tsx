@@ -20,6 +20,58 @@ vi.mock("@agent-native/core/client", async (importOriginal) => {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it("keeps editor shell semantic tokens out of the prototype document", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousRootStyle = document.documentElement.style.cssText;
+    document.documentElement.style.setProperty("--background", "0 0% 100%");
+    document.documentElement.style.setProperty("--foreground", "0 0% 10%");
+    document.documentElement.style.setProperty("--border", "0 0% 90%");
+    document.documentElement.style.setProperty(
+      "--design-editor-accent-color",
+      "hsl(205 100% 53%)",
+    );
+    const content =
+      "<!doctype html><html><head><style>:root{--background:210 20% 96%;--foreground:220 20% 12%;--border:220 12% 82%}</style></head><body></body></html>";
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content={content}
+            contentKey="prototype-theme-isolation"
+            screenId="screen-theme"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+            editMode
+          />,
+        ),
+      );
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const editorThemeScript = iframe?.srcdoc.match(
+        /<script data-agent-native-editor-theme>([\s\S]*?)<\/script>/,
+      )?.[1];
+
+      expect(editorThemeScript).toBeDefined();
+      expect(editorThemeScript).toContain("--design-editor-accent-color");
+      expect(editorThemeScript).not.toContain('"--background"');
+      expect(editorThemeScript).not.toContain('"--foreground"');
+      expect(editorThemeScript).not.toContain('"--border"');
+      expect(iframe?.srcdoc).toContain("--background:210 20% 96%");
+    } finally {
+      document.documentElement.style.cssText = previousRootStyle;
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("keeps the iframe identity stable when a board render window reanchors", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -253,6 +305,14 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       expect(interactIframe?.srcdoc).toContain('data-test="state-latest"');
       expect(interactIframe?.srcdoc).toContain(":hover{opacity:.5!important}");
+
+      // Returning to Edit must retain Interact's authoritative persisted
+      // baseline rather than restoring the stale pre-edit snapshot.
+      await act(async () => root.render(render(withState, false)));
+      const refreshedEditIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(refreshedEditIframe?.srcdoc).toContain('data-test="state-latest"');
     } finally {
       await act(async () => root.unmount());
       container.remove();

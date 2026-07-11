@@ -231,12 +231,6 @@ export type PreparingActionState = {
   toolEntries?: Map<string, PreparingActionEntry>;
 };
 
-function formatProgressBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function activityProgressBytes(ev: SSEEvent): number | undefined {
   return typeof ev.progressBytes === "number" &&
     Number.isFinite(ev.progressBytes) &&
@@ -281,7 +275,7 @@ function preparationActivityLabel(
   if (progressBytes <= 0) {
     return `Preparing ${action}...`;
   }
-  return `Writing ${action}... (${formatProgressBytes(progressBytes)} prepared)`;
+  return `Writing ${action}...`;
 }
 
 function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
@@ -301,16 +295,8 @@ function findPendingToolCallIndex(
   // calls can be in flight simultaneously, and name-only matching would
   // attach a result to the wrong call.
   if (toolCallId) {
-    for (let i = content.length - 1; i >= 0; i--) {
-      const part = content[i];
-      if (
-        part.type === "tool-call" &&
-        part.toolCallId === toolCallId &&
-        part.result === undefined
-      ) {
-        return i;
-      }
-    }
+    const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+    if (exactIndex >= 0) return exactIndex;
     // Fall through to name-matching: the start event may have arrived before
     // the server started emitting ids (e.g. older server build), so the
     // stored toolCallId is the locally-generated "tc_N" value rather than the
@@ -327,6 +313,76 @@ function findPendingToolCallIndex(
     }
   }
   return -1;
+}
+
+function findPendingToolCallIndexById(
+  content: ContentPart[],
+  toolCallId: string,
+): number {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findOldestPendingActivityToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+): number {
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findPendingActivityToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  // Activity events emitted while the model is assembling tool input already
+  // carry the engine's stable call id. Match that id exactly so repeated
+  // progress for one call updates one placeholder while parallel same-name
+  // calls retain separate cards.
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  // Older activity events may omit the id before a later progress event adds
+  // it. Upgrade one unambiguous reader-local placeholder instead of painting a
+  // second card for the same logical call.
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.activity === true &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0] : -1;
 }
 
 function findCompletedToolCallIndex(
@@ -1000,7 +1056,17 @@ export function processEvent(
     }
     if (!tool) return { action: "continue" };
 
-    const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    if (pendingToolCallIndex >= 0 && ev.id) {
+      const pending = content[pendingToolCallIndex];
+      if (pending?.type === "tool-call" && pending.toolCallId !== ev.id) {
+        content[pendingToolCallIndex] = { ...pending, toolCallId: ev.id };
+      }
+    }
     if (pendingToolCallIndex === -1) {
       // Only surface a placeholder spinner when this tool has no card yet. A
       // trailing activity heartbeat that arrives after the matching tool_done
@@ -1011,12 +1077,13 @@ export function processEvent(
         (part) =>
           part.type === "tool-call" &&
           part.toolName === tool &&
-          part.result !== undefined,
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
       );
       if (!hasCompletedSameTool) {
         content.push({
           type: "tool-call",
-          toolCallId: `tc_${++toolCallCounter.value}`,
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
           toolName: tool,
           argsText: "",
           args: {},
@@ -1054,7 +1121,9 @@ export function processEvent(
     }
     // Pass the server-assigned id so we upgrade the pending activity card
     // using id-match when available (parallel same-name calls stay separate).
-    const pendingToolCallIndex = findPendingToolCallIndex(content, tool, ev.id);
+    const pendingToolCallIndex = ev.id
+      ? findPendingActivityToolCallIndex(content, tool, ev.id)
+      : findOldestPendingActivityToolCallIndex(content, tool);
     const pendingToolCall =
       pendingToolCallIndex >= 0 ? content[pendingToolCallIndex] : undefined;
     const pendingIsActivityPlaceholder =

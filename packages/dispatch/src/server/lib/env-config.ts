@@ -3,7 +3,7 @@ import type { EnvKeyConfig } from "@agent-native/core/server";
 export const envKeys: EnvKeyConfig[] = [
   {
     key: "SLACK_BOT_TOKEN",
-    label: "Slack bot token",
+    label: "Slack bot token (legacy)",
     required: false,
   },
   {
