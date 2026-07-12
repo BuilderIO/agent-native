@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.7
+
+### Patch Changes
+
+- 10dc602: Widen centered full-page Ask and Chat composers by 20% while keeping their responsive viewport cap.
+
 ## 0.14.6
 
 ### Patch Changes
