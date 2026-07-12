@@ -59,9 +59,11 @@ function addSecretCandidate(
 /**
  * Resolve the audience (`aud`) value to expect in an inbound JWT. We use the
  * receiver's app URL — it's the natural identifier of "who this token was
- * minted for". Falls back to undefined when no app URL is configured, in
- * which case the audience check is skipped (backward-compat with tokens
- * minted before the audience claim shipped).
+ * minted for". Returns undefined when no app URL is configured and no request
+ * host is derivable; `verifyA2AToken` then rejects any token that carries an
+ * `aud` claim (fail closed — a correctly signed token minted for another
+ * service must not verify here). Only tokens without an `aud` claim (minted
+ * before the audience claim shipped) skip the audience check.
  */
 function expectedJwtAudience(event: any | undefined): string | undefined {
   const fromEnv =
