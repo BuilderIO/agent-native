@@ -561,7 +561,7 @@ pub fn show_onboarding_window(app: &AppHandle) {
     }
     let win =
         match WebviewWindowBuilder::new(app, ONBOARDING_LABEL, build_overlay_url("onboarding"))
-            .title("Welcome to Clips")
+            .title(format!("Welcome to {}", crate::product_name()))
             .inner_size(ONBOARDING_WIDTH_LOGICAL, ONBOARDING_HEIGHT_LOGICAL)
             .resizable(false)
             .center()

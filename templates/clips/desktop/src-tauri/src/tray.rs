@@ -127,7 +127,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         TRAY_PNG.len()
     );
     let tray = TrayIconBuilder::with_id("main")
-        .tooltip("Clips")
+        .tooltip(crate::product_name())
         .menu(&menu)
         .icon(tray_icon)
         .icon_as_template(true)

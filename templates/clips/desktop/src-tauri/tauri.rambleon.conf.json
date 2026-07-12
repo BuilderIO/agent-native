@@ -1,4 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "RambleOn"
+  "productName": "RambleOn",
+  "mainBinaryName": "RambleOn",
+  "bundle": {
+    "createUpdaterArtifacts": false
+  }
 }

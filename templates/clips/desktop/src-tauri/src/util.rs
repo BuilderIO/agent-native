@@ -103,7 +103,7 @@ pub fn set_capture_included(window: &WebviewWindow) {
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
-        .title("Clips")
+        .title(crate::product_name())
         .inner_size(
             POPOVER_DEFAULT_WIDTH_LOGICAL + gutter,
             POPOVER_DEFAULT_HEIGHT_LOGICAL + gutter,

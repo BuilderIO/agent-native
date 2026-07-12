@@ -155,6 +155,8 @@ pub(crate) mod macos {
     const IGNORED_WINDOW_OWNERS: &[&str] = &[
         "Clips",
         "Clips Dev",
+        "RambleOn",
+        "RambleOn Dev",
         "Control Center",
         "Dock",
         "Notification Center",

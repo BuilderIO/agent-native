@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>NSCameraUsageDescription</key>
-    <string>Clips uses your camera for screen recordings with camera overlay.</string>
+    <string>The camera is used for screen recordings with camera overlay.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Clips uses your microphone to record audio with screen recordings.</string>
+    <string>The microphone records audio for screen recordings, dictation, and meeting notes.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Clips records your screen and system audio when you start a Clip.</string>
+    <string>The screen and system audio are recorded when you start a recording.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Clips uses speech recognition for on-device voice dictation.</string>
+    <string>Speech recognition turns your voice into text on-device.</string>
     <key>NSAccessibilityUsageDescription</key>
-    <string>Clips uses Accessibility to learn your preferred spellings from edits you make right after dictating, so future dictations get them right.</string>
+    <string>Accessibility access learns your preferred spellings from edits you make right after dictating, and pastes dictated text into other apps.</string>
     <key>CFBundleIconName</key>
     <string>agent-native</string>
 </dict>

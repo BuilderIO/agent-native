@@ -1909,7 +1909,8 @@ pub(crate) fn start_screencapturekit_backend_at(
             device.name, device.id
         );
     }
-    config.set_stream_name(Some("Clips full-screen recording"));
+    let stream_name = format!("{} full-screen recording", crate::product_name());
+    config.set_stream_name(Some(&stream_name));
 
     let recording_config = SCRecordingOutputConfiguration::new()
         .with_output_url(output_path)
