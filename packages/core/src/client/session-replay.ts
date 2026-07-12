@@ -7,6 +7,7 @@ import { scrubUrl } from "./url-scrub.js";
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
   json: string;
+  byteLength: number;
   timestampMs: number;
   type: number | null;
 };
@@ -316,6 +317,8 @@ const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
+const REPLAY_TEXT_ENCODER =
+  typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
 /** Cross-tab channel name used by the duplicated-tab claim guard. */
 const SESSION_REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
@@ -1165,7 +1168,7 @@ function enqueueReplayEvent(
   if (!state.options) return;
   const serialized = serializeReplayEvent(event, state.resourceNodes);
   if (!serialized) return;
-  const estimatedBytes = serialized.length;
+  const estimatedBytes = replaySerializedBytes(serialized);
   if (
     state.queue.length > 0 &&
     state.queuedBytes + estimatedBytes > state.options.maxBatchBytes
@@ -1174,6 +1177,7 @@ function enqueueReplayEvent(
   }
   state.queue.push({
     json: serialized,
+    byteLength: estimatedBytes,
     timestampMs: replayEventTimestampMs(event),
     type: typeof event.type === "number" ? event.type : null,
   });
@@ -1482,7 +1486,71 @@ function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
 }
 
 function queuedReplayBytes(events: QueuedReplayEvent[]): number {
-  return events.reduce((total, event) => total + event.json.length, 0);
+  return events.reduce(
+    (total, event) => total + queuedReplayEventBytes(event),
+    0,
+  );
+}
+
+function replaySerializedBytes(value: string): number {
+  if (REPLAY_TEXT_ENCODER) return REPLAY_TEXT_ENCODER.encode(value).byteLength;
+  if (typeof Blob !== "undefined") return new Blob([value]).size;
+  return value.length;
+}
+
+function queuedReplayEventBytes(event: QueuedReplayEvent): number {
+  return Number.isFinite(event.byteLength)
+    ? event.byteLength
+    : replaySerializedBytes(event.json);
+}
+
+/**
+ * Remove one bounded FIFO prefix from the live queue.
+ *
+ * Threshold-triggered flushes may arrive while another upload is active. The
+ * old `queue.splice(0)` drained that entire accumulated backlog on the next
+ * flush, bypassing both byte and event caps. Keep FullSnapshots isolated and
+ * always take at least one event so an individually large snapshot can still
+ * make progress.
+ */
+function takeQueuedReplayBatch(state: SessionReplayState): QueuedReplayEvent[] {
+  const options = state.options;
+  if (!options || state.queue.length === 0) return [];
+
+  let count = 0;
+  let bytes = 0;
+  for (const event of state.queue) {
+    if (count > 0 && event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) break;
+    if (
+      count > 0 &&
+      (count >= options.maxEventsPerBatch ||
+        bytes + queuedReplayEventBytes(event) > options.maxBatchBytes)
+    ) {
+      break;
+    }
+    count += 1;
+    bytes += queuedReplayEventBytes(event);
+    if (event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) break;
+  }
+
+  const events = state.queue.splice(0, Math.max(1, count));
+  state.queuedBytes = queuedReplayBytes(state.queue);
+  return events;
+}
+
+function splitReplayBatch(
+  events: QueuedReplayEvent[],
+): [QueuedReplayEvent[], QueuedReplayEvent[]] | null {
+  if (events.length < 2) return null;
+  const targetBytes = queuedReplayBytes(events) / 2;
+  let splitAt = 1;
+  let bytes = events[0] ? queuedReplayEventBytes(events[0]) : 0;
+  while (splitAt < events.length - 1 && bytes < targetBytes) {
+    const event = events[splitAt];
+    if (event) bytes += queuedReplayEventBytes(event);
+    splitAt += 1;
+  }
+  return [events.slice(0, splitAt), events.slice(splitAt)];
 }
 
 function restoreReplayEvents(
@@ -1524,8 +1592,7 @@ function rollbackReplaySequenceReservation(
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
-  const events = state.retryBatches.shift() ?? state.queue.splice(0);
-  state.queuedBytes = queuedReplayBytes(state.queue);
+  const events = state.retryBatches.shift() ?? takeQueuedReplayBatch(state);
   const payload = buildReplayBody(state, reason, events);
   if (!payload || !state.options) {
     restoreReplayEvents(state, events);
@@ -1534,6 +1601,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   state.flushing = true;
   let uploaded = false;
   let reservedSequence = false;
+  let splitRejectedBatch = false;
   let definitiveClientErrorStatus: number | null = null;
   try {
     await sendReplayUpload(state.options, payload.body, {
@@ -1553,10 +1621,21 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // never succeed by retrying the exact same batch -- requeuing it would
     // just spin forever, blocking every later batch behind it (flushes are
     // FIFO via `retryBatches`). Drop it and move on instead.
+    const rejectedStatus =
+      error instanceof ReplayUploadHttpError ? error.status : null;
+    const splitBatch = rejectedStatus === 413 ? splitReplayBatch(events) : null;
     const isDefinitiveClientError =
       error instanceof ReplayUploadHttpError &&
-      isDefinitiveReplayUploadClientError(error.status);
-    if (isDefinitiveClientError) {
+      isDefinitiveReplayUploadClientError(error.status) &&
+      !splitBatch;
+    if (splitBatch) {
+      // A server or platform can enforce a stricter decompressed-body limit
+      // than the recorder's configured queue cap. Bisect in FIFO order and
+      // retry both halves at the same sequence; only successful halves advance
+      // it, so no event is duplicated or skipped.
+      state.retryBatches.unshift(...splitBatch);
+      splitRejectedBatch = true;
+    } else if (isDefinitiveClientError) {
       // Continuing after a checksum/sequence conflict would reuse the same
       // rejected sequence forever. More importantly, advancing past it would
       // append mutations to a replay whose DOM stream may belong to another
@@ -1575,7 +1654,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     const previousInternal = replayCaptureInternal;
     replayCaptureInternal = true;
     try {
-      if (isDefinitiveClientError) {
+      if (splitRejectedBatch) {
+        console.warn(
+          "[session-replay] splitting oversized upload (HTTP 413)",
+          error,
+        );
+      } else if (isDefinitiveClientError) {
         console.warn(
           `[session-replay] dropping upload (HTTP ${(error as ReplayUploadHttpError).status})`,
           error,
@@ -1589,8 +1673,20 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   } finally {
     state.flushing = false;
   }
+  if (splitRejectedBatch) {
+    await flushSessionReplay("split-413");
+    return;
+  }
   if (uploaded && hasPendingReplayBatch(state)) {
-    flushQueuedReplayIfNeeded(state);
+    const mustContinue =
+      state.retryBatches.length > 0 ||
+      isFinalFlushReason(reason) ||
+      shouldFlushQueuedReplay(state);
+    if (mustContinue) {
+      if (isFinalFlushReason(reason) || reason === "split-413") {
+        await flushSessionReplay(reason);
+      } else void flushSessionReplay(reason);
+    }
   }
   if (
     definitiveClientErrorStatus !== null &&

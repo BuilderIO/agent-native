@@ -29,10 +29,14 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
   "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
+export const NON_ANALYTICS_REQUEST_GUIDANCE =
+  "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
+
 export function analyticsSourceGuidanceOpening(): string {
   return (
     "<data-source-guidance>\n" +
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
+    NON_ANALYTICS_REQUEST_GUIDANCE +
     SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
     "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. "
   );

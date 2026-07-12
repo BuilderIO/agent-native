@@ -404,45 +404,16 @@ export function AnimatedCollapse({
   open: boolean;
   children: React.ReactNode;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | "auto">(open ? "auto" : 0);
   const [mounted, setMounted] = useState(open);
-  const reduceMotionRef = useRef(false);
-
-  useEffect(() => {
-    reduceMotionRef.current =
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  }, []);
 
   useLayoutEffect(() => {
     if (open) setMounted(true);
   }, [open]);
 
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !mounted) return;
-    if (reduceMotionRef.current) {
-      setHeight(open ? "auto" : 0);
-      if (!open) setMounted(false);
-      return;
-    }
-    if (open) {
-      const full = el.scrollHeight;
-      setHeight(0);
-      const frame = requestAnimationFrame(() => setHeight(full));
-      return () => cancelAnimationFrame(frame);
-    }
-    setHeight(el.scrollHeight);
-    const frame = requestAnimationFrame(() => setHeight(0));
-    return () => cancelAnimationFrame(frame);
-  }, [open, mounted]);
-
   const onTransitionEnd = useCallback(
     (event: React.TransitionEvent<HTMLDivElement>) => {
-      if (event.propertyName !== "height") return;
-      if (open) setHeight("auto");
-      else setMounted(false);
+      if (event.propertyName !== "grid-template-rows" || open) return;
+      setMounted(false);
     },
     [open],
   );
@@ -451,12 +422,12 @@ export function AnimatedCollapse({
 
   return (
     <div
-      ref={ref}
-      className="overflow-hidden transition-[height] duration-200 ease-[var(--ease-collapse)]"
-      style={{ height: height === "auto" ? "auto" : `${height}px` }}
+      className="agent-chat-collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
       onTransitionEnd={onTransitionEnd}
     >
-      {children}
+      <div className="agent-chat-collapse__content">{children}</div>
     </div>
   );
 }
@@ -953,6 +924,7 @@ export function ReconnectStreamMessage({
                 key={`reconnect-reasoning-${i}`}
                 text={part.text}
                 isStreaming={chatRunning && i === streamingReasoningPartIndex}
+                defaultOpen={chatRunning && i === streamingReasoningPartIndex}
               />
             );
           }
@@ -996,11 +968,14 @@ export function ReasoningCell({
   text,
   isStreaming = false,
   defaultOpen,
+  autoCollapse = false,
   durationMs,
 }: {
   text: string;
   isStreaming?: boolean;
   defaultOpen?: boolean;
+  /** Animate closed when a live reasoning segment finishes during a run. */
+  autoCollapse?: boolean;
   /**
    * Elapsed thinking time in ms, once known. Only meaningful once streaming
    * has finished — callers that track live timing (see ReasoningMessagePart)
@@ -1011,7 +986,16 @@ export function ReasoningCell({
 }) {
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const [open, setOpen] = useState(defaultOpen ?? true);
+  const wasStreamingRef = useRef(isStreaming);
   const trimmed = text.trim();
+
+  useEffect(() => {
+    if (autoCollapse && wasStreamingRef.current && !isStreaming) {
+      setOpen(false);
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [autoCollapse, isStreaming]);
+
   if (!trimmed && !isStreaming) return null;
 
   if (embeddedInWorkSummary) {
@@ -1024,7 +1008,7 @@ export function ReasoningCell({
 
   const label = isStreaming
     ? "Thinking"
-    : durationMs != null && durationMs >= 1000
+    : durationMs != null
       ? `Thought for ${formatWorkedDuration(durationMs)}`
       : "Thought";
   // Only clamp to a scroll-free "tail" view while actively streaming and

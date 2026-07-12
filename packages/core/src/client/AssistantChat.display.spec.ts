@@ -1053,7 +1053,10 @@ describe("missing agent engine setup", () => {
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("<MessageScrollerButton />");
+    expect(source).toContain("useNearBottomAutoscroll<HTMLDivElement>");
+    expect(source).toContain('aria-label="Scroll to bottom"');
+    expect(source).toContain("autoScroll={false}");
+    expect(source).not.toContain("scrollAnchor");
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
@@ -1108,6 +1111,8 @@ describe("resolveAssistantChatRunningState", () => {
     expect(source).toContain("AUTO_RESUME_STATUS_TIMEOUT_MS");
     expect(source).toContain("autoResumeTimerRef");
     expect(source).toContain("!isRunning && !isAutoResuming");
+    expect(source).toContain("if (forceStopped) {");
+    expect(source).not.toContain("if (isRunning || forceStopped) {");
     expect(source).not.toContain(
       "if (!isRunning) {\n      setIsAutoResuming(false);",
     );

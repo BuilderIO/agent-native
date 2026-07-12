@@ -1108,6 +1108,142 @@ describe("session replay", () => {
     expect(bodies[1].events.map((event: any) => event.type)).toEqual([2]);
   });
 
+  it("keeps an in-flight backlog within the UTF-8 byte cap and in FIFO order", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubGlobal("CompressionStream", undefined);
+    const firstUpload = deferred<Response>();
+    let uploadCalls = 0;
+    fetchMock.mockImplementation((input: unknown) => {
+      if (String(input).includes("/_agent-native/auth/session")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      uploadCalls += 1;
+      return uploadCalls === 1
+        ? firstUpload.promise
+        : Promise.resolve(new Response("{}"));
+    });
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { flushSessionReplay, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxBatchBytes: 1024,
+      maxEventsPerBatch: 50,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    for (let index = 1; index <= 4; index += 1) {
+      // Each serialized event is below 1 KiB in UTF-16 code units but above
+      // half the cap in UTF-8, so no two may share a bounded upload.
+      recordOptions.emit({
+        type: 3,
+        data: { href: `/event-${index}`, text: "é".repeat(350) },
+      });
+    }
+    firstUpload.resolve(new Response("{}"));
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await flushSessionReplay("manual");
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 1, 2, 3, 4]);
+    expect(bodies.slice(1).map((body) => body.events.length)).toEqual([
+      1, 1, 1, 1,
+    ]);
+    for (const body of bodies.slice(1)) {
+      expect(
+        Buffer.byteLength(JSON.stringify(body.events[0]), "utf8"),
+      ).toBeLessThanOrEqual(1024);
+    }
+    expect(bodies.slice(1).map((body) => body.events[0].data.href)).toEqual([
+      "/event-1",
+      "/event-2",
+      "/event-3",
+      "/event-4",
+    ]);
+  });
+
+  it("bisects a 413 batch and retries both halves without duplicates", async () => {
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    vi.stubGlobal("CompressionStream", undefined);
+    let uploadCalls = 0;
+    fetchMock.mockImplementation((input: unknown) => {
+      if (String(input).includes("/_agent-native/auth/session")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "not authenticated" }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      uploadCalls += 1;
+      return Promise.resolve(
+        uploadCalls === 1
+          ? new Response("too large", { status: 413 })
+          : new Response("{}"),
+      );
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { isSessionReplayActive, startSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 4,
+      flushIntervalMs: 100_000,
+    });
+    for (let index = 1; index <= 4; index += 1) {
+      recordOptions.emit({ type: 3, data: { href: `/event-${index}` } });
+    }
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 0, 1]);
+    expect(
+      bodies.map((body) => body.events.map((event: any) => event.data.href)),
+    ).toEqual([
+      ["/event-1", "/event-2", "/event-3", "/event-4"],
+      ["/event-1", "/event-2"],
+      ["/event-3", "/event-4"],
+    ]);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(2);
+    expect(isSessionReplayActive()).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "[session-replay] splitting oversized upload (HTTP 413)",
+      expect.any(Error),
+    );
+  });
+
   it("retries failed batches without merging newly queued events", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     vi.stubGlobal("CompressionStream", undefined);

@@ -6,19 +6,17 @@ import {
   buildIdleSkipRanges,
   buildReplayMarkers,
   buildReplayViewportTimeline,
-  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
-  projectReplayPointerCoordinates,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
-  replayInitialDisplayDimensions,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
   replayViewportDimensionsAtTime,
+  resolveReplayDisplayDimensions,
   shouldPublishReplayClockUpdate,
 } from "./SessionDetailPage";
 
@@ -156,70 +154,6 @@ describe("session replay event normalization", () => {
     expect(normalized[1]).toBe(later);
   });
 
-  it("projects pointer coordinates with malformed viewport recovery", () => {
-    const meta = {
-      type: 4,
-      timestamp: 1_000,
-      data: { width: 4_491, height: 941 },
-    };
-    const snapshot = {
-      type: 2,
-      timestamp: 1_010,
-      data: { node: { type: 0 } },
-    };
-    const move = {
-      type: 3,
-      timestamp: 2_000,
-      data: {
-        source: 1,
-        positions: [
-          { id: 417, x: 4_462, y: 125, timeOffset: 0 },
-          { id: 417, x: 8_114, y: 125, timeOffset: 40 },
-        ],
-      },
-    };
-    const click = {
-      type: 3,
-      timestamp: 2_050,
-      data: { source: 2, type: 2, id: 417, x: 4_462, y: 125 },
-    };
-
-    const projected = projectReplayPointerCoordinates([
-      meta,
-      snapshot,
-      move,
-      click,
-    ]);
-
-    expect(projected[0]).toBe(meta);
-    expect(projected[1]).toBe(snapshot);
-    expect(projected[2]).not.toBe(move);
-    expect(projected[2]?.data.positions[0].x).toBeCloseTo(1_496.28, 2);
-    expect(projected[2]?.data.positions[0].y).toBe(125);
-    expect(projected[2]?.data.positions[1].x).toBe(1_505);
-    expect(projected[3]).not.toBe(click);
-    expect(projected[3]?.data.x).toBeCloseTo(1_496.28, 2);
-    expect(projected[3]?.data.y).toBe(125);
-  });
-
-  it("preserves normal-viewport pointer references and coordinates", () => {
-    const meta = {
-      type: 4,
-      timestamp: 1_000,
-      data: { width: 1_440, height: 900 },
-    };
-    const click = {
-      type: 3,
-      timestamp: 2_000,
-      data: { source: 2, type: 2, id: 7, x: 900, y: 450 },
-    };
-
-    const projected = projectReplayPointerCoordinates([meta, click]);
-
-    expect(projected[0]).toBe(meta);
-    expect(projected[1]).toBe(click);
-  });
-
   it("starts the display camera at the first recorded viewport", () => {
     const events = [
       {
@@ -254,7 +188,13 @@ describe("session replay event normalization", () => {
     });
   });
 
-  it("corrects a malformed initial Meta viewport before first playback", () => {
+  it("keeps an initial malformed-looking Meta viewport exactly as recorded", () => {
+    // Regression tripwire: this shape used to be misidentified as an
+    // "impossible" legacy recording and rewritten to 1,397x873. There was
+    // never a stored recording with corrupt geometry — the 2026-07 ultra-wide
+    // replay bugs were caused by demo mode's view-time fetch redaction (see
+    // packages/core/src/demo/fetch-interceptor.ts). Player geometry must stay
+    // fully raw, no matter how wide or unusual the aspect ratio looks.
     const events = [
       { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
       { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
@@ -264,64 +204,29 @@ describe("session replay event normalization", () => {
       width: 7535,
       height: 873,
     });
-    expect(replayInitialDisplayDimensions(events)).toEqual({
-      width: 1397,
-      height: 873,
-    });
   });
 
-  it("caps only impossible display aspect ratios", () => {
-    expect(clampReplayDisplayDimensions({ width: 7535, height: 873 })).toEqual({
-      width: 1397,
-      height: 873,
-    });
-    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
-      width: 300,
-      height: 1200,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3189, height: 885 })).toEqual({
-      width: 1416,
-      height: 885,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3188, height: 885 })).toEqual({
-      width: 3188,
-      height: 885,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3190, height: 885 })).toEqual({
-      width: 3190,
-      height: 885,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3189, height: 884 })).toEqual({
-      width: 3189,
-      height: 884,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3189, height: 886 })).toEqual({
-      width: 3189,
-      height: 886,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3440, height: 900 })).toEqual({
-      width: 3440,
-      height: 900,
-    });
-    expect(clampReplayDisplayDimensions({ width: 3440, height: 1440 })).toEqual(
-      {
-        width: 3440,
-        height: 1440,
-      },
-    );
-    expect(clampReplayDisplayDimensions({ width: 5120, height: 1440 })).toEqual(
-      {
-        width: 5120,
-        height: 1440,
-      },
-    );
-    expect(clampReplayDisplayDimensions({ width: 7535, height: 5 })).toEqual({
+  it("never clamps or rewrites raw display dimensions, only fills in missing ones", () => {
+    // Regression tripwire against reintroducing a viewport "recovery"
+    // heuristic. 3189x885 was the exact shape a deleted `clampReplayDisplayDimensions`
+    // used to rewrite to 1416x885; it must now pass through untouched, same
+    // as every other real or unusual aspect ratio.
+    expect(
+      resolveReplayDisplayDimensions({ width: 3189, height: 885 }),
+    ).toEqual({ width: 3189, height: 885 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 7535, height: 873 }),
+    ).toEqual({ width: 7535, height: 873 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 300, height: 1200 }),
+    ).toEqual({ width: 300, height: 1200 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 1440, height: 900 }),
+    ).toEqual({ width: 1440, height: 900 });
+    // Only missing/invalid dimensions fall back to the default player size.
+    expect(resolveReplayDisplayDimensions(null)).toEqual({
       width: 1024,
       height: 640,
-    });
-    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
-      width: 1440,
-      height: 900,
     });
   });
 

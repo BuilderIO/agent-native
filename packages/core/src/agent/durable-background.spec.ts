@@ -165,31 +165,40 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
   });
 });
 
-describe("isAgentChatForegroundSelfChainEnabled (default-on opt-out gate)", () => {
+describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {
   it("is OFF with nothing configured", () => {
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("is ON BY DEFAULT when hosted + secret are present", () => {
+  it("stays OFF by default when hosted + secret are present", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
-    expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("stays ON for truthy, empty, or unrecognized flag values (hosted + secret)", () => {
+  it("is ON for explicit truthy flag values (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["1", "true", "yes", "on", " TRUE ", "", "maybe"]) {
+    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     }
   });
 
-  it("is OFF for explicit falsy flag values", () => {
+  it("is OFF for falsy, empty, or unrecognized flag values", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["0", "false", "no", "off", "FALSE", " Off "]) {
+    for (const val of [
+      "0",
+      "false",
+      "no",
+      "off",
+      "FALSE",
+      " Off ",
+      "",
+      "maybe",
+    ]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
     }
@@ -210,6 +219,7 @@ describe("isAgentChatForegroundSelfChainEnabled (default-on opt-out gate)", () =
   it("can be explicitly disabled independently of AGENT_CHAT_DURABLE_BACKGROUND", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
 

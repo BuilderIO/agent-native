@@ -21,6 +21,7 @@ import {
   IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
+  IconChevronDown,
   IconRefresh,
 } from "@tabler/icons-react";
 import React, {
@@ -126,7 +127,6 @@ import {
 import { useReconnectReaderOwner } from "./chat/use-reconnect-reader-owner.js";
 import {
   MessageScroller,
-  MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerProvider,
@@ -162,6 +162,7 @@ import type {
   Reference,
 } from "./composer/types.js";
 import { ContextMeter } from "./context-xray/ContextMeter.js";
+import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
@@ -723,6 +724,75 @@ function getMessageText(message: unknown): string {
     );
   }
   return typeof content === "string" ? displayableUserMessageText(content) : "";
+}
+
+function contentPartFollowKey(part: unknown): string {
+  if (!part || typeof part !== "object") return "unknown";
+  const candidate = part as {
+    type?: unknown;
+    text?: unknown;
+    toolCallId?: unknown;
+    toolName?: unknown;
+    status?: { type?: unknown };
+    argsText?: unknown;
+    result?: unknown;
+    image?: unknown;
+  };
+  const type = typeof candidate.type === "string" ? candidate.type : "unknown";
+  if (type === "text" || type === "reasoning") {
+    return `${type}:${String(candidate.text ?? "").length}`;
+  }
+  if (type === "tool-call") {
+    return [
+      type,
+      candidate.toolCallId ?? "",
+      candidate.toolName ?? "",
+      candidate.status?.type ?? "",
+      String(candidate.argsText ?? "").length,
+      String(candidate.result ?? "").length,
+    ].join(":");
+  }
+  if (type === "image") return `image:${String(candidate.image ?? "").length}`;
+  return `${type}:${String(candidate.text ?? candidate.result ?? "").length}`;
+}
+
+function contentFollowKey(content: unknown): string {
+  if (typeof content === "string") return `text:${content.length}`;
+  if (!Array.isArray(content)) return "";
+  return content.map(contentPartFollowKey).join("|");
+}
+
+function messageFollowKey(message: unknown): string {
+  const candidate = ((message as { message?: unknown })?.message ??
+    message) as {
+    id?: unknown;
+    role?: unknown;
+    status?: { type?: unknown; reason?: unknown };
+    content?: unknown;
+  };
+  return [
+    candidate.id ?? "",
+    candidate.role ?? "",
+    candidate.status?.type ?? "",
+    candidate.status?.reason ?? "",
+    contentFollowKey(candidate.content),
+  ].join(",");
+}
+
+function queuedMessageFollowKey(message: QueuedMessage): string {
+  return [
+    message.id,
+    message.text.length,
+    message.images?.length ?? 0,
+    message.attachments?.length ?? 0,
+    message.references?.length ?? 0,
+    message.requestMode ?? "",
+    message.recoveryAction ?? "",
+  ].join(":");
+}
+
+function reconnectContentFollowKey(content: readonly ContentPart[]): string {
+  return content.map(contentPartFollowKey).join("|");
 }
 
 export function reconnectActivityFallbackContent(
@@ -1450,7 +1520,7 @@ function AssistantChatUserMessageItem() {
   const message = messageRuntime.getState();
   if (isHiddenUserMessage(message)) return null;
   return (
-    <MessageScrollerItem messageId={message.id} scrollAnchor>
+    <MessageScrollerItem messageId={message.id}>
       <UserMessage />
     </MessageScrollerItem>
   );
@@ -3707,12 +3777,13 @@ const AssistantChatInner = forwardRef<
     };
   }, [tabId]);
 
-  // Clear auto-resume once the next chunk has visibly started or the user stops.
-  // Do not clear solely because `isRunning` is false: auto-resume intentionally
-  // covers that between-chunk gap so the chat never looks idle while work is
-  // still scheduled.
+  // Clear auto-resume when the user stops. Real next-chunk activity clears it
+  // in the activity handler above. Do not clear it merely because `isRunning`
+  // is still true: the adapter dispatches auto-continue before the old chunk's
+  // runtime flips idle, so doing that exposes terminal message controls during
+  // the exact gap this state is meant to cover.
   useEffect(() => {
-    if (isRunning || forceStopped) {
+    if (forceStopped) {
       if (autoResumeTimerRef.current !== null) {
         window.clearTimeout(autoResumeTimerRef.current);
         autoResumeTimerRef.current = null;
@@ -4510,6 +4581,60 @@ const AssistantChatInner = forwardRef<
         adapterHandoffPending || reconnectTailOnlyRef.current,
     },
   );
+  const autoscrollFollowKey = [
+    messages.map(messageFollowKey).join(";"),
+    `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
+    `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
+    `status:${showRunningInUI ? runningStatusLabel : "idle"}`,
+  ].join(";;");
+  const {
+    scrollRef,
+    isNearBottomRef,
+    showScrollToBottom,
+    scrollToBottom,
+    scrollToBottomAfterPaint,
+  } = useNearBottomAutoscroll<HTMLDivElement>({
+    followKey: autoscrollFollowKey,
+    streaming: textStreaming,
+  });
+
+  const scrollToBottomWhileLayoutSettles = useCallback(() => {
+    scrollToBottomAfterPaint();
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+
+    let stopped = false;
+    const observer = new ResizeObserver(() => {
+      if (!stopped && isNearBottomRef.current) scrollToBottom();
+    });
+    observer.observe(element);
+    const timeout = window.setTimeout(() => {
+      stopped = true;
+      observer.disconnect();
+      if (isNearBottomRef.current) scrollToBottom();
+    }, 1600);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timeout);
+      observer.disconnect();
+    };
+  }, [isNearBottomRef, scrollRef, scrollToBottom, scrollToBottomAfterPaint]);
+
+  const wasRestoringRef = useRef(isRestoring);
+  useEffect(() => {
+    const wasRestoring = wasRestoringRef.current;
+    wasRestoringRef.current = isRestoring;
+    if (wasRestoring && !isRestoring) {
+      return scrollToBottomWhileLayoutSettles();
+    }
+  }, [isRestoring, scrollToBottomWhileLayoutSettles]);
+
+  useEffect(() => {
+    if (!textStreaming && isNearBottomRef.current) {
+      scrollToBottomAfterPaint();
+    }
+  }, [isNearBottomRef, scrollToBottomAfterPaint, textStreaming]);
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
@@ -4661,6 +4786,7 @@ const AssistantChatInner = forwardRef<
     showComposerSlot ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
+    showScrollToBottom ||
     composerContextItems.length > 0 ||
     showPlanModeCallout,
   );
@@ -4764,9 +4890,12 @@ const AssistantChatInner = forwardRef<
                 )}
 
                 {/* Messages area */}
-                <MessageScrollerProvider key={chatScrollResetKey} autoScroll>
+                <MessageScrollerProvider
+                  key={chatScrollResetKey}
+                  autoScroll={false}
+                >
                   <MessageScroller className="agent-chat-scroll">
-                    <MessageScrollerViewport>
+                    <MessageScrollerViewport ref={scrollRef}>
                       {authError ? (
                         <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
                           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
@@ -5028,7 +5157,6 @@ const AssistantChatInner = forwardRef<
                                 <MessageScrollerItem
                                   key={msg.id}
                                   messageId={msg.id}
-                                  scrollAnchor
                                 >
                                   <div className="group flex items-start justify-end gap-1.5">
                                     <button
@@ -5072,8 +5200,20 @@ const AssistantChatInner = forwardRef<
                         </MessageScrollerContent>
                       )}
                     </MessageScrollerViewport>
-                    {!authError && !isRestoring && !showEmptyState ? (
-                      <MessageScrollerButton />
+                    {!authError &&
+                    !isRestoring &&
+                    !showEmptyState &&
+                    showScrollToBottom ? (
+                      <div className="shrink-0 flex justify-center -mb-1">
+                        <button
+                          type="button"
+                          onClick={scrollToBottom}
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+                          aria-label="Scroll to bottom"
+                        >
+                          <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                      </div>
                     ) : null}
                   </MessageScroller>
                 </MessageScrollerProvider>

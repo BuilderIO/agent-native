@@ -257,7 +257,7 @@
   [data-agent-empty-state="centered"]
   .agent-composer-area {
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(684px, 90%);
   padding: 0;
 }
 

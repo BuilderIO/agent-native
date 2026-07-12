@@ -704,6 +704,37 @@ describe("ToolCallDisplay native renderers", () => {
       textParts.map((part) => part.getAttribute("data-streaming")),
     ).toEqual([null]);
   });
+
+  it("keeps only the active reconnect reasoning segment expanded", () => {
+    const content: ContentPart[] = [
+      { type: "reasoning", text: "First thought" },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+        result: "done",
+      },
+      { type: "reasoning", text: "Current thought" },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const thoughtButtons = Array.from(
+      container.querySelectorAll("button"),
+    ).filter((button) => /^(Thought|Thinking)/.test(button.textContent ?? ""));
+    expect(
+      thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
+    ).toEqual(["false", "true"]);
+    expect(container.textContent).not.toContain("First thought");
+    expect(container.textContent).toContain("Current thought");
+  });
 });
 
 describe("formatWorkedDuration", () => {
@@ -831,7 +862,7 @@ describe("ReasoningCell", () => {
     expect(container.textContent).toContain("Thought for 4s");
   });
 
-  it("ignores sub-second durations and shows plain Thought", () => {
+  it("rounds sub-second durations up to a one-second thought label", () => {
     act(() => {
       root.render(
         <ReasoningCell text="Some finished reasoning." durationMs={400} />,
@@ -839,7 +870,44 @@ describe("ReasoningCell", () => {
     });
 
     const button = container.querySelector("button");
-    expect(button?.textContent).toBe("Thought");
+    expect(button?.textContent).toBe("Thought for 1s");
+  });
+
+  it("animates a live reasoning segment closed when it finishes", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          isStreaming
+          autoCollapse
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          isStreaming={false}
+          autoCollapse
+          durationMs={1400}
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="false"]')).not.toBe(
+      null,
+    );
+    expect(container.textContent).toContain("Thought for 1s");
+    expect(
+      container
+        .querySelector(".agent-chat-collapse")
+        ?.getAttribute("data-state"),
+    ).toBe("closed");
   });
 
   it("clamps to a tail view while streaming and open, and unclamps once done", () => {

@@ -199,6 +199,15 @@ describe("analytics data request classification", () => {
     );
   });
 
+  it("keeps greetings and general math questions out of the guard", () => {
+    expect(looksLikeAnalyticsDataRequest("How's it going?")).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "For n = 3, 4, and 5 points in the plane, what is the maximum number of unit-distance pairs?",
+      ),
+    ).toBe(false);
+  });
+
   it("does not reject source-record analysis just because it mentions integrations", () => {
     expect(
       looksLikeAnalyticsDataRequest(
@@ -534,6 +543,14 @@ describe("safe no-data analytics responses", () => {
         "Which data source should I use for signups: GA4 or BigQuery?",
       ),
     ).toBe(true);
+  });
+
+  it("does not let the generic guard fallback bypass a source-query retry", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse(
+        "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+      ),
+    ).toBe(false);
   });
 
   it("blocks unsupported metric claims", () => {

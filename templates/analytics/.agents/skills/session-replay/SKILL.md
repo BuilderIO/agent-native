@@ -125,23 +125,29 @@ agent answers about browser recordings in the Analytics template.
   historical replays and resolve external imports/fonts at capture before
   blocking the recorded resource origins. Do not diagnose current font loss as
   CSP without checking the deployed response headers first.
-- Let rrweb own normal iframe sizing via Meta / ViewportResize, and keep the
-  outer wrapper in that same coordinate system for fit-to-stage scaling. Some
-  legacy recordings contain demonstrably corrupt 4,000–7,500px-wide viewport
-  values from ordinary desktop sessions. Only widths of at least 4,000px with
-  aspect ratios above 4:1 are recovered to a 16:10 viewport; real 32:9 and
-  mobile portrait captures remain untouched. The resize handler applies the
-  recovery to **both** rrweb's iframe and the outer stage. This includes the
-  historical 3,000–3,999px-wide, sub-1,000px-high malformed shape; do not
-  narrow the guard back to only 4,000px+ recordings.
-  Never remove this recovery, clamp only one layer, or broadly rewrite event
-  geometry: those changes repeatedly recreated the ribbon/clipping regression.
-- The malformed-viewport recovery's sole event-data exception is pointer
-  geometry: project MouseMove, TouchMove, Drag, and MouseInteraction x/y into
-  the corrected camera and clamp impossible coordinates. Correcting the iframe
-  without its paired pointer projection makes rrweb cast valid target ids
-  thousands of pixels off-stage. Normal-viewport pointer events must retain
-  their original object references and exact coordinates.
+- Let rrweb own iframe sizing entirely via Meta / ViewportResize, and keep the
+  outer wrapper on the exact same raw dimensions for fit-to-stage scaling.
+  Player geometry and pointer coordinates are fully stock and untouched — do
+  not add width/aspect-ratio "recovery" heuristics or pointer-coordinate
+  projection. There is no such thing as a stored recording with corrupt
+  viewport geometry: a census of all production recordings found zero stored
+  widths >= 3,000px. The 2026-07 "ultra-wide replay" bugs (stages rendered
+  3,000–9,500px wide, frozen/teleporting cursors, giant icons) were caused
+  entirely by demo mode's fetch interceptor: its number redactor faked any
+  integer >= 1000 inside raw replay JSON at *view* time, corrupting Meta /
+  ViewportResize widths, pointer x/y coordinates, and numeric values inside
+  `_cssText` and SVG attributes before rrweb ever saw the payload (heights
+  below 1000 stayed real, which is why the symptom looked like a viewport
+  problem rather than a redaction bug — two different sessions that both
+  stored a 1,152px width read back as the same 4,491px, a deterministic
+  salted-hash fingerprint of the redactor, not two coincidentally identical
+  malformed recordings). This is fixed in
+  `packages/core/src/demo/fetch-interceptor.ts`: raw replay payload and
+  manifest URLs are skipped from demo number redaction entirely, and must
+  never be routed through it again. Do not reintroduce viewport clamping or
+  pointer-coordinate projection in the player — they can now only corrupt
+  genuine future recordings (for example, a real 3440x900 ultrawide browser
+  window, or a short vertical window under 1,000px tall).
 - Keep rrweb's stock cursor stylesheet and its hotspot transform. During
   playback, hide the viewer's native pointer over Analytics' transparent
   click-to-pause overlay so it cannot masquerade as a frozen recorded cursor.
@@ -152,10 +158,13 @@ agent answers about browser recordings in the Analytics template.
   hide generic framework primitives such as
   `[data-radix-popper-content-wrapper]`: Radix dropdowns, selects, tooltips,
   and other real recorded product UI all share that wrapper.
-- Keep the realistic fidelity and malformed-viewport tests in
-  `SessionDetailPage.spec.ts`. Do not change their expectations merely to bless
-  a new sanitizer or raw ultra-wide sizing; validate the affected replay in a
-  browser first.
+- Keep the realistic-fidelity purity/pass-through tests in
+  `SessionDetailPage.spec.ts` — raw event identity, raw viewport dimensions,
+  and raw resize-state derivation (including the 3,189x885 tripwire against
+  reintroducing a clamp) — as regression guards against reintroducing any
+  viewport "recovery" or pointer-projection heuristic. Do not change their
+  expectations merely to bless a new sanitizer or clamp; validate the affected
+  replay in a browser first.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.

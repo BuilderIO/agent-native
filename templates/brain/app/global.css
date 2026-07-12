@@ -135,7 +135,7 @@
 .brain-chat-panel [data-agent-empty-state="centered"] .brain-chat-intro {
   display: grid;
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(684px, 90%);
   gap: 0.5rem;
   margin: 0 auto 1rem;
   text-align: center;
@@ -165,7 +165,7 @@
 
 .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(684px, 90%);
   padding: 0;
 }
 
