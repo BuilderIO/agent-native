@@ -180,7 +180,7 @@ export function Sidebar() {
           <Button
             variant="secondary"
             size="icon"
-            className="size-10 rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            className="size-10 rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -200,7 +200,7 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setCollapsed(false)}
-              className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground/55 active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-muted-foreground"
+              className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground/55 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-muted-foreground active:scale-[0.96] motion-reduce:active:scale-100"
               aria-label={t("sidebar.expandSidebar")}
             >
               <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
@@ -260,7 +260,7 @@ export function Sidebar() {
                   <button
                     type="button"
                     aria-label={t("sidebar.newForm")}
-                    className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-foreground"
+                    className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                   >
                     <IconPlus className="h-4 w-4" />
                   </button>
@@ -337,7 +337,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            className="size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={() => setMobileOpen(false)}
           >
             <IconX size={18} />
@@ -349,7 +349,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-10 text-muted-foreground/55 active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-muted-foreground"
+                className="size-10 text-muted-foreground/55 transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-muted-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => setCollapsed(true)}
                 aria-label={t("sidebar.collapseSidebar")}
               >

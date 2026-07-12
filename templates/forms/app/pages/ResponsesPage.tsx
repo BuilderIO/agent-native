@@ -525,11 +525,15 @@ function SortableHeader(props: {
 }) {
   const t = useT();
   const { label, active, dir, onClick } = props;
-  const Icon = !active
-    ? IconArrowsSort
+  const sortState: "neutral" | "asc" | "desc" = !active
+    ? "neutral"
     : dir === "asc"
-      ? IconArrowUp
-      : IconArrowDown;
+      ? "asc"
+      : "desc";
+  const iconBase =
+    "absolute inset-0 transition-[opacity,scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]";
+  const iconVisible = "scale-100 opacity-60 blur-none";
+  const iconHidden = "scale-[0.25] opacity-0 blur-[4px]";
   return (
     <th
       scope="col"
@@ -539,13 +543,32 @@ function SortableHeader(props: {
         type="button"
         onClick={onClick}
         className={cn(
-          "-mx-2 inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-md px-2 transition-[scale,background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-foreground active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
+          "relative -mx-2 inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-md px-2 transition-[scale,background-color,color,box-shadow] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:active:scale-100 sm:min-h-0 sm:before:absolute sm:before:-inset-2.5 sm:before:content-['']",
           active && "text-foreground",
         )}
         aria-label={t("responses.sortBy", { label })}
       >
         {label}
-        <Icon className="h-3 w-3 opacity-60" />
+        <span className="relative inline-block h-3 w-3 shrink-0">
+          <IconArrowsSort
+            className={cn(
+              iconBase,
+              sortState === "neutral" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowUp
+            className={cn(
+              iconBase,
+              sortState === "asc" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowDown
+            className={cn(
+              iconBase,
+              sortState === "desc" ? iconVisible : iconHidden,
+            )}
+          />
+        </span>
       </button>
     </th>
   );

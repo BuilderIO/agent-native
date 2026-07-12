@@ -413,7 +413,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="icon"
-            className="ms-auto size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            className="relative ms-auto size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >
@@ -570,7 +570,7 @@ export function FormsListPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="size-10 rounded-lg p-0 active:scale-[0.96] transition-[background-color,opacity,transform] sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                          className="relative size-10 rounded-lg p-0 transition-[background-color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus:opacity-100 sm:size-8 sm:opacity-0 sm:before:absolute sm:before:-inset-1 sm:before:content-[''] sm:group-hover:opacity-100"
                           aria-label={t("forms.formActions")}
                         >
                           <IconDots className="h-4 w-4" />

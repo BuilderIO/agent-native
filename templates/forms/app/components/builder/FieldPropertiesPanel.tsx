@@ -181,7 +181,7 @@ export function FieldPropertiesPanel({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-10 w-10 shrink-0 p-0 active:scale-[0.96]"
+                    className="relative h-10 w-10 shrink-0 p-0 transition-transform duration-150 ease-out before:absolute before:-inset-1 active:scale-[0.96] motion-reduce:active:scale-100 sm:h-7 sm:w-7"
                     onClick={() => removeOption(i)}
                     aria-label={t("fieldProperties.removeOption", {
                       option: opt,
@@ -202,7 +202,7 @@ export function FieldPropertiesPanel({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-10 w-10 shrink-0 p-0 active:scale-[0.96]"
+                  className="relative h-10 w-10 shrink-0 p-0 transition-transform duration-150 ease-out before:absolute before:-inset-1 active:scale-[0.96] motion-reduce:active:scale-100 sm:h-7 sm:w-7"
                   onClick={addOption}
                   aria-label={t("fieldProperties.addOption")}
                 >
