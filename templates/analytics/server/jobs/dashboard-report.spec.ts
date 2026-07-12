@@ -57,7 +57,7 @@ describe("dashboard report sweep", () => {
     mocks.sendDashboardReportSubscription.mockReset();
   });
 
-  it("marks a report sent without a screenshot as successful delivery", async () => {
+  it("marks a screenshotless delivery successful while preserving its diagnostic", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockResolvedValue({
@@ -79,6 +79,7 @@ describe("dashboard report sweep", () => {
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "success",
+      "Dashboard screenshot unavailable: dashboard render timed out",
     );
   });
 

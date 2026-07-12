@@ -173,7 +173,7 @@ describe("dashboard report email", () => {
     expect(emailArgs.text).toContain("reportSettings=1");
   });
 
-  it("fits tall dashboard captures beyond the old viewport cap", async () => {
+  it("captures tall dashboards without expanding the Chromium render surface", async () => {
     const tall = createBrowser({ captureBox: { width: 960, height: 8200 } });
     mocks.launch.mockResolvedValueOnce(tall.browser);
 
@@ -184,13 +184,25 @@ describe("dashboard report email", () => {
       screenshotAttached: true,
       screenshotMode: "full",
     });
-    expect(tall.page.setViewportSize).toHaveBeenCalledWith({
-      width: 1440,
-      height: 8264,
+    expect(tall.page.setViewportSize).not.toHaveBeenCalled();
+    expect(tall.locator.screenshot).toHaveBeenCalledWith({
+      type: "png",
+      animations: "disabled",
     });
-    expect(tall.page.setViewportSize).not.toHaveBeenCalledWith(
-      expect.objectContaining({ height: 7000 }),
-    );
+  });
+
+  it("only expands wide captures while preserving the bounded viewport height", async () => {
+    const wide = createBrowser({ captureBox: { width: 1600, height: 8200 } });
+    mocks.launch.mockResolvedValueOnce(wide.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(wide.page.setViewportSize).toHaveBeenCalledOnce();
+    expect(wide.page.setViewportSize).toHaveBeenCalledWith({
+      width: 1664,
+      height: 1800,
+    });
+    expect(wide.locator.screenshot).toHaveBeenCalledOnce();
   });
 
   it("still sends the report email without a screenshot when browser capture fails", async () => {
@@ -212,6 +224,21 @@ describe("dashboard report email", () => {
         html: expect.stringContaining("dashboard image was unavailable"),
         text: expect.stringContaining("Dashboard image unavailable"),
       }),
+    );
+  });
+
+  it("allows enough time for full serverless dashboards to become ready", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const serverless = createBrowser();
+    mocks.launch.mockResolvedValueOnce(serverless.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(serverless.page.setDefaultTimeout).toHaveBeenCalledWith(90_000);
+    expect(serverless.page.waitForFunction).toHaveBeenCalledWith(
+      expect.any(String),
+      undefined,
+      { timeout: 90_000 },
     );
   });
 

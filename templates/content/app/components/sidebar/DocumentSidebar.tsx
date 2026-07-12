@@ -1188,8 +1188,8 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pe-2">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="w-full min-w-0 py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>

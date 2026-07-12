@@ -42,9 +42,8 @@ const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
-const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 60_000;
-const SERVERLESS_SECOND_READY_TIMEOUT_MS = 30_000;
-const MAX_SCREENSHOT_VIEWPORT_HEIGHT = 30_000;
+const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
+const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 
 type DashboardScreenshotAttempt = {
@@ -328,42 +327,27 @@ async function scrollDashboardForLazyRendering(page: any): Promise<void> {
   })()`);
 }
 
-async function fitViewportToDashboardCapture(
+async function fitViewportWidthToDashboardCapture(
   page: any,
   capture: any,
-  minViewport: { width: number; height: number },
+  viewport: { width: number; height: number },
 ): Promise<void> {
   const box = await capture.boundingBox();
   if (!box) return;
 
-  const size = {
-    width: Math.max(
-      minViewport.width,
-      Math.min(1800, Math.ceil(box.width + SCREENSHOT_VIEWPORT_PADDING)),
-    ),
-    height: Math.max(
-      minViewport.height,
-      Math.min(
-        MAX_SCREENSHOT_VIEWPORT_HEIGHT,
-        Math.ceil(box.height + SCREENSHOT_VIEWPORT_PADDING),
-      ),
-    ),
-  };
-  await page.setViewportSize(size);
-  await page.waitForTimeout(250);
-
-  const resizedBox = await capture.boundingBox();
-  if (!resizedBox) return;
-  const resizedHeight = Math.ceil(
-    resizedBox.height + SCREENSHOT_VIEWPORT_PADDING,
+  const width = Math.max(
+    viewport.width,
+    Math.min(1800, Math.ceil(box.width + SCREENSHOT_VIEWPORT_PADDING)),
   );
-  if (resizedHeight > size.height) {
-    await page.setViewportSize({
-      width: size.width,
-      height: Math.min(MAX_SCREENSHOT_VIEWPORT_HEIGHT, resizedHeight),
-    });
-    await page.waitForTimeout(250);
-  }
+  if (width === viewport.width) return;
+
+  // Keep the render surface bounded. Playwright's locator screenshot captures
+  // the full element beyond the viewport, while growing Chromium to the full
+  // dashboard height can exhaust memory and close the browser on serverless
+  // workers. Width-only fitting preserves the full dashboard without that
+  // oversized render surface.
+  await page.setViewportSize({ width, height: viewport.height });
+  await page.waitForTimeout(250);
 }
 
 async function captureDashboardPng(
@@ -412,7 +396,7 @@ async function captureDashboardPng(
     await scrollDashboardForLazyRendering(page);
     await waitForDashboardReportReady(page, secondReadyTimeoutMs());
 
-    await fitViewportToDashboardCapture(page, capture, attempt.viewport);
+    await fitViewportWidthToDashboardCapture(page, capture, attempt.viewport);
     await capture.scrollIntoViewIfNeeded();
     const image = await capture.screenshot({
       type: "png",
