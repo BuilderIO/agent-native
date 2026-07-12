@@ -1,12 +1,15 @@
 import { useT } from "@agent-native/core/client";
 import {
+  IconCheck,
   IconChevronDown,
   IconDeviceFloppy,
-  IconTrash,
   IconLayoutGrid,
+  IconPlus,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
@@ -32,7 +35,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -45,6 +47,7 @@ import {
   useDashboardViews,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { cn } from "@/lib/utils";
 
 import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
 
@@ -107,15 +110,39 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
     [searchParams],
   );
 
-  const activeView = useMemo(() => {
+  const selectedView = useMemo(() => {
     const paramViewId = searchParams.get("view");
     if (paramViewId) {
-      const v = views.find((x) => x.id === paramViewId);
-      if (v && filtersMatch(currentFilters, v.filters)) return v;
+      return views.find((x) => x.id === paramViewId) ?? null;
     }
-    // Fall back to any view whose filter set matches exactly.
-    return views.find((v) => filtersMatch(currentFilters, v.filters)) ?? null;
-  }, [searchParams, views, currentFilters]);
+    return null;
+  }, [searchParams, views]);
+
+  const hasFilterChanges = useMemo(() => {
+    if (!selectedView) return false;
+    return !filtersMatch(currentFilters, selectedView.filters);
+  }, [selectedView, currentFilters]);
+
+  const slugExists = useMemo(() => {
+    const slug = slugify(viewName.trim());
+    return views.some((v) => v.id === slug);
+  }, [viewName, views]);
+
+  const handleUpdateActiveView = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!selectedView) return;
+    try {
+      await saveView({
+        id: selectedView.id,
+        name: selectedView.name,
+        filters: currentFilters,
+      });
+      toast.success(`Saved filters to "${selectedView.name}"`);
+    } catch {
+      toast.error(t("sqlDashboard.failedToSave"));
+    }
+  };
 
   const applyView = (view: DashboardView) => {
     setSearchParams((prev) => {
@@ -137,14 +164,23 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
 
   const handleSaveView = async () => {
     const name = viewName.trim();
-    if (!name || savingView) return;
+    if (!name || savingView || slugExists) return;
     setSavingView(true);
     try {
+      const newId = slugify(name);
       await saveView({
-        id: slugify(name),
+        id: newId,
         name,
         filters: currentFilters,
       });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("view", newId);
+          return next;
+        },
+        { replace: true },
+      );
       setViewName("");
       setSaveDialogOpen(false);
     } finally {
@@ -154,95 +190,186 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
 
   const handleDeleteView = async () => {
     if (!deleteTarget) return;
-    await deleteView(deleteTarget.id);
+    const viewId = deleteTarget.id;
+    await deleteView(viewId);
+    if (searchParams.get("view") === viewId || views.length <= 1) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("view");
+          return next;
+        },
+        { replace: true },
+      );
+    }
     setDeleteTarget(null);
   };
 
-  const triggerLabel = activeView ? activeView.name : t("sqlDashboard.views");
+  const triggerLabel = selectedView
+    ? selectedView.name
+    : t("sqlDashboard.views");
 
   return (
     <>
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
-                <IconLayoutGrid className="h-3.5 w-3.5" />
-                <span className="max-w-[160px] truncate">{triggerLabel}</span>
-                <IconChevronDown className="h-3 w-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{t("sqlDashboard.savedViews")}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" className="w-60">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
-            {t("sqlDashboard.savedViews")}
-          </DropdownMenuLabel>
-          {error ? (
-            <ResourceLoadError
-              inline
-              message={t("commandPalette.loadFailed")}
-              retryLabel={t("sidebar.retry")}
-              onRetry={() => void refetch()}
-            />
-          ) : views.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-muted-foreground">
-              {t("sqlDashboard.noSavedViews")}
-            </div>
-          ) : (
-            views.map((v) => (
-              <DropdownMenuItem
-                key={v.id}
-                className="group flex items-center justify-between gap-2"
-                onSelect={(e) => {
+      <div className="flex items-center gap-1.5">
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                >
+                  <IconLayoutGrid className="h-3.5 w-3.5" />
+                  <span className="max-w-[160px] truncate">{triggerLabel}</span>
+                  <IconChevronDown className="h-3 w-3 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("sqlDashboard.savedViews")}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" className="w-60">
+            <DropdownMenuLabel className="flex items-center justify-between text-xs text-muted-foreground font-semibold">
+              <span>{t("sqlDashboard.savedViews")}</span>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setMenuOpen(false);
+                    setViewName("");
+                    setSaveDialogOpen(true);
+                  }}
+                  title={t("sqlDashboard.saveAsView")}
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </DropdownMenuLabel>
+            {error ? (
+              <ResourceLoadError
+                inline
+                message={t("commandPalette.loadFailed")}
+                retryLabel={t("sidebar.retry")}
+                onRetry={() => void refetch()}
+              />
+            ) : views.length === 0 ? (
+              <div className="px-2 py-2 text-xs text-muted-foreground">
+                {t("sqlDashboard.noSavedViews")}
+              </div>
+            ) : (
+              views.map((v) => (
+                <DropdownMenuItem
+                  key={v.id}
+                  className={cn(
+                    "group flex items-center justify-between gap-2",
+                    selectedView?.id === v.id && "bg-muted font-medium",
+                  )}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    applyView(v);
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {selectedView?.id === v.id && (
+                      <IconCheck className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">{v.name}</span>
+                  </div>
+                  {canEdit ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      {v.id === selectedView?.id && hasFilterChanges && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            try {
+                              await saveView({
+                                id: v.id,
+                                name: v.name,
+                                filters: currentFilters,
+                              });
+                              toast.success(`Saved filters to "${v.name}"`);
+                            } catch {
+                              toast.error(t("sqlDashboard.failedToSave"));
+                            }
+                          }}
+                          title={`Save current filters to "${v.name}"`}
+                        >
+                          <IconDeviceFloppy className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setDeleteTarget(v);
+                              setMenuOpen(false);
+                            }}
+                          >
+                            <IconTrash className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("sqlDashboard.deleteView", { name: v.name })}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  ) : null}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {canEdit && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0 border border-input bg-background hover:bg-accent"
+                onClick={(e) => {
                   e.preventDefault();
-                  applyView(v);
-                }}
-              >
-                <span className="truncate flex-1">{v.name}</span>
-                {canEdit ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setDeleteTarget(v);
-                          setMenuOpen(false);
-                        }}
-                      >
-                        <IconTrash className="h-3 w-3" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("sqlDashboard.deleteView", { name: v.name })}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </DropdownMenuItem>
-            ))
-          )}
-          {canEdit ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setMenuOpen(false);
+                  setViewName("");
                   setSaveDialogOpen(true);
                 }}
               >
-                <IconDeviceFloppy className="h-4 w-4 mr-2" />
-                {t("sqlDashboard.saveCurrentView")}
-              </DropdownMenuItem>
-            </>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+                <IconPlus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("sqlDashboard.saveAsView")}</TooltipContent>
+          </Tooltip>
+        )}
+
+        {canEdit && selectedView && hasFilterChanges && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0 border border-input bg-background hover:bg-accent"
+                onClick={handleUpdateActiveView}
+              >
+                <IconDeviceFloppy className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Save current filters to "{selectedView.name}"
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
 
       <Dialog open={canEdit && saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
@@ -259,6 +386,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               }}
               autoFocus
             />
+            {slugExists && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                already saved view name exists
+              </p>
+            )}
             {Object.keys(currentFilters).length === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
                 {t("sqlDashboard.noActiveFilters")}
@@ -277,7 +409,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             <Button
               size="sm"
               onClick={handleSaveView}
-              disabled={!viewName.trim() || savingView}
+              disabled={!viewName.trim() || savingView || slugExists}
             >
               {savingView ? t("sqlDashboard.saving") : t("sqlDashboard.save")}
             </Button>
