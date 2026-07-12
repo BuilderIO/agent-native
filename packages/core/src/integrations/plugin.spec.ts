@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -94,6 +95,26 @@ vi.mock("./webhook-handler.js", async () => {
     ...actual,
     handleWebhook: handleWebhookMock,
     processIntegrationTask: processIntegrationTaskMock,
+  };
+});
+
+// Default mirrors the real non-Slack service path so existing webhook tests
+// keep their behavior; individual tests override with mockRejectedValueOnce.
+const resolveDefaultExecutionContextMock = vi.hoisted(() =>
+  vi.fn(async (incoming: { platform: string }) => ({
+    ownerEmail: `integration@${incoming.platform}`,
+    orgId: null,
+    principalType: "service" as const,
+  })),
+);
+
+vi.mock("./identity.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./identity.js")>("./identity.js");
+  return {
+    ...actual,
+    resolveDefaultIntegrationExecutionContext:
+      resolveDefaultExecutionContextMock,
   };
 });
 
@@ -652,5 +673,55 @@ describe("integrations plugin routes", () => {
     expect(Object.keys(options.actions)).toEqual(
       expect.arrayContaining(["call-agent", "template-action"]),
     );
+  });
+
+  it("politely declines a Slack DM when the default identity ladder declines", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const sendSystemNotice = vi.fn(async () => {});
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:1.1",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice,
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest member declined",
+        "This assistant is only available to members of this workspace's organization.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("ok");
+    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
+    expect(sendSystemNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationType: "dm" }),
+      "This assistant is only available to members of this workspace's organization.",
+    );
+    expect(handleWebhookMock).not.toHaveBeenCalled();
   });
 });

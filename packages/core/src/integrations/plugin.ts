@@ -53,7 +53,10 @@ import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
-import { resolveDefaultIntegrationExecutionContext } from "./identity.js";
+import {
+  IntegrationIdentityDeclinedError,
+  resolveDefaultIntegrationExecutionContext,
+} from "./identity.js";
 import {
   disconnectIntegrationInstallation,
   listIntegrationInstallations,
@@ -2382,10 +2385,38 @@ export function createIntegrationsPlugin(
               // Slack setup. When no override exists, the branch below fails
               // closed instead of falling back to a service principal.
               if (!options?.resolveExecutionContext && !options?.resolveOwner) {
-                console.error(
-                  `[integrations] default Slack DM identity denied message:`,
-                  err,
-                );
+                const declined =
+                  err instanceof IntegrationIdentityDeclinedError ? err : null;
+                if (declined) {
+                  console.warn(
+                    `[integrations] default Slack DM identity declined message:`,
+                    declined.message,
+                  );
+                  // Best-effort polite reply back to the DM. A failed notice
+                  // must never break the webhook acknowledgement.
+                  try {
+                    await withCredentialContext(credentialContext, () =>
+                      adapter.sendSystemNotice
+                        ? adapter.sendSystemNotice(
+                            incoming!,
+                            declined.userFacingMessage,
+                          )
+                        : Promise.resolve(),
+                    );
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] decline notice failed:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                  }
+                } else {
+                  console.error(
+                    `[integrations] default Slack DM identity denied message:`,
+                    err,
+                  );
+                }
                 setResponseStatus(event, 200);
                 return "ok";
               }
@@ -2413,6 +2444,36 @@ export function createIntegrationsPlugin(
             }
           } else if (defaultExecutionContext) {
             executionContext = defaultExecutionContext;
+            if (defaultExecutionContext.anonymousMember) {
+              // The anonymous tier must never be silent. (1) The agent run
+              // can tell: the note rides the serialized `incoming` into the
+              // queued task and surfaces via <integration-context>.
+              incoming.identityNote =
+                "Caller is an unlinked Slack workspace member running with organization-wide visibility only; personal or privately-shared data is not accessible. They can get personal access by having an admin add their Slack email to the organization (or by reconnecting Slack with the users:read.email scope).";
+              // (2) The sender gets a one-time heads-up (adapter-throttled per
+              // sender). Fire-and-forget so it never delays or replaces the
+              // normal agent run.
+              if (adapter.sendSystemNotice) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `Heads up: I couldn't match your Slack account to an organization member, so I can only use org-wide data. Ask an admin to add ${senderEmail} to the organization for personal access.`
+                  : "Heads up: I couldn't verify your Slack account's email, so I can only use org-wide data. Ask an admin to update the Slack connection with the users:read.email scope for personal access.";
+                void withCredentialContext(credentialContext, () =>
+                  adapter.sendSystemNotice!(incoming!, noticeText, {
+                    dedupeKey: `anonymous-tier:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                  }),
+                ).catch((noticeErr) => {
+                  console.warn(
+                    `[integrations] anonymous-tier notice failed:`,
+                    noticeErr instanceof Error ? noticeErr.message : noticeErr,
+                  );
+                });
+              }
+            }
           } else if (options?.resolveOwner) {
             try {
               executionContext.ownerEmail = await withCredentialContext(

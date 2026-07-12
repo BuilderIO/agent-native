@@ -124,15 +124,15 @@ details live in `.agents/skills/`.
   `userId`/email parameter (e.g. `userId: "user@example.com"`) or recording/
   issue id — never by matching emails read back from previously displayed
   output.
-- Analytics opts into the framework's authenticated-read connector policy, so
-  every Analytics action explicitly marked GET + read-only +
-  `publicAgent.requiresAuth` is directly callable by a signed-in external
-  agent. This includes the incident reads above plus safe dashboard/analysis
-  reads. Generic core `db-schema` / `db-query` remain in-app agent tools and
-  are not automatically exposed because broad SQL/schema access is too
-  powerful to infer from read-only metadata. Writes remain `ask_app`-only.
-  Use the explicit catalog and `denyActions` policy for any unusually
-  sensitive read instead of exposing an unannotated action.
+- Analytics keeps its direct MCP surface explicitly curated, so external
+  agents should use `ask_app` for multi-step investigation and changes. The
+  six incident reads above are bounded, user/org-scoped fallback tools for
+  callers that already know which lookup they need. Generic core
+  `db-schema` / `db-query` remain in-app agent tools and are not exposed
+  directly because broad SQL/schema access is too powerful to infer from
+  read-only metadata. Writes remain `ask_app`-only. Use the explicit catalog
+  and `denyActions` policy for any unusually sensitive read instead of
+  exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
   evals, experiments, and feedback. `/agents?view=dashboards` shows the

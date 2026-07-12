@@ -417,17 +417,21 @@ rejected.
 
 The default Slack integration follows the same rule. A verified Slack DM is
 matched to an existing Agent Native organization member and persisted as a
-workspace/user identity link before the agent runs. The resulting user/org
-context loads that user's resources, instructions, and skills. Shared Slack
-channels use a service principal instead of borrowing one participant's
-private permissions; guests and external Slack members cannot use personal
-Agent Native access by default. If a Slack identity cannot be verified or its
-link changes, the message is rejected rather than downgraded to a broad
-service identity. Managed Slack OAuth requests the `users:read.email` bot
-scope, and the generated Slack app manifest requests it too. Existing Slack
-installs must be reconnected/reinstalled to grant a newly added scope; legacy
-bot-token installs must add the scope in Slack manually. Without it, personal
-DM execution fails closed.
+workspace/user identity link before the agent runs, and the resulting user/org
+context loads that user's resources, instructions, and skills. Hydrated
+workspace members whose email is missing or not yet an organization member run
+as an anonymous org-scoped service principal instead — the same
+org-wide-visibility tier shared channels get — with an agent-visible note and
+a one-time Slack heads-up explaining how to gain personal access. Hydration
+failures, guests and external (Slack Connect) members, and workspaces not
+connected to an organization receive a polite decline reply instead of a
+silent drop. Shared Slack channels use a service principal instead of
+borrowing one participant's private permissions. Managed Slack OAuth requests
+the `users:read.email` bot scope, and the generated Slack app manifest
+requests it too. Existing Slack installs must be reconnected/reinstalled to
+grant a newly added scope; legacy bot-token installs must add the scope in
+Slack manually. Without it, DMs run in the anonymous org-scoped tier rather
+than with personal access.
 
 ### Full tier (explicit opt-in only) {#full-tier}
 
