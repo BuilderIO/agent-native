@@ -168,10 +168,11 @@ const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
 const MALFORMED_REPLAY_MIN_WIDTH = 4000;
 const MALFORMED_REPLAY_MIN_ASPECT_RATIO = 4;
-const LEGACY_MALFORMED_REPLAY_MIN_WIDTH = 3000;
-const LEGACY_MALFORMED_REPLAY_MAX_WIDTH = 4000;
-const LEGACY_MALFORMED_REPLAY_MAX_HEIGHT = 1000;
-const LEGACY_MALFORMED_REPLAY_MIN_ASPECT_RATIO = 3.5;
+// Evidence-backed exception for the one pre-fix viewport shape observed in a
+// stored recording. Do not broaden this to an aspect-ratio range: valid
+// 3440x900 ultrawide browser viewports occupy the same range.
+const LEGACY_MALFORMED_REPLAY_WIDTH = 3189;
+const LEGACY_MALFORMED_REPLAY_HEIGHT = 885;
 const MIN_REPLAY_DISPLAY_DIMENSION = 240;
 const RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO =
   DEFAULT_PLAYER_WIDTH / DEFAULT_PLAYER_HEIGHT;
@@ -190,24 +191,14 @@ const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
+const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
 /**
- * Toast/snackbar noise only — keep this aligned with builder-internal.
- *
- * IMPORTANT: never hide Radix's generic popper wrapper here. Dropdowns,
- * selects, tooltips, and other recorded product UI all share that wrapper;
- * suppressing it makes a structurally correct rrweb snapshot look broken.
+ * Keep captured overlays intact. Toasts and snackbars are product feedback,
+ * not recorder chrome, and can be essential to understanding the session.
+ * The recorder does not inject notification UI into the recorded document, so
+ * blanket selectors (including Sonner's data attributes) are not justified.
  */
-export const REPLAY_OVERLAY_STYLE_RULES = [
-  `.MuiSnackbar-root,
-  [class*="Snackbar-root"],
-  [class*="toast-container"],
-  [class*="Toast-container"],
-  [class*="Toastify"],
-  [class*="notistack-SnackbarContainer"],
-  [class*="notification-container"],
-  [class*="NotificationContainer"]
-  { display: none !important; }`,
-];
+export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -500,6 +491,7 @@ function ReplayPlayer({
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
   const rafRef = useRef<number | null>(null);
+  const lastClockUpdateAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -544,9 +536,9 @@ function ReplayPlayer({
   // values even though the browser was a normal desktop viewport. Rendering
   // those raw values collapses the replay into a tiny horizontal ribbon. Keep
   // normal recordings exact—including 32:9 and mobile portrait. Recover only
-  // widths >=4,000px with aspect >4:1, plus the known 3,000–3,999px / short-
-  // height legacy shape, to the standard 16:10 viewport. The same dimensions
-  // are applied to rrweb's iframe so CSS breakpoints/camera agree.
+  // widths >=4,000px with aspect >4:1, plus the exact known 3,189x885 legacy
+  // shape, to the standard 16:10 viewport. The same dimensions are applied to
+  // rrweb's iframe so CSS breakpoints/camera agree.
   const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
   const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
   const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
@@ -645,10 +637,16 @@ function ReplayPlayer({
 
   const updateTime = useCallback(
     (next: number) => {
+      if (!Number.isFinite(next) || next === currentTimeRef.current) return;
+      // Keep the live value in sync before React commits. The animation clock
+      // can run again while React is still processing the previous render;
+      // relying on useLiveRef's effect here republishes the same value and can
+      // create a nested update loop in development.
+      currentTimeRef.current = next;
       setCurrentTime(next);
       onTimeUpdate(next);
     },
-    [onTimeUpdate],
+    [currentTimeRef, onTimeUpdate],
   );
 
   const seek = useCallback(
@@ -901,10 +899,11 @@ function ReplayPlayer({
     if (!playing || status !== "ready") {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
       return;
     }
 
-    const tick = () => {
+    const tick = (frameTime: number) => {
       const replayer = replayerRef.current;
       if (replayer && !scrubbingRef.current) {
         let nextTime = Number(
@@ -927,7 +926,17 @@ function ReplayPlayer({
             }
           }
         }
-        if (Number.isFinite(nextTime)) updateTime(nextTime);
+        if (
+          shouldPublishReplayClockUpdate(
+            lastClockUpdateAtRef.current,
+            frameTime,
+            currentTimeRef.current,
+            nextTime,
+          )
+        ) {
+          lastClockUpdateAtRef.current = frameTime;
+          updateTime(nextTime);
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -936,6 +945,7 @@ function ReplayPlayer({
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
     };
   }, [
     currentTimeRef,
@@ -1021,14 +1031,11 @@ function ReplayPlayer({
                 />
                 <button
                   type="button"
-                  className={cn(
-                    "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
-                    // The full-stage click target is an Analytics convenience,
-                    // not part of stock rrweb. Hide the viewer's stationary
-                    // native pointer during playback so it cannot cover or be
-                    // mistaken for rrweb's recorded moving cursor underneath.
-                    playing ? "cursor-none" : "cursor-pointer",
-                  )}
+                  // IMPORTANT: Keep the viewer's real OS pointer visible while
+                  // the synthetic rrweb pointer replays underneath it. Hiding
+                  // this during playback makes the page feel broken whenever
+                  // the viewer moves their mouse over the full-stage control.
+                  className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
                   disabled={disabled}
                   aria-label={
                     playing ? t("sessions.pause") : t("sessions.play")
@@ -2548,10 +2555,8 @@ export function clampReplayDisplayDimensions(
     dims.width >= MALFORMED_REPLAY_MIN_WIDTH &&
     aspect > MALFORMED_REPLAY_MIN_ASPECT_RATIO;
   const hasLegacyMalformedWideGeometry =
-    dims.width >= LEGACY_MALFORMED_REPLAY_MIN_WIDTH &&
-    dims.width < LEGACY_MALFORMED_REPLAY_MAX_WIDTH &&
-    dims.height < LEGACY_MALFORMED_REPLAY_MAX_HEIGHT &&
-    aspect > LEGACY_MALFORMED_REPLAY_MIN_ASPECT_RATIO;
+    dims.width === LEGACY_MALFORMED_REPLAY_WIDTH &&
+    dims.height === LEGACY_MALFORMED_REPLAY_HEIGHT;
   if (hasMalformedWideGeometry || hasLegacyMalformedWideGeometry) {
     return {
       width: Math.round(dims.height * RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO),
@@ -2715,6 +2720,20 @@ function formatNumber(value: number): string {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+export function shouldPublishReplayClockUpdate(
+  lastUpdateAt: number | null,
+  frameTime: number,
+  currentTime: number,
+  nextTime: number,
+): boolean {
+  if (!Number.isFinite(frameTime) || !Number.isFinite(nextTime)) return false;
+  if (nextTime === currentTime) return false;
+  return (
+    lastUpdateAt == null ||
+    frameTime - lastUpdateAt >= REPLAY_CLOCK_UPDATE_INTERVAL_MS
+  );
 }
 
 function isRecord(value: unknown): value is AnyRecord {

@@ -11,6 +11,12 @@ type QueuedReplayEvent = {
   type: number | null;
 };
 type ReplayStopFn = () => void;
+type ReplayResourceNode = {
+  tagName: string;
+  rel: string;
+  as: string;
+  type: string;
+};
 export type SessionReplayUrlMatcher =
   | string
   | RegExp
@@ -68,8 +74,8 @@ interface SessionReplayState {
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
   lastAuthenticatedProperties: Record<string, unknown> | null;
-  /** rrweb node ids for resource-bearing `<link>` elements in this checkout. */
-  resourceLinkNodeIds: Set<number>;
+  /** Resource tag metadata used to classify later rrweb attribute mutations. */
+  resourceNodes: Map<number, ReplayResourceNode>;
   /**
    * Prevents a permanently misconfigured endpoint from causing an automatic
    * 409 -> restart -> 409 loop. A successful upload resets the allowance, so
@@ -404,12 +410,15 @@ function getState(): SessionReplayState {
       restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
-      resourceLinkNodeIds: new Set(),
+      resourceNodes: new Map(),
       automaticConflictRestartAttempted: false,
       broadcastChannel: null,
     };
   }
-  return g[SESSION_REPLAY_STATE_KEY]!;
+  const state = g[SESSION_REPLAY_STATE_KEY]!;
+  // Keep Vite HMR safe when an older recorder state survives a module reload.
+  state.resourceNodes ??= new Map();
+  return state;
 }
 
 // The replay session record (replayId + sequence counter) lives in
@@ -965,36 +974,107 @@ function scrubReplayValue(
  * the scrub into the single serialization pass avoids a separate deep-clone of
  * every emitted event (FullSnapshots are large DOM trees) on the hot path.
  */
-const REPLAY_RESOURCE_URL_ATTRIBUTES = new Set([
-  "src",
-  "srcset",
-  "poster",
-  "data",
-]);
-
 const REPLAY_RESOURCE_LINK_RELS = new Set([
   "stylesheet",
-  "preload",
-  "modulepreload",
   "icon",
   "apple-touch-icon",
   "mask-icon",
 ]);
+const REPLAY_RESOURCE_PRELOAD_TYPES = new Set([
+  "style",
+  "font",
+  "image",
+  "audio",
+  "video",
+  "track",
+]);
+const REPLAY_RESOURCE_TAGS = new Set([
+  "img",
+  "source",
+  "video",
+  "audio",
+  "track",
+  "input",
+  "link",
+]);
+const NO_REPLAY_RESOURCE_ATTRIBUTES = new Set<string>();
+const REPLAY_SRC_ATTRIBUTES = new Set(["src"]);
+const REPLAY_SRCSET_ATTRIBUTES = new Set(["src", "srcset"]);
+const REPLAY_VIDEO_ATTRIBUTES = new Set(["src", "poster"]);
+const REPLAY_HREF_ATTRIBUTES = new Set(["href"]);
+
+function replayAttributeString(
+  attributes: Record<string, unknown>,
+  key: string,
+): string {
+  return typeof attributes[key] === "string"
+    ? attributes[key].toLowerCase()
+    : "";
+}
+
+function updateReplayResourceNode(
+  current: ReplayResourceNode,
+  attributes: Record<string, unknown>,
+): ReplayResourceNode {
+  return {
+    tagName: current.tagName,
+    rel: Object.hasOwn(attributes, "rel")
+      ? replayAttributeString(attributes, "rel")
+      : current.rel,
+    as: Object.hasOwn(attributes, "as")
+      ? replayAttributeString(attributes, "as")
+      : current.as,
+    type: Object.hasOwn(attributes, "type")
+      ? replayAttributeString(attributes, "type")
+      : current.type,
+  };
+}
+
+function replayPreservedResourceAttributes(
+  node: ReplayResourceNode,
+): ReadonlySet<string> {
+  switch (node.tagName) {
+    case "img":
+    case "source":
+      return REPLAY_SRCSET_ATTRIBUTES;
+    case "video":
+      return REPLAY_VIDEO_ATTRIBUTES;
+    case "audio":
+    case "track":
+      return REPLAY_SRC_ATTRIBUTES;
+    case "input":
+      return node.type === "image"
+        ? REPLAY_SRC_ATTRIBUTES
+        : NO_REPLAY_RESOURCE_ATTRIBUTES;
+    case "link": {
+      const rels = node.rel.split(/\s+/);
+      const isLoadBearingResource =
+        rels.some((rel) => REPLAY_RESOURCE_LINK_RELS.has(rel)) ||
+        (rels.includes("preload") &&
+          REPLAY_RESOURCE_PRELOAD_TYPES.has(node.as));
+      return isLoadBearingResource
+        ? REPLAY_HREF_ATTRIBUTES
+        : NO_REPLAY_RESOURCE_ATTRIBUTES;
+    }
+    default:
+      return NO_REPLAY_RESOURCE_ATTRIBUTES;
+  }
+}
 
 /**
  * Build a path-aware replay serializer without cloning the rrweb event.
  *
- * Privacy still wins for Meta/navigation URLs, anchor hrefs, and custom
- * console/network diagnostics. The narrow exception is captured DOM resource
- * attributes: changing a signed stylesheet/image/font URL makes rrweb rebuild
- * a page that never existed and commonly produces missing CSS or giant fallback
- * icons. JSON.stringify calls a replacer for an `attributes` object before its
- * children, so the WeakMap lets the child callback recognize only that bag.
+ * Privacy still wins for Meta/navigation URLs, executable/embed URLs, anchor
+ * hrefs, and custom console/network diagnostics. The narrow exception is
+ * load-bearing stylesheet, font, image, and media attributes: changing those
+ * signed URLs makes rrweb rebuild a page that never existed. JSON.stringify
+ * calls a replacer for an `attributes` object before its children, so the
+ * WeakMap lets the child callback recognize only that bag.
  */
 function createReplayScrubReplacer(
-  resourceLinkNodeIds: Set<number>,
+  resourceNodes: Map<number, ReplayResourceNode>,
 ): (this: unknown, key: string, value: unknown) => unknown {
-  const preservedAttributes = new WeakMap<object, Set<string>>();
+  const preservedAttributes = new WeakMap<object, ReadonlySet<string>>();
 
   return function replayScrubReplacer(
     this: unknown,
@@ -1003,13 +1083,6 @@ function createReplayScrubReplacer(
   ): unknown {
     if (key === "attributes" && value && typeof value === "object") {
       const attributes = value as Record<string, unknown>;
-      const resourceKeys = new Set<string>();
-      for (const attribute of REPLAY_RESOURCE_URL_ATTRIBUTES) {
-        if (typeof attributes[attribute] === "string") {
-          resourceKeys.add(attribute);
-        }
-      }
-
       const holder =
         this && typeof this === "object"
           ? (this as Record<string, unknown>)
@@ -1020,29 +1093,25 @@ function createReplayScrubReplacer(
         typeof holder?.id === "number" && Number.isFinite(holder.id)
           ? holder.id
           : undefined;
-      const rel = String(attributes.rel ?? "")
-        .toLowerCase()
-        .split(/\s+/);
-      const hasResourceRel = rel.some((token) =>
-        REPLAY_RESOURCE_LINK_RELS.has(token),
-      );
-      if (nodeId !== undefined && tagName === "link" && hasResourceRel) {
-        resourceLinkNodeIds.add(nodeId);
-      } else if (
-        nodeId !== undefined &&
-        tagName === "" &&
-        Object.hasOwn(attributes, "rel")
-      ) {
-        if (hasResourceRel) resourceLinkNodeIds.add(nodeId);
-        else resourceLinkNodeIds.delete(nodeId);
+      let resourceNode: ReplayResourceNode | undefined;
+      if (tagName && REPLAY_RESOURCE_TAGS.has(tagName)) {
+        resourceNode = updateReplayResourceNode(
+          { tagName, rel: "", as: "", type: "" },
+          attributes,
+        );
+      } else if (nodeId !== undefined && !tagName) {
+        const current = resourceNodes.get(nodeId);
+        if (current) {
+          resourceNode = updateReplayResourceNode(current, attributes);
+        }
       }
-      if (
-        typeof attributes.href === "string" &&
-        ((tagName === "link" && hasResourceRel) ||
-          (nodeId !== undefined && resourceLinkNodeIds.has(nodeId)))
-      ) {
-        resourceKeys.add("href");
+      if (nodeId !== undefined && resourceNode) {
+        resourceNodes.set(nodeId, resourceNode);
       }
+
+      const resourceKeys = resourceNode
+        ? replayPreservedResourceAttributes(resourceNode)
+        : NO_REPLAY_RESOURCE_ATTRIBUTES;
 
       if (resourceKeys.size > 0) preservedAttributes.set(value, resourceKeys);
       return value;
@@ -1067,13 +1136,11 @@ function createReplayScrubReplacer(
  */
 function serializeReplayEvent(
   event: ReplayEvent,
-  resourceLinkNodeIds: Set<number>,
+  resourceNodes: Map<number, ReplayResourceNode>,
 ): string {
   try {
-    return JSON.stringify(
-      event,
-      createReplayScrubReplacer(resourceLinkNodeIds),
-    );
+    if (event.type === 2) resourceNodes.clear();
+    return JSON.stringify(event, createReplayScrubReplacer(resourceNodes));
   } catch {
     return "";
   }
@@ -1096,7 +1163,7 @@ function enqueueReplayEvent(
   event: ReplayEvent,
 ): void {
   if (!state.options) return;
-  const serialized = serializeReplayEvent(event, state.resourceLinkNodeIds);
+  const serialized = serializeReplayEvent(event, state.resourceNodes);
   if (!serialized) return;
   const estimatedBytes = serialized.length;
   if (
@@ -1532,6 +1599,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     const rejectedOptions = state.options;
     const shouldRestartAfterConflict =
       definitiveClientErrorStatus === 409 &&
+      state.active &&
+      !isFinalFlushReason(reason) &&
       !state.automaticConflictRestartAttempted;
     if (shouldRestartAfterConflict) {
       state.automaticConflictRestartAttempted = true;
@@ -1548,11 +1617,11 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // configuration/input errors and must not create a restart loop.
     let restartResult: SessionReplayStartResult | null = null;
     if (shouldRestartAfterConflict && rejectedOptions) {
-      restartResult = await startSessionReplay({
-        ...rejectedOptions,
-        console: rejectedOptions.console ?? false,
-        network: rejectedOptions.network ?? false,
-      });
+      restartResult = await restartSessionReplayAfterConflict(
+        state,
+        rejectedOptions,
+        payload.sessionId,
+      );
     }
 
     // Rare recovery-path telemetry lets Analytics owners quantify conflicts
@@ -1570,6 +1639,54 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       // best-effort telemetry must never interfere with recording recovery
     }
   }
+}
+
+/**
+ * Restart a recorder whose replay identity was rejected without routing the
+ * already-normalized options back through the public start API.
+ *
+ * The original recording already passed whole-session sampling. Re-entering
+ * `startSessionReplay` here would ask `getOrCreateAnalyticsSessionId` again;
+ * if the analytics session rotated while the upload was in flight, recovery
+ * could be sampled out and leave a long-lived SPA tab silently unrecorded.
+ * Keeping the original session id and accepted sampling decision also lets us
+ * reuse the exact normalized console/network capture caps instead of relying
+ * on internal option shapes continuing to round-trip through the public API.
+ */
+async function restartSessionReplayAfterConflict(
+  state: SessionReplayState,
+  options: NormalizedSessionReplayOptions,
+  sessionId: string,
+): Promise<SessionReplayStartResult> {
+  if (options.shouldStart && !options.shouldStart()) {
+    return { started: false, reason: "disabled", sessionId, sampled: true };
+  }
+
+  const initialProperties = replayExtraProperties(options);
+  if (options.requireSignedInUser && !replayUserEmail(initialProperties)) {
+    return {
+      started: false,
+      reason: "missing-user-id",
+      sessionId,
+      sampled: true,
+    };
+  }
+  if (!isUrlRecordable(window.location.href, options)) {
+    return {
+      started: false,
+      reason: "url-blocked",
+      sessionId,
+      sampled: true,
+    };
+  }
+
+  return startSessionReplayRecorder(
+    state,
+    options,
+    sessionId,
+    true,
+    initialProperties,
+  );
 }
 
 function installUrlMonitor(state: SessionReplayState): void {
@@ -2499,7 +2616,7 @@ async function startSessionReplayRecorder(
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];
-  state.resourceLinkNodeIds.clear();
+  state.resourceNodes.clear();
   state.stopRecorder = null;
   state.broadcastChannel = replayChannel;
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)

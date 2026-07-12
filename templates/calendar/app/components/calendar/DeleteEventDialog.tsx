@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent, DeleteEventScope } from "@shared/api";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 import {
@@ -36,6 +36,7 @@ export function DeleteEventDialog({
   onConfirm,
 }: DeleteEventDialogProps) {
   const t = useT();
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const [scope, setScope] = useState<DeleteEventScope>("single");
   const [message, setMessage] = useState("");
 
@@ -108,7 +109,14 @@ export function DeleteEventDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <AlertDialogContent className="max-w-[420px]" onKeyDown={handleKeyDown}>
+      <AlertDialogContent
+        className="max-w-[420px]"
+        onKeyDown={handleKeyDown}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          confirmButtonRef.current?.focus();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle className="text-sm">{copy.title}</AlertDialogTitle>
           <AlertDialogDescription>{copy.description}</AlertDialogDescription>
@@ -174,6 +182,7 @@ export function DeleteEventDialog({
             </Button>
           )}
           <Button
+            ref={confirmButtonRef}
             variant="destructive"
             onClick={() => handleConfirm(canNotifyGuests ? "all" : "none")}
           >

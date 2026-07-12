@@ -632,6 +632,7 @@ describe("session replay", () => {
             },
             {
               type: 2,
+              id: 14,
               tagName: "img",
               attributes: {
                 src: "https://cdn.example.test/hero.png?token=signed-image",
@@ -647,6 +648,59 @@ describe("session replay", () => {
                 href: "/oauth/callback?p=private&token=secret&keep=1",
               },
             },
+            {
+              type: 2,
+              id: 15,
+              tagName: "script",
+              attributes: {
+                src: "https://app.example.test/runtime.js?token=script-secret",
+              },
+            },
+            {
+              type: 2,
+              id: 16,
+              tagName: "iframe",
+              attributes: {
+                src: "https://app.example.test/embed?token=frame-secret",
+              },
+            },
+            {
+              type: 2,
+              id: 17,
+              tagName: "object",
+              attributes: {
+                data: "https://app.example.test/file?token=object-secret",
+              },
+            },
+            {
+              type: 2,
+              id: 18,
+              tagName: "video",
+              attributes: {
+                src: "https://cdn.example.test/demo.mp4?token=signed-video",
+                poster:
+                  "https://cdn.example.test/poster.png?token=signed-poster",
+              },
+            },
+            {
+              type: 2,
+              id: 19,
+              tagName: "link",
+              attributes: {
+                rel: "preload",
+                as: "font",
+                href: "https://cdn.example.test/inter.woff2?token=signed-font",
+              },
+            },
+            {
+              type: 2,
+              id: 20,
+              tagName: "link",
+              attributes: {
+                rel: "modulepreload",
+                href: "https://app.example.test/chunk.js?token=module-secret",
+              },
+            },
           ],
         },
       },
@@ -654,8 +708,17 @@ describe("session replay", () => {
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const [stylesheet, image, anchor] = (await parseReplayUpload(init))
-      .events[0].data.node.childNodes;
+    const [
+      stylesheet,
+      image,
+      anchor,
+      script,
+      iframe,
+      object,
+      video,
+      fontPreload,
+      modulePreload,
+    ] = (await parseReplayUpload(init)).events[0].data.node.childNodes;
     expect(stylesheet.attributes).toEqual({
       rel: "stylesheet",
       href: "https://cdn.example.test/app.css?token=signed-style",
@@ -668,6 +731,25 @@ describe("session replay", () => {
     });
     expect(anchor.attributes.href).toBe(
       "/oauth/callback?p=%3Credacted%3E&token=%3Credacted%3E&keep=1",
+    );
+    expect(script.attributes.src).toBe(
+      "https://app.example.test/runtime.js?token=%3Credacted%3E",
+    );
+    expect(iframe.attributes.src).toBe(
+      "https://app.example.test/embed?token=%3Credacted%3E",
+    );
+    expect(object.attributes.data).toBe(
+      "https://app.example.test/file?token=%3Credacted%3E",
+    );
+    expect(video.attributes).toMatchObject({
+      src: "https://cdn.example.test/demo.mp4?token=signed-video",
+      poster: "https://cdn.example.test/poster.png?token=signed-poster",
+    });
+    expect(fontPreload.attributes.href).toBe(
+      "https://cdn.example.test/inter.woff2?token=signed-font",
+    );
+    expect(modulePreload.attributes.href).toBe(
+      "https://app.example.test/chunk.js?token=%3Credacted%3E",
     );
 
     recordOptions.emit({
@@ -686,6 +768,50 @@ describe("session replay", () => {
             id: 13,
             attributes: { href: "/next?p=private&token=secret" },
           },
+          {
+            id: 14,
+            attributes: {
+              src: "https://cdn.example.test/next.png?token=rotated-image",
+            },
+          },
+          {
+            id: 15,
+            attributes: {
+              src: "https://app.example.test/next.js?token=rotated-script",
+            },
+          },
+          {
+            id: 16,
+            attributes: {
+              src: "https://app.example.test/next?token=rotated-frame",
+            },
+          },
+          {
+            id: 17,
+            attributes: {
+              data: "https://app.example.test/next-file?token=rotated-object",
+            },
+          },
+          {
+            id: 18,
+            attributes: {
+              poster:
+                "https://cdn.example.test/next-poster.png?token=rotated-poster",
+            },
+          },
+          {
+            id: 19,
+            attributes: {
+              href: "https://cdn.example.test/inter.woff2?token=rotated-font",
+            },
+          },
+          {
+            id: 12,
+            attributes: {
+              rel: "modulepreload",
+              href: "https://app.example.test/next.js?token=changed-to-script",
+            },
+          },
         ],
       },
     });
@@ -693,14 +819,43 @@ describe("session replay", () => {
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
     const [, mutationInit] = fetchMock.mock.calls[1] as [string, RequestInit];
-    const [stylesheetMutation, anchorMutation] = (
-      await parseReplayUpload(mutationInit)
-    ).events[0].data.attributes;
+    const [
+      stylesheetMutation,
+      anchorMutation,
+      imageMutation,
+      scriptMutation,
+      iframeMutation,
+      objectMutation,
+      videoMutation,
+      fontMutation,
+      changedLinkMutation,
+    ] = (await parseReplayUpload(mutationInit)).events[0].data.attributes;
     expect(stylesheetMutation.attributes.href).toBe(
       "https://cdn.example.test/app.css?token=rotated-signature",
     );
     expect(anchorMutation.attributes.href).toBe(
       "/next?p=%3Credacted%3E&token=%3Credacted%3E",
+    );
+    expect(imageMutation.attributes.src).toBe(
+      "https://cdn.example.test/next.png?token=rotated-image",
+    );
+    expect(scriptMutation.attributes.src).toBe(
+      "https://app.example.test/next.js?token=%3Credacted%3E",
+    );
+    expect(iframeMutation.attributes.src).toBe(
+      "https://app.example.test/next?token=%3Credacted%3E",
+    );
+    expect(objectMutation.attributes.data).toBe(
+      "https://app.example.test/next-file?token=%3Credacted%3E",
+    );
+    expect(videoMutation.attributes.poster).toBe(
+      "https://cdn.example.test/next-poster.png?token=rotated-poster",
+    );
+    expect(fontMutation.attributes.href).toBe(
+      "https://cdn.example.test/inter.woff2?token=rotated-font",
+    );
+    expect(changedLinkMutation.attributes.href).toBe(
+      "https://app.example.test/next.js?token=%3Credacted%3E",
     );
   });
 
@@ -1301,10 +1456,13 @@ describe("session replay", () => {
   });
 
   it("restarts once with a fresh replay identity after a definitive 409 conflict", async () => {
-    const { fetchMock, storage } = installBrowser();
+    const { fetchMock, storage, localStorage } = installBrowser();
+    localStorage.set("agent-native.session_id", "sample-in");
+    localStorage.set("agent-native.session_last_activity", String(Date.now()));
     vi.stubGlobal("CompressionStream", undefined);
+    const conflictResponse = deferred<Response>();
     fetchMock
-      .mockResolvedValueOnce(new Response("conflict", { status: 409 }))
+      .mockImplementationOnce(() => conflictResponse.promise)
       .mockResolvedValue(new Response("{}"));
     const stops: Array<ReturnType<typeof vi.fn>> = [];
     const recordOptions: any[] = [];
@@ -1319,17 +1477,47 @@ describe("session replay", () => {
     const replay = await freshSessionReplay();
     const first = await replay.startSessionReplay({
       publicKey: "anpk_test",
+      sampleRate: 0.5,
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
+      console: { maxEvents: 7 },
+      network: {
+        maxEvents: 9,
+        captureErrorBodies: false,
+        maxErrorBodyLength: 123,
+      },
       onUploadRejected,
     });
+    const initialNormalizedOptions = (globalThis as any)[replayStateKey]
+      .options;
 
     recordOptions[0].emit({ type: 3, data: { href: "/conflicting" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const rejectedUpload = await parseReplayUpload(
+      fetchMock.mock.calls[0][1] as RequestInit,
+    );
+    expect(rejectedUpload.sessionId).toBe("sample-in");
+
+    // Simulate the analytics session rotating while the rejected upload is in
+    // flight. This id scores above 0.5, but conflict recovery must preserve the
+    // original recording's accepted sampling decision and session id.
+    localStorage.set("agent-native.session_id", "a");
+    localStorage.set("agent-native.session_last_activity", String(Date.now()));
+    conflictResponse.resolve(new Response("conflict", { status: 409 }));
+
     await waitForAssertion(() => expect(recordOptions).toHaveLength(2));
     await waitForAssertion(() => expect(onUploadRejected).toHaveBeenCalled());
 
     expect(replay.isSessionReplayActive()).toBe(true);
     expect(stops[0]).toHaveBeenCalledTimes(1);
+    const recoveredState = (globalThis as any)[replayStateKey];
+    expect(recoveredState.options).toBe(initialNormalizedOptions);
+    expect(recoveredState.options.console).toMatchObject({ maxEvents: 7 });
+    expect(recoveredState.options.network).toMatchObject({
+      maxEvents: 9,
+      captureErrorBodies: false,
+      maxErrorBodyLength: 123,
+    });
     const restarted = JSON.parse(
       storage.get("agent-native.session_replay_id") ?? "{}",
     );
@@ -1342,6 +1530,10 @@ describe("session replay", () => {
 
     recordOptions[1].emit({ type: 3, data: { href: "/recovered" } });
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const recoveredUpload = await parseReplayUpload(
+      fetchMock.mock.calls[1][1] as RequestInit,
+    );
+    expect(recoveredUpload.sessionId).toBe("a");
   });
 
   it("does not loop automatic restarts when every fresh identity receives 409", async () => {
@@ -1375,6 +1567,49 @@ describe("session replay", () => {
     expect(stops).toHaveLength(2);
     expect(stops.every((stop) => stop.mock.calls.length === 1)).toBe(true);
     expect(storage.has("agent-native.session_replay_id")).toBe(false);
+  });
+
+  it.each([
+    { label: "an explicit stop", action: "stop" as const },
+    { label: "a pagehide final flush", action: "pagehide" as const },
+  ])("does not restart after a 409 during $label", async ({ action }) => {
+    const { fetchMock, storage } = installBrowser();
+    vi.stubGlobal("CompressionStream", undefined);
+    fetchMock.mockResolvedValue(new Response("conflict", { status: 409 }));
+    const stops: Array<ReturnType<typeof vi.fn>> = [];
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      const stop = vi.fn();
+      stops.push(stop);
+      return stop;
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onUploadRejected = vi.fn();
+    const replay = await freshSessionReplay();
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      flushIntervalMs: 100_000,
+      onUploadRejected,
+    });
+
+    recordOptions[0].emit({ type: 3, data: { href: "/final" } });
+    if (action === "stop") {
+      await replay.stopSessionReplay();
+    } else {
+      await replay.flushSessionReplay("pagehide");
+    }
+
+    expect(recordOptions).toHaveLength(1);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toHaveBeenCalledTimes(1);
+    expect(replay.isSessionReplayActive()).toBe(false);
+    expect(storage.has("agent-native.session_replay_id")).toBe(false);
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 409,
+      restartAttempted: false,
+      restartSucceeded: false,
+    });
   });
 
   it("retries failed replay uploads without advancing the sequence", async () => {

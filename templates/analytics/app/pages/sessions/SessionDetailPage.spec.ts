@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,6 +19,7 @@ import {
   replayPayloadEvents,
   replayViewportDimensions,
   replayViewportDimensionsAtTime,
+  shouldPublishReplayClockUpdate,
 } from "./SessionDetailPage";
 
 const originalFetch = globalThis.fetch;
@@ -28,12 +31,39 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
-  it("suppresses only toast notifications, not recorded Radix product UI", () => {
-    const rules = REPLAY_OVERLAY_STYLE_RULES.join("\n");
+  it("coalesces animation-frame clock updates before publishing React state", () => {
+    expect(shouldPublishReplayClockUpdate(null, 1_000, 0, 10)).toBe(true);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_016, 10, 26)).toBe(false);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 10, 110)).toBe(true);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, 110)).toBe(false);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
+  });
 
-    expect(rules).toContain("Toastify");
-    expect(rules).toContain("Snackbar");
-    expect(rules).not.toContain("data-radix-popper-content-wrapper");
+  it("keeps both the viewer pointer and rrweb's arrow cursor visible", () => {
+    const pageSource = readFileSync(
+      new URL("./SessionDetailPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const globalStyles = readFileSync(
+      new URL("../../global.css", import.meta.url),
+      "utf8",
+    );
+
+    expect(pageSource).not.toContain('playing ? "cursor-none"');
+    expect(pageSource).toContain("z-20 cursor-pointer");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse::after",
+    );
+    expect(globalStyles).toMatch(
+      /\.an-replay-stage-root \.replayer-mouse::after\s*\{[^}]*opacity:\s*0;/,
+    );
+    expect(globalStyles).not.toContain(
+      ".an-replay-stage-root .replayer-mouse {",
+    );
+  });
+
+  it("preserves captured product overlays, including Sonner toasts", () => {
+    expect(REPLAY_OVERLAY_STYLE_RULES).toEqual([]);
   });
 
   it("passes captured rrweb URL and CSS payloads through untouched", () => {
@@ -252,6 +282,26 @@ describe("session replay event normalization", () => {
     expect(clampReplayDisplayDimensions({ width: 3189, height: 885 })).toEqual({
       width: 1416,
       height: 885,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3188, height: 885 })).toEqual({
+      width: 3188,
+      height: 885,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3190, height: 885 })).toEqual({
+      width: 3190,
+      height: 885,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3189, height: 884 })).toEqual({
+      width: 3189,
+      height: 884,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3189, height: 886 })).toEqual({
+      width: 3189,
+      height: 886,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3440, height: 900 })).toEqual({
+      width: 3440,
+      height: 900,
     });
     expect(clampReplayDisplayDimensions({ width: 3440, height: 1440 })).toEqual(
       {

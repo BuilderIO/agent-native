@@ -245,9 +245,13 @@
   transform-origin: top left;
 }
 
-/* IMPORTANT: Keep rrweb's cursor styles stock. Its bundled stylesheet owns
-   the pointer plus click/touch states. App-specific cursor CSS previously made
-   Analytics disagree with rrweb and the builder-internal reference player. */
+/* IMPORTANT: Keep rrweb's stock SVG arrow. Only suppress its permanently
+   visible purple ::after disc, which can otherwise read as the cursor itself
+   when the arrow is small. The stock .active animation still supplies the
+   brief click halo. Do not replace the arrow with an app-colored dot. */
+.an-replay-stage-root .replayer-mouse::after {
+  opacity: 0;
+}
 
 .analytics-session-snippet .plan-code-surface {
   border: 0;
