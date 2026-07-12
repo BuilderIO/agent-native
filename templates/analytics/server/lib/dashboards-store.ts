@@ -1847,7 +1847,17 @@ export async function saveDashboardView(
   });
   const db = getDb() as any;
   const id = view.id ?? nanoidFallback();
+  let exists = false;
   if (view.id) {
+    const [existingRow] = await db
+      .select({ id: schema.dashboardViews.id })
+      .from(schema.dashboardViews)
+      .where(eq(schema.dashboardViews.id, view.id))
+      .limit(1);
+    exists = !!existingRow;
+  }
+
+  if (exists) {
     await db
       .update(schema.dashboardViews)
       .set({ name: view.name, filters: JSON.stringify(view.filters) })
