@@ -41,12 +41,12 @@ details live in `.agents/skills/`.
   unless the user explicitly asks to inspect the demo dashboard.
 - Framework Demo mode is separate from the built-in `demo` source. While Demo
   mode is enabled, Analytics line and area charts reshape each returned numeric
-  series into a deterministic, natural-looking upward trend using that series'
-  actual minimum, maximum, and normalized volatility. Smooth source series stay
-  smooth; spiky source series keep larger swings. This is presentation-only:
-  query results, tables, metrics, exports, and non-time-series charts remain
-  unchanged, so do not cite the displayed intermediate line/area points as
-  retrieved source values.
+  series into a deterministic upward trend using that series' actual minimum,
+  maximum, and local step pattern. Source spikes and dips remain at the same
+  x-positions while the smallest necessary linear drift moves the series up and
+  to the right. This is presentation-only: query results, tables, metrics,
+  exports, and non-time-series charts remain unchanged, so do not cite the
+  displayed intermediate line/area points as retrieved source values.
 - Every analytical answer should include enough audit context for the user to
   trust it: source(s), time window, filters, sample size or row count,
   join/match method when relevant, and caveats/gaps.

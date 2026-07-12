@@ -3,13 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildIdleSkipRanges,
   buildReplayMarkers,
+  buildReplayViewportTimeline,
+  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
   replayDevToolsIssueCount,
+  replayInitialDisplayDimensions,
+  replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
+  replayViewportDimensionsAtTime,
 } from "./SessionDetailPage";
 
 const originalFetch = globalThis.fetch;
@@ -21,8 +26,17 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
-  it("preserves rrweb structure while blocking captured resource URLs", () => {
+  it("passes captured rrweb URL and CSS payloads through untouched", () => {
     const events = [
+      {
+        type: 4,
+        timestamp: 900,
+        data: {
+          href: "https://app.example.test/dashboard",
+          width: 1440,
+          height: 900,
+        },
+      },
       {
         type: 2,
         timestamp: 1000,
@@ -75,50 +89,101 @@ describe("session replay event normalization", () => {
     ];
 
     const normalized = normalizeReplayEvents(events);
-    expect(normalized).toMatchObject([
-      {
-        data: {
-          node: {
-            childNodes: [
-              {
-                attributes: {
-                  rel: "stylesheet",
-                  href: "about:blank",
-                  _cssText: expect.not.stringMatching(/url|@import/i),
-                },
-              },
-              {
-                attributes: {
-                  src: "about:blank",
-                  srcset: "about:blank",
-                },
-              },
-            ],
-          },
-        },
-      },
-      {
-        data: {
-          attributes: [
-            {
-              attributes: {
-                style: expect.not.stringMatching(/url/i),
-              },
-            },
-          ],
-        },
-      },
-    ]);
+    expect(normalized).toEqual(events);
+    expect(normalized[0]).toBe(events[0]);
+    expect(normalized[1]).toBe(events[1]);
+    expect(normalized[2]).toBe(events[2]);
+    expect(normalized[0]?.data.href).toBe("https://app.example.test/dashboard");
+    expect(normalized[1]?.data.node.childNodes[0].attributes).toMatchObject({
+      href: "https://cdn.example.test/app.css",
+      _cssText:
+        '@import "https://cdn.example.test/fonts.css"; body { background: url(https://cdn.example.test/bg.png); }',
+    });
   });
 
-  it("filters invalid entries and sorts sanitized event copies", () => {
+  it("filters invalid entries and sorts valid event references", () => {
     const later = { type: 3, timestamp: 2000, data: { source: 0 } };
     const earlier = { type: 4, timestamp: 1000, data: { width: 1280 } };
     const normalized = normalizeReplayEvents([later, null, "bad", earlier]);
 
     expect(normalized).toEqual([earlier, later]);
-    expect(normalized[0]).not.toBe(earlier);
-    expect(normalized[1]).not.toBe(later);
+    expect(normalized[0]).toBe(earlier);
+    expect(normalized[1]).toBe(later);
+  });
+
+  it("starts the display camera at the first recorded viewport", () => {
+    const events = [
+      {
+        type: 3,
+        timestamp: 900,
+        data: { source: 4, width: 7535, height: 873 },
+      },
+      { type: 4, timestamp: 1000, data: { width: 1024, height: 640 } },
+      {
+        type: 3,
+        timestamp: 2000,
+        data: { source: 4, width: 7535, height: 873 },
+      },
+    ];
+
+    expect(replayInitialViewportDimensions(events)).toEqual({
+      width: 1024,
+      height: 640,
+    });
+    expect(replayViewportDimensions(events)).toEqual({
+      width: 7535,
+      height: 873,
+    });
+    const timeline = buildReplayViewportTimeline(events);
+    expect(replayViewportDimensionsAtTime(timeline, 0)).toEqual({
+      width: 1024,
+      height: 640,
+    });
+    expect(replayViewportDimensionsAtTime(timeline, 1100)).toEqual({
+      width: 7535,
+      height: 873,
+    });
+  });
+
+  it("corrects a malformed initial Meta viewport before first playback", () => {
+    const events = [
+      { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
+      { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
+    ];
+
+    expect(replayInitialViewportDimensions(events)).toEqual({
+      width: 7535,
+      height: 873,
+    });
+    expect(replayInitialDisplayDimensions(events)).toEqual({
+      width: 1397,
+      height: 873,
+    });
+  });
+
+  it("caps only impossible display aspect ratios", () => {
+    expect(clampReplayDisplayDimensions({ width: 7535, height: 873 })).toEqual({
+      width: 1397,
+      height: 873,
+    });
+    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
+      width: 300,
+      height: 1200,
+    });
+    expect(clampReplayDisplayDimensions({ width: 5120, height: 1440 })).toEqual(
+      {
+        width: 5120,
+        height: 1440,
+      },
+    );
+    expect(clampReplayDisplayDimensions({ width: 7535, height: 5 })).toEqual({
+      width: 1024,
+      height: 640,
+    });
+    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
+      width: 1440,
+      height: 900,
+    });
   });
 
   it("derives viewport dimensions from the latest meta or resize event", () => {

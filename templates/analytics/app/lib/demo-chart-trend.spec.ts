@@ -29,6 +29,32 @@ function normalizedRoughness(series: number[]): number {
   );
 }
 
+function secondDifferences(series: number[]): number[] {
+  const minimum = Math.min(...series);
+  const range = Math.max(...series) - minimum;
+  if (series.length < 3 || range === 0) return [];
+  const normalized = series.map((value) => (value - minimum) / range);
+  return normalized
+    .slice(2)
+    .map(
+      (value, index) => value - 2 * normalized[index + 1] + normalized[index],
+    );
+}
+
+function cosineSimilarity(left: number[], right: number[]): number {
+  const dot = left.reduce(
+    (total, value, index) => total + value * right[index],
+    0,
+  );
+  const leftLength = Math.sqrt(
+    left.reduce((total, value) => total + value * value, 0),
+  );
+  const rightLength = Math.sqrt(
+    right.reduce((total, value) => total + value * value, 0),
+  );
+  return dot / (leftLength * rightLength);
+}
+
 describe("createDemoChartTrendRows", () => {
   const sourceRows = [
     { date: "2026-07-01", signups: 40, revenue: 800, label: "Mon" },
@@ -174,5 +200,29 @@ describe("createDemoChartTrendRows", () => {
     expect(Math.max(...smoothTrend)).toBe(100);
     expect(Math.min(...spikyTrend)).toBe(0);
     expect(Math.max(...spikyTrend)).toBe(100);
+  });
+
+  it("keeps source spikes and dips in the same local positions", () => {
+    const source = [12, 14, 16, 18, 55, 21, 23, 24, 61, 27, 28, 30, 31];
+    const result = createDemoChartTrendRows(
+      source.map((value, index) => ({ index, value })),
+      ["value"],
+      "shape-panel",
+    );
+    const transformed = values(result, "value");
+
+    // Second differences remove the imposed linear rise and compare the local
+    // acceleration pattern: sharp source events should remain sharp at the
+    // same x positions rather than being replaced by arbitrary pullbacks.
+    expect(
+      cosineSimilarity(
+        secondDifferences(source),
+        secondDifferences(transformed),
+      ),
+    ).toBeGreaterThan(0.9);
+    expect(transformed[4]).toBeGreaterThan(transformed[3]);
+    expect(transformed[5]).toBeLessThan(transformed[4]);
+    expect(transformed[8]).toBeGreaterThan(transformed[7]);
+    expect(transformed[9]).toBeLessThan(transformed[8]);
   });
 });

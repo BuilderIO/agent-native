@@ -4,6 +4,10 @@ export {
   type SettingsPanelProps,
 } from "./SettingsPanel.js";
 export {
+  getAgentSettingsSearchTabs,
+  type AgentSettingsSearchTab,
+} from "./agent-settings-search.js";
+export {
   SettingsTabsPage,
   type SettingsSearchEntry,
   type SettingsTabItem,

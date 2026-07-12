@@ -52,49 +52,56 @@ function normalizedVolatility(
 }
 
 function normalizedTrend(
-  length: number,
+  series: number[],
+  minimum: number,
+  range: number,
   volatilityScore: number,
   random: () => number,
 ): number[] {
+  const length = series.length;
   if (length <= 1) return [0];
   if (length === 2) return [0, 1];
 
-  const volatility = 0.015 + volatilityScore * (0.22 + random() * 0.12);
-  const noiseMemory = 0.78 - volatilityScore * 0.58;
-  let noise = 0;
-  const values = Array.from({ length }, (_, index) => {
-    if (index === 0) return 0;
-    if (index === length - 1) return 1;
+  const normalized = series.map((value) => (value - minimum) / range);
+  const randomization = 0.012 + volatilityScore * 0.08;
+  const shape = [normalized[0]];
 
-    const progress = index / (length - 1);
-    noise = noise * noiseMemory + (random() * 2 - 1) * (1 - noiseMemory);
-    const taperedNoise = noise * volatility * Math.sin(Math.PI * progress);
-    return clamp(progress + taperedNoise, 0.025, 0.975);
-  });
-
-  // Pullback count and depth follow the source's normalized volatility. A
-  // smooth source remains a gentle rise; a jagged source gets several seeded
-  // reversals. Spacing the reversals across the series prevents them from
-  // collapsing into one noisy patch.
-  if (length >= 5 && volatilityScore >= 0.12) {
-    const maximumPullbacks = Math.min(3, Math.floor((length - 2) / 2));
-    const pullbackCount = Math.max(
-      1,
-      Math.round(volatilityScore * maximumPullbacks),
-    );
-    for (let pullback = 0; pullback < pullbackCount; pullback += 1) {
-      const segmentCenter =
-        ((pullback + 1) * (length - 3)) / (pullbackCount + 1) + 1;
-      const jitter = (random() - 0.5) * Math.max(1, length / 10);
-      const dipIndex = Math.round(clamp(segmentCenter + jitter, 2, length - 2));
-      const center = dipIndex / (length - 1);
-      const amplitude = 0.025 + volatilityScore * (0.075 + random() * 0.12);
-      values[dipIndex - 1] = clamp(center + amplitude, 0.075, 0.925);
-      values[dipIndex] = clamp(center - amplitude, 0.05, 0.9);
-    }
+  // Preserve the source's actual step pattern (including when and how sharply
+  // it spikes), with just enough seeded variation that otherwise-similar demo
+  // series do not become identical. Smooth sources receive almost no jitter;
+  // volatile sources can vary a little more without moving their events.
+  for (let index = 1; index < length; index += 1) {
+    const sourceStep = normalized[index] - normalized[index - 1];
+    const factor = 1 + (random() * 2 - 1) * randomization;
+    shape.push(shape[index - 1] + sourceStep * factor);
   }
 
-  return values;
+  // Add only the linear drift required for the first point to be the global
+  // minimum and the last to be the global maximum. A linear term has zero
+  // second difference, so the source's local acceleration, spikes, and dips
+  // survive instead of being replaced by a synthetic random walk.
+  let requiredDrift = 0;
+  for (let index = 1; index < length; index += 1) {
+    const progress = index / (length - 1);
+    requiredDrift = Math.max(
+      requiredDrift,
+      (shape[0] - shape[index]) / progress,
+    );
+  }
+  for (let index = 0; index < length - 1; index += 1) {
+    const progress = index / (length - 1);
+    requiredDrift = Math.max(
+      requiredDrift,
+      (shape[index] - shape[length - 1]) / (1 - progress),
+    );
+  }
+
+  const drift = requiredDrift + 0.012 + random() * 0.018;
+  const candidate = shape.map(
+    (value, index) => value + drift * (index / (length - 1)),
+  );
+  const candidateRange = candidate[length - 1] - candidate[0];
+  return candidate.map((value) => (value - candidate[0]) / candidateRange);
 }
 
 /**
@@ -133,7 +140,13 @@ export function createDemoChartTrendRows(
       minimum,
       range,
     );
-    const trend = normalizedTrend(points.length, volatilityScore, random);
+    const trend = normalizedTrend(
+      points.map((point) => point.numeric),
+      minimum,
+      range,
+      volatilityScore,
+      random,
+    );
     const useStringValues = points.every(
       (point) => typeof point.original === "string",
     );

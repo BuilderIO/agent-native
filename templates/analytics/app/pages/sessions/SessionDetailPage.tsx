@@ -160,8 +160,17 @@ type ReplayViewportDimensions = {
   height: number;
 };
 
+type ReplayViewportChange = ReplayViewportDimensions & {
+  offsetMs: number;
+};
+
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
+const MALFORMED_REPLAY_MIN_WIDTH = 4000;
+const MALFORMED_REPLAY_MIN_ASPECT_RATIO = 4;
+const MIN_REPLAY_DISPLAY_DIMENSION = 240;
+const RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO =
+  DEFAULT_PLAYER_WIDTH / DEFAULT_PLAYER_HEIGHT;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
@@ -487,8 +496,17 @@ function ReplayPlayer({
     height: number;
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
-  const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
+  const initialDims = useMemo(
+    () => replayInitialDisplayDimensions(events),
+    [events],
+  );
+  const viewportTimeline = useMemo(
+    () => buildReplayViewportTimeline(events),
+    [events],
+  );
   const eventsRef = useLiveRef(events);
+  const viewportTimelineRef = useLiveRef(viewportTimeline);
+  const streamedDimsRef = useLiveRef(streamedDims);
   // Stable identity for the loaded event set so progressive chunk publishes
   // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(
@@ -501,13 +519,16 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  // Keep the stage in rrweb's coordinate system. Clamping only this outer
-  // wrapper while rrweb keeps its raw iframe dimensions clips and stretches
-  // wide recordings because the two layers no longer share a viewport.
-  const playerWidth =
-    streamedDims?.width ?? initialDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight =
-    streamedDims?.height ?? initialDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  // IMPORTANT — DO NOT REMOVE THIS LEGACY VIEWPORT CORRECTION.
+  // Some stored sessions contain impossible 4,000–7,500px-wide Meta/resize
+  // values even though the browser was a normal desktop viewport. Rendering
+  // those raw values collapses the replay into a tiny horizontal ribbon. Keep
+  // normal recordings exact—including 32:9 and mobile portrait. Recover only
+  // widths >=4,000px with aspect >4:1 to the standard 16:10 viewport. The same
+  // dimensions are applied to rrweb's iframe so CSS breakpoints/camera agree.
+  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
+  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
+  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -626,9 +647,35 @@ function ReplayPlayer({
         console.warn("[session-replay] seek failed", seekError);
         return;
       }
+      const seekDims = replayViewportDimensionsAtTime(
+        viewportTimelineRef.current,
+        clamped,
+      );
+      if (seekDims) {
+        // rrweb 2.1 does not reliably re-emit Resize when seeking backwards.
+        // IMPORTANT: correct both layers together. Correcting only the outer
+        // stage or only rrweb's iframe recreates the ultra-wide/clipped bug.
+        const correctedSeekDims = clampReplayDisplayDimensions(seekDims);
+        const currentDims = streamedDimsRef.current;
+        if (
+          correctedSeekDims &&
+          (currentDims?.width !== correctedSeekDims.width ||
+            currentDims?.height !== correctedSeekDims.height)
+        ) {
+          replayer.handleResize?.(correctedSeekDims);
+          setStreamedDims(correctedSeekDims);
+        }
+      }
       updateTime(clamped);
     },
-    [playingRef, status, totalTime, updateTime],
+    [
+      playingRef,
+      status,
+      streamedDimsRef,
+      totalTime,
+      updateTime,
+      viewportTimelineRef,
+    ],
   );
 
   const beginScrub = useCallback(
@@ -693,11 +740,13 @@ function ReplayPlayer({
 
       stageRootRef.current.innerHTML = "";
       // Match builder-internal: pass events through untouched and let rrweb own
-      // iframe sizing via Meta / ViewportResize. Only use dimensions for CSS
-      // fit-to-stage scaling of the outer wrapper — never rewrite Meta or force
-      // iframe width/height (that mismatches the FullSnapshot DOM and blanks
-      // the stage).
-      setStreamedDims(replayViewportDimensions(replayEvents));
+      // normal iframe sizing via Meta / ViewportResize. Never rewrite Meta or
+      // force arbitrary iframe dimensions (that mismatches the FullSnapshot DOM
+      // and blanks the stage). The one exception below mirrors the narrowly
+      // detected legacy malformed viewport onto both the iframe and outer stage.
+      const rawInitialDims = replayInitialViewportDimensions(replayEvents);
+      const correctedInitialDims = replayInitialDisplayDimensions(replayEvents);
+      setStreamedDims(correctedInitialDims);
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
@@ -708,6 +757,21 @@ function ReplayPlayer({
         mouseTail: false,
         insertStyleRules: SUPPRESS_OVERLAYS_CSS,
       });
+      // IMPORTANT: rrweb constructs its iframe from the raw initial Meta event.
+      // When that legacy Meta width is malformed, correcting only streamedDims
+      // fixes the outer stage but leaves CSS breakpoints and clicks ultra-wide.
+      // Apply the same correction to rrweb immediately, before first playback.
+      if (
+        correctedInitialDims &&
+        (rawInitialDims?.width !== correctedInitialDims.width ||
+          rawInitialDims?.height !== correctedInitialDims.height)
+      ) {
+        localReplayer.handleResize?.(correctedInitialDims);
+      }
+      // rrweb already sandboxes the replay document without script execution.
+      // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
+      // at the iframe boundary while retaining historical visual resources.
+      localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
@@ -732,10 +796,29 @@ function ReplayPlayer({
           dims.width > 0 &&
           dims.height > 0
         ) {
-          setStreamedDims({
+          const rawDims = {
             width: Math.round(dims.width),
             height: Math.round(dims.height),
-          });
+          };
+          const correctedDims = clampReplayDisplayDimensions(rawDims);
+          if (!correctedDims) return;
+          // rrweb handles the raw resize before notifying us. Override only
+          // impossible legacy geometry so its iframe and our stage stay equal.
+          // DO NOT clamp just one layer; that breaks responsive CSS and clicks.
+          const currentDims = streamedDimsRef.current;
+          if (
+            currentDims?.width === correctedDims.width &&
+            currentDims?.height === correctedDims.height
+          ) {
+            return;
+          }
+          if (
+            correctedDims.width !== rawDims.width ||
+            correctedDims.height !== rawDims.height
+          ) {
+            localReplayer.handleResize?.(correctedDims);
+          }
+          setStreamedDims(correctedDims);
         }
       });
       updateTime(startAt);
@@ -1855,65 +1938,19 @@ function useReplayEvents(
   );
 }
 
-const REPLAY_NETWORK_ATTRIBUTES = new Set([
-  "src",
-  "srcset",
-  "poster",
-  "background",
-  "action",
-  "formaction",
-  "data",
-  "ping",
-  "cite",
-  "xlink:href",
-]);
-
-function stripReplayCssUrls(value: string): string {
-  return value
-    .replace(/@import\s+(?:url\()?[^;)]+(?:\))?\s*;?/gi, "")
-    .replace(/url\(\s*[^)]*\)/gi, "none");
-}
-
-function sanitizeReplayValue(value: unknown, key?: string): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeReplayValue(item));
-  }
-  if (!isRecord(value)) {
-    if (typeof value !== "string") return value;
-    const normalizedKey = key?.toLowerCase();
-    if (
-      normalizedKey === "href" ||
-      REPLAY_NETWORK_ATTRIBUTES.has(normalizedKey ?? "")
-    ) {
-      return "about:blank";
-    }
-    if (
-      normalizedKey === "style" ||
-      normalizedKey === "_csstext" ||
-      normalizedKey === "csstext"
-    ) {
-      return stripReplayCssUrls(value);
-    }
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([entryKey, entryValue]) => [
-      entryKey,
-      sanitizeReplayValue(entryValue, entryKey),
-    ]),
-  );
-}
-
 /**
- * rrweb's iframe sandbox prevents scripts but permits passive resource loads.
- * Preserve the captured DOM structure and inline styling while neutralizing
- * URLs that could contact a recorded page or third-party origin.
+ * Stock rrweb consumes the recorded event objects directly. Playback-time URL
+ * or CSS rewriting breaks snapshots, responsive rules, fonts, and navigation
+ * metadata, so filtering invalid container entries is the only normalization.
+ *
+ * IMPORTANT — DO NOT add URL/CSS sanitization here. A previous security review
+ * changed href/src/_cssText to about:blank and immediately regressed every
+ * historical recording that depended on captured styles. Network/privacy
+ * controls belong at capture or the sandbox boundary, never in rrweb events.
  */
 export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
   return events
     .filter((event): event is AnyReplayEvent => isRecord(event))
-    .map((event) => sanitizeReplayValue(event) as AnyReplayEvent)
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
@@ -2236,6 +2273,81 @@ export function replayViewportDimensions(
   return best;
 }
 
+export function replayInitialViewportDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  // rrweb itself initializes from the first Meta event. A resize can appear
+  // earlier in chunk order after reconnect/flush boundaries, but it must not
+  // replace the snapshot's native starting viewport.
+  for (const event of events) {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
+    const dims = dimensionsFromReplayEvent(event);
+    if (dims) return dims;
+  }
+  for (const event of events) {
+    const dims = dimensionsFromReplayEvent(event);
+    if (dims) return dims;
+  }
+  return null;
+}
+
+export function replayInitialDisplayDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  // Keep the initial outer stage and rrweb iframe on one corrected camera.
+  // DO NOT use the raw initial Meta dimensions for only one of those layers.
+  return clampReplayDisplayDimensions(replayInitialViewportDimensions(events));
+}
+
+export function buildReplayViewportTimeline(
+  events: AnyReplayEvent[],
+): ReplayViewportChange[] {
+  const initial = replayInitialViewportDimensions(events);
+  if (!initial) return [];
+  const startedAt = replayStartedAt(events);
+  const firstMetaTimestamp = events.reduce((best, event) => {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
+    const timestamp = Number(event.timestamp ?? 0);
+    return Number.isFinite(timestamp) && timestamp > 0
+      ? Math.min(best, timestamp)
+      : best;
+  }, Number.POSITIVE_INFINITY);
+  const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
+  for (const event of events) {
+    const timestamp = Number(event.timestamp ?? 0);
+    if (!Number.isFinite(timestamp) || timestamp <= firstMetaTimestamp)
+      continue;
+    const dims = dimensionsFromReplayEvent(event);
+    if (!dims) continue;
+    const previous = changes[changes.length - 1];
+    if (previous?.width === dims.width && previous.height === dims.height) {
+      continue;
+    }
+    changes.push({
+      ...dims,
+      offsetMs: Math.max(0, timestamp - startedAt),
+    });
+  }
+  return changes;
+}
+
+export function replayViewportDimensionsAtTime(
+  changes: ReplayViewportChange[],
+  elapsedMs: number,
+): ReplayViewportDimensions | null {
+  if (changes.length === 0) return null;
+  const target = Math.max(0, elapsedMs);
+  let low = 0;
+  let high = changes.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if ((changes[middle]?.offsetMs ?? 0) <= target) low = middle;
+    else high = middle - 1;
+  }
+  const match = changes[low];
+  return match ? { width: match.width, height: match.height } : null;
+}
+
 function dimensionsFromReplayEvent(
   event: AnyReplayEvent,
 ): ReplayViewportDimensions | null {
@@ -2270,6 +2382,29 @@ export function normalizeReplayDimensions(
     width: Math.round(width),
     height: Math.round(height),
   };
+}
+
+export function clampReplayDisplayDimensions(
+  dims: ReplayViewportDimensions | null,
+): ReplayViewportDimensions | null {
+  if (!dims) return null;
+  if (
+    dims.width < MIN_REPLAY_DISPLAY_DIMENSION ||
+    dims.height < MIN_REPLAY_DISPLAY_DIMENSION
+  ) {
+    return { width: DEFAULT_PLAYER_WIDTH, height: DEFAULT_PLAYER_HEIGHT };
+  }
+  const aspect = dims.width / dims.height;
+  if (
+    dims.width >= MALFORMED_REPLAY_MIN_WIDTH &&
+    aspect > MALFORMED_REPLAY_MIN_ASPECT_RATIO
+  ) {
+    return {
+      width: Math.round(dims.height * RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO),
+      height: dims.height,
+    };
+  }
+  return dims;
 }
 
 export function filterReplayMarkers(
