@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-O gate leve usa `ubuntu-latest` separadamente. Repositórios sem executores hospedados pelo GitHub podem definir `VISUAL_RECAP_GATE_RUNS_ON` como um único rótulo de texto simples, sem JSON, ou usar `--gate-runs-on visual-recap-gate`. Use um executor dedicado e, de preferência, efêmero: o gate avalia somente metadados e nunca baixa nem executa código do PR.
+O gate leve usa `ubuntu-latest` separadamente. Repositórios sem executores hospedados pelo GitHub podem definir `VISUAL_RECAP_GATE_RUNS_ON` como um único rótulo de texto simples, sem JSON, ou usar `--gate-runs-on visual-recap-gate`. O rótulo personalizado só vale para autores `OWNER`, `MEMBER` ou `COLLABORATOR` do mesmo repositório; forks e outros autores são forçados para `ubuntu-latest` e podem ficar sem agendamento se os executores hospedados estiverem desativados. Use um executor dedicado e, de preferência, efêmero: o gate padrão não baixa a árvore do PR e avalia a lógica do fluxo de trabalho e os metadados do PR.
 
 `recap doctor` rejeita JSON malformado ou não compatível e informa quando o GitHub não apresenta nenhum executor on-line que corresponda a todos os rótulos configurados. O registro, a instalação, as atualizações, a capacidade e a manutenção do executor continuam sendo sua responsabilidade; o Agent Native seleciona os rótulos, mas não fornece nem opera o executor.
 

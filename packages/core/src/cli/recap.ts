@@ -104,7 +104,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  VISUAL_RECAP_MODEL (variable, required for openai-compatible) — provider model id; optional override for Claude/Codex",
   "  VISUAL_RECAP_REASONING (variable) — reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   '  VISUAL_RECAP_RUNS_ON (variable) — JSON hosted label or self-hosted label array; defaults to "ubuntu-latest"',
-  "  VISUAL_RECAP_GATE_RUNS_ON (variable) — plain single label for the metadata-only gate; defaults to ubuntu-latest",
+  "  VISUAL_RECAP_GATE_RUNS_ON (variable) — trusted same-repo authors only; plain single gate label; defaults to ubuntu-latest",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -1157,7 +1157,9 @@ function runDoctor(args: Record<string, string | boolean>): void {
       );
     } else {
       const gateLabel = parseRecapGateRunsOn(configuredGateRunsOn);
-      lines.push(`[ok] Gate runner label: ${gateLabel}.`);
+      lines.push(
+        `[ok] Gate runner label for trusted same-repo authors: ${gateLabel}.`,
+      );
       if (
         !/^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(gateLabel) &&
         repo
@@ -4862,7 +4864,11 @@ Usage:
     --runs-on '["self-hosted","linux","x64","visual-recap"]' to opt into a
     trusted self-hosted runner label set. In self-hosted-only repos, pass
     --gate-runs-on visual-recap-gate for a dedicated, preferably ephemeral,
-    single-label gate runner; the gate never checks out or executes PR code.
+    single-label gate runner. It is used only for trusted same-repo OWNER,
+    MEMBER, or COLLABORATOR authors. The stock gate does not check out the PR
+    tree; it evaluates workflow logic and PR metadata. Fork and untrusted PRs
+    use GitHub-hosted ubuntu-latest instead, so they may remain unscheduled when
+    a repository disables GitHub-hosted runners.
   npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets and variables for the

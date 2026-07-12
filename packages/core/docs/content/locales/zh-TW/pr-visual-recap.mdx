@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-輕量級閘道會另外使用 `ubuntu-latest`。停用 GitHub 託管執行器的儲存庫可以將 `VISUAL_RECAP_GATE_RUNS_ON` 設為一個不含 JSON 的純文字標籤，或使用 `--gate-runs-on visual-recap-gate`。請使用專用且最好是暫時性的執行器；閘道只評估中繼資料，不會簽出或執行 PR 程式碼。
+輕量級閘道會另外使用 `ubuntu-latest`。停用 GitHub 託管執行器的儲存庫可以將 `VISUAL_RECAP_GATE_RUNS_ON` 設為一個不含 JSON 的純文字標籤，或使用 `--gate-runs-on visual-recap-gate`。自訂標籤僅用於同一儲存庫中身分為 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的作者；分支及其他作者會被強制使用 `ubuntu-latest`，在停用 GitHub 託管執行器時可能一直無法排程。請使用專用且最好是暫時性的執行器；標準閘道不會簽出 PR 樹，只評估工作流程邏輯與 PR 中繼資料。
 
 `recap doctor` 會拒絕格式錯誤或不支援的 JSON，並在 GitHub 未提供符合所有已設定標籤的線上執行器時回報。執行器的註冊、安裝、升級、容量和維護仍由您負責；Agent Native 只選取標籤，不提供或營運執行器。
 

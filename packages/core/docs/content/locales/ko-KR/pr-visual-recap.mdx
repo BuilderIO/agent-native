@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-경량 게이트는 별도로 `ubuntu-latest`를 사용합니다. GitHub 호스팅 러너를 비활성화한 저장소는 `VISUAL_RECAP_GATE_RUNS_ON`을 JSON이 아닌 단일 일반 레이블로 설정하거나 `--gate-runs-on visual-recap-gate`를 사용할 수 있습니다. 전용이며 가능하면 임시인 러너를 사용하세요. 게이트는 메타데이터만 평가하고 PR 코드를 체크아웃하거나 실행하지 않습니다.
+경량 게이트는 별도로 `ubuntu-latest`를 사용합니다. GitHub 호스팅 러너를 비활성화한 저장소는 `VISUAL_RECAP_GATE_RUNS_ON`을 JSON이 아닌 단일 일반 레이블로 설정하거나 `--gate-runs-on visual-recap-gate`를 사용할 수 있습니다. 사용자 지정 레이블은 같은 저장소의 `OWNER`, `MEMBER`, `COLLABORATOR` 작성자에게만 사용됩니다. 포크와 그 밖의 작성자는 `ubuntu-latest`로 강제되며 GitHub 호스팅 러너가 꺼져 있으면 예약되지 않을 수 있습니다. 전용이며 가능하면 임시인 러너를 사용하세요. 기본 게이트는 PR 트리를 체크아웃하지 않고 워크플로 로직과 PR 메타데이터를 평가합니다.
 
 `recap doctor`는 잘못된 형식이나 지원되지 않는 JSON을 거부하며 구성된 모든 레이블과 일치하는 온라인 러너를 GitHub에서 찾을 수 없을 때 이를 보고합니다. 러너 등록, 설치, 업그레이드, 용량 및 유지 관리는 계속 사용자의 책임입니다. Agent Native는 레이블을 선택할 뿐 러너를 제공하거나 운영하지 않습니다.
 

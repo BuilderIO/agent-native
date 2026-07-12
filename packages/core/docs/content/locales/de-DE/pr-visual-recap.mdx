@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-Das einfache Gate verwendet separat `ubuntu-latest`. Repositorys ohne von GitHub gehostete Runner können `VISUAL_RECAP_GATE_RUNS_ON` auf ein einzelnes Klartext-Label ohne JSON setzen oder `--gate-runs-on visual-recap-gate` verwenden. Nutzen Sie einen dedizierten, möglichst kurzlebigen Runner: Das Gate wertet nur Metadaten aus und checkt keinen PR-Code aus oder führt ihn aus.
+Das einfache Gate verwendet separat `ubuntu-latest`. Repositorys ohne von GitHub gehostete Runner können `VISUAL_RECAP_GATE_RUNS_ON` auf ein einzelnes Klartext-Label ohne JSON setzen oder `--gate-runs-on visual-recap-gate` verwenden. Das benutzerdefinierte Label gilt nur für `OWNER`-, `MEMBER`- oder `COLLABORATOR`-Autoren desselben Repositorys; Forks und andere Autoren werden auf `ubuntu-latest` gezwungen und können ohne GitHub-gehostete Runner ungeplant bleiben. Nutzen Sie einen dedizierten, möglichst kurzlebigen Runner: Das Standard-Gate checkt den PR-Baum nicht aus und wertet Workflow-Logik sowie PR-Metadaten aus.
 
 `recap doctor` lehnt fehlerhaftes oder nicht unterstütztes JSON ab und meldet, wenn GitHub keinen Online-Runner bereitstellt, der alle konfigurierten Labels erfüllt. Registrierung, Installation, Upgrades, Kapazität und Wartung des Runners liegen weiterhin in Ihrer Verantwortung; Agent Native wählt die Labels aus, stellt oder betreibt den Runner jedoch nicht.
 

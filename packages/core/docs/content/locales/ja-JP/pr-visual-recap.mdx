@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-軽量なゲートは別途 `ubuntu-latest` を使用します。GitHub ホスト型ランナーを無効にしたリポジトリでは、`VISUAL_RECAP_GATE_RUNS_ON` に JSON ではない単一のプレーンラベルを設定するか、`--gate-runs-on visual-recap-gate` を使用できます。専用で、できればエフェメラルなランナーを使用してください。ゲートはメタデータのみを評価し、PR コードをチェックアウトまたは実行しません。
+軽量なゲートは別途 `ubuntu-latest` を使用します。GitHub ホスト型ランナーを無効にしたリポジトリでは、`VISUAL_RECAP_GATE_RUNS_ON` に JSON ではない単一のプレーンラベルを設定するか、`--gate-runs-on visual-recap-gate` を使用できます。カスタムラベルは同一リポジトリの `OWNER`、`MEMBER`、`COLLABORATOR` の作成者にのみ使用されます。フォークやその他の作成者は `ubuntu-latest` に強制され、GitHub ホスト型ランナーが無効な場合は未スケジュールのままになることがあります。専用で、できればエフェメラルなランナーを使用してください。標準ゲートは PR ツリーをチェックアウトせず、ワークフローのロジックと PR メタデータを評価します。
 
 `recap doctor` は不正な形式または未対応の JSON を拒否し、構成されたすべてのラベルに一致するオンライン ランナーが GitHub にない場合に報告します。ランナーの登録、インストール、アップグレード、容量、保守は引き続き利用者の責任です。Agent Native はラベルを選択しますが、ランナーを提供または運用しません。
 

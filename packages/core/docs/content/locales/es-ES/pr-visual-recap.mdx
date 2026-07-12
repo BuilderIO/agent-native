@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-La barrera ligera usa `ubuntu-latest` por separado. Los repositorios sin ejecutores alojados por GitHub pueden establecer `VISUAL_RECAP_GATE_RUNS_ON` en una sola etiqueta de texto sin JSON, o usar `--gate-runs-on visual-recap-gate`. Use un ejecutor dedicado y, preferiblemente, efímero: la barrera solo evalúa metadatos y nunca descarga ni ejecuta código del PR.
+La barrera ligera usa `ubuntu-latest` por separado. Los repositorios sin ejecutores alojados por GitHub pueden establecer `VISUAL_RECAP_GATE_RUNS_ON` en una sola etiqueta de texto sin JSON, o usar `--gate-runs-on visual-recap-gate`. La etiqueta personalizada solo se usa para autores `OWNER`, `MEMBER` o `COLLABORATOR` del mismo repositorio; los forks y demás autores se fuerzan a `ubuntu-latest` y pueden quedar sin programar si los ejecutores alojados están desactivados. Use un ejecutor dedicado y, preferiblemente, efímero: la barrera estándar no descarga el árbol del PR y evalúa la lógica del flujo de trabajo y los metadatos del PR.
 
 `recap doctor` rechaza JSON con formato incorrecto o no compatible e informa cuando GitHub no expone ningún ejecutor en línea que coincida con todas las etiquetas configuradas. El registro, la instalación, las actualizaciones, la capacidad y el mantenimiento del ejecutor siguen siendo su responsabilidad; Agent Native selecciona las etiquetas, pero no proporciona ni opera el ejecutor.
 

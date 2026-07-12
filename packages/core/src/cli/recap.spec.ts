@@ -2683,7 +2683,10 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}",
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "(vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest'",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
@@ -3214,7 +3217,10 @@ describe("reusable workflow file structure", () => {
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
-    expect(content).toContain("runs-on: ${{ inputs['gate-runs-on'] }}");
+    expect(content).toContain(
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(content).toContain("inputs['gate-runs-on'] || 'ubuntu-latest'");
     expect(content).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );

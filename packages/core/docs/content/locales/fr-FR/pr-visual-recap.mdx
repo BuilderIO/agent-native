@@ -139,7 +139,7 @@ npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64
 npx @agent-native/core@latest recap doctor
 ```
 
-Le gate léger utilise séparément `ubuntu-latest`. Les dépôts sans runners hébergés par GitHub peuvent définir `VISUAL_RECAP_GATE_RUNS_ON` sur une seule étiquette en texte brut, sans JSON, ou utiliser `--gate-runs-on visual-recap-gate`. Utilisez un runner dédié et de préférence éphémère : le gate n'évalue que les métadonnées et n'extrait ni n'exécute le code de la PR.
+Le gate léger utilise séparément `ubuntu-latest`. Les dépôts sans runners hébergés par GitHub peuvent définir `VISUAL_RECAP_GATE_RUNS_ON` sur une seule étiquette en texte brut, sans JSON, ou utiliser `--gate-runs-on visual-recap-gate`. L'étiquette personnalisée ne s'applique qu'aux auteurs `OWNER`, `MEMBER` ou `COLLABORATOR` du même dépôt ; les forks et autres auteurs sont forcés sur `ubuntu-latest` et peuvent rester non planifiés si les runners hébergés sont désactivés. Utilisez un runner dédié et de préférence éphémère : le gate standard n'extrait pas l'arborescence de la PR et évalue la logique du workflow ainsi que les métadonnées de la PR.
 
 `recap doctor` rejette les données JSON mal formées ou non prises en charge et signale lorsque GitHub ne présente aucun runner en ligne correspondant à toutes les étiquettes configurées. L'enregistrement, l'installation, les mises à niveau, la capacité et la maintenance du runner restent sous votre responsabilité ; Agent Native sélectionne les étiquettes, mais ne fournit ni n'exploite le runner.
 

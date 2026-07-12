@@ -24,10 +24,10 @@ env:
 jobs:
   gate:
     name: Gate
-    # This plain single-label setting intentionally avoids fromJSON at scheduling
-    # time. For a self-hosted-only repo, point it at a dedicated, preferably
-    # ephemeral gate runner. This job never checks out or executes PR code.
-    runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+    # A custom plain-label runner is allowed only for trusted same-repo authors.
+    # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
+    # any step starts. The only fromJSON input is this static association list.
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && (vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
