@@ -325,8 +325,9 @@ The MCP server serves a **compact catalog by default to every caller** — hoste
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> discovers full-tier tools on demand; the connector
+  catalog or authenticated-read policy must still permit execution unless the
+  caller explicitly opts into the full tier.
 </p>
 ```
 
@@ -364,15 +365,69 @@ The MCP server serves a **compact catalog by default to every caller** — hoste
 
 ### Compact / connector tier (default) {#connector-tier}
 
-By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface):
+By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface). Apps can either maintain an explicit `connectorCatalog`, or opt into the authenticated-read policy:
 
 - **Template-declared app actions** — the safe app-level allow-list. For Plan that is `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search`, and similar.
 - **Builtin cross-app tools** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** is always present, so anything outside the list stays reachable on demand (see below).
+- **`tool-search`** is always present for discovery. A discovered action still needs to be in the connector catalog, included by the authenticated-read policy, or reached through the explicit full-catalog opt-in before `tools/call` can execute it.
 
-Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development. The connector tier is active **whenever a template declares a `connectorCatalog`** — it is not gated behind an environment variable.
+Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
 
-`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. That is how a compacted client discovers and loads any full-surface tool when it needs one.
+`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. It helps a compacted client discover capabilities; use `ask_app` for anything that requires the app agent's broader reasoning or a write.
+
+#### Authenticated reads by default
+
+Apps that want direct tools to "just work" without maintaining a long allow-list can opt into automatic authenticated reads:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "analytics",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Optional defense-in-depth veto for especially sensitive reads.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+`authenticatedReads: "auto"` adds only actions that explicitly declare all of the following:
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+The policy combines those actions with any explicit `connectorCatalog` entries, then applies `denyActions`. With `writes: "ask_app_only"` (the default when automatic reads are enabled), mutating tools are not directly callable; route multi-step work and mutations through `ask_app`. `writes: "allowlisted"` exists only for apps that intentionally maintain an explicit write allow-list.
+
+The policy is authenticated, not anonymous. MCP OAuth/connect identity is still carried through `runWithRequestContext`, so action-level access checks, owner/org scoping, and OAuth read scopes remain in force. Public/unauthenticated actions are not included by automatic reads.
+
+Generic core `db-schema` and `db-query` are intentionally **not** automatic external reads. They remain available to the in-app agent through the normal scoped SQL path, but broad schema/SQL access is too powerful to infer from read-only metadata alone. If an app needs direct external querying, expose an app-owned GET action with its own access checks and bounded query contract, or add an explicit app-level table/column allow-list with row, byte, timeout, and audit limits. `db-exec` and `db-patch` remain outside the automatic surface.
+
+This is a hard, name-based exclusion, not just a metadata omission: generic database/seed/browser-session/extension/Context X-Ray tools are never auto-exposed even if a future change accidentally annotates one with the full authenticated-read flag set — they always require an explicit `connectorCatalog` entry.
+
+#### Identity and authorization
+
+Authentication and authorization are separate gates. A verified MCP OAuth or
+connect token identifies the caller and organization; `publicAgent` only opts
+an action into the external protocol surface. It does not grant access to a
+record. Actions must still use the normal `accessFilter`, `resolveAccess`, or
+`assertAccess` helpers, so private documents and dashboards remain private,
+shared resources follow their share/org rules, and cross-organization reads are
+rejected.
+
+The default Slack integration follows the same rule. A verified Slack DM is
+matched to an existing Agent Native organization member and persisted as a
+workspace/user identity link before the agent runs. The resulting user/org
+context loads that user's resources, instructions, and skills. Shared Slack
+channels use a service principal instead of borrowing one participant's
+private permissions; guests and external Slack members cannot use personal
+Agent Native access by default. If a Slack identity cannot be verified or its
+link changes, the message is rejected rather than downgraded to a broad
+service identity. Managed Slack OAuth requests the `users:read.email` bot
+scope, and the generated Slack app manifest requests it too. Existing Slack
+installs must be reconnected/reinstalled to grant a newly added scope; legacy
+bot-token installs must add the scope in Slack manually. Without it, personal
+DM execution fails closed.
 
 ### Full tier (explicit opt-in only) {#full-tier}
 
@@ -469,7 +524,7 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
-The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact catalog; set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
+The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools outside that compact catalog; apps may set `externalAgents.authenticatedReads: "auto"` to advertise those authenticated reads without a hand-written catalog. Set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
 
 For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
 

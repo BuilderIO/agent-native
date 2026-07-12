@@ -18,6 +18,12 @@ export type {
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
 
+export { resolveDefaultIntegrationExecutionContext } from "./identity.js";
+export {
+  upsertVerifiedIntegrationIdentity,
+  type IntegrationIdentityLink,
+} from "./identity-links-store.js";
+
 export {
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,

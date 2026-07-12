@@ -7,7 +7,7 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
-const readAppStateMock = vi.hoisted(() => vi.fn());
+const appStateGetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -25,7 +25,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: readAppStateMock,
+  appStateGet: appStateGetMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -203,7 +203,8 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
-    readAppStateMock.mockReset();
+    appStateGetMock.mockReset();
+    appStateGetMock.mockResolvedValue(null);
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -957,6 +958,10 @@ describe("session replay ingest parsing", () => {
       chunkCount: 1,
       eventCount: 2,
     });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@example.com",
+      "demo-mode",
+    );
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
     expect(listCondition).toContain("user_id");
@@ -967,7 +972,7 @@ describe("session replay ingest parsing", () => {
   });
 
   it("filters demo-mode session lists to builder emails and anonymizes identities", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     const listDb = createSessionReplayListDbMock([
       {
         id: "sr_builder_one",
@@ -1062,6 +1067,10 @@ describe("session replay ingest parsing", () => {
       "sr_builder_one",
       "sr_builder_two",
     ]);
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@builder.io",
+      "demo-mode",
+    );
     expect(rows[0]).toMatchObject({
       userId: "anonymous@builder.io",
       userKey: "anonymous@builder.io",
@@ -1083,7 +1092,7 @@ describe("session replay ingest parsing", () => {
   });
 
   it("anonymizes demo-mode direct summaries used by detail and action surfaces", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -1117,7 +1126,7 @@ describe("session replay ingest parsing", () => {
   });
 
   it("hides non-builder sessions from demo-mode direct summary reads", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {

@@ -2,14 +2,18 @@ import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 
-import { readAppState } from "@agent-native/core/application-state";
+import { appStateGet } from "@agent-native/core/application-state";
 import {
   deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -301,10 +305,15 @@ function isBuilderEmail(value: unknown): boolean {
   return normalizedEmail(value)?.endsWith("@builder.io") === true;
 }
 
-async function isSessionDemoModeEnabled(): Promise<boolean> {
+async function isSessionDemoModeEnabled(
+  userEmail?: string | null,
+): Promise<boolean> {
   if (process.env.DEMO_MODE === "true") return true;
+  if (!userEmail) return false;
   try {
-    const state = await readAppState("demo-mode");
+    // These reads also run from custom routes and actions, so use the
+    // authenticated scope explicitly instead of ambient request state.
+    const state = await appStateGet(userEmail, "demo-mode");
     return state?.enabled === true;
   } catch {
     return false;
@@ -1677,7 +1686,7 @@ export async function listSessionRecordings(
   filters: SessionReplayListFilters = {},
 ): Promise<SessionRecordingSummary[]> {
   const db = getDb() as any;
-  const demoMode = await isSessionDemoModeEnabled();
+  const demoMode = await isSessionDemoModeEnabled(scope.userEmail);
   const limit = Math.min(
     MAX_SESSION_RECORDINGS_LIMIT,
     Math.max(1, filters.limit ?? DEFAULT_SESSION_RECORDINGS_LIMIT),
@@ -1759,7 +1768,7 @@ export async function getSessionReplaySummary(
   recordingId: string,
   scope: SessionReplayScope,
 ): Promise<SessionRecordingSummary> {
-  const demoMode = await isSessionDemoModeEnabled();
+  const demoMode = await isSessionDemoModeEnabled(scope.userEmail);
   const access = await resolveAccess("session-recording", recordingId, {
     userEmail: scope.userEmail,
     orgId: scope.orgId ?? undefined,
@@ -1778,7 +1787,7 @@ export async function getSessionReplaySummary(
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
 ): Promise<SessionRecordingSummary> {
-  const demoMode = await isSessionDemoModeEnabled();
+  const demoMode = await isSessionDemoModeEnabled(getRequestUserEmail());
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db

@@ -160,14 +160,43 @@ tiny by default for ChatGPT/Claude-style app hosts, including OAuth MCP Apps
 callers and generic authenticated remote HTTP/static-token callers. The model
 sees the generic app-facing verbs (`list_apps`, `open_app`, `ask_app`, and
 app-only `create_embed_session`) and routes UI through
-`open_app({ embed: true })`. Stdio/code clients that explicitly identify as
-developer clients keep the full connected action surface, and
-`publicAgent.expose` remains the opt-in for safe read/ingest tools outside the
-compact MCP Apps catalog. Do not rely on action-specific `mcpApp` resources
-appearing in ChatGPT/Claude discovery by default; use `open_app` for the
+`open_app({ embed: true })`. Stdio/code clients use the same compact surface
+unless they explicitly opt into the full catalog, and
+`publicAgent.expose` remains the action-level opt-in for safe read/ingest tools
+outside the compact MCP Apps catalog. Apps can set
+`externalAgents.authenticatedReads: "auto"` to automatically advertise every
+action that is GET + `readOnly` + `publicAgent.requiresAuth`, instead of
+maintaining a long connector allow-list. This policy never includes writes by
+default; use `writes: "ask_app_only"` to keep mutations behind `ask_app`, and
+use `denyActions` for defense-in-depth vetoes. `tool-search` remains available
+for discovery, but a searched action still needs to be in the connector
+catalog, included by the authenticated-read policy, or enabled by the explicit
+full-catalog opt-in before `tools/call` can execute it. Do not rely on
+action-specific `mcpApp` resources appearing in ChatGPT/Claude discovery by
+default; use `open_app` for the
 first-class app embed path. If a specific
 action truly must remain visible in that compact app-host catalog, set
 `mcpApp.compactCatalog: true` as a rare escape hatch.
+
+Generic core `db-schema` and `db-query` are intentionally not automatic
+external reads. They remain available to the in-app agent through the normal
+scoped SQL path, but broad schema/SQL access is too powerful to infer from
+read-only metadata alone. If an app needs direct external querying, expose an
+app-owned bounded GET action or add an explicit table/column allow-list with
+row, byte, timeout, and audit limits. Keep `db-exec` and `db-patch` outside
+automatic external-agent exposure.
+
+Authentication and authorization are separate gates. A verified MCP OAuth or
+connect token identifies the caller and organization; `publicAgent` only opts
+an action into the external protocol surface and does not grant record access.
+Actions still need `accessFilter`, `resolveAccess`, or `assertAccess` so private
+documents/dashboards, shares, organization boundaries, and roles are enforced.
+For Slack, verified DMs are linked to an existing Agent Native org member
+before execution and run with that user's context; shared channels use a
+service principal, and guests/external members cannot borrow personal access.
+Managed Slack OAuth and the generated app manifest both request
+`users:read.email`; existing installs must reconnect/reinstall after a scope
+change, while legacy bot-token installs must add the scope in Slack manually.
 
 ### 1b. Fast-path expectations for MCP Apps hosts
 

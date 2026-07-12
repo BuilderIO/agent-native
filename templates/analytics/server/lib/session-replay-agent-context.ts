@@ -22,6 +22,7 @@ import {
 } from "../../shared/session-replay-diagnostics.js";
 import {
   compactSessionRecordingSummary,
+  getSessionReplayEvents,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
@@ -82,18 +83,14 @@ function replayStartedAt(events: AgentReplayEvent[]): number {
 
 function pathLabel(href: string): string {
   try {
-    const parsed = new URL(href);
-    return parsed.pathname || parsed.hostname;
+    const parsed = new URL(href, "https://placeholder.agent-native.local");
+    return boundedDiagnosticText(
+      parsed.pathname || parsed.hostname,
+      MAX_DIAGNOSTIC_URL_CHARS,
+    );
   } catch {
-    return href;
+    return boundedDiagnosticText(href, MAX_DIAGNOSTIC_URL_CHARS);
   }
-}
-
-function markerDetail(event: AgentReplayEvent): string | null {
-  const payload = event.data?.payload;
-  if (typeof payload?.message === "string") return payload.message;
-  if (typeof event.data?.href === "string") return event.data.href;
-  return null;
 }
 
 const TIMELINE_MARKER_CAP = 200;
@@ -528,10 +525,9 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         if (isFailedSessionReplayNetworkStatus(status)) {
           const method =
             boundedDiagnosticText(tagged.payload.method, 16) || "GET";
-          const url = boundedDiagnosticText(
-            tagged.payload.url,
-            MAX_DIAGNOSTIC_URL_CHARS,
-          );
+          // External-agent timelines intentionally expose only a path label.
+          // Query strings commonly contain emails, tokens, and other secrets.
+          const url = pathLabel(String(tagged.payload.url ?? ""));
           markers.push({
             timestamp,
             offsetMs: Math.max(0, timestamp - startedAt),
@@ -553,7 +549,7 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "navigation",
         label: pathLabel(event.data.href),
-        detail: event.data.href,
+        detail: pathLabel(event.data.href),
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
@@ -606,13 +602,49 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "custom",
-        label: String(event.data?.tag ?? "Custom event"),
-        detail: markerDetail(event),
+        label: boundedDiagnosticText(
+          String(event.data?.tag ?? "Custom event"),
+          MAX_DIAGNOSTIC_MESSAGE_CHARS,
+        ),
+        // Custom-event payloads are application-defined and can contain input
+        // values or secrets. The tag and timestamp are sufficient metadata for
+        // this sanitized external-agent timeline.
+        detail: null,
       });
     }
   }
 
   return capReplayTimelineMarkers(markers);
+}
+
+export async function getSessionReplayTimeline(
+  recordingId: string,
+  scope: ReplayScope,
+  options: { eventLimit?: number } = {},
+) {
+  const eventLimit = Math.min(
+    10_000,
+    Math.max(1, Math.floor(options.eventLimit ?? 10_000)),
+  );
+  const eventsResponse = await getSessionReplayEvents(recordingId, scope, {
+    limit: eventLimit,
+  });
+  const events = eventsResponse.chunks.flatMap((chunk) =>
+    chunk.events.filter(
+      (event): event is AgentReplayEvent =>
+        Boolean(event) && typeof event === "object",
+    ),
+  );
+  const markers = buildReplayTimeline(events);
+
+  return {
+    recording: compactSessionRecordingSummary(eventsResponse.recording),
+    markerCount: markers.length,
+    markers,
+    eventCount: eventsResponse.eventCount,
+    truncated: eventsResponse.truncated,
+    unavailableChunks: eventsResponse.unavailableChunks,
+  };
 }
 
 export function verifySessionReplayAgentAccess(

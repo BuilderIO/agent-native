@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
-const readAppStateMock = vi.hoisted(() =>
-  vi.fn(async (): Promise<unknown> => null),
-);
+const appStateGetMock = vi.hoisted(() => vi.fn());
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/index.js", async () => {
@@ -27,7 +25,10 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => {
     await importOriginal<
       typeof import("@agent-native/core/application-state")
     >();
-  return { ...actual, readAppState: readAppStateMock };
+  return {
+    ...actual,
+    appStateGet: appStateGetMock,
+  };
 });
 
 vi.mock("@agent-native/core/notifications", async (importOriginal) => {
@@ -58,8 +59,8 @@ import {
 } from "./error-capture";
 
 beforeEach(() => {
-  readAppStateMock.mockReset();
-  readAppStateMock.mockResolvedValue(null);
+  appStateGetMock.mockReset();
+  appStateGetMock.mockResolvedValue(null);
 });
 
 // ---------------------------------------------------------------------------
@@ -622,6 +623,71 @@ describe("ingestException", () => {
     );
   });
 
+  it("filters issues by matching occurrence user and session recording", async () => {
+    const tim = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userId: "tim-user-id", userKey: "tim@example.com" }),
+    );
+    const other = await ingestException(
+      SCOPE,
+      baseRaw({
+        type: "RangeError",
+        message: "another failure",
+        rawStack:
+          "RangeError: another failure\n    at otherThing (https://app.example.com/other.js:1:1)",
+      }),
+      derivedFor({ userId: "other-user-id", userKey: "other@example.com" }),
+    );
+    const db = drizzle(client, { schema }) as any;
+    await db
+      .update(schema.errorEvents)
+      .set({ sessionRecordingId: "sr_tim" })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+    await db
+      .update(schema.errorEvents)
+      .set({ sessionRecordingId: "sr_other" })
+      .where(eq(schema.errorEvents.id, other.eventId));
+
+    const byRecording = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { sessionRecordingId: "sr_tim" },
+    );
+    expect(byRecording.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserId = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim-user-id" },
+    );
+    expect(byUserId.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserKey = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim@example.com" },
+    );
+    expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
+  });
+
+  it("does not match an occurrence outside its issue owner scope", async () => {
+    const tim = await ingestException(SCOPE, baseRaw(), derivedFor());
+    const db = drizzle(client, { schema }) as any;
+    await db
+      .update(schema.errorEvents)
+      .set({
+        ownerEmail: "other@example.com",
+        userId: "other@example.com",
+        userKey: "other@example.com",
+        sessionRecordingId: "sr_other",
+      })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+
+    const issues = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "other@example.com", sessionRecordingId: "sr_other" },
+    );
+    expect(issues).toEqual([]);
+  });
+
   it("anonymizes list and detail reads at the server seam in demo mode", async () => {
     const result = await ingestException(
       SCOPE,
@@ -645,7 +711,7 @@ describe("ingestException", () => {
     );
     expect(JSON.stringify(normalDetail)).toContain("customer@example.com");
 
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
 
     const issues = await listErrorIssues({
       userEmail: SCOPE.ownerEmail,
@@ -657,6 +723,7 @@ describe("ingestException", () => {
     );
     const rendered = JSON.stringify({ issues, detail });
 
+    expect(appStateGetMock).toHaveBeenCalledWith(SCOPE.ownerEmail, "demo-mode");
     expect(rendered).toContain("anonymous@builder.io");
     expect(rendered).not.toContain("customer@example.com");
     expect(rendered).not.toContain("support@example.com");

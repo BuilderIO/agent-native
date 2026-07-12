@@ -22,6 +22,7 @@ import {
   claimA2ATaskForProcessing,
   getA2ATaskDispatchState,
   failStuckA2ATask,
+  failStuckQueuedA2ATask,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
 } from "./task-store.js";
@@ -44,6 +45,34 @@ const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 
 /**
+ * Hard cap on how long a task may sit in submitted/working (never reaching
+ * `processing`) before the dispatch-retry loop in
+ * `refireStuckAsyncTaskIfNeeded` gives up and fails it. Without this, a
+ * persistently failing dispatch (missing background function, bad A2A
+ * secret, 404) throttles-and-retries forever — the queued bucket otherwise
+ * has no terminal state. Override with A2A_QUEUED_LIFETIME_MAX_MS.
+ */
+function a2aQueuedLifetimeMaxMs(): number {
+  const raw = Number(process.env.A2A_QUEUED_LIFETIME_MAX_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 3 * 60 * 1000;
+}
+
+/**
+ * Hard cap on total time a task may spend in `processing`, independent of
+ * the liveness heartbeat. `A2A_PROCESSING_STUCK_AFTER_MS` alone only catches
+ * a dead process — a hung await inside a still-alive process keeps
+ * `updated_at` fresh via the heartbeat forever. This bounds that case
+ * without cutting off legitimately long runs under it. Override with
+ * A2A_PROCESSING_LIFETIME_MAX_MS.
+ */
+function a2aProcessingLifetimeMaxMs(): number {
+  const raw = Number(process.env.A2A_PROCESSING_LIFETIME_MAX_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 30 * 60 * 1000;
+}
+
+/**
  * Dispatch an async A2A task to a fresh function execution. Apps that opted
  * into durable background runs reuse the emitted Netlify 15-minute worker;
  * other hosts and apps retain the normal portable self-webhook route.
@@ -52,6 +81,7 @@ async function fireProcessTaskDispatch(
   event: any,
   taskId: string,
   config: A2AConfig,
+  options?: { awaitResponse?: boolean },
 ): Promise<void> {
   const backgroundPath = resolveAgentChatProcessRunDispatchPath();
   const useBackgroundWorker =
@@ -69,6 +99,13 @@ async function fireProcessTaskDispatch(
             [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
           },
         }
+      : {}),
+    // Only Netlify's background-function URL acknowledges enqueue with 202.
+    // The portable framework route keeps its HTTP response open until the
+    // processor completes, so awaiting that response would turn async
+    // message/send into a long synchronous request (or a 15s timeout).
+    ...(options?.awaitResponse && useBackgroundWorker
+      ? { awaitResponse: true }
       : {}),
   });
 }
@@ -483,9 +520,22 @@ async function handleSend(
     );
     const working = await updateTask(task.id, { state: "working" });
 
-    fireProcessTaskDispatch(event, task.id, config).catch((err) => {
+    // Awaited, not fire-and-forget: this handler is about to return, and a
+    // detached dispatch fetch racing only a short settle timer can be killed
+    // mid-flight when the serverless response is flushed WITHOUT rejecting —
+    // see the `awaitResponse` doc on `fireInternalDispatch` in
+    // server/self-dispatch.ts. `awaitResponse: true` requests the stronger
+    // guarantee; `fireProcessTaskDispatch` only honors it for the Netlify
+    // background-worker path (fast 202 ack) and falls back to the settle
+    // race for the portable route, which holds its response open until the
+    // handler finishes.
+    try {
+      await fireProcessTaskDispatch(event, task.id, config, {
+        awaitResponse: true,
+      });
+    } catch (err) {
       console.error("[a2a] Failed to dispatch process-task:", err);
-    });
+    }
 
     return { ...jsonRpcResult(0, working ?? task), _id: 0 };
   }
@@ -750,30 +800,54 @@ async function refireStuckAsyncTaskIfNeeded(
   if (!state.metadata?.__a2a_processor) return false;
 
   const now = Date.now();
-  if (
-    (state.statusState === "submitted" || state.statusState === "working") &&
-    state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS
-  ) {
-    if (await touchQueuedA2ATaskDispatch(taskId)) {
-      await fireProcessTaskDispatch(event, taskId, config);
+
+  if (state.statusState === "submitted" || state.statusState === "working") {
+    const queuedLifetimeCutoff = now - a2aQueuedLifetimeMaxMs();
+    if (state.createdAt <= queuedLifetimeCutoff) {
+      // Dispatch has kept failing (or was never delivered) long enough that
+      // retrying further would just repeat the same failure forever — stop
+      // refiring and surface a terminal error instead of throttling forever.
+      return failStuckQueuedA2ATask(
+        taskId,
+        queuedLifetimeCutoff,
+        "The async A2A task could not be started because dispatch kept failing. Please retry the request.",
+      );
+    }
+
+    if (state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS) {
+      if (!(await touchQueuedA2ATaskDispatch(taskId))) return false;
+      try {
+        await fireProcessTaskDispatch(event, taskId, config);
+      } catch (err) {
+        console.error(
+          "[a2a] Failed to refire stuck queued task dispatch:",
+          err,
+        );
+        return false;
+      }
       return true;
     }
     return false;
   }
 
-  if (
-    state.statusState === "processing" &&
-    state.updatedAt <= now - A2A_PROCESSING_STUCK_AFTER_MS
-  ) {
-    // A processor that died mid-handler may have already performed
-    // side-effectful work. Retrying from the top can duplicate artifacts, so
-    // fail deterministically and let the caller issue an intentional retry.
-    const failed = await failStuckA2ATask(
-      taskId,
-      now - A2A_PROCESSING_STUCK_AFTER_MS,
-      "The async A2A processor timed out before completing. Please retry the request.",
-    );
-    return failed;
+  if (state.statusState === "processing") {
+    const processingStuckCutoff = now - A2A_PROCESSING_STUCK_AFTER_MS;
+    const processingLifetimeCutoff = now - a2aProcessingLifetimeMaxMs();
+    const isStale = state.updatedAt <= processingStuckCutoff;
+    const isOverLifetime = state.createdAt <= processingLifetimeCutoff;
+    if (isStale || isOverLifetime) {
+      // A processor that died mid-handler may have already performed
+      // side-effectful work. Retrying from the top can duplicate artifacts, so
+      // fail deterministically and let the caller issue an intentional retry.
+      return failStuckA2ATask(
+        taskId,
+        processingStuckCutoff,
+        isStale
+          ? "The async A2A processor timed out before completing. Please retry the request."
+          : "The async A2A processor exceeded its maximum run time. Please retry the request.",
+        processingLifetimeCutoff,
+      );
+    }
   }
 
   return false;

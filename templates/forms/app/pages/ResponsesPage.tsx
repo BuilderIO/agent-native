@@ -355,10 +355,10 @@ export function ResponsesPage() {
         </div>
       ) : (
         <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
-          <div className="min-w-full">
+          <div className="w-full min-w-full">
             <table
-              className="min-w-full table-fixed text-sm"
-              style={{ minWidth: responseTableMinWidth }}
+              className="w-full min-w-full table-fixed text-sm"
+              style={{ width: "100%", minWidth: responseTableMinWidth }}
             >
               <colgroup>
                 <col className="w-16" />
@@ -366,8 +366,11 @@ export function ResponsesPage() {
                 {hasSubmitterEmail ? <col className="w-56" /> : null}
                 {hasPageUrl ? <col className="w-64" /> : null}
                 {hasClientSurface ? <col className="w-40" /> : null}
-                {fields.map((f) => (
-                  <col key={f.id} className="w-80" />
+                {fields.map((f, index) => (
+                  <col
+                    key={f.id}
+                    className={index === fields.length - 1 ? "w-auto" : "w-80"}
+                  />
                 ))}
               </colgroup>
               <thead>

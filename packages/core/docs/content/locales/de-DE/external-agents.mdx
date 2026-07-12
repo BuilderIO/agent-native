@@ -325,8 +325,10 @@ Der MCP-Server stellt jedem Aufrufer standardmäßig einen kompakten Katalog ber
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> entdeckt Tools der vollständigen Stufe bei Bedarf;
+  der Connector-Katalog oder die Richtlinie für authentifizierte Lesezugriffe
+  muss die Ausführung weiterhin erlauben, sofern der Aufrufer nicht ausdrücklich
+  die vollständige Stufe gewählt hat.
 </p>
 ```
 
@@ -364,15 +366,45 @@ Der MCP-Server stellt jedem Aufrufer standardmäßig einen kompakten Katalog ber
 
 ### Kompakt-/Connector-Stufe (Standard) {#connector-tier}
 
-Standardmäßig sieht jeder verbundene Agent einen kleinen, kuratierten Katalog (ca. 20–30 Tools gegenüber ca. 105 in der gesamten Oberfläche):
+Standardmäßig sieht jeder verbundene Agent einen kleinen, kuratierten Katalog (ca. 20–30 Tools gegenüber ca. 105 in der gesamten Oberfläche). Apps können entweder einen expliziten `connectorCatalog` pflegen oder die Richtlinie für authentifizierte Lesezugriffe aktivieren:
 
 - **Von der Vorlage deklarierte App actions** – die sichere Zulassungsliste auf App-Ebene. Für den Plan sind das `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search` und ähnliche.
 - **Integrierte App-übergreifende Tools** – `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** ist immer vorhanden, sodass alles außerhalb der Liste bei Bedarf erreichbar bleibt (siehe unten).
+- **`tool-search`** ist für die Erkennung immer vorhanden. Eine gefundene Action muss weiterhin im Connector-Katalog stehen, von der Richtlinie für authentifizierte Lesezugriffe erfasst oder über das explizite Opt-in für den vollständigen Katalog aktiviert sein, bevor `tools/call` sie ausführen kann.
 
-Tools außerhalb der Liste – zum Beispiel `db-exec`, `seed-*`, die Erweiterungssuite, Browser-Sitzungstools und Kontext-Röntgentools – werden nicht angekündigt und Aufrufe an sie werden mit „Unbekanntes Tool“ abgelehnt, es sei denn, der Aufrufer hat sich für den vollständigen Katalog entschieden. Dies hält das Kontextfenster jedes verbundenen Agenten klein und entfernt Fußfeuerwaffen, die nur für die lokale Entwicklung mit einem Mandanten sicher sind. Die Connector-Ebene ist aktiv, **immer wenn eine Vorlage ein `connectorCatalog` deklariert** – sie ist nicht hinter einer Umgebungsvariablen geschützt.
+Tools außerhalb der Liste – zum Beispiel `db-exec`, `seed-*`, die Erweiterungssuite, Browser-Sitzungstools und Kontext-Röntgentools – werden nicht angekündigt und Aufrufe an sie werden mit „Unbekanntes Tool“ abgelehnt, es sei denn, der Aufrufer hat sich für den vollständigen Katalog entschieden. Dies hält das Kontextfenster jedes verbundenen Agenten klein und entfernt Fußfeuerwaffen, die nur für die lokale Entwicklung mit einem Mandanten sicher sind.
 
-`tool-search` funktioniert auf zwei Arten: Aufruf mit **keine Abfrage** für das vollständige Menü der Werkzeugnamen plus einzeilige Beschreibungen (günstig, keine Schemata) oder mit einer Abfrage für Rangfolgeübereinstimmungen mit Parameterzusammenfassungen. Auf diese Weise erkennt und lädt ein kompakter Client jedes vollflächige Werkzeug, wenn er eines benötigt.
+`tool-search` funktioniert auf zwei Arten: Aufruf mit **keiner Abfrage** für das vollständige Menü der Tool-Namen plus einzeilige Beschreibungen (günstig, keine Schemata) oder mit einer Abfrage für sortierte Treffer mit Parameterzusammenfassungen. Es hilft kompakten Clients, Funktionen zu entdecken; verwenden Sie `ask_app` für Aufgaben, die das umfassendere Schlussfolgern des App-Agenten oder einen Schreibvorgang benötigen.
+
+#### Authentifizierte Lesezugriffe als Standard
+
+Apps, deren direkte Lesetools ohne lange Zulassungsliste funktionieren sollen, können automatische authentifizierte Lesezugriffe aktivieren:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "analytics",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Optionale zusätzliche Sperre für besonders sensible Lesezugriffe.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+`authenticatedReads: "auto"` fügt nur Actions hinzu, die ausdrücklich alle folgenden Merkmale deklarieren:
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+Die Richtlinie kombiniert diese Actions mit expliziten `connectorCatalog`-Einträgen und wendet anschließend `denyActions` an. Mit `writes: "ask_app_only"` (dem Standard bei aktivierten automatischen Lesezugriffen) sind mutierende Tools nicht direkt aufrufbar; leiten Sie mehrstufige Arbeit und Mutationen über `ask_app`. `writes: "allowlisted"` ist nur für Apps vorgesehen, die bewusst eine explizite Schreib-Zulassungsliste pflegen.
+
+Die Richtlinie ist authentifiziert, nicht anonym. Die MCP-OAuth-/Connect-Identität wird über `runWithRequestContext` weitergegeben, sodass Action-Zugriffsprüfungen, Eigentümer-/Organisationsbereiche und OAuth-Leseberechtigungen wirksam bleiben. Öffentliche oder nicht authentifizierte Actions werden nicht automatisch aufgenommen.
+
+Core-`db-schema` und `db-query` werden nicht automatisch als externe Lesezugriffe veröffentlicht. Sie bleiben für den internen App-Agenten über den normalen, abgegrenzten SQL-Pfad verfügbar, aber ein breiter Schema-/SQL-Zugriff ist zu mächtig, um ihn allein aus Read-only-Metadaten abzuleiten. Benötigt eine App direkte externe Abfragen, muss sie eine eigene GET-Action mit Zugriffsprüfungen und festen Grenzen oder eine explizite Tabellen-/Spalten-Allowlist mit Zeilen-, Byte-, Zeit- und Audit-Limits bereitstellen. `db-exec` und `db-patch` bleiben außerhalb der automatischen Oberfläche.
+
+Slack-DMs verwenden die Benutzeridentität erst nach verifizierter E-Mail und einer bestehenden Mitgliedschaft in der Agent-Native-Organisation. Gemeinsame Kanäle verwenden dagegen einen Service-Principal und übernehmen keine privaten Berechtigungen eines Teilnehmers. Managed OAuth und das generierte Slack-Manifest fordern `users:read.email`; bestehende Installationen müssen nach einer Scope-Änderung neu verbunden werden, alte Bot-Tokens müssen in Slack manuell aktualisiert werden.
 
 ### Vollständige Stufe (nur explizites Opt-in) {#full-tier}
 
@@ -474,7 +506,7 @@ Zusätzlich zu den Tools pro Aktion stellt der MCP-Server einen stabilen Verbsat
 
 `create_workspace_app` lehnt alle nicht auf der Zulassungsliste aufgeführten Vorlagen ab – die öffentliche Zulassungsliste für Vorlagen in `packages/shared-app-config/templates.ts` ist maßgeblich und CI-geschützt; ein externer Agent kann es nicht erweitern. Eine gleichnamige Vorlagenaktion überschreibt eine integrierte Aktion (Vorrang der Vorlage vor dem Kern). Deaktivieren Sie das gesamte Set mit `MCPConfig.builtinCrossAppTools: false`.
 
-Die Tool- und Ressourcenkataloge für App-Hosts sind standardmäßig kompakt – siehe [Catalog tiers](#catalog-tiers). `publicAgent.expose` bleibt die Option für sichere Lese-/Ingest-Tools außerhalb dieses kompakten Katalogs; Legen Sie `mcpApp.compactCatalog: true` nur als seltene Ausnahme für actions fest, das in der Chat-Host-Erkennung erscheinen muss.
+Die Tool- und Ressourcenkataloge für App-Hosts sind standardmäßig kompakt – siehe [Catalog tiers](#catalog-tiers). `publicAgent.expose` bleibt das Opt-in auf Action-Ebene für sichere Lese-/Ingest-Tools außerhalb dieses kompakten Katalogs; Apps können mit `externalAgents.authenticatedReads: "auto"` solche authentifizierten Lesezugriffe ohne handgeschriebenen Katalog veröffentlichen. Legen Sie `mcpApp.compactCatalog: true` nur als seltene Ausnahme für Actions fest, die in der Chat-Host-Erkennung erscheinen müssen.
 
 Für schnelle ChatGPT/Claude-Übergaben ist der ideale Pfad direkt: Rufen Sie die Aktion auf, die das Artefakt erstellt oder öffnet, und lassen Sie dann die MCP-App die Route starten. Eine Mail-Anfrage sollte `manage_draft` aufrufen und die tatsächliche Verfassen-Route rendern. Eine Dashboard-Anfrage sollte `open_app({ path, embed: true })` oder eine Dashboard-Aktion mit `mcpApp` aufrufen und die vollständige Analytics-Route rendern. Kalender, Formulare, Inhalte, Folien, Design und Clips sollten beim Entwerfen/Erstellen/Suchen dem gleichen Muster folgen actions. `list_apps` ist nützlich, wenn das Modell zwischen verfügbaren Apps wählen muss; Breites `resources/list`, vollständige Katalogerkennung oder `ask_app`-Delegierung sollten nicht der normale Weg für eine offensichtliche UI-Übergabe sein.
 

@@ -38,6 +38,23 @@ const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
 const SLACK_CONTEXT_MESSAGE_LIMIT = 15;
 const SLACK_CONTEXT_TEXT_LIMIT = 2_000;
 const SLACK_CALM_PROGRESS_THRESHOLD_SECONDS = 30;
+const SLACK_IDENTITY_TIMEOUT_MS = 1_000;
+const SLACK_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
+// Failed users.info lookups only get a short negative TTL: a transient Slack
+// API blip must not fail-close a sender's identity (and DMs) for 10 minutes.
+const SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
+const SLACK_IDENTITY_CACHE_MAX_ENTRIES = 1_000;
+
+interface SlackUserIdentity {
+  email: string | null;
+  name: string | null;
+  memberType: "owner" | "admin" | "member" | "guest" | "external" | "unknown";
+}
+
+const slackIdentityCache = new Map<
+  string,
+  { identity: SlackUserIdentity | null; expiresAt: number }
+>();
 
 export interface SlackAdapterOptions {
   /** Resolve the bot token for the exact Slack installation. */
@@ -354,6 +371,14 @@ export function slackAdapter(
       const token = await resolveBotToken(incoming);
       if (!token) return incoming;
       return hydrateSlackContext(token, incoming);
+    },
+
+    async hydrateIncomingIdentity(
+      incoming: IncomingMessage,
+    ): Promise<IncomingMessage> {
+      const token = await resolveBotToken(incoming);
+      if (!token) return incoming;
+      return hydrateSlackIdentity(token, incoming);
     },
 
     async startRunProgress(
@@ -1070,6 +1095,93 @@ async function slackJson(
   }
 }
 
+function slackIdentityCacheKey(incoming: IncomingMessage): string | null {
+  const teamId = incoming.platformContext.teamId;
+  const senderId = incoming.senderId;
+  if (typeof senderId !== "string" || !senderId.trim()) return null;
+  return `${typeof teamId === "string" && teamId ? teamId : "unknown"}:${senderId}`;
+}
+
+async function resolveSlackUserIdentity(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<SlackUserIdentity | null> {
+  const cacheKey = slackIdentityCacheKey(incoming);
+  if (!cacheKey) return null;
+  const cached = slackIdentityCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.identity;
+  if (cached) slackIdentityCache.delete(cacheKey);
+
+  const user = await slackJson(
+    token,
+    "users.info",
+    { user: incoming.senderId! },
+    SLACK_IDENTITY_TIMEOUT_MS,
+  );
+  const profile = user?.user?.profile;
+  const identity: SlackUserIdentity | null = user?.user
+    ? {
+        email:
+          typeof profile?.email === "string" && profile.email.trim()
+            ? profile.email.trim().toLowerCase()
+            : null,
+        name:
+          typeof profile?.real_name === "string" && profile.real_name.trim()
+            ? profile.real_name.trim()
+            : typeof profile?.display_name === "string" &&
+                profile.display_name.trim()
+              ? profile.display_name.trim()
+              : typeof user.user.real_name === "string" &&
+                  user.user.real_name.trim()
+                ? user.user.real_name.trim()
+                : typeof user.user.name === "string" && user.user.name.trim()
+                  ? user.user.name.trim()
+                  : null,
+        memberType: user.user.is_ultra_restricted
+          ? "external"
+          : user.user.is_restricted
+            ? "guest"
+            : user.user.is_owner
+              ? "owner"
+              : user.user.is_admin
+                ? "admin"
+                : "member",
+      }
+    : null;
+  if (slackIdentityCache.size >= SLACK_IDENTITY_CACHE_MAX_ENTRIES) {
+    const oldestKey = slackIdentityCache.keys().next().value;
+    if (oldestKey) slackIdentityCache.delete(oldestKey);
+  }
+  slackIdentityCache.set(cacheKey, {
+    identity,
+    expiresAt:
+      Date.now() +
+      (identity
+        ? SLACK_IDENTITY_CACHE_TTL_MS
+        : SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS),
+  });
+  return identity;
+}
+
+async function hydrateSlackIdentity(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<IncomingMessage> {
+  const identity = await resolveSlackUserIdentity(token, incoming);
+  if (!identity) return incoming;
+  return {
+    ...incoming,
+    ...(identity.name ? { senderName: identity.name } : {}),
+    ...(identity.email
+      ? { senderEmail: identity.email, senderVerified: true }
+      : { senderVerified: false }),
+    actorTrust: {
+      memberType: identity.memberType,
+      verified: true,
+    },
+  };
+}
+
 async function hydrateSlackContext(
   token: string,
   incoming: IncomingMessage,
@@ -1081,7 +1193,7 @@ async function hydrateSlackContext(
     return incoming;
   }
 
-  const [thread, history, pins, conversation, user] = await Promise.all([
+  const [thread, history, pins, conversation, identity] = await Promise.all([
     slackJson(token, "conversations.replies", {
       channel: channelId,
       ts: threadTs,
@@ -1095,7 +1207,7 @@ async function hydrateSlackContext(
     }),
     slackJson(token, "pins.list", { channel: channelId }),
     slackJson(token, "conversations.info", { channel: channelId }),
-    senderId ? slackJson(token, "users.info", { user: senderId }) : null,
+    senderId ? resolveSlackUserIdentity(token, incoming) : null,
   ]);
 
   // Agent View can attach the Slack surface the user is currently viewing to
@@ -1186,9 +1298,9 @@ async function hydrateSlackContext(
       })
     : [];
 
-  const profile = user?.user?.profile;
-  const isGuest = user?.user?.is_restricted === true;
-  const isExternal = user?.user?.is_ultra_restricted === true;
+  const profile = identity;
+  const isGuest = identity?.memberType === "guest";
+  const isExternal = identity?.memberType === "external";
   const isPrivate = conversation?.channel?.is_private === true;
   const isExternalShared = conversation?.channel?.is_ext_shared === true;
   const isMpim = conversation?.channel?.is_mpim === true;
@@ -1231,17 +1343,15 @@ async function hydrateSlackContext(
   );
   return {
     ...incoming,
-    ...(typeof profile?.display_name === "string" && profile.display_name
-      ? { senderName: profile.display_name }
-      : typeof profile?.real_name === "string" && profile.real_name
-        ? { senderName: profile.real_name }
-        : {}),
-    ...(typeof profile?.email === "string"
+    ...(profile?.name ? { senderName: profile.name } : {}),
+    ...(profile?.email
       ? { senderEmail: profile.email, senderVerified: true }
-      : {}),
+      : { senderVerified: false }),
     conversationType,
     actorTrust: {
-      memberType: isExternal ? "external" : isGuest ? "guest" : "member",
+      memberType:
+        identity?.memberType ??
+        (isExternal ? "external" : isGuest ? "guest" : "member"),
       verified: true,
     },
     contextMessages: hydratedMessages,

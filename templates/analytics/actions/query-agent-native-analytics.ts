@@ -33,7 +33,10 @@ export default defineAction({
     ),
   }),
   readOnly: true,
-  http: { method: "GET" },
+  // No raw HTTP route: a GET endpoint would put caller SQL in query strings
+  // and access logs. External MCP callers reach this through the explicit
+  // ANALYTICS_CONNECTOR_CATALOG entry, which dispatches run() in-process.
+  http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     return queryFirstPartyAnalytics(args.sql, resolveScope());

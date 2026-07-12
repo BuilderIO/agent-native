@@ -4,6 +4,7 @@ const mockGetRequestContext = vi.hoisted(() => vi.fn());
 const mockCreateScopedAgentAccessGrant = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSessionReplaySummary = vi.hoisted(() => vi.fn());
+const mockGetSessionReplayEvents = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedSummary = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedEvents = vi.hoisted(() => vi.fn());
 const mockCompactSessionRecordingSummary = vi.hoisted(() =>
@@ -53,6 +54,8 @@ vi.mock("./session-replay.js", () => ({
     mockCompactSessionRecordingSummary(recording),
   getSessionReplaySummary: (...args: unknown[]) =>
     mockGetSessionReplaySummary(...args),
+  getSessionReplayEvents: (...args: unknown[]) =>
+    mockGetSessionReplayEvents(...args),
   getSessionReplayTokenizedSummary: (...args: unknown[]) =>
     mockGetSessionReplayTokenizedSummary(...args),
   getSessionReplayTokenizedEvents: (...args: unknown[]) =>
@@ -67,6 +70,7 @@ import {
   buildSessionReplayAgentContext,
   buildSessionReplayDiagnostics,
   createSessionReplayAgentLink,
+  getSessionReplayTimeline,
   SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
 } from "./session-replay-agent-context";
 
@@ -217,6 +221,72 @@ describe("session replay agent context links", () => {
       "navigation",
       "click",
     ]);
+  });
+
+  it("returns sanitized timeline markers without raw replay events", async () => {
+    mockGetSessionReplayEvents.mockResolvedValue({
+      recording: makeRecording(),
+      chunks: [
+        {
+          seq: 0,
+          checksum: "abc",
+          byteLength: 1,
+          eventCount: 5,
+          events: [
+            {
+              type: 4,
+              timestamp: 1000,
+              data: { href: "https://app.test/start?email=secret@example.com" },
+            },
+            clickEvent(1200),
+            {
+              type: 3,
+              timestamp: 1300,
+              data: { source: 5, text: "secret input" },
+            },
+            networkEvent(1400, {
+              api: "fetch",
+              method: "GET",
+              url: "https://api.test/failure?token=secret-network-token",
+              status: 500,
+              ok: false,
+              durationMs: 12,
+            }),
+            {
+              type: 5,
+              timestamp: 1500,
+              data: {
+                tag: "app.custom",
+                payload: { message: "secret custom payload" },
+              },
+            },
+          ],
+        },
+      ],
+      eventCount: 3,
+      truncated: false,
+      unavailableChunks: 0,
+    });
+
+    const timeline = await getSessionReplayTimeline("sr_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+
+    expect(timeline.recording.id).toBe("sr_1");
+    expect(timeline.markers.map((marker) => marker.kind)).toEqual([
+      "navigation",
+      "click",
+      "input",
+      "network-error",
+      "custom",
+    ]);
+    expect(JSON.stringify(timeline)).not.toContain("secret@example.com");
+    expect(JSON.stringify(timeline)).not.toContain("secret input");
+    expect(JSON.stringify(timeline)).not.toContain("secret-network-token");
+    expect(JSON.stringify(timeline)).not.toContain("secret custom payload");
+    expect(timeline.markers[3]?.detail).toBe("GET /failure → 500");
+    expect(timeline).not.toHaveProperty("chunks");
   });
 
   function mockEvents(events: unknown[]) {
