@@ -692,7 +692,7 @@ export default function SqlDashboardPage() {
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
   // Dashboard views
-  const { saveView } = useDashboardViews(dashboardId ?? undefined);
+  const { views = [], saveView } = useDashboardViews(dashboardId ?? undefined);
 
   // Track whether we've applied saved filters on initial load
   const appliedSaved = useRef(false);
@@ -824,6 +824,69 @@ export default function SqlDashboardPage() {
     searchParams,
     setSearchParams,
   ]);
+
+  // Apply view filters when view ID is in the URL on load
+  const appliedViewRef = useRef<{ dashboardId: string; viewId: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!dashboardId || !loaded || !dashboard || !views?.length) return;
+
+    const viewId = searchParams.get("view");
+    if (!viewId) {
+      appliedViewRef.current = null;
+      return;
+    }
+
+    // Only apply the view's filters once when the viewId (or dashboardId) is first seen
+    if (
+      appliedViewRef.current?.dashboardId === dashboardId &&
+      appliedViewRef.current?.viewId === viewId
+    ) {
+      return;
+    }
+
+    const matchedView = views.find((v) => v.id === viewId);
+    if (!matchedView) return;
+
+    appliedViewRef.current = { dashboardId, viewId };
+
+    // Compare current URL filters with matchedView.filters
+    const currentFilters: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      if (key.startsWith(FILTER_PARAM_PREFIX)) {
+        currentFilters[key] = value;
+      }
+    });
+
+    const isMatch =
+      Object.keys(matchedView.filters).every(
+        (k) => currentFilters[k] === matchedView.filters[k],
+      ) &&
+      Object.keys(currentFilters).every(
+        (k) => currentFilters[k] === matchedView.filters[k],
+      );
+
+    if (!isMatch) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          // Strip existing filters
+          const toDelete: string[] = [];
+          next.forEach((_, k) => {
+            if (k.startsWith(FILTER_PARAM_PREFIX)) toDelete.push(k);
+          });
+          toDelete.forEach((k) => next.delete(k));
+          // Apply view filters
+          for (const [key, value] of Object.entries(matchedView.filters)) {
+            if (value) next.set(key, value);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [dashboardId, loaded, dashboard, views, searchParams, setSearchParams]);
 
   // Auto-save filter state when URL params change (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
