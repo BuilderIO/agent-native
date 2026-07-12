@@ -140,7 +140,12 @@ export function createRequestHandler() {
     .default;
 }
 
-describe("generateWorkerEntry", () => {
+// These tests dynamically import generated workers. Under the full workspace
+// prep run, module startup shares CPU with many package suites and can exceed
+// Vitest's generic 5s default even though the worker responds correctly. Keep
+// a bounded suite-local allowance so local prep tests behavior, not scheduler
+// contention; focused runs normally complete well below this limit.
+describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });

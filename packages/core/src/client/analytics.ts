@@ -1227,6 +1227,18 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
+      onUploadRejected:
+        options.onUploadRejected ??
+        ((details) => {
+          trackEvent("session replay upload rejected", {
+            status: details.status,
+            restart_attempted: details.restartAttempted,
+            restart_succeeded: details.restartSucceeded,
+            ...(details.restartReason
+              ? { restart_reason: details.restartReason }
+              : {}),
+          });
+        }),
       requireSignedInUser:
         options.requireSignedInUser ??
         sessionReplayRequiresSignedInUserFromEnv() ??

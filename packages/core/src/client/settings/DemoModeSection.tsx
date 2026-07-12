@@ -64,9 +64,9 @@ export function DemoModeSection() {
           Enable demo mode
         </div>
         <p className="text-[10px] text-muted-foreground mt-0.5">
-          Replace emails and numbers with realistic fake data everywhere — in
-          the UI and what the agent sees. Names, free text, labels, IDs, and
-          structure are preserved so the app keeps working.
+          Anonymize emails in the UI and reshape supported dashboard charts for
+          presentations. Agent-visible emails and numbers are also anonymized.
+          Names, labels, IDs, and structure stay intact.
         </p>
         {forced && (
           <p className="text-[10px] text-muted-foreground mt-0.5">

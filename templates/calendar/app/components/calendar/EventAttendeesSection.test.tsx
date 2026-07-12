@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EventAttendeesSection } from "./EventAttendeesSection";
 
+const rsvpMutate = vi.hoisted(() => vi.fn());
+
 vi.mock("@agent-native/core/client", () => ({
   cn: (...values: Array<string | undefined | false>) =>
     values.filter(Boolean).join(" "),
@@ -37,6 +39,18 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  PopoverTrigger: ({ children }: { children: ReactNode }) => children,
+  PopoverContent: ({
+    children,
+    onKeyDown,
+  }: {
+    children: ReactNode;
+    onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+  }) => <div onKeyDown={onKeyDown}>{children}</div>,
+}));
+
 vi.mock("@/hooks/use-attendee-photos", () => ({
   useAttendeePhotos: () => ({ data: {} }),
 }));
@@ -47,7 +61,7 @@ vi.mock("@/hooks/use-attendee-timezones", () => ({
 }));
 
 vi.mock("@/hooks/use-events", () => ({
-  useRsvpEvent: () => ({ isPending: false, mutate: vi.fn() }),
+  useRsvpEvent: () => ({ isPending: false, mutate: rsvpMutate }),
 }));
 
 describe("EventAttendeesSection attendee controls", () => {
@@ -55,6 +69,7 @@ describe("EventAttendeesSection attendee controls", () => {
   let root: Root;
 
   beforeEach(() => {
+    rsvpMutate.mockReset();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -109,5 +124,75 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(guestOptions).toBeTruthy();
     expect(attendeeDetails!.contains(guestOptions)).toBe(false);
     expect(document.querySelector("button button")).toBeNull();
+  });
+
+  it("submits a recurring response with Cmd+Enter from the note", () => {
+    const event: CalendarEvent = {
+      id: "event-2",
+      title: "Planning",
+      description: "",
+      location: "",
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      allDay: false,
+      source: "google",
+      recurringEventId: "recurring-1",
+      createdAt: "2026-07-10T15:00:00.000Z",
+      updatedAt: "2026-07-10T15:00:00.000Z",
+      responseStatus: "accepted",
+      attendees: [
+        {
+          email: "me@example.com",
+          displayName: "Me",
+          responseStatus: "accepted",
+          self: true,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    const maybeButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "eventForm.rsvpMaybe",
+    );
+    expect(maybeButton).toBeTruthy();
+
+    act(() => {
+      maybeButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const textarea = document.querySelector("textarea");
+    expect(textarea).toBeTruthy();
+    const setTextareaValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+
+    act(() => {
+      setTextareaValue?.call(textarea, "Let's catch up async instead");
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(rsvpMutate).toHaveBeenCalledWith(
+      {
+        id: "event-2",
+        status: "tentative",
+        accountEmail: undefined,
+        scope: "single",
+        note: "Let's catch up async instead",
+      },
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    expect(document.querySelector("textarea")).toBeNull();
   });
 });
