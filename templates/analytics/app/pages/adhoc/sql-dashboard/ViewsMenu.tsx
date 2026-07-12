@@ -113,10 +113,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const selectedView = useMemo(() => {
     const paramViewId = searchParams.get("view");
     if (paramViewId) {
-      return views.find((x) => x.id === paramViewId) ?? null;
+      const found = views.find((x) => x.id === paramViewId);
+      if (found) return found;
     }
-    return null;
-  }, [searchParams, views]);
+    return views.find((v) => filtersMatch(currentFilters, v.filters)) ?? null;
+  }, [searchParams, views, currentFilters]);
 
   const hasFilterChanges = useMemo(() => {
     if (!selectedView) return false;
@@ -382,7 +383,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveView();
+                if (e.key === "Enter") void handleSaveView();
               }}
               autoFocus
             />
