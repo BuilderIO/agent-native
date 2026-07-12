@@ -1786,8 +1786,13 @@ export async function getSessionReplaySummary(
 
 export async function getSessionReplayTokenizedSummary(
   recordingId: string,
+  viewerEmail: string,
 ): Promise<SessionRecordingSummary> {
-  const demoMode = await isSessionDemoModeEnabled(getRequestUserEmail());
+  // Tokenized reads often run without an authenticated request session. Use
+  // the viewer identity embedded in the signed, recording-scoped grant so a
+  // link minted while demo mode is enabled cannot reveal real identities when
+  // it is opened in a signed-out browser or by an external agent.
+  const demoMode = await isSessionDemoModeEnabled(viewerEmail);
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db
@@ -1847,6 +1852,7 @@ export async function getSessionReplayManifest(
 
 export async function getSessionReplayTokenizedManifest(
   recordingId: string,
+  viewerEmail: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   chunks: Array<{
@@ -1859,7 +1865,10 @@ export async function getSessionReplayTokenizedManifest(
     bytesPath: string;
   }>;
 }> {
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
   const manifest = await getSessionReplayManifestForRecording(recording);
   return {
     ...manifest,
@@ -1923,6 +1932,7 @@ export async function readSessionReplayChunkBytes(
 export async function readSessionReplayTokenizedChunkBytes(
   recordingId: string,
   seq: number,
+  viewerEmail: string,
 ): Promise<{
   recording: AgentSessionRecordingSummary;
   seq: number;
@@ -1930,7 +1940,10 @@ export async function readSessionReplayTokenizedChunkBytes(
   /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
   const chunk = await readSessionReplayChunkBytesForRecording(recording, seq);
   return {
     ...chunk,
@@ -2175,8 +2188,12 @@ export async function readSessionReplayChunkBatch(
 export async function readSessionReplayTokenizedChunkBatch(
   recordingId: string,
   seqs: number[],
+  viewerEmail: string,
 ): Promise<SessionReplayChunkBatchResult> {
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
   return readSessionReplayChunkBatchForRecording(recording, seqs);
 }
 
@@ -2204,6 +2221,7 @@ export async function getSessionReplayEvents(
 
 export async function getSessionReplayTokenizedEvents(
   recordingId: string,
+  viewerEmail: string,
   options: SessionReplayEventReadOptions = {},
 ): Promise<{
   recording: AgentSessionRecordingSummary;
@@ -2219,7 +2237,10 @@ export async function getSessionReplayTokenizedEvents(
   truncated: boolean;
   unavailableChunks: number;
 }> {
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
   const result = await getSessionReplayEventsForRecording(recording, options);
   return {
     ...result,

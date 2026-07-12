@@ -47,6 +47,7 @@ import {
   compactSessionRecordingSummary,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
+  getSessionReplayTokenizedSummary,
   listSessionRecordings,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
@@ -568,9 +569,11 @@ describe("session replay ingest parsing", () => {
     ]);
     getDbMock.mockReturnValue(db);
 
-    const result = await getSessionReplayTokenizedEvents("sr_agent", {
-      limit: 10,
-    });
+    const result = await getSessionReplayTokenizedEvents(
+      "sr_agent",
+      "owner@example.com",
+      { limit: 10 },
+    );
 
     expect(result.eventCount).toBe(1);
     expect(result.chunks[0]?.events).toEqual([
@@ -1123,6 +1126,39 @@ describe("session replay ingest parsing", () => {
     expect(JSON.stringify({ summary, compact })).not.toContain(
       "detail@builder.io",
     );
+  });
+
+  it("uses the signed link viewer identity for tokenized demo-mode summaries", async () => {
+    appStateGetMock.mockResolvedValue({ enabled: true });
+    const { db } = createReplayDbMock([
+      [
+        {
+          ...playableRecordingResource("sr_builder_agent_link"),
+          userId: "detail@builder.io",
+          userKey: "detail@builder.io",
+          ownerEmail: "owner@builder.io",
+          metadata: JSON.stringify({ actorEmail: "detail@builder.io" }),
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const summary = await getSessionReplayTokenizedSummary(
+      "sr_builder_agent_link",
+      "owner@builder.io",
+    );
+
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@builder.io",
+      "demo-mode",
+    );
+    expect(summary).toMatchObject({
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
+      metadata: { actorEmail: "anonymous@builder.io" },
+    });
+    expect(JSON.stringify(summary)).not.toContain("detail@builder.io");
   });
 
   it("hides non-builder sessions from demo-mode direct summary reads", async () => {

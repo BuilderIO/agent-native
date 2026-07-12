@@ -23,6 +23,7 @@ import {
   getA2ATaskDispatchState,
   failStuckA2ATask,
   failStuckQueuedA2ATask,
+  settleProcessingA2ATask,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
 } from "./task-store.js";
@@ -132,7 +133,7 @@ export async function processA2ATaskFromQueue(
 
   const message = claimed.history?.[0];
   if (!message) {
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
         role: "agent",
@@ -184,7 +185,7 @@ export async function processA2ATaskFromQueue(
     );
   } catch (err: any) {
     try {
-      await updateTask(taskId, {
+      await settleProcessingA2ATask(taskId, {
         state: "failed",
         message: {
           role: "agent",
@@ -404,7 +405,7 @@ async function runHandlerAndPersist(
       for await (const msg of result as AsyncGenerator<Message>) {
         lastMessage = msg;
       }
-      await updateTask(taskId, {
+      await settleProcessingA2ATask(taskId, {
         state: "completed",
         message: lastMessage,
         artifacts: artifacts.length > 0 ? artifacts : undefined,
@@ -414,13 +415,13 @@ async function runHandlerAndPersist(
 
     const handlerResult = await (result as Promise<A2AHandlerResult>);
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "completed",
       message: handlerResult.message,
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
   } catch (err: any) {
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
         role: "agent",

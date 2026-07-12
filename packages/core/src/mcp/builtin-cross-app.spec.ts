@@ -367,6 +367,16 @@ describe("list_apps — reports the live request origin for the current app", ()
 });
 
 describe("ask_app — honest routing metadata", () => {
+  it("describes ask_app as the default path for agent work", () => {
+    const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
+    expect(tools.ask_app.tool.description).toMatch(
+      /Use this first for natural-language investigation, diagnosis, multi-step work, and changes/i,
+    );
+    expect(tools.ask_app.tool.description).toMatch(
+      /full skills, instructions, tools, and context/i,
+    );
+  });
+
   it("answers locally and reports routedVia:local for the current app", async () => {
     let received: string | undefined;
     const tools = getBuiltinCrossAppTools(

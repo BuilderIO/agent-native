@@ -143,7 +143,10 @@ describe("session replay agent context links", () => {
       expiresAt: "2026-01-01T02:00:00.000Z",
       ttlSeconds: SESSION_REPLAY_AGENT_ACCESS_TTL_SECONDS,
     });
-    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      viewerEmail: "owner@example.com",
+    });
     mockGetSessionReplaySummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedSummary.mockResolvedValue(makeRecording());
     mockGetSessionReplayTokenizedEvents.mockResolvedValue({
@@ -209,6 +212,15 @@ describe("session replay agent context links", () => {
         resourceKind: "analytics-session-replay-agent-context",
         resourceId: "sr_1",
       },
+    );
+    expect(mockGetSessionReplayTokenizedSummary).toHaveBeenCalledWith(
+      "sr_1",
+      "owner@example.com",
+    );
+    expect(mockGetSessionReplayTokenizedEvents).toHaveBeenCalledWith(
+      "sr_1",
+      "owner@example.com",
+      { limit: 10000 },
     );
     expect(context.apis.page.url).toBe(
       "https://analytics.example.com/sessions/sr_1?agent_access=signed-token",

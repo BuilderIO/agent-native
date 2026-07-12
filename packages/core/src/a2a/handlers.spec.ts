@@ -73,6 +73,23 @@ vi.mock("./task-store.js", () => {
       }
       return task;
     },
+    async settleProcessingA2ATask(id: string, update: any) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return null;
+      task.status = {
+        state: update.state,
+        message: update.message ?? task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      if (update.message && task.history) {
+        task.history.push(update.message);
+      }
+      if (update.artifacts) {
+        task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+      }
+      return task;
+    },
     async claimA2ATaskForProcessing(id: string) {
       const task = tasks[id];
       if (!task) return null;
@@ -681,6 +698,86 @@ describe("handleJsonRpc", () => {
       "maximum run time",
     );
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the lifetime failure terminal when the original processor later completes", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    let release: (value: unknown) => void = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      await gate;
+      return {
+        message: {
+          role: "agent" as const,
+          parts: [{ type: "text" as const, text: "late success" }],
+        },
+      };
+    });
+    const config: A2AConfig = { ...customHandler, handler };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = result.result.id;
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const processorPromise = processA2ATaskFromQueue(taskId, config);
+    await startedPromise;
+
+    const timedOut = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(timedOut.result.status.state).toBe("failed");
+
+    release(undefined);
+    await processorPromise;
+    const afterLateCompletion = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(afterLateCompletion.result.status.state).toBe("failed");
+    expect(afterLateCompletion.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(afterLateCompletion.result.history).not.toContainEqual({
+      role: "agent",
+      parts: [{ type: "text", text: "late success" }],
+    });
   });
 
   it("returns false without an unhandled rejection when refire dispatch keeps throwing", async () => {

@@ -53,7 +53,10 @@ import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
-import { resolveDefaultIntegrationExecutionContext } from "./identity.js";
+import {
+  IntegrationIdentityDeclinedError,
+  resolveDefaultIntegrationExecutionContext,
+} from "./identity.js";
 import {
   disconnectIntegrationInstallation,
   listIntegrationInstallations,
@@ -251,6 +254,11 @@ type IntegrationCredentialContext = {
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
+
+// One decline reply per sender + decline reason per window: during a Slack
+// API outage every message would otherwise get another identical "try again"
+// reply. Short enough that a persistent condition still reminds the sender.
+const DECLINE_NOTICE_DEDUPE_TTL_MS = 5 * 60 * 1_000;
 
 export async function enqueueRemoteCommand(
   envelope: RemoteCodeCommandEnvelope,
@@ -2378,14 +2386,48 @@ export function createIntegrationsPlugin(
                 () => resolveDefaultIntegrationExecutionContext(incoming!),
               );
             } catch (err) {
-              // An app-specific resolver may intentionally support a legacy
-              // Slack setup. When no override exists, the branch below fails
-              // closed instead of falling back to a service principal.
-              if (!options?.resolveExecutionContext && !options?.resolveOwner) {
-                console.error(
-                  `[integrations] default Slack DM identity denied message:`,
-                  err,
-                );
+              // Only an explicit execution-context resolver may override the
+              // default Slack identity ladder. The legacy owner-only resolver
+              // predates org-bound identities and must not turn a rejected DM
+              // into an authenticated owner run.
+              if (!options?.resolveExecutionContext) {
+                const declined =
+                  err instanceof IntegrationIdentityDeclinedError ? err : null;
+                if (declined) {
+                  console.warn(
+                    `[integrations] default Slack DM identity declined message:`,
+                    declined.message,
+                  );
+                  // Best-effort polite reply back to the DM, deduped per
+                  // sender + reason so an outage doesn't produce an identical
+                  // reply for every message. Do not await Slack's API: webhook
+                  // acknowledgement has a stricter deadline than notice
+                  // delivery and must not be delayed by a slow postMessage.
+                  void withCredentialContext(credentialContext, () =>
+                    adapter.sendSystemNotice
+                      ? adapter.sendSystemNotice(
+                          incoming!,
+                          declined.userFacingMessage,
+                          {
+                            dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
+                            dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
+                          },
+                        )
+                      : Promise.resolve(),
+                  ).catch((noticeErr) => {
+                    console.warn(
+                      `[integrations] decline notice failed:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                  });
+                } else {
+                  console.error(
+                    `[integrations] default Slack DM identity denied message:`,
+                    err,
+                  );
+                }
                 setResponseStatus(event, 200);
                 return "ok";
               }
@@ -2413,6 +2455,36 @@ export function createIntegrationsPlugin(
             }
           } else if (defaultExecutionContext) {
             executionContext = defaultExecutionContext;
+            if (defaultExecutionContext.anonymousMember) {
+              // The anonymous tier must never be silent. (1) The agent run
+              // can tell: the note rides the serialized `incoming` into the
+              // queued task and surfaces via <integration-context>.
+              incoming.identityNote =
+                "Caller is an unlinked Slack workspace member running with organization-wide visibility only; personal or privately-shared data is not accessible. They can get personal access by having an admin add their Slack email to the organization (or by reconnecting Slack with the users:read.email scope).";
+              // (2) The sender gets a one-time heads-up (adapter-throttled per
+              // sender). Fire-and-forget so it never delays or replaces the
+              // normal agent run.
+              if (adapter.sendSystemNotice) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `Heads up: I couldn't match your Slack account to an organization member, so I can only use org-wide data. Ask an admin to add ${senderEmail} to the organization for personal access.`
+                  : "Heads up: I couldn't verify your Slack account's email, so I can only use org-wide data. Ask an admin to update the Slack connection with the users:read.email scope for personal access.";
+                void withCredentialContext(credentialContext, () =>
+                  adapter.sendSystemNotice!(incoming!, noticeText, {
+                    dedupeKey: `anonymous-tier:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                  }),
+                ).catch((noticeErr) => {
+                  console.warn(
+                    `[integrations] anonymous-tier notice failed:`,
+                    noticeErr instanceof Error ? noticeErr.message : noticeErr,
+                  );
+                });
+              }
+            }
           } else if (options?.resolveOwner) {
             try {
               executionContext.ownerEmail = await withCredentialContext(

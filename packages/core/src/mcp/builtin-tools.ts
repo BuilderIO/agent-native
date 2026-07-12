@@ -858,8 +858,11 @@ function askAppTool(
   return {
     tool: tool(
       "Send a natural-language message to an app's AI agent and get its " +
-        "response. Use for complex, multi-step tasks needing the agent's " +
-        "reasoning and full app context. In a single-app project the 'app' " +
+        "response. Use this first for natural-language investigation, " +
+        "diagnosis, multi-step work, and changes; it runs with the app's " +
+        "full skills, instructions, tools, and context. Use direct action " +
+        "tools only for a known, bounded read or simple UI handoff. In a " +
+        "single-app project the 'app' " +
         "param is optional (defaults to this app). When 'app' names a " +
         "different workspace app it is routed there over A2A; the result's " +
         "'routedVia' field reports whether it ran cross-app or locally. " +

@@ -8,8 +8,8 @@ import {
 import { type SessionReplayConsoleLevel } from "../../../../shared/session-replay-diagnostics.js";
 import {
   buildSessionReplayDiagnostics,
+  resolveSessionReplayAgentAccess,
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
-  verifySessionReplayAgentAccess,
 } from "../../../lib/session-replay-agent-context.js";
 import { getSessionReplayTokenizedEvents } from "../../../lib/session-replay.js";
 
@@ -48,7 +48,8 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 400);
     return { error: "id and agent access token are required" };
   }
-  if (!verifySessionReplayAgentAccess(id, token)) {
+  const access = resolveSessionReplayAgentAccess(id, token);
+  if (!access) {
     setResponseStatus(event, 401);
     return { error: "Invalid or expired agent access" };
   }
@@ -108,9 +109,11 @@ export default defineEventHandler(async (event) => {
           : (rawOffset ? offset : 0) + limit,
       ),
     );
-    const eventsResponse = await getSessionReplayTokenizedEvents(id, {
-      limit: replayEventReadLimit,
-    });
+    const eventsResponse = await getSessionReplayTokenizedEvents(
+      id,
+      access.viewerEmail,
+      { limit: replayEventReadLimit },
+    );
     const events = eventsResponse.chunks.flatMap((chunk) =>
       chunk.events.filter(
         (item): item is Record<string, any> =>

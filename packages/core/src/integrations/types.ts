@@ -104,6 +104,13 @@ export interface IncomingMessage {
     targetAgent?: string;
     instruction: string;
   };
+  /**
+   * Trusted app-side note about the caller's identity/visibility tier, set
+   * after execution-context resolution (e.g. an anonymous org-scoped Slack
+   * member). Surfaced to the agent as integration context. Adapters must not
+   * copy this from user-controlled webhook payload fields.
+   */
+  identityNote?: string;
   /** Provider-native message/activity reference for contextual replies. */
   replyRef?: string;
   /** Message timestamp (epoch ms) */
@@ -312,6 +319,23 @@ export interface PlatformAdapter {
   ): Promise<void>;
 
   /**
+   * Send a short best-effort system notice to the conversation the incoming
+   * message arrived on (polite identity declines, one-time access guidance).
+   * Bypasses agent formatting. When `dedupeKey` is provided, the adapter may
+   * drop the notice if the same key was sent recently. Callers must treat
+   * failures as non-fatal.
+   */
+  sendSystemNotice?(
+    incoming: IncomingMessage,
+    text: string,
+    opts?: {
+      dedupeKey?: string;
+      /** Dedupe window for `dedupeKey`. Adapters pick a default when omitted. */
+      dedupeTtlMs?: number;
+    },
+  ): Promise<void>;
+
+  /**
    * Optionally post a "working on it…" placeholder message immediately when a
    * webhook arrives, before the agent loop runs. Adapters that support
    * in-place message edits (Slack via `chat.update`, etc.) return an opaque
@@ -436,4 +460,10 @@ export interface IntegrationExecutionContext {
   principalType: "user" | "service";
   installationId?: string;
   scopeId?: string;
+  /**
+   * True when a hydrated full workspace member could not be matched to an
+   * organization member and runs with the anonymous org-scoped service
+   * principal (org-wide visibility only, nothing user-private).
+   */
+  anonymousMember?: boolean;
 }
