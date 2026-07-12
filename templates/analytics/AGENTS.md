@@ -39,6 +39,14 @@ details live in `.agents/skills/`.
   Prometheus credential slot. Treat it as demo-environment data: do not use it
   for `REAL_DATA_REQUIRED`, saved analyses, or real user analytics answers
   unless the user explicitly asks to inspect the demo dashboard.
+- Framework Demo mode is separate from the built-in `demo` source. While Demo
+  mode is enabled, Analytics line and area charts reshape each returned numeric
+  series into a deterministic, natural-looking upward trend using that series'
+  actual minimum, maximum, and normalized volatility. Smooth source series stay
+  smooth; spiky source series keep larger swings. This is presentation-only:
+  query results, tables, metrics, exports, and non-time-series charts remain
+  unchanged, so do not cite the displayed intermediate line/area points as
+  retrieved source values.
 - Every analytical answer should include enough audit context for the user to
   trust it: source(s), time window, filters, sample size or row count,
   join/match method when relevant, and caveats/gaps.

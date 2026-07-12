@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/tooltip";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
+import { planReturnPathFromLocation } from "@/lib/plan-local-bridge";
 import { cn } from "@/lib/utils";
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
@@ -651,7 +652,7 @@ export function Sidebar({
   const location = useLocation();
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
-  const returnPath = `${location.pathname}${location.search}${location.hash}`;
+  const returnPath = planReturnPathFromLocation(location);
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;

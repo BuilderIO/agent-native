@@ -13,8 +13,8 @@ import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
  *
  * It is intentionally a pure parse: it accepts the posted MDX folder, never
  * reads `schema.plans`, never touches the filesystem, and never writes to the
- * database. That keeps it safe to expose without auth so the offline-friendly
- * `plan local verify` CLI can call it against a local or hosted Plan app.
+ * database. The local-files CLI calls it only on an explicit loopback Plan app;
+ * it never posts private source to this action on a hosted deployment.
  */
 
 // Covers the CLI's 10 MiB raw asset cap (~13.3 MiB base64) plus MDX text, so
@@ -63,7 +63,7 @@ function toValidationIssues(error: unknown): ValidationIssue[] {
 
 export default defineAction({
   description:
-    "Validate a local plan MDX folder against the live Plan renderer schema (parsePlanMdxFolder + planContentSchema). Returns { valid, issues } where issues carry the renderer's exact schema path (e.g. blocks[1].data.items[0].id). Use this to confirm a plan will render before handing it off — it is the authoritative check behind `plan local verify`. Pure parse: no database, filesystem, or schema.plans access.",
+    "Validate a plan MDX folder against this Plan app's renderer schema (parsePlanMdxFolder + planContentSchema). Returns { valid, issues } where issues carry the renderer's exact schema path (e.g. blocks[1].data.items[0].id). The local-files CLI calls this only on loopback Plan apps so private source stays on-device. Pure parse: no database, filesystem, or schema.plans access.",
   schema: z.object({
     mdx: planMdxFileSchema.describe(
       "The plan MDX folder: plan.mdx plus optional canvas.mdx, prototype.mdx, .plan-state.json, and assets/.",
@@ -81,7 +81,7 @@ export default defineAction({
     requiresAuth: false,
     title: "Validate Local Plan Source",
     description:
-      "Validate a local plan MDX folder against the real renderer schema without touching the database.",
+      "Validate a plan MDX folder against this app's renderer schema without touching the database.",
   },
   run: async (args) => {
     let totalBytes = 0;

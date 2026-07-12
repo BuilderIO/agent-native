@@ -67,7 +67,7 @@ test("local bridge retries startup and survives a hard reload", async ({
   const appUrl =
     baseURL ?? process.env.PLAN_BASE_URL ?? "http://localhost:8081";
   const localPlanUrl = new URL(
-    `/local-plans/bridge-reload-fixture?bridge=${encodeURIComponent(
+    `/local-plans/bridge-reload-fixture#bridge=${encodeURIComponent(
       bridgeUrl,
     )}`,
     appUrl,

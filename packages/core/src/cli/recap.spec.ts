@@ -28,8 +28,11 @@ import {
   isRecapSensitivePath,
   launchRecapChromium,
   lineMatchesAllowlist,
+  matchingRecapRunners,
   normalizeRecapAgent,
   normalizeRecapSecretScanMode,
+  parseRecapGateRunsOn,
+  parseRecapRunsOn,
   parseClaudeUsage,
   parseCodexUsage,
   parseOpenAiCompatibleUsage,
@@ -751,6 +754,70 @@ describe("recap setup planning", () => {
     ]);
   });
 
+  it("parses hosted and self-hosted runner JSON", () => {
+    expect(parseRecapRunsOn('"ubuntu-latest"')).toEqual({
+      json: '"ubuntu-latest"',
+      labels: ["ubuntu-latest"],
+      selfHosted: false,
+    });
+    expect(
+      parseRecapRunsOn('["self-hosted", "Linux", "X64", "visual-recap"]'),
+    ).toEqual({
+      json: '["self-hosted","Linux","X64","visual-recap"]',
+      labels: ["self-hosted", "Linux", "X64", "visual-recap"],
+      selfHosted: true,
+    });
+  });
+
+  it("rejects invalid or unsafe runner configuration", () => {
+    expect(() => parseRecapRunsOn("ubuntu-latest")).toThrow(/valid JSON/);
+    expect(() => parseRecapRunsOn('"custom-runner"')).toThrow(
+      /standard GitHub-hosted/,
+    );
+    expect(() => parseRecapRunsOn('["linux","x64"]')).toThrow(
+      /exact "self-hosted" label/,
+    );
+    expect(() => parseRecapRunsOn("[]")).toThrow(/array of 1-20/);
+  });
+
+  it("accepts only a plain single gate runner label", () => {
+    expect(parseRecapGateRunsOn("visual-recap-gate")).toBe("visual-recap-gate");
+    expect(() => parseRecapGateRunsOn('["self-hosted"]')).toThrow(
+      /one plain runner label/,
+    );
+    expect(() => parseRecapGateRunsOn("bad label")).toThrow(
+      /one plain runner label/,
+    );
+  });
+
+  it("matches only online runners with every configured label", () => {
+    const runners = [
+      {
+        name: "ready",
+        status: "online",
+        labels: ["self-hosted", "Linux", "X64", "visual-recap"],
+      },
+      {
+        name: "offline",
+        status: "offline",
+        labels: ["self-hosted", "linux", "x64", "visual-recap"],
+      },
+      {
+        name: "wrong-label",
+        status: "online",
+        labels: ["self-hosted", "linux", "x64"],
+      },
+    ];
+    expect(
+      matchingRecapRunners(runners, [
+        "self-hosted",
+        "linux",
+        "x64",
+        "visual-recap",
+      ]).map((runner) => runner.name),
+    ).toEqual(["ready"]);
+  });
+
   it("builds a setup plan from env and detects an existing workflow", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-setup-"));
     try {
@@ -771,6 +838,8 @@ describe("recap setup planning", () => {
           OPENAI_API_KEY: "example-openai-key",
           VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
+          VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         } as NodeJS.ProcessEnv,
       });
 
@@ -785,6 +854,8 @@ describe("recap setup planning", () => {
           VISUAL_RECAP_AGENT: "codex",
           VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
+          VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         },
       });
       expect(plan.secretValues).toMatchObject({
@@ -918,6 +989,46 @@ describe("recap setup planning", () => {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
+    }
+  });
+
+  it("rejects an invalid --runs-on value before writing setup output", async () => {
+    const previousExitCode = process.exitCode;
+    const stderrWrites: string[] = [];
+    const stdoutWrites: string[] = [];
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      });
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdoutWrites.push(String(chunk));
+        return true;
+      });
+
+    try {
+      process.exitCode = undefined;
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--runs-on",
+        "not-json",
+        "--dry-run",
+      ]);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderrWrites.join("")).toContain(
+        "VISUAL_RECAP_RUNS_ON must be valid JSON",
+      );
+      expect(stdoutWrites.join("")).toBe("");
+    } finally {
+      process.exitCode = previousExitCode;
+      stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 });
@@ -2571,6 +2682,21 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--head-sha "$HEAD_SHA"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "(vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest'",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "self-hosted runner mode requires a trusted same-repository PR author",
+    );
   });
 });
 
@@ -2917,6 +3043,12 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain(
       "secret-scan: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}",
     );
+    expect(yml).toContain(
+      "runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '\"ubuntu-latest\"' }}",
+    );
+    expect(yml).toContain(
+      "gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}",
+    );
   });
 
   it("respects a custom ref for version pinning", () => {
@@ -2946,6 +3078,22 @@ describe("reusable caller workflow builder", () => {
   it("adds the model input line when a model is specified", () => {
     const yml = buildReusableCallerWorkflow({ model: "gpt-5.6-sol" });
     expect(yml).toContain("model: gpt-5.6-sol");
+  });
+
+  it("quotes explicit runner JSON as a reusable-workflow string input", () => {
+    const yml = buildReusableCallerWorkflow({
+      runsOn: '["self-hosted","linux","x64"]',
+    });
+    expect(yml).toContain(
+      'runs-on: "[\\"self-hosted\\",\\"linux\\",\\"x64\\"]"',
+    );
+  });
+
+  it("quotes an explicit plain gate runner label", () => {
+    const yml = buildReusableCallerWorkflow({
+      gateRunsOn: "visual-recap-gate",
+    });
+    expect(yml).toContain('gate-runs-on: "visual-recap-gate"');
   });
 });
 
@@ -3050,6 +3198,8 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("agent:");
     expect(content).toContain("model:");
     expect(content).toContain("plan-url:");
+    expect(content).toContain("runs-on:");
+    expect(content).toContain("gate-runs-on:");
     // Required secret is declared.
     expect(content).toContain("PLAN_RECAP_TOKEN:");
     // Optional secrets for both backends are declared.
@@ -3067,6 +3217,19 @@ describe("reusable workflow file structure", () => {
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
+    expect(content).toContain(
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(content).toContain("inputs['gate-runs-on'] || 'ubuntu-latest'");
+    expect(content).toContain(
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
+    );
+    expect(content).toContain(
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
+    );
+    expect(content).toContain(
+      "self-hosted runner mode requires a trusted same-repository PR author",
+    );
     expect(content).toContain("Fetch pull request head");
     expect(content).toContain('git update-ref refs/recap/pr-head "$HEAD_SHA"');
     expect(content).toContain("AUTHORIZATION: basic $AUTH_B64");

@@ -89,6 +89,13 @@ export type ConfigureTrackingOptions = {
   /** First-party analytics track endpoint. */
   endpoint?: string;
   getDefaultProps?: GetDefaultProps;
+  /**
+   * Disable content-capturing analytics such as interaction autocapture and
+   * session replay while retaining pageviews, explicit events, and Sentry.
+   */
+  contentCapture?: boolean;
+  /** Resolve content capture synchronously for each browser pathname. */
+  contentCaptureForPath?: (pathname: string) => boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -132,6 +139,8 @@ let _errorCaptureDisposer: (() => void) | null = null;
 let _sessionReplayModuleForCapture:
   | typeof import("./session-replay.js")
   | null = null;
+let _trackingContentCaptureEnabled = true;
+let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -575,7 +584,10 @@ function ensureAmplitude(): boolean {
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
-  amplitude.init(key, { autocapture: true });
+  // Standard pageviews and explicit events are emitted below. Keep SDK-level
+  // DOM/network autocapture off so rendered user content is never collected as
+  // an implicit analytics side effect.
+  amplitude.init(key, { autocapture: false });
   _amplitudeInitialized = true;
   return true;
 }
@@ -896,7 +908,11 @@ export function setSentryUser(
     clearTrackingIdentity();
   }
   _trackingIdentityResolved = true;
-  if (shouldRetryReplay && _sessionReplayOptions?.requireSignedInUser) {
+  if (
+    shouldRetryReplay &&
+    _trackingContentCaptureEnabled &&
+    _sessionReplayOptions?.requireSignedInUser
+  ) {
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
   if (_sentryInitialized) {
@@ -1004,6 +1020,11 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
+  _contentCaptureForPath = options.contentCaptureForPath ?? null;
+  _trackingContentCaptureEnabled =
+    _contentCaptureForPath && typeof window !== "undefined"
+      ? _contentCaptureForPath(window.location.pathname)
+      : options.contentCapture !== false;
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
@@ -1011,12 +1032,35 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     installLlmConnectionRefresh();
     installTrackingAuthSessionRefresh();
     installPageviewTracking();
-    maybeInstallSessionReplay(options.sessionReplay, {
-      endpoint: options.endpoint,
-      publicKey,
-    });
+    maybeInstallSessionReplay(
+      options.sessionReplay,
+      {
+        endpoint: options.endpoint,
+        publicKey,
+      },
+      _trackingContentCaptureEnabled,
+    );
     maybeInstallErrorCapture(options.errorCapture);
   }
+}
+
+export function setTrackingContentCaptureEnabled(enabled: boolean): void {
+  if (_trackingContentCaptureEnabled === enabled) return;
+  _trackingContentCaptureEnabled = enabled;
+  if (enabled) {
+    if (_sessionReplayOptions) {
+      void startConfiguredSessionReplay(_sessionReplayOptions);
+    }
+  } else {
+    void stopSessionReplay("content-capture-disabled");
+  }
+}
+
+function syncTrackingContentCaptureForLocation(): void {
+  if (!_contentCaptureForPath) return;
+  setTrackingContentCaptureEnabled(
+    _contentCaptureForPath(window.location.pathname),
+  );
 }
 
 /**
@@ -1254,11 +1298,12 @@ function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
 function maybeInstallSessionReplay(
   config: boolean | SessionReplayOptions | undefined,
   tracking?: { endpoint?: string; publicKey?: string },
+  start = true,
 ): void {
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
-  if (!options) return;
   _sessionReplayOptions = options;
+  if (!options || !start) return;
   void startConfiguredSessionReplay(options);
 }
 
@@ -1284,11 +1329,24 @@ async function startConfiguredSessionReplay(
 ): Promise<SessionReplayStartResult | null> {
   if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
   _sessionReplayStartPromise = (async () => {
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
     if (!(await waitForSessionReplayAuthIfRequired(options))) {
       return { started: false, reason: "missing-user-id" as const };
     }
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
     const mod = await import("./session-replay.js");
-    return mod.startSessionReplay(options);
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
+    return mod.startSessionReplay({
+      ...options,
+      shouldStart: () =>
+        _trackingContentCaptureEnabled && (options.shouldStart?.() ?? true),
+    });
   })()
     .catch(() => ({ started: false, reason: "import-failed" as const }))
     .finally(() => {
@@ -1300,23 +1358,37 @@ async function startConfiguredSessionReplay(
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (!_trackingContentCaptureEnabled) {
+    return { started: false, reason: "disabled" };
+  }
   const configured = configuredSessionReplayOptions(options) ?? options;
   if (!(await waitForSessionReplayAuthIfRequired(configured))) {
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
-  return mod.startSessionReplay(configured);
+  return mod.startSessionReplay({
+    ...configured,
+    shouldStart: () =>
+      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+  });
 }
 
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (!_trackingContentCaptureEnabled) {
+    return { started: false, reason: "disabled" };
+  }
   const configured = configuredSessionReplayOptions(options) ?? options;
   if (!(await waitForSessionReplayAuthIfRequired(configured))) {
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
-  return mod.maybeStartSessionReplay(configured);
+  return mod.maybeStartSessionReplay({
+    ...configured,
+    shouldStart: () =>
+      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+  });
 }
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
@@ -1371,15 +1443,17 @@ function pageviewKey(): string {
 
 function pageviewProperties(reason: string): Record<string, unknown> {
   const properties: Record<string, unknown> = {
-    url: scrubUrl(window.location.href),
+    url: !_trackingContentCaptureEnabled
+      ? window.location.origin + window.location.pathname
+      : scrubUrl(window.location.href),
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
   };
-  if (window.location.search) {
+  if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);
   }
-  if (typeof document !== "undefined") {
+  if (_trackingContentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
       properties.referrer = scrubUrl(document.referrer);
     }
@@ -1400,6 +1474,9 @@ function emitPageview(reason: string): void {
 }
 
 function schedulePageview(reason: string): void {
+  if (!_trackingContentCaptureEnabled) {
+    void stopSessionReplay("local-plan-privacy");
+  }
   const run = () => emitPageview(reason);
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
@@ -1436,17 +1513,22 @@ function installPageviewTracking(): void {
 
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
+    syncTrackingContentCaptureForLocation();
     schedulePageview("pushState");
     return result;
   };
 
   window.history.replaceState = function replaceState(...args) {
     const result = originalReplaceState.apply(this, args);
+    syncTrackingContentCaptureForLocation();
     schedulePageview("replaceState");
     return result;
   };
 
-  window.addEventListener("popstate", () => schedulePageview("popstate"));
+  window.addEventListener("popstate", () => {
+    syncTrackingContentCaptureForLocation();
+    schedulePageview("popstate");
+  });
 }
 
 function sendAgentNativeAnalytics(

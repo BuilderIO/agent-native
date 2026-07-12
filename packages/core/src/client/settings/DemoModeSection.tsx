@@ -13,40 +13,18 @@
  */
 
 import { IconEyeOff } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
-import { useChangeVersion } from "../use-change-version.js";
+import { useDemoModeStatus } from "../use-demo-mode-status.js";
 
-interface DemoStatus {
-  enabled?: boolean;
-  forced?: boolean;
-}
-
-const DEMO_STATUS_URL = agentNativePath("/_agent-native/demo/status");
 const DEMO_MODE_WRITE_URL = agentNativePath(
   "/_agent-native/application-state/demo-mode",
 );
 
 export function DemoModeSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const demoModeVersion = useChangeVersion("app-state:demo-mode");
-
-  const { data } = useQuery({
-    queryKey: ["agent-native", "demo-mode", demoModeVersion],
-    queryFn: async () => {
-      const res = await fetch(DEMO_STATUS_URL, {
-        credentials: "same-origin",
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as DemoStatus | null;
-    },
-    staleTime: Infinity,
-  });
-
-  const serverEnabled = data?.enabled;
-  const forced = data?.forced === true;
+  const { enabled: serverEnabled, forced, isLoading } = useDemoModeStatus();
 
   // Surface the server value once it arrives (and on subsequent polls), but
   // never clobber an in-flight optimistic toggle with a stale read. When
@@ -54,12 +32,10 @@ export function DemoModeSection() {
   useEffect(() => {
     if (forced) {
       setEnabled(true);
-    } else if (typeof serverEnabled === "boolean") {
+    } else if (!isLoading) {
       setEnabled((prev) => (prev === null ? serverEnabled : prev));
-    } else if (serverEnabled === undefined && data !== undefined) {
-      setEnabled((prev) => (prev === null ? false : prev));
     }
-  }, [serverEnabled, forced, data]);
+  }, [serverEnabled, forced, isLoading]);
 
   const toggle = async (next: boolean) => {
     if (forced) return;

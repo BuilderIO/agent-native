@@ -24,7 +24,10 @@ env:
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-latest
+    # A custom plain-label runner is allowed only for trusted same-repo authors.
+    # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
+    # any step starts. The only fromJSON input is this static association list.
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && (vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -33,6 +36,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       agent: ${{ steps.decide.outputs.agent }}
+      runs_on: ${{ steps.decide.outputs.runs_on }}
     steps:
       - id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -45,6 +49,7 @@ jobs:
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
           VISUAL_RECAP_BASE_URL: ${{ env.VISUAL_RECAP_BASE_URL }}
           VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          VISUAL_RECAP_RUNS_ON: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ env.VISUAL_RECAP_SKILL_SOURCE }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -69,6 +74,21 @@ jobs:
             const association = (pr && pr.author_association || '').toUpperCase();
             const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
             const isTrustedAuthor = trustedAssociations.includes(association);
+            let configuredRunner = 'ubuntu-latest';
+            let usesSelfHostedRunner = false;
+            try {
+              const candidate = JSON.parse(process.env.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"');
+              const hosted = typeof candidate === 'string' && /^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(candidate);
+              const selfHosted = Array.isArray(candidate) && candidate.length >= 1 && candidate.length <= 20 && candidate.includes('self-hosted') && candidate.every((label) => typeof label === 'string' && label.length >= 1 && label.length <= 100 && !/[\u0000-\u001f\u007f]/.test(label)) && new Set(candidate).size === candidate.length;
+              if (!hosted && !selfHosted) throw new Error('unsupported runner value');
+              configuredRunner = candidate;
+              usesSelfHostedRunner = selfHosted;
+            } catch {
+              reasons.push('invalid VISUAL_RECAP_RUNS_ON JSON');
+            }
+            if (usesSelfHostedRunner && (isFork || !isTrustedAuthor)) {
+              reasons.push('self-hosted runner mode requires a trusted same-repository PR author');
+            }
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -154,6 +174,7 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
+            core.setOutput('runs_on', JSON.stringify(configuredRunner));
             if (run) {
               core.info(`Visual recap will run (${agent}).`);
             } else {
@@ -210,7 +231,7 @@ jobs:
     name: Generate visual recap
     needs: gate
     if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
     permissions:
       actions: write

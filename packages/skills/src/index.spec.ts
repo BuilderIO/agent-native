@@ -1167,5 +1167,11 @@ describe("@agent-native/skills", () => {
     expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
       "pr-visual-recap-reusable.yml@main",
     );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}`,
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}`,
+    );
   });
 });
