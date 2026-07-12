@@ -10,6 +10,7 @@ import { useNavigate } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
 import { THEME_VAR_NAMES } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import { useAppearance } from "../appearance.js";
@@ -425,6 +426,7 @@ export function EmbeddedExtension({
   return (
     <div className={`relative group/embedded-extension ${className ?? ""}`}>
       <iframe
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
         key={`${extensionId}-${extension.updatedAt ?? ""}`}
         src={iframeSrc}

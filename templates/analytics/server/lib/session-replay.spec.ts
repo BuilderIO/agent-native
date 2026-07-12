@@ -1063,18 +1063,18 @@ describe("session replay ingest parsing", () => {
       "sr_builder_two",
     ]);
     expect(rows[0]).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
       metadata: {
-        accountEmail: "anonymized-1@builder.io",
-        note: "Viewed by anonymized-1@builder.io",
+        accountEmail: "anonymous@builder.io",
+        note: "Viewed by anonymous@builder.io",
       },
     });
     expect(rows[1]).toMatchObject({
-      userId: "anonymized-3@builder.io",
-      userKey: "anonymized-3@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
     });
     expect(JSON.stringify(rows)).not.toContain("alice@builder.io");
     expect(JSON.stringify(rows)).not.toContain("customer@example.com");
@@ -1102,14 +1102,14 @@ describe("session replay ingest parsing", () => {
     const compact = compactSessionRecordingSummary(summary);
 
     expect(summary).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
-      metadata: { actorEmail: "anonymized-1@builder.io" },
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
+      metadata: { actorEmail: "anonymous@builder.io" },
     });
     expect(compact).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
     });
     expect(JSON.stringify({ summary, compact })).not.toContain(
       "detail@builder.io",

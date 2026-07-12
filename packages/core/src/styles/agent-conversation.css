@@ -493,6 +493,32 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 1.5rem);
 }
 
+.agent-chat-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 200ms var(--ease-collapse),
+    opacity 150ms ease-out;
+}
+
+.agent-chat-collapse[data-state="closed"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-chat-collapse__content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-collapse {
+    transition-duration: 0.01ms;
+  }
+}
+
 /* ─── Agent-Markdown (AssistantChat react-markdown render surface) ─────────── */
 /* These classes are applied by the SmoothMarkdownText/MarkdownText components  */
 /* in the AssistantChat/AssistantChatInner tree. The shiki dual-theme rules      */

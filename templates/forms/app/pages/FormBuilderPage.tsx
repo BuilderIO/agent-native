@@ -21,6 +21,7 @@ import {
   IconPlus,
   IconChevronDown,
   IconCopy,
+  IconArrowLeft,
   IconArrowUp,
   IconArrowDown,
   IconArrowsSort,
@@ -333,7 +334,21 @@ export function FormBuilderPage() {
       <div className="flex flex-col h-full">
         {/* Top bar */}
         <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-10 shrink-0 active:scale-[0.96]"
+                  onClick={() => navigate("/forms")}
+                  aria-label={t("builder.backToForms")}
+                >
+                  <IconArrowLeft className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("builder.backToForms")}</TooltipContent>
+            </Tooltip>
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-14 rounded-full" />
           </div>
@@ -538,7 +553,21 @@ export function FormBuilderPage() {
       {codeRequiredDialog}
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
-        <div className="flex items-center gap-2 sm:gap-3 relative min-w-0 flex-1 me-2">
+        <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0 active:scale-[0.96]"
+                onClick={() => navigate("/forms")}
+                aria-label={t("builder.backToForms")}
+              >
+                <IconArrowLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("builder.backToForms")}</TooltipContent>
+          </Tooltip>
           <span
             ref={titleMeasureRef}
             aria-hidden
@@ -577,7 +606,7 @@ export function FormBuilderPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="relative h-8 w-8 before:absolute before:-inset-y-1 before:content-['']"
+                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
                   <a
@@ -601,7 +630,7 @@ export function FormBuilderPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="relative h-8 w-8 before:absolute before:-inset-y-1 before:content-['']"
+                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
                   disabled={form.status !== "published"}
                   aria-label={
@@ -647,7 +676,7 @@ export function FormBuilderPage() {
                   resourceType="form"
                   resourceId={form.id}
                   resourceTitle={form.title}
-                  triggerClassName="h-9 border-input bg-transparent px-3 text-xs hover:bg-accent hover:text-accent-foreground"
+                  triggerClassName="h-10 border-input bg-transparent px-3 text-xs active:scale-[0.96] hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
                   shareUrlLabel={t("builder.publicResponseLink")}
                   shareUrlDescription={t(
@@ -680,7 +709,7 @@ export function FormBuilderPage() {
           {canEdit && form.status !== "published" && (
             <Button
               size="sm"
-              className="relative text-xs before:absolute before:-inset-y-0.5 before:content-['']"
+              className="relative text-xs before:absolute before:-inset-y-0.5 before:content-[''] active:scale-[0.96] motion-reduce:active:scale-100"
               onClick={handleTogglePublish}
               disabled={pendingStatus !== null}
             >
@@ -702,7 +731,7 @@ export function FormBuilderPage() {
                     <Button
                       variant="outline"
                       size="icon"
-                      className="relative h-9 w-9 bg-transparent before:absolute before:-inset-y-1 before:-inset-x-0.5 before:content-['']"
+                      className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
                       <IconDots className="h-4 w-4" />
@@ -746,13 +775,19 @@ export function FormBuilderPage() {
           value={activeBuilderTab}
           onValueChange={canEdit ? setBuilderTab : undefined}
         >
-          <TabsList className="w-max sm:w-auto">
-            <TabsTrigger value="edit" className="text-xs">
+          <TabsList className="w-max rounded-lg shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] sm:w-auto">
+            <TabsTrigger
+              value="edit"
+              className="rounded-md text-xs transition-[color,background-color,box-shadow,transform] active:scale-[0.96]"
+            >
               {canEdit ? t("builder.editTab") : t("builder.previewTab")}
             </TabsTrigger>
             {canEdit && (
               <>
-                <TabsTrigger value="responses" className="text-xs">
+                <TabsTrigger
+                  value="responses"
+                  className="rounded-md text-xs transition-[color,background-color,box-shadow,transform] active:scale-[0.96]"
+                >
                   {t("builder.resultsTab")}
                   {(form.responseCount ?? 0) > 0 && (
                     <Badge
@@ -763,10 +798,16 @@ export function FormBuilderPage() {
                     </Badge>
                   )}
                 </TabsTrigger>
-                <TabsTrigger value="settings" className="text-xs">
+                <TabsTrigger
+                  value="settings"
+                  className="rounded-md text-xs transition-[color,background-color,box-shadow,transform] active:scale-[0.96]"
+                >
                   {t("header.settings")}
                 </TabsTrigger>
-                <TabsTrigger value="integrations" className="text-xs">
+                <TabsTrigger
+                  value="integrations"
+                  className="rounded-md text-xs transition-[color,background-color,box-shadow,transform] active:scale-[0.96]"
+                >
                   {t("builder.integrationsTab")}
                 </TabsTrigger>
               </>
@@ -990,18 +1031,18 @@ function BuilderContent({
                         )
                       }
                       className={cn(
-                        "group relative rounded-lg border p-4 cursor-pointer",
+                        "group relative cursor-pointer rounded-lg border p-4 transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out",
                         selectedFieldId === field.id
-                          ? "border-primary ring-1 ring-primary/20 bg-card"
-                          : "border-border bg-card hover:border-primary/30",
+                          ? "border-primary bg-card shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.16)] ring-1 ring-primary/20"
+                          : "border-transparent bg-transparent shadow-none hover:border-border/80 hover:bg-card/70 hover:shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.12)]",
                         dragIdx === idx && "opacity-50",
                       )}
                     >
                       <div
-                        className="absolute -start-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
+                        className="absolute -start-5 top-1/2 hidden size-10 -translate-y-1/2 items-center justify-center cursor-grab text-muted-foreground opacity-0 transition-[color,opacity,transform] duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground sm:flex"
                         aria-label={t("builder.dragToReorder")}
                       >
-                        <IconGripVertical className="h-4 w-4 text-muted-foreground" />
+                        <IconGripVertical className="h-4 w-4 translate-x-px" />
                       </div>
                       <FieldRenderer field={field} preview />
                     </div>
@@ -1010,7 +1051,7 @@ function BuilderContent({
                     side="right"
                     align="start"
                     sideOffset={12}
-                    className="w-[calc(100vw-2rem)] sm:w-72 max-h-[70vh] sm:max-h-[520px] overflow-auto p-0"
+                    className="w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto rounded-lg p-0 shadow-md sm:w-72 sm:max-h-[520px]"
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     onInteractOutside={(e) => {
                       // Don't close when interacting with dropdowns portaled to body
@@ -1034,7 +1075,7 @@ function BuilderContent({
               ) : (
                 <div
                   key={field.id}
-                  className="relative rounded-lg border border-border bg-card p-4"
+                  className="relative rounded-lg border border-transparent bg-transparent p-4 transition-[background-color,border-color] duration-150 hover:border-border/70 hover:bg-card/70"
                 >
                   <FieldRenderer field={field} preview />
                 </div>
@@ -1048,10 +1089,13 @@ function BuilderContent({
             <div className="mt-4 flex items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <IconPlus className="h-4 w-4" />
+                  <Button
+                    variant="outline"
+                    className="gap-2 active:scale-[0.96]"
+                  >
+                    <IconPlus className="h-4 w-4 shrink-0" />
                     {t("builder.addField")}
-                    <IconChevronDown className="h-3 w-3" />
+                    <IconChevronDown className="h-3.5 w-3.5 translate-y-px" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
@@ -1074,6 +1118,7 @@ function BuilderContent({
                   <Button
                     variant="outline"
                     size="icon"
+                    className="active:scale-[0.96]"
                     aria-label={t("builder.editFormWithAi")}
                   >
                     <IconMessage className="h-4 w-4" />
@@ -1083,7 +1128,7 @@ function BuilderContent({
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="w-[calc(100vw-2rem)] sm:w-80 p-0 rounded-xl"
+                  className="w-[calc(100vw-2rem)] rounded-lg p-0 shadow-md sm:w-80"
                   onOpenAutoFocus={(e) => {
                     e.preventDefault();
                     agentPromptRef.current?.focus();
@@ -1118,7 +1163,7 @@ function BuilderContent({
                     <Button
                       variant="secondary"
                       size="icon"
-                      className="relative h-7 w-7 before:absolute before:-inset-1.5 before:content-['']"
+                      className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                       onClick={onSubmitAgent}
                       disabled={
                         !agentPrompt.trim() ||
@@ -1290,7 +1335,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           variant="outline"
           size="sm"
           onClick={() => refetch()}
-          className="gap-2"
+          className="gap-2 active:scale-[0.96]"
         >
           <IconRefresh className="h-3.5 w-3.5" />
           {t("common.retry")}
@@ -1478,7 +1523,7 @@ function ResultsSortableHeader({
     <button
       type="button"
       onClick={onClick}
-      className="relative inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer before:absolute before:-inset-3 before:content-['']"
+      className="relative inline-flex cursor-pointer items-center gap-1 transition-[color,transform] duration-150 ease-out hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100 before:absolute before:-inset-3 before:content-['']"
     >
       <span>{label}</span>
       <span className="relative inline-flex h-3 w-3 items-center justify-center">
@@ -1565,7 +1610,7 @@ function SettingsEditor({
         />
       </div>
 
-      <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-card p-3">
         <div className="space-y-1">
           <Label htmlFor="anonymous-responses" className="text-xs">
             {t("builder.settings.anonymousResponses")}
@@ -1582,7 +1627,11 @@ function SettingsEditor({
         />
       </div>
 
-      <Button onClick={() => onSave(settings)} className="w-full" size="sm">
+      <Button
+        onClick={() => onSave(settings)}
+        className="w-full active:scale-[0.96]"
+        size="sm"
+      >
         {t("builder.settings.saveSettings")}
       </Button>
     </div>
@@ -1653,12 +1702,12 @@ function IntegrationBrandMark({
     return (
       <div
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-background shadow-sm",
+          "flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-background",
           className,
         )}
       >
         <img
-          src={meta.logoSrc}
+          src={appPath(meta.logoSrc)}
           alt={t("builder.integrations.logoAlt", { label })}
           className="h-5 w-5 object-contain"
         />
@@ -1669,7 +1718,7 @@ function IntegrationBrandMark({
   return (
     <div
       className={cn(
-        "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-foreground text-background shadow-sm",
+        "flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-foreground text-background",
         className,
       )}
     >
@@ -1746,7 +1795,7 @@ function IntegrationsEditor({
       </div>
 
       {!hasIntegrations && (
-        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5">
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-5">
           <div className="space-y-4">
             <div className="space-y-2">
               <h3 className="text-sm font-medium">
@@ -1768,7 +1817,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="cursor-pointer rounded-lg border bg-background p-3 text-start transition-transform duration-150 ease-out hover:bg-muted/40 active:scale-[0.96] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
+                  className="min-h-[44px] cursor-pointer rounded-lg border border-border/60 bg-background p-3 text-start transition-[background-color,border-color,box-shadow] duration-150 ease-out hover:border-primary/30 hover:bg-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:scale-[0.96] motion-reduce:active:scale-100"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
@@ -1800,7 +1849,7 @@ function IntegrationsEditor({
         return (
           <div
             key={integration.id}
-            className="rounded-xl border bg-card p-4 space-y-3"
+            className="space-y-3 rounded-lg border border-border/60 bg-card p-4"
           >
             <div className="flex items-start gap-3">
               <IntegrationBrandMark type={integration.type} />
@@ -1834,7 +1883,7 @@ function IntegrationsEditor({
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive before:absolute before:-inset-1 before:content-['']"
+                className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => removeIntegration(integration.id)}
               >
                 <IconTrash className="h-4 w-4" />
@@ -1882,7 +1931,7 @@ function IntegrationsEditor({
           <Button
             variant="outline"
             size="sm"
-            className="h-11 w-full rounded-xl"
+            className="h-11 w-full rounded-lg active:scale-[0.96]"
           >
             <IconPlus className="h-3.5 w-3.5 me-1.5" />
             {hasIntegrations
@@ -1933,7 +1982,7 @@ function IntegrationsEditor({
         <div className="space-y-2">
           <Button
             onClick={() => onSave(settings)}
-            className="h-10 w-full"
+            className="h-10 w-full active:scale-[0.96]"
             size="sm"
           >
             {saveLabel}

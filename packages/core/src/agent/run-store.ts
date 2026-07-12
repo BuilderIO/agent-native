@@ -3,6 +3,7 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
+import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -145,6 +146,17 @@ export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
  *   existing loud reap (`background_worker_never_started`) still fires.
  */
 export const UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS = 20_000;
+
+/**
+ * FIX 3 (durable-background incident) per-turn run-count ceiling for
+ * stale-run recovery — mirrors `chainServerDrivenContinuation`'s own ledger
+ * guard in production-agent.ts (`MAX_BACKGROUND_RUN_CONTINUATIONS + 5` = 25).
+ * Duplicated as a literal rather than imported: production-agent.ts already
+ * imports run-manager.ts, which imports this file, so a runtime import back
+ * from here would be circular. Keep this numerically in sync if that
+ * constant ever changes.
+ */
+const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
 
 /**
  * Maximum time the stale reapers (`reapIfStale`, `reapAllStaleRuns`,
@@ -1175,6 +1187,15 @@ export const RUN_DIAG_STAGE = {
    * recovered by running the turn inline. The run still completes for the user.
    */
   foregroundInlineRecovery: "foreground_inline_recovery",
+  /**
+   * FIX 3 (durable-background incident): a stale-run reaper (`reapIfStale` /
+   * `reapAllStaleRuns`) found this background chat-turn run dead (heartbeat
+   * stale, no terminal event) and attempted server-owned recovery — detail
+   * carries the outcome (a recovered successor's runId, or why recovery was
+   * declined: not eligible, payload missing, a newer run already exists, or
+   * the per-turn budget is exhausted). See `attemptStaleRunRecovery`.
+   */
+  staleRunRecoveryAttempted: "stale_run_recovery_attempted",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
@@ -1307,18 +1328,200 @@ export async function setRunInFlightMarker(
   }
 }
 
+/** A recovery successor row created by `attemptStaleRunRecovery`. */
+interface StaleRunRecoverySuccessor {
+  successorRunId: string;
+  threadId: string;
+  turnId: string;
+}
+
 /**
- * If the given run is marked "running" in SQL but its heartbeat is stale
- * (producer likely crashed), flip it to "errored" so watchers stop waiting.
- * Returns true if the row was reaped.
+ * FIX 3 (durable-background incident) discriminated outcome of a recovery
+ * attempt — recorded as a diag stage (except `not_background`, the
+ * overwhelmingly common case for every ordinary foreground reap) so a
+ * silently-died background worker's fate is diagnosable without bg-fn logs.
  */
-export async function reapIfStale(
+type StaleRunRecoveryOutcome =
+  | ({ outcome: "recovered" } & StaleRunRecoverySuccessor)
+  | { outcome: "not_background" }
+  | { outcome: "payload_missing" }
+  | { outcome: "newer_run_exists" }
+  | { outcome: "budget_exhausted" };
+
+/**
+ * Mirrors `production-agent.ts`'s `generateRunId` — duplicated (not
+ * imported) to avoid a run-store.ts <-> production-agent.ts import cycle
+ * (production-agent.ts already imports run-manager.ts, which imports this
+ * file). Keep the format in sync if that one changes.
+ */
+function generateRecoveryRunId(): string {
+  return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * FIX 3 (durable-background incident): when a stale-run reaper is about to
+ * flip a BACKGROUND chat-turn run to errored/stale_run, attempt to keep the
+ * TURN alive instead of leaving it dead — a background worker has no
+ * connected client watching it, unlike a foreground run, so nothing else
+ * would ever recover it. Inserts an UNCLAIMED successor row (same turnId,
+ * `dispatch_payload` carried over from the dying run) that the existing
+ * unclaimed-background-run sweep (`agent-chat-plugin.ts`, ~20s fast sweep)
+ * picks up and redispatches automatically — this function never dispatches
+ * anything itself beyond the best-effort immediate attempt its caller fires.
+ *
+ * `db` is threaded through (rather than calling `getDbExec()` internally)
+ * so the caller can run this INSIDE the same transaction as the reap-to-
+ * errored write — see `reapSingleStaleRun` for why that matters.
+ *
+ * Eligibility (ALL must hold, or this is a documented no-op — the caller's
+ * normal loud stale_run failure proceeds unchanged):
+ *   - the row is a background chat-turn dispatch (`dispatch_mode` starting
+ *     with "background") — a foreground/foreground-self-chain run has a
+ *     connected client to recover it via its own `auto_continue` re-POST.
+ *   - its `dispatch_payload` is still present — without it there is nothing
+ *     to rehydrate the successor's request body from. Read HERE, before the
+ *     caller's terminal write (which NULLs `dispatch_payload` on every other
+ *     path), so it survives long enough to carry over.
+ *   - no newer run already exists for the same turn — avoids stacking a
+ *     second successor onto a turn a previous recovery (or a normal
+ *     `chainServerDrivenContinuation`) already continued. Combined with the
+ *     caller's own atomic "did I win the reap" gate, this guarantees AT MOST
+ *     ONE recovery successor per reaped run even under concurrent reapers.
+ *   - the per-turn run ledger (`countRunsForTurn`'s underlying query) has
+ *     room (`STALE_RUN_RECOVERY_MAX_TURN_RUNS`) — mirrors
+ *     `chainServerDrivenContinuation`'s own budget guard so a pathological
+ *     turn can't loop forever through reaper-driven recovery either.
+ */
+async function attemptStaleRunRecovery(
+  db: DbExec,
+  runId: string,
+): Promise<StaleRunRecoveryOutcome> {
+  const { rows } = await db.execute({
+    sql: `SELECT thread_id, turn_id, dispatch_mode, dispatch_payload, started_at FROM agent_runs WHERE id = ? LIMIT 1`,
+    args: [runId],
+  });
+  const row = rows?.[0] as
+    | {
+        thread_id?: string | null;
+        turn_id?: string | null;
+        dispatch_mode?: string | null;
+        dispatch_payload?: string | null;
+        started_at?: number | string | null;
+      }
+    | undefined;
+  const dispatchMode = row?.dispatch_mode ?? "";
+  if (!row?.thread_id || !dispatchMode.startsWith("background")) {
+    return { outcome: "not_background" };
+  }
+  const payload = row.dispatch_payload;
+  if (typeof payload !== "string" || payload.length === 0) {
+    return { outcome: "payload_missing" };
+  }
+  const threadId = row.thread_id;
+  const turnId = row.turn_id ?? runId;
+  const startedAt = Number(row.started_at) || 0;
+
+  const { rows: newerRows } = await db.execute({
+    sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
+    args: [turnId, runId, startedAt],
+  });
+  if ((newerRows?.length ?? 0) > 0) {
+    return { outcome: "newer_run_exists" };
+  }
+
+  // Inline COUNT rather than the exported `countRunsForTurn` (which opens
+  // its own `getDbExec()` connection) — this must read through the SAME `db`
+  // handle as everything else here so it participates in the caller's
+  // transaction when one is active.
+  const { rows: countRows } = await db.execute({
+    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
+  const turnRunCount = Number(
+    (countRows?.[0] as { run_count?: unknown } | undefined)?.run_count,
+  );
+  if (
+    Number.isFinite(turnRunCount) &&
+    turnRunCount > STALE_RUN_RECOVERY_MAX_TURN_RUNS
+  ) {
+    return { outcome: "budget_exhausted" };
+  }
+
+  const successorRunId = generateRecoveryRunId();
+  const now = Date.now();
+  await db.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
+    args: [successorRunId, threadId, now, now, now, turnId, payload],
+  });
+  return { outcome: "recovered", successorRunId, threadId, turnId };
+}
+
+/**
+ * FIX 3: best-effort immediate redispatch for a stale-run recovery
+ * successor, mirroring the "Unclaimed background-run sweep" redispatch
+ * marker in `agent-chat-plugin.ts` (deliberately omits `continuationCount`
+ * — see that file's comment — so a reaper-recovered chunk starts a fresh
+ * nested-dispatch segment at depth 0). Fire-and-forget and never awaited by
+ * callers: the successor row is already durably persisted (unclaimed,
+ * `dispatch_payload` set) regardless of whether this dispatch lands, so a
+ * failure here just means the existing fast unclaimed-background-run sweep
+ * (`UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS`, ~20s) picks it up instead — the
+ * row is left claimable, never marked errored, by construction (this
+ * function never writes to `agent_runs`).
+ */
+function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
+  void (async () => {
+    try {
+      const [
+        {
+          AGENT_CHAT_BACKGROUND_RUN_FIELD,
+          resolveAgentChatProcessRunDispatchPath,
+        },
+        { fireInternalDispatch },
+      ] = await Promise.all([
+        import("./durable-background.js"),
+        import("../server/self-dispatch.js"),
+      ]);
+      await fireInternalDispatch({
+        path: resolveAgentChatProcessRunDispatchPath(),
+        taskId: successorRunId,
+        body: {
+          internalContinuation: true,
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId: successorRunId,
+            payloadRef: true,
+          },
+        },
+      });
+    } catch (err) {
+      console.error(
+        "[run-store] stale-run recovery redispatch attempt failed (leaving successor claimable for the sweep):",
+        successorRunId,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  })();
+}
+
+/**
+ * Shared reap-to-stale-error implementation for a SINGLE run, used by both
+ * `reapIfStale` (per-row, hot read path) and `reapAllStaleRuns` (per-row loop
+ * over a stale-row snapshot — a row's own staleness is re-checked at UPDATE
+ * time exactly as the prior bulk UPDATE did, so a heartbeat that lands
+ * between the snapshot SELECT and this call naturally excludes the row).
+ *
+ * FIX 3: wraps the reap-to-errored write together with the recovery-
+ * successor insert (`attemptStaleRunRecovery`) in ONE transaction so a
+ * client polling `/runs/active` mid-recovery can never observe "errored, no
+ * successor" — both writes commit together or not at all. A recovery
+ * failure (thrown inside the transaction callback) is caught locally and
+ * never rolls back the reap itself: the reap is the critical path, recovery
+ * is strictly additive.
+ */
+async function reapSingleStaleRun(
   runId: string,
   maxStaleMs?: number,
 ): Promise<boolean> {
-  await ensureRunTables();
-  if (await reconcileTerminalRunFromEvents(runId)) return false;
-  const client = getDbExec();
   const completedAt = Date.now();
   // Background-dispatched runs get the wider stale window so a slow cold-start
   // isn't reaped; foreground runs keep the tight 15s window. An explicit
@@ -1336,8 +1539,7 @@ export async function reapIfStale(
       : // First `?` is backgroundAwareStaleCutoffSql's CAST param, second is
         // inFlightGraceSql's — both bound to the same "now".
         [completedAt, completedAt];
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
+  const updateSql = `UPDATE agent_runs
           SET status = 'errored',
               completed_at = ?,
               error_code = ?,
@@ -1346,17 +1548,78 @@ export async function reapIfStale(
           WHERE id = ?
             AND status = 'running'
             AND ${terminalRunEventExclusionSql()}
-            AND ${staleClause}`,
-    args: [
-      completedAt,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
+            AND ${staleClause}`;
+  const updateArgs = [
+    completedAt,
+    STALE_RUN_ERROR_EVENT.errorCode,
+    STALE_RUN_ERROR_EVENT.details,
+    STALE_RUN_ERROR_EVENT.errorCode,
+    runId,
+    ...staleArgs,
+  ];
+
+  const client = getDbExec();
+  let reaped = false;
+  let outcome: StaleRunRecoveryOutcome | null = null;
+  if (client.transaction) {
+    await client.transaction(async (tx) => {
+      const { rowsAffected } = await tx.execute({
+        sql: updateSql,
+        args: updateArgs,
+      });
+      reaped = (rowsAffected ?? 0) > 0;
+      if (reaped) {
+        outcome = await attemptStaleRunRecovery(tx, runId).catch(() => null);
+      }
+    });
+  } else {
+    // No transaction primitive on this DbExec (every current implementation
+    // provides one — see db/client.ts — so this is a defensive fallback,
+    // not an expected path). Ordering the recovery design explicitly
+    // tolerates: insert the successor FIRST, then flip the old row terminal
+    // — a still-"running" old row plus an unclaimed successor is a safe
+    // intermediate state; the reverse (errored with no successor briefly
+    // visible) is not. Narrow, accepted gap versus the transactional path:
+    // two concurrent reapers racing this exact fallback on the exact same
+    // run could each pass the "no newer run" check before either inserts,
+    // producing two successors for one turn.
+    outcome = await attemptStaleRunRecovery(client, runId).catch(() => null);
+    const { rowsAffected } = await client.execute({
+      sql: updateSql,
+      args: updateArgs,
+    });
+    reaped = (rowsAffected ?? 0) > 0;
+  }
+
+  if (reaped && outcome && outcome.outcome !== "not_background") {
+    const detail =
+      outcome.outcome === "recovered"
+        ? `recovered successorRunId=${outcome.successorRunId}`
+        : `declined reason=${outcome.outcome}`;
+    await recordRunDiagnostic(
       runId,
-      ...staleArgs,
-    ],
-  });
-  const reaped = (rowsAffected ?? 0) > 0;
+      RUN_DIAG_STAGE.staleRunRecoveryAttempted,
+      detail,
+    ).catch(() => {});
+    if (outcome.outcome === "recovered") {
+      attemptStaleRunRecoveryDispatch(outcome.successorRunId);
+    }
+  }
+  return reaped;
+}
+
+/**
+ * If the given run is marked "running" in SQL but its heartbeat is stale
+ * (producer likely crashed), flip it to "errored" so watchers stop waiting.
+ * Returns true if the row was reaped.
+ */
+export async function reapIfStale(
+  runId: string,
+  maxStaleMs?: number,
+): Promise<boolean> {
+  await ensureRunTables();
+  if (await reconcileTerminalRunFromEvents(runId)) return false;
+  const reaped = await reapSingleStaleRun(runId, maxStaleMs);
   if (!reaped && (await reconcileTerminalRunFromEvents(runId))) return false;
   if (reaped) {
     await safeAppendTerminalRunEvent(
@@ -1919,27 +2182,24 @@ export async function reapAllStaleRuns(): Promise<number> {
       await reconcileTerminalRunFromEvents(id);
     }
   }
-  const completedAt = Date.now();
-  const { rowsAffected } = await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = ?,
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
-    args: [
-      completedAt,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
-      completedAt,
-      completedAt,
-    ],
-  });
+  // FIX 3 (durable-background incident): reap each stale row individually
+  // via the shared `reapSingleStaleRun` (rather than one bulk UPDATE) so a
+  // background chat-turn run can be checked for server-owned recovery
+  // (`attemptStaleRunRecovery`) before it goes terminal — a single bulk
+  // statement can't express "insert a successor for row A but not row B".
+  // `reapSingleStaleRun` re-applies the identical staleness clause per row
+  // (same as the bulk UPDATE previously did), so a row whose heartbeat
+  // landed between the SELECT above and this loop is still correctly
+  // excluded. This function only runs once, at process startup (see
+  // agent-chat-plugin.ts) — the extra per-row round trips are
+  // inconsequential.
+  let reapedCount = 0;
+  for (const row of stale.rows) {
+    const id = (row as { id?: unknown }).id;
+    if (typeof id !== "string") continue;
+    const reaped = await reapSingleStaleRun(id).catch(() => false);
+    if (reaped) reapedCount += 1;
+  }
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
@@ -1950,7 +2210,7 @@ export async function reapAllStaleRuns(): Promise<number> {
       );
     }
   }
-  return rowsAffected ?? 0;
+  return reapedCount;
 }
 
 /** Delete old runs and expire stale "running" rows that haven't had activity

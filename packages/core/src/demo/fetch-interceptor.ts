@@ -46,10 +46,19 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/runs",
 ];
 
-// Raw rrweb payloads are playback data, not ordinary app UI records. Walking
-// and cloning their huge DOM/event trees on the main thread stalls playback
-// and can corrupt replay fidelity. Small list/summary/manifest responses stay
-// eligible so rendered visitor identities are still anonymized.
+// Raw rrweb payloads are playback data, not ordinary app UI records. Skipping
+// these is not just a perf optimization that avoids walking/cloning huge
+// DOM/event trees on the main thread: demo number
+// redaction previously ran over this exact raw replay JSON and faked any
+// integer >= 1000 it found — Meta/ViewportResize widths, pointer x/y
+// coordinates, and numeric values inside `_cssText` and SVG attributes. That
+// was the root cause of the 2026-07 "ultra-wide replay" bugs (stages
+// rendered thousands of pixels wide, frozen/teleporting cursors, giant
+// icons) even though every stored recording was always geometrically sane —
+// the corruption happened at *view* time, not at capture/storage time. Small
+// list/summary/manifest responses stay eligible so rendered visitor identities
+// are still anonymized. NEVER remove the raw payload skips or broaden them to
+// metadata endpoints that the UI renders directly.
 const RAW_REPLAY_PAYLOAD_RE =
   /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events)(?:[/?#]|$)/;
 const RAW_AGENT_REPLAY_EVENTS_RE =

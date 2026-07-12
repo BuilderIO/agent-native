@@ -842,6 +842,7 @@ export function shouldShowAssistantMessageFooter({
 
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
+  const chatRunning = React.useContext(ChatRunningContext);
   const isStreaming = part.status?.type === "running";
   // Time thinking client-side: record the moment streaming first starts and
   // the moment it stops so the cell can show "Thought for Xs". Historical
@@ -864,6 +865,8 @@ function ReasoningMessagePart() {
       text={part.text}
       isStreaming={isStreaming}
       durationMs={durationMs}
+      defaultOpen={isStreaming || !chatRunning}
+      autoCollapse={chatRunning}
     />
   );
 }

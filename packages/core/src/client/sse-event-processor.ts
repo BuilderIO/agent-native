@@ -707,6 +707,22 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
+// Fires once per chunk (see ProcessEventState.streamProgressDispatched) the
+// moment a chunk produces real model output (visible text or a reasoning
+// delta). Unlike `agent-chat:activity-clear` — which also fires for
+// old-chunk `tool_done` replays and server-retry `clear` events, and so
+// cannot be used to detect genuine forward progress — this event exists
+// solely so listeners can distinguish "the run is actually producing new
+// output" from those replay/retry cases.
+function dispatchStreamProgress(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", {
+      detail: { tabId },
+    }),
+  );
+}
+
 function dispatchMissingApiKey(tabId: string | undefined) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -946,6 +962,11 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
 
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
+  /** Set once `agent-chat:stream-progress` has been dispatched for the
+   *  current chunk, so a burst of per-token text/reasoning deltas only fires
+   *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
+   *  so the next batch of real output re-arms it. */
+  streamProgressDispatched: boolean;
 }
 
 function markAssistantText(state: ProcessEventState | undefined) {
@@ -961,6 +982,18 @@ function markCompletedToolAfterAssistantText(
 
 function resetProcessEventState(state: ProcessEventState | undefined) {
   state?.completedToolsAfterLastAssistantText.clear();
+  if (state) state.streamProgressDispatched = false;
+}
+
+// Returns true the first time it's called for a given state (or every time
+// when state is unavailable, since there is nothing to dedupe against) and
+// false on subsequent calls until `resetProcessEventState` re-arms it.
+function shouldDispatchStreamProgress(
+  state: ProcessEventState | undefined,
+): boolean {
+  if (state?.streamProgressDispatched) return false;
+  if (state) state.streamProgressDispatched = true;
+  return true;
 }
 
 /**
@@ -1005,7 +1038,13 @@ export function processEvent(
     // activity label so a transient "Contacting model" / "Still generating
     // image" doesn't linger beside streamed text. Idempotent (clears once, then
     // no-ops) so per-token text deltas stay cheap.
-    if (ev.text) dispatchActivityClear(tabId);
+    if (ev.text) {
+      dispatchActivityClear(tabId);
+      // Real output resumed — let listeners (e.g. the auto-resume "Resuming…"
+      // indicator) clear state that must NOT be cleared by activity-clear
+      // alone, since activity-clear also fires for old-chunk/retry replays.
+      if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
+    }
     if (ev.text?.trim()) markAssistantText(state);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "text") {
@@ -1024,6 +1063,7 @@ export function processEvent(
     // part so the UI can render a single collapsible "Thinking" cell.
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
+    if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "reasoning") {
       lastPart.text += delta;
@@ -1567,6 +1607,7 @@ export async function* readSSEStream(
     options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
+    streamProgressDispatched: false,
   };
 
   const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
@@ -1769,6 +1810,7 @@ export async function readSSEStreamRaw(
     options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
+    streamProgressDispatched: false,
   };
   // Tracks whether the most recent content state was already pushed via
   // onUpdate inside the loop, so the post-loop flush below doesn't emit the

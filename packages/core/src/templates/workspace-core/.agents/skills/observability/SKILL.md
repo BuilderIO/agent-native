@@ -158,21 +158,6 @@ The agent loop reads active experiments via `resolveActiveExperimentConfig()` an
 
 Compute results with `POST /_agent-native/observability/experiments/:id/results`.
 
-#### First-party hosted default-model rollout
-
-First-party apps on `agent-native.com` automatically run the July 2026
-default-model experiment for authenticated users on the Builder engine:
-
-- 80% `claude-sonnet-5`
-- 20% `gpt-5-6-luna`
-- Assignment is sticky by normalized user email and shared across templates.
-- The rollout applies only when the user, app, and deployment have not selected
-  a model. Explicit model choices and BYO provider engines always win.
-- Set `AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT=off` for an emergency rollback, or
-  `true` to exercise the rollout on a non-first-party preview.
-- `$ai_generation` tracking includes `experiment_id`,
-  `experiment_variant`, and `model_selection_source` for central analysis.
-
 In production, experiment management routes require the caller's email in the
 comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is
 separate from normal app/org admin roles because an experiment affects every

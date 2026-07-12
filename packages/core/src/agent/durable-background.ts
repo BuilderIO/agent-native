@@ -364,17 +364,18 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
 }
 
 /**
- * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-ON for hosted
- * deployments with `A2A_SECRET`: unset/empty/unknown means enabled, and an app
- * opts OUT with an explicit falsy value (`false`/`0`/`no`/`off`). Deliberately
- * kept separate from `AGENT_CHAT_DURABLE_BACKGROUND` so this narrower
- * capability can be disabled independently of the full durable-background
- * worker path.
+ * Env flag for the FOREGROUND server-driven self-chain. DEFAULT-OFF: a hosted
+ * app must explicitly opt in with a truthy value (`true`/`1`/`yes`/`on`). A
+ * regular Netlify function has a fixed 60-second wall, and a self-dispatched
+ * successor can otherwise be killed before it persists its next continuation.
+ * Keep this separate from `AGENT_CHAT_DURABLE_BACKGROUND` so the experimental
+ * regular-function chain can be enabled independently after its deployment is
+ * proven safe.
  */
 export const AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV =
   "AGENT_CHAT_FOREGROUND_SELF_CHAIN";
 
-function isForegroundSelfChainExplicitlyDisabled(): boolean {
+function isForegroundSelfChainExplicitlyEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_FOREGROUND_SELF_CHAIN_ENV.
@@ -382,10 +383,10 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
   return (
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
   );
 }
 
@@ -395,10 +396,9 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
  * server-side self-dispatch on the REGULAR function (not a Netlify
  * `-background` function) instead of depending on the client to re-POST
  * `auto_continue`. Composes exactly like `isAgentChatDurableBackgroundEnabled`:
- * true when the runtime is hosted AND `A2A_SECRET` is configured (the HMAC
- * handoff authenticates the self-dispatch), unless the env flag is explicitly
- * falsy. False otherwise — and false means the existing client-driven
- * `auto_continue` re-POST path is used unchanged, byte-for-byte.
+ * true only when the env flag is explicitly truthy, the runtime is hosted, and
+ * `A2A_SECRET` is configured (the HMAC handoff authenticates the dispatch).
+ * False means the existing client-driven `auto_continue` re-POST path is used.
  *
  * Deliberately independent of `isAgentChatDurableBackgroundEnabled`: an app can
  * use this narrower capability without opting into the full 15-min
@@ -410,7 +410,7 @@ function isForegroundSelfChainExplicitlyDisabled(): boolean {
  */
 export function isAgentChatForegroundSelfChainEnabled(): boolean {
   return (
-    !isForegroundSelfChainExplicitlyDisabled() &&
+    isForegroundSelfChainExplicitlyEnabled() &&
     isHostedRuntimeForDurableBackground() &&
     hasConfiguredA2ASecret()
   );

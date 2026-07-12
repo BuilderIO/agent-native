@@ -1,3 +1,5 @@
+import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
+
 const EXTENSION_IFRAME_CSP_BASE =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
 
@@ -744,6 +746,7 @@ export function buildExtensionHtml(
 	      }
 	    });
 	  </script>
+	${buildSessionReplayIframeBootstrap()}
 	</head>
 	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}

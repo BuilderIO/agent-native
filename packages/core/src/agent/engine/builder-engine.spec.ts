@@ -1180,6 +1180,23 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("medium");
   });
 
+  it("sends reasoning_effort medium by default for Luna", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("medium");
+  });
+
   it("omits reasoning_effort by default for a non-reasoning model", async () => {
     const fetchSpy = vi
       .fn()

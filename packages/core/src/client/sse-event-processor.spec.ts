@@ -3267,6 +3267,111 @@ describe("SSE event processor activity-label clearing", () => {
   });
 });
 
+describe("SSE event processor stream-progress signaling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stubWindow = () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    return dispatchEvent;
+  };
+
+  function streamProgressCalls(dispatchEvent: ReturnType<typeof vi.fn>) {
+    return dispatchEvent.mock.calls.filter(
+      (call) => (call[0] as CustomEvent).type === "agent-chat:stream-progress",
+    );
+  }
+
+  it("dispatches stream-progress once per chunk even across multiple text deltas", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Hello" },
+          { type: "text", text: " there" },
+          { type: "text", text: "!" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-progress",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(1);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "tab-progress" },
+      }),
+    );
+  });
+
+  it("re-arms stream-progress after a server clear retries the draft", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Rejected draft" },
+          { type: "clear" },
+          { type: "text", text: "Corrected answer" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rearm",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(2);
+  });
+
+  it("dispatches stream-progress once per chunk for reasoning deltas too", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "thinking", text: "Let me consider" },
+          { type: "thinking", text: " this further." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-reasoning-progress",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(1);
+  });
+
+  it("does not dispatch stream-progress for an empty text delta", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-empty",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(0);
+  });
+});
+
 describe("journal-recovery tool replay coalescing", () => {
   function eventsStream(events: object[]): ReadableStream<Uint8Array> {
     return new ReadableStream<Uint8Array>({

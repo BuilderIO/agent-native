@@ -194,6 +194,43 @@ Durable runs are opt-in per app and default OFF. Enable with AGENT_CHAT_DURABLE_
 
 </Callout>
 
+## The foreground self-chain: a narrower, opt-in escape hatch {#foreground-self-chain}
+
+A second, independent flag governs a different continuation mechanism:
+`AGENT_CHAT_FOREGROUND_SELF_CHAIN`. Where durable background runs move a whole
+long turn onto the 15-minute background function above, the foreground
+self-chain lets a normal (non-durable-background) turn that hits its
+soft-timeout chunk boundary continue via a server-side self-dispatch on the
+**regular** request function, instead of depending on the client to re-POST
+`auto_continue`.
+
+It composes the same way as `AGENT_CHAT_DURABLE_BACKGROUND`: true only when
+the env flag is explicitly truthy (`true` / `1` / `yes` / `on`), the runtime
+is hosted, and `A2A_SECRET` is configured. The two flags are independent and
+never need to agree — an app can enable this narrower capability without
+opting into the full background-function worker path. When a run already
+qualifies for durable background dispatch, that decision is evaluated first
+and takes precedence; the run chains through the background worker instead of
+this path.
+
+<Callout id="doc-block-fgschn1" tone="warning">
+
+This flag is **opt-in and default OFF**. A regular Netlify function has a
+fixed **60-second** wall — far shorter than the 15-minute background-function
+budget above — so a self-dispatched successor can be killed mid-run before it
+persists its next continuation, cutting a long response off mid-sentence.
+With the flag off, hosted apps use the existing client-driven `auto_continue`
+re-POST path instead, which is slower to resume but cannot be killed by a
+server-side timeout.
+
+</Callout>
+
+Only enable this once you've verified the hosted deployment's regular
+function reliably completes self-dispatched continuations inside that
+60-second wall. For long, multi-step turns, prefer
+`AGENT_CHAT_DURABLE_BACKGROUND` above — its background function has a much
+larger budget and is the recommended path.
+
 ## What's next
 
 - [**Durable Resume**](/docs/durable-resume) — how an interrupted run resumes

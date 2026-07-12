@@ -255,6 +255,7 @@ const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
 const SESSION_DEMO_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const SESSION_DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 let inlineReplayFallbackWarned = false;
 
 function replayError(message: string, statusCode: number): Error {
@@ -318,20 +319,12 @@ function demoBuilderSessionCondition() {
 }
 
 class SessionDemoAnonymizer {
-  private readonly aliases = new Map<string, string>();
-
   aliasFor(value: unknown): string | null {
     const raw = replayString(value);
     if (!raw || raw.match(SESSION_DEMO_EMAIL_PATTERN)?.[0] !== raw) {
       return null;
     }
-    const email = raw.toLowerCase();
-    let alias = this.aliases.get(email);
-    if (!alias) {
-      alias = `anonymized-${this.aliases.size + 1}@builder.io`;
-      this.aliases.set(email, alias);
-    }
-    return alias;
+    return SESSION_DEMO_ANONYMOUS_EMAIL;
   }
 
   summarize(row: any, role?: SessionReplayAccessRole): SessionRecordingSummary {

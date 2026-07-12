@@ -13,7 +13,11 @@ import {
   readDeployCredentialEnv,
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import {
+  anthropicManualThinkingBudget,
+  normalizeReasoningEffortForModel,
+  supportsClaudeAdaptiveThinking,
+} from "../../shared/reasoning-effort.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -105,8 +109,18 @@ class AnthropicEngine implements AgentEngine {
       opts.reasoningEffort,
     );
     if (reasoningEffort && !extra.thinking) {
-      extra.thinking = { type: "adaptive" };
-      extra.output_config = { effort: reasoningEffort };
+      if (supportsClaudeAdaptiveThinking(opts.model)) {
+        extra.thinking = { type: "adaptive" };
+        extra.output_config = { effort: reasoningEffort };
+      } else {
+        const budgetTokens = clampThinkingBudgetTokens(
+          anthropicManualThinkingBudget(reasoningEffort),
+          resolvedMaxOutputTokens,
+        );
+        if (budgetTokens !== undefined) {
+          extra.thinking = { type: "enabled", budget_tokens: budgetTokens };
+        }
+      }
     }
 
     // Apply prompt caching to the system prompt and tools by default.

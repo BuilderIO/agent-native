@@ -1,4 +1,13 @@
 import {
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  SESSION_REPLAY_IFRAME_PROBE,
+  SESSION_REPLAY_IFRAME_START,
+  SESSION_REPLAY_IFRAME_STOP,
+  type SessionReplayIframePrivacyOptions,
+  type SessionReplayIframeStartMessage,
+  type SessionReplayIframeStopMessage,
+} from "../session-replay-iframe-protocol.js";
+import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
@@ -7,6 +16,7 @@ import { scrubUrl } from "./url-scrub.js";
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
   json: string;
+  byteLength: number;
   timestampMs: number;
   type: number | null;
 };
@@ -65,9 +75,17 @@ interface SessionReplayState {
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
+  /** Highest-priority flush requested while an upload was already in flight. */
+  pendingFlushReason: string | null;
+  /** Callers awaiting the coalesced flush tail. */
+  pendingFlushWaiters: Array<() => void>;
+  /** Drop incremental events until a new FullSnapshot can re-anchor the DOM. */
+  awaitingFullSnapshot: boolean;
   stopRecorder: ReplayStopFn | null;
   restoreUrlMonitor: (() => void) | null;
   removeLifecycleListeners: (() => void) | null;
+  /** Stops the cooperative child-iframe bridge and notifies active children. */
+  restoreIframeBridge: (() => void) | null;
   /** rrweb's `record.addCustomEvent`, captured at start (null when absent). */
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
   /** Uninstalls console/network interceptors and flushes pending duplicates. */
@@ -291,7 +309,9 @@ const SESSION_REPLAY_STATE_KEY = Symbol.for(
   "agent-native.client.sessionReplay",
 );
 const SESSION_REPLAY_ID_STORAGE_KEY = "agent-native.session_replay_id";
+const SESSION_REPLAY_IFRAME_BLOCK_SELECTOR = `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`;
 const DEFAULT_BLOCK_SELECTOR = [
+  SESSION_REPLAY_IFRAME_BLOCK_SELECTOR,
   "[data-sensitive]",
   "[data-an-block]",
   "[data-an-private]",
@@ -311,11 +331,29 @@ const DEFAULT_BLOCK_SELECTOR = [
 const DEFAULT_IGNORE_SELECTOR = ".an-ignore, [data-an-ignore]";
 const DEFAULT_MASK_TEXT_CLASS = "an-mask";
 const DEFAULT_MASK_TEXT_SELECTOR = "[data-an-mask]";
+const DEFAULT_MASK_INPUT_OPTIONS: Record<string, boolean> = {
+  color: true,
+  date: true,
+  "datetime-local": true,
+  email: true,
+  month: true,
+  number: true,
+  password: true,
+  range: true,
+  search: true,
+  tel: true,
+  text: true,
+  time: true,
+  url: true,
+  week: true,
+};
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_MAX_DURATION_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
+const REPLAY_TEXT_ENCODER =
+  typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
 /** Cross-tab channel name used by the duplicated-tab claim guard. */
 const SESSION_REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
@@ -403,9 +441,13 @@ function getState(): SessionReplayState {
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
+      pendingFlushReason: null,
+      pendingFlushWaiters: [],
+      awaitingFullSnapshot: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
       removeLifecycleListeners: null,
+      restoreIframeBridge: null,
       addCustomEvent: null,
       restoreCaptures: null,
       options: null,
@@ -418,6 +460,10 @@ function getState(): SessionReplayState {
   const state = g[SESSION_REPLAY_STATE_KEY]!;
   // Keep Vite HMR safe when an older recorder state survives a module reload.
   state.resourceNodes ??= new Map();
+  state.restoreIframeBridge ??= null;
+  state.pendingFlushReason ??= null;
+  state.pendingFlushWaiters ??= [];
+  state.awaitingFullSnapshot ??= false;
   return state;
 }
 
@@ -881,13 +927,20 @@ function normalizeOptions(
     checkoutEveryNth: options.checkoutEveryNth,
     checkoutEveryNms: options.checkoutEveryNms,
     inlineStylesheet: options.inlineStylesheet ?? true,
-    blockSelector: options.blockSelector || DEFAULT_BLOCK_SELECTOR,
+    blockSelector: mergeReplayBlockSelector(
+      options.blockSelector || DEFAULT_BLOCK_SELECTOR,
+    ),
     ignoreSelector: options.ignoreSelector || DEFAULT_IGNORE_SELECTOR,
     maskTextClass: options.maskTextClass || DEFAULT_MASK_TEXT_CLASS,
     maskTextSelector: options.maskTextSelector || DEFAULT_MASK_TEXT_SELECTOR,
     maskAllInputs: options.maskAllInputs ?? true,
     recordCanvas: options.recordCanvas ?? false,
-    recordCrossOriginIframes: options.recordCrossOriginIframes ?? false,
+    // A top-level app can safely aggregate cooperative child recorders. An
+    // app embedded by an unrelated cross-origin host must continue emitting
+    // and uploading its own events, so it only forwards to a parent when the
+    // caller explicitly opts in.
+    recordCrossOriginIframes:
+      options.recordCrossOriginIframes ?? window.parent === window,
     collectFonts: options.collectFonts ?? false,
     inlineImages: options.inlineImages ?? false,
     eventSampling: options.eventSampling ?? DEFAULT_EVENT_SAMPLING,
@@ -903,6 +956,12 @@ function normalizeOptions(
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
+}
+
+function mergeReplayBlockSelector(blockSelector: string): string {
+  return blockSelector.includes(SESSION_REPLAY_IFRAME_BLOCK_SELECTOR)
+    ? blockSelector
+    : `${blockSelector}, ${SESSION_REPLAY_IFRAME_BLOCK_SELECTOR}`;
 }
 
 /**
@@ -1163,9 +1222,14 @@ function enqueueReplayEvent(
   event: ReplayEvent,
 ): void {
   if (!state.options) return;
+  const eventType = typeof event.type === "number" ? event.type : null;
+  if (state.awaitingFullSnapshot) {
+    if (eventType !== RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return;
+    state.awaitingFullSnapshot = false;
+  }
   const serialized = serializeReplayEvent(event, state.resourceNodes);
   if (!serialized) return;
-  const estimatedBytes = serialized.length;
+  const estimatedBytes = replaySerializedBytes(serialized);
   if (
     state.queue.length > 0 &&
     state.queuedBytes + estimatedBytes > state.options.maxBatchBytes
@@ -1174,8 +1238,9 @@ function enqueueReplayEvent(
   }
   state.queue.push({
     json: serialized,
+    byteLength: estimatedBytes,
     timestampMs: replayEventTimestampMs(event),
-    type: typeof event.type === "number" ? event.type : null,
+    type: eventType,
   });
   state.queuedBytes += estimatedBytes;
   flushQueuedReplayIfNeeded(state);
@@ -1443,6 +1508,25 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function flushReasonPriority(reason: string): number {
+  // Unload reasons must retain their keepalive sequence reservation even when
+  // another final request (for example, an explicit manual stop) is coalesced.
+  if (reason === "pagehide" || reason === "beforeunload") return 3;
+  if (isFinalFlushReason(reason)) return 2;
+  if (reason === "visibility-hidden") return 1;
+  return 0;
+}
+
+function mergePendingFlushReason(
+  current: string | null,
+  requested: string,
+): string {
+  if (!current) return requested;
+  return flushReasonPriority(requested) > flushReasonPriority(current)
+    ? requested
+    : current;
+}
+
 function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
   return (
     reason === "pagehide" ||
@@ -1482,7 +1566,99 @@ function flushQueuedReplayIfNeeded(state: SessionReplayState): void {
 }
 
 function queuedReplayBytes(events: QueuedReplayEvent[]): number {
-  return events.reduce((total, event) => total + event.json.length, 0);
+  return events.reduce(
+    (total, event) => total + queuedReplayEventBytes(event),
+    0,
+  );
+}
+
+function replaySerializedBytes(value: string): number {
+  if (REPLAY_TEXT_ENCODER) return REPLAY_TEXT_ENCODER.encode(value).byteLength;
+  if (typeof Blob !== "undefined") return new Blob([value]).size;
+  return value.length;
+}
+
+function queuedReplayEventBytes(event: QueuedReplayEvent): number {
+  return Number.isFinite(event.byteLength)
+    ? event.byteLength
+    : replaySerializedBytes(event.json);
+}
+
+/**
+ * Remove one bounded FIFO prefix from the live queue.
+ *
+ * Threshold-triggered flushes may arrive while another upload is active. The
+ * old `queue.splice(0)` drained that entire accumulated backlog on the next
+ * flush, bypassing both byte and event caps. Keep FullSnapshots isolated and
+ * always take at least one event so an individually large snapshot can still
+ * make progress.
+ */
+function takeQueuedReplayBatch(state: SessionReplayState): QueuedReplayEvent[] {
+  const options = state.options;
+  if (!options || state.queue.length === 0) return [];
+
+  let count = 0;
+  let bytes = 0;
+  for (const event of state.queue) {
+    if (count > 0 && event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) break;
+    if (
+      count > 0 &&
+      (count >= options.maxEventsPerBatch ||
+        bytes + queuedReplayEventBytes(event) > options.maxBatchBytes)
+    ) {
+      break;
+    }
+    count += 1;
+    bytes += queuedReplayEventBytes(event);
+    if (event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) break;
+  }
+
+  const events = state.queue.splice(0, Math.max(1, count));
+  state.queuedBytes = queuedReplayBytes(state.queue);
+  return events;
+}
+
+function splitReplayBatch(
+  events: QueuedReplayEvent[],
+): [QueuedReplayEvent[], QueuedReplayEvent[]] | null {
+  if (events.length < 2) return null;
+  const targetBytes = queuedReplayBytes(events) / 2;
+  let splitAt = 1;
+  let bytes = events[0] ? queuedReplayEventBytes(events[0]) : 0;
+  while (splitAt < events.length - 1 && bytes < targetBytes) {
+    const event = events[splitAt];
+    if (event) bytes += queuedReplayEventBytes(event);
+    splitAt += 1;
+  }
+  return [events.slice(0, splitAt), events.slice(splitAt)];
+}
+
+function replayBatchNeedsDomReset(events: QueuedReplayEvent[]): boolean {
+  return events.some((event) => {
+    if (event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE) return true;
+    if (event.type !== 3) return false;
+    try {
+      const parsed = JSON.parse(event.json) as { data?: { source?: unknown } };
+      // rrweb IncrementalSource.Mutation is zero. Dropping one may leave later
+      // node references dangling until another FullSnapshot resets the mirror.
+      return parsed.data?.source === 0;
+    } catch {
+      return true;
+    }
+  });
+}
+
+function quarantinePendingReplayUntilFullSnapshot(
+  state: SessionReplayState,
+): void {
+  const pending = [...state.retryBatches.flat(), ...state.queue];
+  const resetAt = pending.findIndex(
+    (event) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE,
+  );
+  state.retryBatches = [];
+  state.queue = resetAt >= 0 ? pending.slice(resetAt) : [];
+  state.queuedBytes = queuedReplayBytes(state.queue);
+  state.awaitingFullSnapshot = resetAt < 0;
 }
 
 function restoreReplayEvents(
@@ -1523,9 +1699,18 @@ function rollbackReplaySequenceReservation(
 
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
-  if (!state.options || !hasPendingReplayBatch(state) || state.flushing) return;
-  const events = state.retryBatches.shift() ?? state.queue.splice(0);
-  state.queuedBytes = queuedReplayBytes(state.queue);
+  if (!state.options) return;
+  if (state.flushing) {
+    state.pendingFlushReason = mergePendingFlushReason(
+      state.pendingFlushReason,
+      reason,
+    );
+    return new Promise<void>((resolve) => {
+      state.pendingFlushWaiters.push(resolve);
+    });
+  }
+  if (!hasPendingReplayBatch(state)) return;
+  const events = state.retryBatches.shift() ?? takeQueuedReplayBatch(state);
   const payload = buildReplayBody(state, reason, events);
   if (!payload || !state.options) {
     restoreReplayEvents(state, events);
@@ -1534,6 +1719,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   state.flushing = true;
   let uploaded = false;
   let reservedSequence = false;
+  let splitRejectedBatch = false;
+  let droppedOversizedBatch = false;
   let definitiveClientErrorStatus: number | null = null;
   try {
     await sendReplayUpload(state.options, payload.body, {
@@ -1553,10 +1740,33 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // never succeed by retrying the exact same batch -- requeuing it would
     // just spin forever, blocking every later batch behind it (flushes are
     // FIFO via `retryBatches`). Drop it and move on instead.
+    const rejectedStatus =
+      error instanceof ReplayUploadHttpError ? error.status : null;
+    const splitBatch = rejectedStatus === 413 ? splitReplayBatch(events) : null;
+    const isUnsplittableOversizedBatch =
+      rejectedStatus === 413 && splitBatch === null;
     const isDefinitiveClientError =
       error instanceof ReplayUploadHttpError &&
-      isDefinitiveReplayUploadClientError(error.status);
-    if (isDefinitiveClientError) {
+      isDefinitiveReplayUploadClientError(error.status) &&
+      !splitBatch &&
+      !isUnsplittableOversizedBatch;
+    if (splitBatch) {
+      // A server or platform can enforce a stricter decompressed-body limit
+      // than the recorder's configured queue cap. Bisect in FIFO order and
+      // retry both halves at the same sequence; only successful halves advance
+      // it, so no event is duplicated or skipped.
+      state.retryBatches.unshift(...splitBatch);
+      splitRejectedBatch = true;
+    } else if (isUnsplittableOversizedBatch) {
+      // This one event cannot be made any smaller. Drop only the rejected
+      // singleton and keep later retry halves/live batches in FIFO order. If
+      // it carried DOM structure, quarantine dependent mutations until a new
+      // FullSnapshot can safely re-anchor rrweb's node mirror.
+      droppedOversizedBatch = true;
+      if (replayBatchNeedsDomReset(events)) {
+        quarantinePendingReplayUntilFullSnapshot(state);
+      }
+    } else if (isDefinitiveClientError) {
       // Continuing after a checksum/sequence conflict would reuse the same
       // rejected sequence forever. More importantly, advancing past it would
       // append mutations to a replay whose DOM stream may belong to another
@@ -1575,7 +1785,17 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     const previousInternal = replayCaptureInternal;
     replayCaptureInternal = true;
     try {
-      if (isDefinitiveClientError) {
+      if (splitRejectedBatch) {
+        console.warn(
+          "[session-replay] splitting oversized upload (HTTP 413)",
+          error,
+        );
+      } else if (droppedOversizedBatch) {
+        console.warn(
+          "[session-replay] dropping oversized replay event (HTTP 413)",
+          error,
+        );
+      } else if (isDefinitiveClientError) {
         console.warn(
           `[session-replay] dropping upload (HTTP ${(error as ReplayUploadHttpError).status})`,
           error,
@@ -1589,8 +1809,33 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   } finally {
     state.flushing = false;
   }
-  if (uploaded && hasPendingReplayBatch(state)) {
-    flushQueuedReplayIfNeeded(state);
+  const coalescedReason = state.pendingFlushReason;
+  const coalescedWaiters = coalescedReason
+    ? state.pendingFlushWaiters.splice(0)
+    : [];
+  if (coalescedReason) state.pendingFlushReason = null;
+
+  if (coalescedReason) {
+    // A stop/unload request that arrived during this upload owns the tail.
+    // Its higher-priority reason must replace threshold/internal reasons so a
+    // small final batch is not stranded or mislabeled as active.
+    await flushSessionReplay(coalescedReason);
+  } else if (splitRejectedBatch || droppedOversizedBatch) {
+    // Preserve final-status and unload semantics through every half. In
+    // particular, pagehide/beforeunload retries must still reserve their
+    // sequence before a keepalive fetch, and completed flushes must not be
+    // rewritten to an internal recovery reason/status.
+    await flushSessionReplay(reason);
+  } else if (uploaded && hasPendingReplayBatch(state)) {
+    const mustContinue =
+      state.retryBatches.length > 0 ||
+      isFinalFlushReason(reason) ||
+      shouldFlushQueuedReplay(state);
+    if (mustContinue) {
+      if (isFinalFlushReason(reason)) {
+        await flushSessionReplay(reason);
+      } else void flushSessionReplay(reason);
+    }
   }
   if (
     definitiveClientErrorStatus !== null &&
@@ -1639,6 +1884,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       // best-effort telemetry must never interfere with recording recovery
     }
   }
+  for (const resolve of coalescedWaiters) resolve();
 }
 
 /**
@@ -1734,6 +1980,101 @@ function installLifecycleListeners(state: SessionReplayState): void {
     document.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnUnload);
     state.removeLifecycleListeners = null;
+  };
+}
+
+function markedSessionReplayIframes(): HTMLIFrameElement[] {
+  if (typeof document.querySelectorAll !== "function") return [];
+  return Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+    ),
+  );
+}
+
+function markedSessionReplayIframeForSource(
+  source: MessageEventSource | null,
+): HTMLIFrameElement | null {
+  if (!source) return null;
+  return (
+    markedSessionReplayIframes().find(
+      (iframe) => iframe.contentWindow === source,
+    ) ?? null
+  );
+}
+
+function sessionReplayIframePrivacyOptions(
+  options: NormalizedSessionReplayOptions,
+): SessionReplayIframePrivacyOptions {
+  return {
+    blockSelector: options.blockSelector,
+    ignoreSelector: options.ignoreSelector,
+    maskTextClass: options.maskTextClass,
+    maskTextSelector: options.maskTextSelector,
+    maskAllInputs: options.maskAllInputs,
+    maskInputOptions: DEFAULT_MASK_INPUT_OPTIONS,
+    recordCanvas: options.recordCanvas,
+    collectFonts: options.collectFonts,
+    inlineImages: options.inlineImages,
+    sampling: options.eventSampling,
+  };
+}
+
+function postSessionReplayIframeMessage(
+  iframe: HTMLIFrameElement,
+  message: SessionReplayIframeStartMessage | SessionReplayIframeStopMessage,
+): void {
+  try {
+    iframe.contentWindow?.postMessage(message, "*");
+  } catch {
+    // The frame may have navigated or detached between discovery and send.
+  }
+}
+
+/**
+ * Cooperative opaque/cross-origin iframe recording.
+ *
+ * rrweb cannot inspect these documents from the host. Framework-owned child
+ * frames carry a marker and inject a tiny recorder that probes its direct
+ * parent. Only an active host recorder responds, and only when the probe's
+ * source is the contentWindow of a currently marked direct iframe.
+ */
+function installSessionReplayIframeBridge(
+  state: SessionReplayState,
+  options: NormalizedSessionReplayOptions,
+): void {
+  if (!options.recordCrossOriginIframes || state.restoreIframeBridge) return;
+
+  const startMessage: SessionReplayIframeStartMessage = {
+    type: SESSION_REPLAY_IFRAME_START,
+    options: sessionReplayIframePrivacyOptions(options),
+  };
+  const stopMessage: SessionReplayIframeStopMessage = {
+    type: SESSION_REPLAY_IFRAME_STOP,
+  };
+  const sendStart = (iframe: HTMLIFrameElement) =>
+    postSessionReplayIframeMessage(iframe, startMessage);
+  const onMessage = (event: MessageEvent) => {
+    if (!state.active) return;
+    if (
+      !event.data ||
+      typeof event.data !== "object" ||
+      event.data.type !== SESSION_REPLAY_IFRAME_PROBE
+    ) {
+      return;
+    }
+    const iframe = markedSessionReplayIframeForSource(event.source);
+    if (iframe) sendStart(iframe);
+  };
+
+  window.addEventListener("message", onMessage);
+  for (const iframe of markedSessionReplayIframes()) sendStart(iframe);
+  state.restoreIframeBridge = () => {
+    window.removeEventListener("message", onMessage);
+    for (const iframe of markedSessionReplayIframes()) {
+      postSessionReplayIframeMessage(iframe, stopMessage);
+    }
+    state.restoreIframeBridge = null;
   };
 }
 
@@ -2616,6 +2957,9 @@ async function startSessionReplayRecorder(
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];
+  state.pendingFlushReason = null;
+  for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+  state.awaitingFullSnapshot = false;
   state.resourceNodes.clear();
   state.stopRecorder = null;
   state.broadcastChannel = replayChannel;
@@ -2640,22 +2984,7 @@ async function startSessionReplayRecorder(
       recordCrossOriginIframes: normalized.recordCrossOriginIframes,
       collectFonts: normalized.collectFonts,
       inlineImages: normalized.inlineImages,
-      maskInputOptions: {
-        color: true,
-        date: true,
-        "datetime-local": true,
-        email: true,
-        month: true,
-        number: true,
-        password: true,
-        range: true,
-        search: true,
-        tel: true,
-        text: true,
-        time: true,
-        url: true,
-        week: true,
-      },
+      maskInputOptions: DEFAULT_MASK_INPUT_OPTIONS,
     });
     if (typeof stopRecorder !== "function") {
       state.active = false;
@@ -2682,6 +3011,7 @@ async function startSessionReplayRecorder(
     );
     installUrlMonitor(state);
     installLifecycleListeners(state);
+    installSessionReplayIframeBridge(state, normalized);
     state.addCustomEvent =
       typeof rrweb.record.addCustomEvent === "function"
         ? rrweb.record.addCustomEvent
@@ -2700,6 +3030,7 @@ async function startSessionReplayRecorder(
       // best-effort interceptor teardown
     }
     state.restoreCaptures = null;
+    state.restoreIframeBridge?.();
     state.addCustomEvent = null;
     state.active = false;
     state.options = null;
@@ -2728,6 +3059,7 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort interceptor teardown
   }
   state.restoreCaptures = null;
+  state.restoreIframeBridge?.();
   state.active = false;
   state.addCustomEvent = null;
   try {

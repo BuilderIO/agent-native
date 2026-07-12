@@ -10,6 +10,8 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   resolveContinuationDispatchBudget,
+  resolveSelfChainContinuationBudget,
+  SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -445,6 +447,70 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       dispatchResponseTimeoutMs: 10_000,
       backoffCapMs: Infinity,
     });
+  });
+});
+
+describe("resolveSelfChainContinuationBudget — synchronous self-chain time budgeting", () => {
+  // Regression coverage for the incident this hardens against: a
+  // `_process-run` self-chain re-entry on the regular ~60s synchronous
+  // function burns setup time (auth, DB reads, marker validation) before
+  // ever calling `startRun()`, which historically handed it a FRESH 40s
+  // ceiling regardless of how much of that ~60s wall was already spent —
+  // overshooting the hard kill and leaving the run "active" until stale-run
+  // recovery instead of checkpointing cleanly.
+  const CEILING_MS = 40_000;
+
+  it("reduces the budget by exactly the elapsed setup time instead of granting a fresh ceiling", () => {
+    expect(resolveSelfChainContinuationBudget(10_000, CEILING_MS)).toEqual({
+      skipToBoundary: false,
+      softTimeoutMs: 30_000,
+    });
+  });
+
+  it("grants the full ceiling when no setup time has elapsed", () => {
+    expect(resolveSelfChainContinuationBudget(0, CEILING_MS)).toEqual({
+      skipToBoundary: false,
+      softTimeoutMs: CEILING_MS,
+    });
+  });
+
+  it("never exceeds the ceiling — negative/zero elapsed cannot inflate the budget", () => {
+    expect(
+      resolveSelfChainContinuationBudget(-5_000, CEILING_MS).softTimeoutMs,
+    ).toBeLessThanOrEqual(CEILING_MS);
+  });
+
+  it("skips straight to the run_timeout boundary instead of starting a doomed run when remaining budget drops below the minimum", () => {
+    // 40s ceiling - 33s already-elapsed setup = 7s remaining, under the 8s
+    // default floor.
+    const budget = resolveSelfChainContinuationBudget(33_000, CEILING_MS);
+    expect(budget.skipToBoundary).toBe(true);
+    expect(budget.softTimeoutMs).toBe(0);
+  });
+
+  it("skips to the boundary when setup already consumed the entire (or more than the) ceiling", () => {
+    expect(
+      resolveSelfChainContinuationBudget(45_000, CEILING_MS).skipToBoundary,
+    ).toBe(true);
+  });
+
+  it("does not skip right at the minimum-budget boundary — only strictly below it", () => {
+    const elapsed = CEILING_MS - SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
+    const budget = resolveSelfChainContinuationBudget(elapsed, CEILING_MS);
+    expect(budget.skipToBoundary).toBe(false);
+    expect(budget.softTimeoutMs).toBe(SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS);
+  });
+
+  it("honors a custom minimum-continuation-budget override", () => {
+    // Only 3s remains under the 40s ceiling — below the 8s default floor,
+    // but above a caller-supplied 2s floor.
+    const budget = resolveSelfChainContinuationBudget(
+      37_000,
+      CEILING_MS,
+      2_000,
+    );
+    expect(budget.skipToBoundary).toBe(false);
+    expect(budget.softTimeoutMs).toBe(3_000);
   });
 });
 

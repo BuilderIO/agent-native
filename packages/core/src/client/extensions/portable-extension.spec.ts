@@ -27,6 +27,8 @@ describe("portable extension runtime", () => {
     expect(html).toContain("Content-Security-Policy");
     expect(html).toContain("@tailwindcss/browser@4.2.4");
     expect(html).toContain("alpinejs@3.15.11");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
     expect(html).toContain("agentNative.host.ready");
     expect(html).toContain("window.appAction = hostAction");
     expect(html).toContain("window.extensionData = extensionData");

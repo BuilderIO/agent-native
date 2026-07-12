@@ -1,12 +1,14 @@
 import {
+  SIDEBAR_STATE_CHANGE_EVENT,
   deleteClientAppState,
   readClientAppState,
   removeAgentChatContextItem,
   setAgentChatContextItem,
   setClientAppState,
+  type AgentSidebarStateChangeDetail,
   useAgentChatContext,
 } from "@agent-native/core/client";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -120,10 +122,22 @@ function parsePanelSelection(
   }
 }
 
+function isAgentSidebarOpenInDocument(): boolean {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
+    ),
+  );
+}
+
 export function useDashboardChatContext(
   args: DashboardChatContextArgs,
 ): DashboardChatContextResult {
   const { id, kind, title, panelCount, canEdit } = args;
+  const [isAgentSidebarOpen, setIsAgentSidebarOpen] = useState(
+    isAgentSidebarOpenInDocument,
+  );
   const { items } = useAgentChatContext();
   const panelContext = items.find(
     (item) => item.key === DASHBOARD_PANEL_CONTEXT_KEY,
@@ -132,7 +146,9 @@ export function useDashboardChatContext(
     ? parsePanelSelection(panelContext.context)
     : null;
   const selectedPanelId =
-    id && panelSelection?.dashboardId === id ? panelSelection.panelId : null;
+    isAgentSidebarOpen && id && panelSelection?.dashboardId === id
+      ? panelSelection.panelId
+      : null;
   const hasSelectedPanel = selectedPanelId !== null;
 
   const selectPanelForChat = useCallback(
@@ -141,6 +157,7 @@ export function useDashboardChatContext(
       options: SelectDashboardPanelOptions = {},
     ) => {
       if (!id) return;
+      if (options.openSidebar !== true && !isAgentSidebarOpen) return;
       const displayDashboardTitle = title?.trim() || id;
       const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
       const contextLines = [
@@ -166,7 +183,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         title: displayPanelTitle,
         context: contextLines.join("\n"),
-        openSidebar: options.openSidebar ?? true,
+        openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
       setClientAppState(
@@ -191,8 +208,28 @@ export function useDashboardChatContext(
         },
       ).catch(() => {});
     },
-    [id, kind, title],
+    [id, isAgentSidebarOpen, kind, title],
   );
+
+  useEffect(() => {
+    const handleSidebarStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (typeof detail?.open === "boolean") {
+        setIsAgentSidebarOpen(detail.open);
+      }
+    };
+
+    window.addEventListener(
+      SIDEBAR_STATE_CHANGE_EVENT,
+      handleSidebarStateChange,
+    );
+    return () =>
+      window.removeEventListener(
+        SIDEBAR_STATE_CHANGE_EVENT,
+        handleSidebarStateChange,
+      );
+  }, []);
 
   useEffect(() => {
     if (!id) return;
