@@ -56,6 +56,8 @@ export async function runDashboardReportsOnce(): Promise<{
             `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
             message,
           );
+          await markDashboardReportResult(sub, "success", message);
+          continue;
         }
         await markDashboardReportResult(sub, "success");
       } catch (err: any) {
