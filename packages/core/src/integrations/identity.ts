@@ -7,6 +7,34 @@ import {
 import { slackInstallationKey } from "./slack-oauth.js";
 import type { IncomingMessage, IntegrationExecutionContext } from "./types.js";
 
+export type IntegrationIdentityDeclineReason =
+  | "unverified"
+  | "guest"
+  | "unlinked-workspace"
+  | "membership-check-failed";
+
+/**
+ * Thrown when the default Slack DM identity ladder declines to run a message.
+ * `reason` is a stable machine-readable discriminator (used e.g. to dedupe
+ * decline replies); `userFacingMessage` is safe to send back to the sender as
+ * a polite reply; `message` stays log-only.
+ */
+export class IntegrationIdentityDeclinedError extends Error {
+  readonly reason: IntegrationIdentityDeclineReason;
+  readonly userFacingMessage: string;
+
+  constructor(
+    reason: IntegrationIdentityDeclineReason,
+    message: string,
+    userFacingMessage: string,
+  ) {
+    super(message);
+    this.name = "IntegrationIdentityDeclinedError";
+    this.reason = reason;
+    this.userFacingMessage = userFacingMessage;
+  }
+}
+
 function serviceOwner(platform: string): string {
   return `integration@${platform}`;
 }
@@ -47,17 +75,13 @@ async function resolveSlackInstallation(incoming: IncomingMessage) {
 }
 
 async function isMemberOfOrg(email: string, orgId: string): Promise<boolean> {
-  try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT 1 FROM org_members
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM org_members
         WHERE org_id = ? AND LOWER(email) = ?
         LIMIT 1`,
-      args: [orgId, email],
-    });
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+    args: [orgId, email],
+  });
+  return rows.length > 0;
 }
 
 /**
@@ -65,8 +89,13 @@ async function isMemberOfOrg(email: string, orgId: string): Promise<boolean> {
  *
  * Slack DMs become a user principal only after the adapter has verified the
  * sender email and the email is already a member of the managed installation's
- * Agent Native organization. Shared channels deliberately stay service-scoped
- * so a channel message cannot borrow one participant's private permissions.
+ * Agent Native organization. Hydrated full workspace members whose email is
+ * missing, unverified, or not an organization member run as an anonymous
+ * org-scoped service principal instead — the same visibility shared channels
+ * get. Hydration failures, guests/external members, and workspaces without a
+ * connected organization are declined with a user-facing message. Shared
+ * channels deliberately stay service-scoped so a channel message cannot borrow
+ * one participant's private permissions.
  */
 export async function resolveDefaultIntegrationExecutionContext(
   incoming: IncomingMessage,
@@ -85,48 +114,83 @@ export async function resolveDefaultIntegrationExecutionContext(
     };
   }
 
-  const email = normalizedEmail(incoming.senderEmail);
-  if (
-    !email ||
-    incoming.senderVerified !== true ||
-    !incoming.senderId ||
-    !incoming.tenantId
-  ) {
-    throw new Error(
-      "Slack DM sender identity could not be verified; refusing to run with a service principal.",
+  // Hydration check first: a transient users.info failure must land on the
+  // retry decline here, never on the anonymous org-scoped tier below.
+  if (incoming.actorTrust?.verified !== true) {
+    throw new IntegrationIdentityDeclinedError(
+      "unverified",
+      "Slack DM sender identity could not be hydrated; declining instead of guessing a principal.",
+      "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     );
   }
   if (
-    incoming.actorTrust?.memberType === "guest" ||
-    incoming.actorTrust?.memberType === "external"
+    incoming.actorTrust.memberType === "guest" ||
+    incoming.actorTrust.memberType === "external"
   ) {
-    throw new Error(
-      "External or guest Slack members cannot use personal Agent Native permissions.",
+    throw new IntegrationIdentityDeclinedError(
+      "guest",
+      "External or guest Slack members cannot use this integration.",
+      "This assistant is only available to members of this workspace's organization.",
     );
   }
   if (!installation?.orgId) {
-    throw new Error(
+    throw new IntegrationIdentityDeclinedError(
+      "unlinked-workspace",
       "Slack workspace is not connected to an Agent Native organization.",
+      "This Slack workspace isn't connected to an organization yet.",
     );
   }
 
-  if (!(await isMemberOfOrg(email, installation.orgId))) {
-    throw new Error(
-      "Slack DM sender is not a member of the connected Agent Native organization.",
-    );
+  const email = normalizedEmail(incoming.senderEmail);
+  let isOrgMember = false;
+  if (
+    email &&
+    incoming.senderVerified === true &&
+    incoming.senderId &&
+    incoming.tenantId
+  ) {
+    try {
+      isOrgMember = await isMemberOfOrg(email, installation.orgId);
+    } catch {
+      // A membership-store outage is not evidence that the sender is merely
+      // unlinked. Fail closed instead of widening them to org-wide access.
+      throw new IntegrationIdentityDeclinedError(
+        "membership-check-failed",
+        "Slack DM organization membership could not be verified.",
+        "I couldn't verify your organization membership just now, so I can't run this request. Please try again in a moment.",
+      );
+    }
+  }
+  if (isOrgMember && email && incoming.senderId && incoming.tenantId) {
+    const link = await upsertVerifiedIntegrationIdentity({
+      platform: incoming.platform,
+      tenantId: incoming.tenantId,
+      externalUserId: incoming.senderId,
+      userEmail: email,
+      orgId: installation.orgId,
+    });
+    return {
+      ownerEmail: link.userEmail,
+      orgId: link.orgId,
+      principalType: "user",
+      installationId: installation.id,
+    };
   }
 
-  const link = await upsertVerifiedIntegrationIdentity({
-    platform: incoming.platform,
-    tenantId: incoming.tenantId,
-    externalUserId: incoming.senderId,
-    userEmail: email,
-    orgId: installation.orgId,
-  });
+  // Hydrated full workspace member (member/admin/owner) whose email is
+  // unverified, missing (legacy install without users:read.email), or not an
+  // organization member: run with the anonymous org-scoped service principal —
+  // the same visibility shared channels get. Nothing user-private is
+  // accessible. One structured line keeps 100%-anonymous workspaces (legacy
+  // scope missing) visible in logs.
+  console.warn(
+    `[integrations] anonymous org-scoped principal used: platform=${incoming.platform} teamId=${incoming.tenantId ?? "unknown"} emailPresent=${Boolean(email)} memberType=${incoming.actorTrust.memberType}`,
+  );
   return {
-    ownerEmail: link.userEmail,
-    orgId: link.orgId,
-    principalType: "user",
+    ownerEmail: serviceOwner(incoming.platform),
+    orgId: installation.orgId,
+    principalType: "service",
     installationId: installation.id,
+    anonymousMember: true,
   };
 }

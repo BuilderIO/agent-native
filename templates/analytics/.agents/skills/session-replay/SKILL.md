@@ -164,7 +164,10 @@ agent answers about browser recordings in the Analytics template.
   reintroducing a clamp) — as regression guards against reintroducing any
   viewport "recovery" or pointer-projection heuristic. Do not change their
   expectations merely to bless a new sanitizer or clamp; validate the affected
-  replay in a browser first.
+  replay in a browser first. An interim clamp for the exact 3,189x885 pair was
+  also deleted once the view-time redaction root cause was proven; the earlier
+  3,000-3,999px band was rejected because it also catches real 3440px-wide
+  displays. Neither the exact exception nor the band belongs in the player.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.

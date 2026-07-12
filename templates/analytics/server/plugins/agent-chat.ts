@@ -259,7 +259,10 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
-    authenticatedReads: "auto",
+    // Keep the direct MCP surface deliberately curated. External agents
+    // should use ask_app for multi-step investigation; these six actions are
+    // bounded fallback reads for callers that already know what they need.
+    authenticatedReads: "off",
     writes: "ask_app_only",
   },
   resolveOrgId: async (event) => {

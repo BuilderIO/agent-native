@@ -37,6 +37,7 @@ export function DeleteEventDialog({
 }: DeleteEventDialogProps) {
   const t = useT();
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const dontNotifyButtonRef = useRef<HTMLButtonElement>(null);
   const [scope, setScope] = useState<DeleteEventScope>("single");
   const [message, setMessage] = useState("");
 
@@ -114,7 +115,12 @@ export function DeleteEventDialog({
         onKeyDown={handleKeyDown}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          confirmButtonRef.current?.focus();
+          // For events with guests, Enter should default to the reversible,
+          // no-email path instead of immediately sending a cancellation.
+          (canNotifyGuests
+            ? dontNotifyButtonRef.current
+            : confirmButtonRef.current
+          )?.focus();
         }}
       >
         <AlertDialogHeader>
@@ -177,7 +183,11 @@ export function DeleteEventDialog({
             {t("deleteEvent.cancel")}
           </AlertDialogCancel>
           {canNotifyGuests && (
-            <Button variant="outline" onClick={() => handleConfirm("none")}>
+            <Button
+              ref={dontNotifyButtonRef}
+              variant="outline"
+              onClick={() => handleConfirm("none")}
+            >
               {t("deleteEvent.dontNotify")}
             </Button>
           )}

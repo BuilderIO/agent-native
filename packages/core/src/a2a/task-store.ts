@@ -423,6 +423,69 @@ export async function updateTask(
   return task;
 }
 
+/**
+ * Persist the terminal result produced by the async processor, but only while
+ * that processor still owns a task in `processing`. A tasks/get request may
+ * fail an over-lifetime processor while its handler is still running; the
+ * handler cannot be canceled reliably, so this compare-and-set is what keeps
+ * its eventual completion (or error) from overwriting the timeout result.
+ */
+export async function settleProcessingA2ATask(
+  id: string,
+  update: {
+    state: "completed" | "failed";
+    message?: Message;
+    artifacts?: Artifact[];
+  },
+): Promise<Task | null> {
+  await ensureTable();
+  const client = getDbExec();
+
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) return null;
+
+  const task = taskFromRow(rows[0]);
+  const now = Date.now();
+  task.status = {
+    state: update.state,
+    message: update.message ?? task.status.message,
+    timestamp: new Date().toISOString(),
+  };
+  if (update.message && task.history) {
+    task.history.push(update.message);
+  }
+  if (update.artifacts) {
+    task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+  }
+
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks
+            SET status_state = ?,
+                status_message = ?,
+                status_timestamp = ?,
+                history = ?,
+                artifacts = ?,
+                updated_at = ?
+          WHERE id = ?
+            AND status_state = 'processing'`,
+    args: [
+      task.status.state,
+      task.status.message ? JSON.stringify(task.status.message) : null,
+      task.status.timestamp,
+      JSON.stringify(task.history),
+      JSON.stringify(task.artifacts),
+      now,
+      id,
+    ],
+  });
+  const affected = getAffectedRowCount(result);
+  if (affected === 0) return null;
+  return task;
+}
+
 export async function updateTaskStatusMessage(
   id: string,
   message: Message,

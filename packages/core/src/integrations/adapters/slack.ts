@@ -56,6 +56,31 @@ const slackIdentityCache = new Map<
   { identity: SlackUserIdentity | null; expiresAt: number }
 >();
 
+// Deduped system notices send at most once per key per TTL so senders are
+// informed without being spammed per message. Callers pick the window: the
+// anonymous-tier heads-up uses the default day-long TTL; decline replies pass
+// a short TTL so a persistent condition still reminds the sender occasionally.
+const SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
+const SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES = 1_000;
+const slackSystemNoticeCache = new Map<string, number>();
+
+/** Returns true when a deduped notice should send now, claiming the slot. */
+function claimSlackSystemNoticeSlot(
+  key: string,
+  ttlMs = SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS,
+): boolean {
+  const now = Date.now();
+  const expiresAt = slackSystemNoticeCache.get(key);
+  if (expiresAt && expiresAt > now) return false;
+  if (expiresAt) slackSystemNoticeCache.delete(key);
+  if (slackSystemNoticeCache.size >= SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES) {
+    const oldestKey = slackSystemNoticeCache.keys().next().value;
+    if (oldestKey) slackSystemNoticeCache.delete(oldestKey);
+  }
+  slackSystemNoticeCache.set(key, now + ttlMs);
+  return true;
+}
+
 export interface SlackAdapterOptions {
   /** Resolve the bot token for the exact Slack installation. */
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
@@ -264,7 +289,10 @@ export function slackAdapter(
           triggerKind: isDm ? "dm" : isMention ? "mention" : "thread_reply",
           conversationType: isDm ? "dm" : "unknown",
           tenantId: teamId,
-          actorTrust: { memberType: "unknown", verified: true },
+          // The signed Slack envelope authenticates the workspace, not the
+          // sender's membership tier. `users.info` hydration below is the
+          // authority that may promote this to a verified member.
+          actorTrust: { memberType: "unknown", verified: false },
           platformContext: {
             channelId: e.channel,
             channelType: e.channel_type,
@@ -490,6 +518,48 @@ export function slackAdapter(
       } catch (err) {
         console.error("[slack] Failed to send message:", err);
         throw err;
+      }
+    },
+
+    async sendSystemNotice(
+      incoming: IncomingMessage,
+      text: string,
+      opts?: { dedupeKey?: string; dedupeTtlMs?: number },
+    ): Promise<void> {
+      if (!text.trim()) return;
+      const dedupeKey = opts?.dedupeKey;
+      if (
+        dedupeKey &&
+        !claimSlackSystemNoticeSlot(dedupeKey, opts?.dedupeTtlMs)
+      ) {
+        return;
+      }
+      try {
+        const token = await resolveBotToken(incoming);
+        if (!token) {
+          if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+          return;
+        }
+        const channelId = incoming.platformContext.channelId;
+        if (typeof channelId !== "string" || !channelId) {
+          if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+          return;
+        }
+        const threadTs =
+          typeof incoming.platformContext.threadTs === "string"
+            ? incoming.platformContext.threadTs
+            : undefined;
+        await postFresh(token, channelId, threadTs, {
+          text,
+          unfurl_links: false,
+          unfurl_media: false,
+          mrkdwn: true,
+        });
+      } catch (error) {
+        // A failed delivery did not inform the sender, so release the slot and
+        // allow the next message to retry instead of suppressing notices for a day.
+        if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+        throw error;
       }
     },
 
@@ -1137,15 +1207,18 @@ async function resolveSlackUserIdentity(
                 : typeof user.user.name === "string" && user.user.name.trim()
                   ? user.user.name.trim()
                   : null,
-        memberType: user.user.is_ultra_restricted
-          ? "external"
-          : user.user.is_restricted
-            ? "guest"
-            : user.user.is_owner
-              ? "owner"
-              : user.user.is_admin
-                ? "admin"
-                : "member",
+        // is_stranger marks Slack Connect DM participants from another
+        // workspace; they must map to "external", never "member".
+        memberType:
+          user.user.is_stranger || user.user.is_ultra_restricted
+            ? "external"
+            : user.user.is_restricted
+              ? "guest"
+              : user.user.is_owner
+                ? "owner"
+                : user.user.is_admin
+                  ? "admin"
+                  : "member",
       }
     : null;
   if (slackIdentityCache.size >= SLACK_IDENTITY_CACHE_MAX_ENTRIES) {
@@ -1168,7 +1241,13 @@ async function hydrateSlackIdentity(
   incoming: IncomingMessage,
 ): Promise<IncomingMessage> {
   const identity = await resolveSlackUserIdentity(token, incoming);
-  if (!identity) return incoming;
+  if (!identity) {
+    return {
+      ...incoming,
+      senderVerified: false,
+      actorTrust: { memberType: "unknown", verified: false },
+    };
+  }
   return {
     ...incoming,
     ...(identity.name ? { senderName: identity.name } : {}),
@@ -1299,8 +1378,6 @@ async function hydrateSlackContext(
     : [];
 
   const profile = identity;
-  const isGuest = identity?.memberType === "guest";
-  const isExternal = identity?.memberType === "external";
   const isPrivate = conversation?.channel?.is_private === true;
   const isExternalShared = conversation?.channel?.is_ext_shared === true;
   const isMpim = conversation?.channel?.is_mpim === true;
@@ -1348,12 +1425,15 @@ async function hydrateSlackContext(
       ? { senderEmail: profile.email, senderVerified: true }
       : { senderVerified: false }),
     conversationType,
-    actorTrust: {
-      memberType:
-        identity?.memberType ??
-        (isExternal ? "external" : isGuest ? "guest" : "member"),
-      verified: true,
-    },
+    // Conversation hydration must not promote a caller when users.info was
+    // unavailable. Preserve the result of the earlier identity-only hydration
+    // unless this request independently resolved the Slack user.
+    actorTrust: identity
+      ? { memberType: identity.memberType, verified: true }
+      : (incoming.actorTrust ?? {
+          memberType: "unknown",
+          verified: false,
+        }),
     contextMessages: hydratedMessages,
     ...(hydratedFiles.length ? { files: hydratedFiles.slice(0, 20) } : {}),
     platformContext: {

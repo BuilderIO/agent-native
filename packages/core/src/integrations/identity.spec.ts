@@ -4,26 +4,32 @@ const getInstallationMock = vi.hoisted(() => vi.fn());
 const getInstallationByKeyMock = vi.hoisted(() => vi.fn());
 const upsertIdentityMock = vi.hoisted(() => vi.fn());
 const membershipRows = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const membershipExecuteMock = vi.hoisted(() =>
+  vi.fn(async () => ({ rows: membershipRows })),
+);
 
 vi.mock("./installations-store.js", () => ({
   getActiveIntegrationInstallationByKey: getInstallationByKeyMock,
   getActiveIntegrationInstallationForTenant: getInstallationMock,
 }));
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: vi.fn(async () => ({ rows: membershipRows })) }),
+  getDbExec: () => ({ execute: membershipExecuteMock }),
 }));
 vi.mock("./identity-links-store.js", () => ({
   upsertVerifiedIntegrationIdentity: upsertIdentityMock,
 }));
 
-const { resolveDefaultIntegrationExecutionContext } =
-  await import("./identity.js");
+const {
+  IntegrationIdentityDeclinedError,
+  resolveDefaultIntegrationExecutionContext,
+} = await import("./identity.js");
 
 function slackMessage(
   overrides: Partial<{
     senderEmail: string;
     senderVerified: boolean;
     memberType: "member" | "guest" | "external";
+    actorVerified: boolean;
     conversationType: "dm" | "channel";
   }> = {},
 ) {
@@ -38,7 +44,7 @@ function slackMessage(
     senderVerified: overrides.senderVerified ?? true,
     actorTrust: {
       memberType: overrides.memberType ?? "member",
-      verified: true,
+      verified: overrides.actorVerified ?? true,
     },
     platformContext: { teamId: "T123" },
     timestamp: Date.now(),
@@ -50,6 +56,10 @@ describe("resolveDefaultIntegrationExecutionContext", () => {
     getInstallationMock.mockReset();
     getInstallationByKeyMock.mockReset();
     membershipRows.length = 0;
+    membershipExecuteMock.mockReset();
+    membershipExecuteMock.mockImplementation(async () => ({
+      rows: membershipRows,
+    }));
     upsertIdentityMock.mockReset();
   });
 
@@ -87,12 +97,81 @@ describe("resolveDefaultIntegrationExecutionContext", () => {
     });
   });
 
-  it("rejects an unverified DM instead of using a service principal", async () => {
+  it("runs a hydrated member with an unverified email as the anonymous org-scoped principal", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    getInstallationMock.mockResolvedValue({
+      id: "installation-1",
+      orgId: "org-1",
+    });
+
     await expect(
       resolveDefaultIntegrationExecutionContext(
         slackMessage({ senderVerified: false }),
       ),
-    ).rejects.toThrow("could not be verified");
+    ).resolves.toEqual({
+      ownerEmail: "integration@slack",
+      orgId: "org-1",
+      principalType: "service",
+      installationId: "installation-1",
+      anonymousMember: true,
+    });
+    expect(upsertIdentityMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "anonymous org-scoped principal used: platform=slack teamId=T123 emailPresent=true memberType=member",
+      ),
+    );
+    warn.mockRestore();
+  });
+
+  it("declines a DM when identity hydration failed entirely", async () => {
+    getInstallationMock.mockResolvedValue({
+      id: "installation-1",
+      orgId: "org-1",
+    });
+
+    await expect(
+      resolveDefaultIntegrationExecutionContext(
+        slackMessage({ actorVerified: false }),
+      ),
+    ).rejects.toMatchObject({
+      name: "IntegrationIdentityDeclinedError",
+      userFacingMessage: expect.stringContaining("try again in a moment"),
+    });
+    expect(upsertIdentityMock).not.toHaveBeenCalled();
+  });
+
+  it("declines guest and external members instead of granting the anonymous tier", async () => {
+    getInstallationMock.mockResolvedValue({
+      id: "installation-1",
+      orgId: "org-1",
+    });
+
+    for (const memberType of ["guest", "external"] as const) {
+      const error = await resolveDefaultIntegrationExecutionContext(
+        slackMessage({ memberType }),
+      ).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(error).toBeInstanceOf(IntegrationIdentityDeclinedError);
+      expect(
+        (error as InstanceType<typeof IntegrationIdentityDeclinedError>)
+          .userFacingMessage,
+      ).toContain("only available to members");
+    }
+    expect(upsertIdentityMock).not.toHaveBeenCalled();
+  });
+
+  it("declines a DM from a workspace that is not connected to an organization", async () => {
+    await expect(
+      resolveDefaultIntegrationExecutionContext(slackMessage()),
+    ).rejects.toMatchObject({
+      name: "IntegrationIdentityDeclinedError",
+      userFacingMessage: expect.stringContaining(
+        "isn't connected to an organization",
+      ),
+    });
     expect(upsertIdentityMock).not.toHaveBeenCalled();
   });
 
@@ -115,14 +194,39 @@ describe("resolveDefaultIntegrationExecutionContext", () => {
     expect(upsertIdentityMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a Slack member from a different Agent Native organization", async () => {
+  it("runs a verified email that is not an org member as the anonymous org-scoped principal", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     getInstallationMock.mockResolvedValue({
       id: "installation-1",
       orgId: "org-1",
     });
+
     await expect(
       resolveDefaultIntegrationExecutionContext(slackMessage()),
-    ).rejects.toThrow("not a member");
+    ).resolves.toEqual({
+      ownerEmail: "integration@slack",
+      orgId: "org-1",
+      principalType: "service",
+      installationId: "installation-1",
+      anonymousMember: true,
+    });
+    expect(upsertIdentityMock).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("declines instead of widening access when org membership lookup fails", async () => {
+    getInstallationMock.mockResolvedValue({
+      id: "installation-1",
+      orgId: "org-1",
+    });
+    membershipExecuteMock.mockRejectedValueOnce(new Error("database offline"));
+
+    await expect(
+      resolveDefaultIntegrationExecutionContext(slackMessage()),
+    ).rejects.toMatchObject({
+      name: "IntegrationIdentityDeclinedError",
+      userFacingMessage: expect.stringContaining("try again in a moment"),
+    });
     expect(upsertIdentityMock).not.toHaveBeenCalled();
   });
 });

@@ -65,6 +65,8 @@ interface RrwebRecordModule {
 interface SessionReplayState {
   active: boolean;
   startPromise: Promise<SessionReplayStartResult> | null;
+  /** Invalidates deferred recorder startup when stop is requested mid-start. */
+  startGeneration: number;
   replayId: string | null;
   startedAtMs: number | null;
   sequence: number;
@@ -432,6 +434,7 @@ function getState(): SessionReplayState {
     g[SESSION_REPLAY_STATE_KEY] = {
       active: false,
       startPromise: null,
+      startGeneration: 0,
       replayId: null,
       startedAtMs: null,
       sequence: 0,
@@ -464,6 +467,7 @@ function getState(): SessionReplayState {
   state.pendingFlushReason ??= null;
   state.pendingFlushWaiters ??= [];
   state.awaitingFullSnapshot ??= false;
+  state.startGeneration ??= 0;
   return state;
 }
 
@@ -1054,12 +1058,14 @@ const REPLAY_RESOURCE_TAGS = new Set([
   "audio",
   "track",
   "input",
+  "object",
   "link",
 ]);
 const NO_REPLAY_RESOURCE_ATTRIBUTES = new Set<string>();
 const REPLAY_SRC_ATTRIBUTES = new Set(["src"]);
 const REPLAY_SRCSET_ATTRIBUTES = new Set(["src", "srcset"]);
 const REPLAY_VIDEO_ATTRIBUTES = new Set(["src", "poster"]);
+const REPLAY_OBJECT_ATTRIBUTES = new Set(["data"]);
 const REPLAY_HREF_ATTRIBUTES = new Set(["href"]);
 
 function replayAttributeString(
@@ -1101,6 +1107,8 @@ function replayPreservedResourceAttributes(
     case "audio":
     case "track":
       return REPLAY_SRC_ATTRIBUTES;
+    case "object":
+      return REPLAY_OBJECT_ATTRIBUTES;
     case "input":
       return node.type === "image"
         ? REPLAY_SRC_ATTRIBUTES
@@ -1452,12 +1460,12 @@ class ReplayUploadHttpError extends Error {
   }
 }
 
-/** 4xx statuses where retrying the exact same batch can never succeed --
- * e.g. a 409 chunk-sequence/checksum conflict, or a 400 the server will
- * reject again. 408 (timeout) and 429 (rate limit) are excluded because a
- * later retry can plausibly succeed. */
+/** 4xx statuses where retrying the exact same batch can never succeed.
+ * Keep this deliberately narrow: 401/403/404 can be temporary during auth or
+ * deploy transitions, and stopping forever on one of those would silently
+ * black out the rest of a long-lived SPA session. */
 function isDefinitiveReplayUploadClientError(status: number): boolean {
-  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+  return status === 400 || status === 409 || status === 413 || status === 422;
 }
 
 async function sendReplayUpload(
@@ -1904,6 +1912,31 @@ async function restartSessionReplayAfterConflict(
   options: NormalizedSessionReplayOptions,
   sessionId: string,
 ): Promise<SessionReplayStartResult> {
+  // Share the public-start mutex. A consumer may call start in the await gap
+  // after the rejected recorder stops; both paths must converge on one rrweb
+  // instance rather than racing two fresh identities.
+  if (state.startPromise) return state.startPromise;
+
+  const startGeneration = ++state.startGeneration;
+  let startPromise: Promise<SessionReplayStartResult>;
+  startPromise = restartSessionReplayAfterConflictInternal(
+    state,
+    options,
+    sessionId,
+    startGeneration,
+  ).finally(() => {
+    if (state.startPromise === startPromise) state.startPromise = null;
+  });
+  state.startPromise = startPromise;
+  return startPromise;
+}
+
+async function restartSessionReplayAfterConflictInternal(
+  state: SessionReplayState,
+  options: NormalizedSessionReplayOptions,
+  sessionId: string,
+  startGeneration: number,
+): Promise<SessionReplayStartResult> {
   if (options.shouldStart && !options.shouldStart()) {
     return { started: false, reason: "disabled", sessionId, sampled: true };
   }
@@ -1932,6 +1965,7 @@ async function restartSessionReplayAfterConflict(
     sessionId,
     true,
     initialProperties,
+    startGeneration,
   );
 }
 
@@ -2879,6 +2913,11 @@ export async function startSessionReplay(
   }
   if (state.startPromise) return state.startPromise;
 
+  // This is a new caller-initiated recording episode. A prior episode's
+  // conflict-loop guard must not prevent this one from recovering once.
+  state.automaticConflictRestartAttempted = false;
+  const startGeneration = ++state.startGeneration;
+
   let startPromise: Promise<SessionReplayStartResult>;
   startPromise = startSessionReplayRecorder(
     state,
@@ -2886,6 +2925,7 @@ export async function startSessionReplay(
     sessionId,
     sampled,
     initialProperties,
+    startGeneration,
   ).finally(() => {
     if (state.startPromise === startPromise) {
       state.startPromise = null;
@@ -2901,6 +2941,7 @@ async function startSessionReplayRecorder(
   sessionId: string,
   sampled: boolean,
   initialProperties: Record<string, unknown> | undefined,
+  startGeneration: number,
 ): Promise<SessionReplayStartResult> {
   if (state.active && state.replayId) {
     return {
@@ -2917,6 +2958,9 @@ async function startSessionReplayRecorder(
     rrweb = (await import("@rrweb/record")) as RrwebRecordModule;
   } catch {
     return { started: false, reason: "import-failed", sessionId, sampled };
+  }
+  if (state.startGeneration !== startGeneration) {
+    return { started: false, reason: "disabled", sessionId, sampled };
   }
   if (normalized.shouldStart && !normalized.shouldStart()) {
     return { started: false, reason: "disabled", sessionId, sampled };
@@ -2949,6 +2993,20 @@ async function startSessionReplayRecorder(
         resumed: false,
       };
     }
+  }
+  // stopSessionReplay may be called while the duplicate-tab probe is waiting.
+  // Recheck both cancellation and the caller's live eligibility before rrweb
+  // is activated so a deferred start cannot escape a route/auth teardown.
+  if (
+    state.startGeneration !== startGeneration ||
+    (normalized.shouldStart && !normalized.shouldStart())
+  ) {
+    try {
+      replayChannel?.close();
+    } catch {
+      // best-effort cleanup
+    }
+    return { started: false, reason: "disabled", sessionId, sampled };
   }
   state.options = normalized;
   state.replayId = replaySession.replayId;
@@ -3049,6 +3107,10 @@ async function startSessionReplayRecorder(
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
+  // Invalidate an import/probe that has not set `active` yet. Without this,
+  // stop during the duplicated-tab claim window was a no-op and rrweb started
+  // after the caller believed recording had been disabled.
+  state.startGeneration += 1;
   if (!state.active) return;
   // Restore console/fetch/XHR before tearing down the recorder: the restore
   // flushes any pending collapsed console duplicate, which must still be able

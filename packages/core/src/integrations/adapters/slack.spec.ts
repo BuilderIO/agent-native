@@ -86,15 +86,20 @@ describe("slackAdapter", () => {
       resolveBotToken: async () => "xoxb-example-not-real",
     });
 
-    await adapter.hydrateIncomingIdentity?.({
-      platform: "slack",
-      externalThreadId: "A777:T777:D777:1.2",
-      text: "hello",
-      senderId: "U777",
-      tenantId: "T777",
-      conversationType: "dm",
-      platformContext: { teamId: "T777" },
-      timestamp: Date.now(),
+    await expect(
+      adapter.hydrateIncomingIdentity?.({
+        platform: "slack",
+        externalThreadId: "A777:T777:D777:1.2",
+        text: "hello",
+        senderId: "U777",
+        tenantId: "T777",
+        conversationType: "dm",
+        platformContext: { teamId: "T777" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toMatchObject({
+      senderVerified: false,
+      actorTrust: { memberType: "unknown", verified: false },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -125,6 +130,47 @@ describe("slackAdapter", () => {
       timestamp: Date.now(),
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps Slack Connect strangers to external member trust", async () => {
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              user: {
+                name: "connect-stranger",
+                is_stranger: true,
+                profile: {
+                  email: "stranger@partner.test",
+                  real_name: "Connect Stranger",
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    await expect(
+      adapter.hydrateIncomingIdentity?.({
+        platform: "slack",
+        externalThreadId: "A888:T888:D888:1.2",
+        text: "hello",
+        senderId: "U888",
+        tenantId: "T888",
+        conversationType: "dm",
+        platformContext: { teamId: "T888" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toMatchObject({
+      actorTrust: { memberType: "external", verified: true },
+    });
   });
 
   it("does not bold-wrap bare URLs", () => {

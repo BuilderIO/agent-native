@@ -745,6 +745,7 @@ async function processIncomingMessage(
     incoming.senderName ? `Sender name: ${incoming.senderName}` : null,
     incoming.senderEmail ? `Sender email: ${incoming.senderEmail}` : null,
     incoming.senderId ? `Sender ID: ${incoming.senderId}` : null,
+    incoming.identityNote ? `Caller identity: ${incoming.identityNote}` : null,
     incoming.sourceUrl ? `Source thread: ${incoming.sourceUrl}` : null,
     incoming.routingHint?.targetAgent
       ? `Required target agent: ${incoming.routingHint.targetAgent}`
