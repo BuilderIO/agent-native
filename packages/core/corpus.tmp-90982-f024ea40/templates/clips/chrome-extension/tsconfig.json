@@ -1,9 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "types": ["chrome", "vite/client"],
-    "rootDirs": ["."],
-    "noEmit": true
-  },
-  "include": ["src/**/*", "scripts/**/*", "vite.config.ts"]
-}
