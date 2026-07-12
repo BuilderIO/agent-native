@@ -118,4 +118,41 @@ describe("DeleteEventDialog", () => {
       removeOnly: false,
     });
   });
+
+  it("focuses the no-notification action when deleting an event with guests", () => {
+    const event: CalendarEvent = {
+      id: "event-with-guests",
+      title: "Customer call",
+      description: "",
+      location: "",
+      start: "2026-07-12T16:00:00.000Z",
+      end: "2026-07-12T16:30:00.000Z",
+      allDay: false,
+      source: "google",
+      organizer: { email: "owner@example.com", self: true },
+      attendees: [
+        { email: "owner@example.com", self: true, organizer: true },
+        { email: "guest@example.com" },
+      ],
+      createdAt: "2026-07-12T15:00:00.000Z",
+      updatedAt: "2026-07-12T15:00:00.000Z",
+    };
+
+    act(() => {
+      root.render(
+        <DeleteEventDialog
+          event={event}
+          open
+          onClose={() => undefined}
+          onConfirm={() => undefined}
+        />,
+      );
+    });
+
+    const dontNotifyButton = Array.from(
+      document.querySelectorAll("button"),
+    ).find((button) => button.textContent === "deleteEvent.dontNotify");
+    expect(dontNotifyButton).toBeTruthy();
+    expect(document.activeElement).toBe(dontNotifyButton);
+  });
 });

@@ -255,6 +255,11 @@ type IntegrationCredentialContext = {
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
 
+// One decline reply per sender + decline reason per window: during a Slack
+// API outage every message would otherwise get another identical "try again"
+// reply. Short enough that a persistent condition still reminds the sender.
+const DECLINE_NOTICE_DEDUPE_TTL_MS = 5 * 60 * 1_000;
+
 export async function enqueueRemoteCommand(
   envelope: RemoteCodeCommandEnvelope,
 ): Promise<Record<string, unknown>> {
@@ -2381,10 +2386,11 @@ export function createIntegrationsPlugin(
                 () => resolveDefaultIntegrationExecutionContext(incoming!),
               );
             } catch (err) {
-              // An app-specific resolver may intentionally support a legacy
-              // Slack setup. When no override exists, the branch below fails
-              // closed instead of falling back to a service principal.
-              if (!options?.resolveExecutionContext && !options?.resolveOwner) {
+              // Only an explicit execution-context resolver may override the
+              // default Slack identity ladder. The legacy owner-only resolver
+              // predates org-bound identities and must not turn a rejected DM
+              // into an authenticated owner run.
+              if (!options?.resolveExecutionContext) {
                 const declined =
                   err instanceof IntegrationIdentityDeclinedError ? err : null;
                 if (declined) {
@@ -2392,25 +2398,30 @@ export function createIntegrationsPlugin(
                     `[integrations] default Slack DM identity declined message:`,
                     declined.message,
                   );
-                  // Best-effort polite reply back to the DM. A failed notice
-                  // must never break the webhook acknowledgement.
-                  try {
-                    await withCredentialContext(credentialContext, () =>
-                      adapter.sendSystemNotice
-                        ? adapter.sendSystemNotice(
-                            incoming!,
-                            declined.userFacingMessage,
-                          )
-                        : Promise.resolve(),
-                    );
-                  } catch (noticeErr) {
+                  // Best-effort polite reply back to the DM, deduped per
+                  // sender + reason so an outage doesn't produce an identical
+                  // reply for every message. Do not await Slack's API: webhook
+                  // acknowledgement has a stricter deadline than notice
+                  // delivery and must not be delayed by a slow postMessage.
+                  void withCredentialContext(credentialContext, () =>
+                    adapter.sendSystemNotice
+                      ? adapter.sendSystemNotice(
+                          incoming!,
+                          declined.userFacingMessage,
+                          {
+                            dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
+                            dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
+                          },
+                        )
+                      : Promise.resolve(),
+                  ).catch((noticeErr) => {
                     console.warn(
                       `[integrations] decline notice failed:`,
                       noticeErr instanceof Error
                         ? noticeErr.message
                         : noticeErr,
                     );
-                  }
+                  });
                 } else {
                   console.error(
                     `[integrations] default Slack DM identity denied message:`,

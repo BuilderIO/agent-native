@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { slackAdapter } from "./adapters/slack.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -679,7 +680,8 @@ describe("integrations plugin routes", () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
     });
-    const sendSystemNotice = vi.fn(async () => {});
+    // Simulate a slow Slack API. Webhook acknowledgement must not wait for it.
+    const sendSystemNotice = vi.fn(() => new Promise<void>(() => undefined));
     const slackDmAdapter: PlatformAdapter = {
       ...adapter,
       platform: "slack",
@@ -698,6 +700,7 @@ describe("integrations plugin routes", () => {
     };
     resolveDefaultExecutionContextMock.mockRejectedValueOnce(
       new IntegrationIdentityDeclinedError(
+        "guest",
         "guest member declined",
         "This assistant is only available to members of this workspace's organization.",
       ),
@@ -721,7 +724,146 @@ describe("integrations plugin routes", () => {
     expect(sendSystemNotice).toHaveBeenCalledWith(
       expect.objectContaining({ conversationType: "dm" }),
       "This assistant is only available to members of this workspace's organization.",
+      expect.objectContaining({
+        dedupeKey: "decline:T1:U1:guest",
+        dedupeTtlMs: 5 * 60 * 1_000,
+      }),
     );
     expect(handleWebhookMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let a legacy owner resolver bypass a declined Slack DM identity", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const sendSystemNotice = vi.fn(async () => {});
+    const resolveOwner = vi.fn(async () => "legacy-owner@example.com");
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:1.1",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice,
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest",
+        "guest member declined",
+        "This assistant is only available to organization members.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveOwner,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
+    expect(resolveOwner).not.toHaveBeenCalled();
+    expect(handleWebhookMock).not.toHaveBeenCalled();
+  });
+
+  it("dedupes repeated decline replies per sender and reason", async () => {
+    // Use the real Slack adapter's sendSystemNotice (with a stubbed fetch) so
+    // the adapter-side dedupe slot is actually exercised end-to-end.
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      getIntegrationConfigMock.mockResolvedValue({
+        configData: { enabled: true },
+      });
+      const realSlack = slackAdapter({
+        resolveBotToken: async () => "xoxb-example-not-real",
+      });
+      const slackDmAdapter: PlatformAdapter = {
+        ...adapter,
+        platform: "slack",
+        label: "Slack",
+        parseIncomingMessage: async () => ({
+          platform: "slack",
+          externalThreadId: "A9:T-dedupe:D-dedupe:1.1",
+          text: "hello",
+          senderId: "U-dedupe",
+          tenantId: "T-dedupe",
+          conversationType: "dm",
+          platformContext: { teamId: "T-dedupe", channelId: "D-dedupe" },
+          timestamp: Date.now(),
+        }),
+        sendSystemNotice: realSlack.sendSystemNotice,
+      };
+      const declineWith = (
+        reason: ConstructorParameters<
+          typeof IntegrationIdentityDeclinedError
+        >[0],
+      ) =>
+        resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+          new IntegrationIdentityDeclinedError(
+            reason,
+            `${reason} declined`,
+            `Declined: ${reason}.`,
+          ),
+        );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({
+        adapters: [slackDmAdapter],
+        systemPrompt: "Base prompt.",
+      })(nitroApp);
+      const post = () =>
+        dispatch(
+          nitroApp,
+          "/_agent-native/integrations/slack/webhook",
+          "POST",
+          {
+            event: "message",
+          },
+        );
+
+      // First decline posts the polite reply.
+      declineWith("unverified");
+      const first = await post();
+      expect(first.status).toBe(200);
+      expect(first.body).toBe("ok");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Same sender + same reason within the window: silent ack, no repeat.
+      declineWith("unverified");
+      const second = await post();
+      expect(second.status).toBe(200);
+      expect(second.body).toBe("ok");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Different reason for the same sender is a different message: sends.
+      declineWith("guest");
+      const third = await post();
+      expect(third.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(handleWebhookMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

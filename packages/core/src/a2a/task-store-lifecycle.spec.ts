@@ -350,6 +350,60 @@ describe("task-store lifecycle (real sqlite)", () => {
     });
   });
 
+  describe("settleProcessingA2ATask", () => {
+    it("atomically settles a task while it remains processing", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+
+      const settled = await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("done", "agent"),
+      });
+
+      expect(settled?.status.state).toBe("completed");
+      expect((await getTask(task.id))?.status.state).toBe("completed");
+    });
+
+    it("does not overwrite a timeout failure when the processor finishes late", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        failStuckA2ATask,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      await failStuckA2ATask(
+        task.id,
+        Date.now() + 60_000,
+        "processor exceeded its lifetime",
+      );
+
+      const settled = await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("late success", "agent"),
+      });
+
+      expect(settled).toBeNull();
+      const loaded = await getTask(task.id);
+      expect(loaded?.status.state).toBe("failed");
+      expect(loaded?.status.message?.parts[0]).toEqual({
+        type: "text",
+        text: "processor exceeded its lifetime",
+      });
+      expect(loaded?.history).not.toContainEqual(
+        makeMessage("late success", "agent"),
+      );
+    });
+  });
+
   describe("failStuckQueuedA2ATask", () => {
     it("fails a submitted task whose age exceeds the cutoff and records the reason", async () => {
       const { createTask, failStuckQueuedA2ATask, getTask } = await loadStore();

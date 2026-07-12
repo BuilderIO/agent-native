@@ -328,7 +328,11 @@ export interface PlatformAdapter {
   sendSystemNotice?(
     incoming: IncomingMessage,
     text: string,
-    opts?: { dedupeKey?: string },
+    opts?: {
+      dedupeKey?: string;
+      /** Dedupe window for `dedupeKey`. Adapters pick a default when omitted. */
+      dedupeTtlMs?: number;
+    },
   ): Promise<void>;
 
   /**

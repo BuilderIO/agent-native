@@ -56,14 +56,19 @@ const slackIdentityCache = new Map<
   { identity: SlackUserIdentity | null; expiresAt: number }
 >();
 
-// Deduped system notices (e.g. the anonymous-tier heads-up) send at most once
-// per key per day so senders are informed without being spammed per message.
+// Deduped system notices send at most once per key per TTL so senders are
+// informed without being spammed per message. Callers pick the window: the
+// anonymous-tier heads-up uses the default day-long TTL; decline replies pass
+// a short TTL so a persistent condition still reminds the sender occasionally.
 const SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
 const SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES = 1_000;
 const slackSystemNoticeCache = new Map<string, number>();
 
 /** Returns true when a deduped notice should send now, claiming the slot. */
-function claimSlackSystemNoticeSlot(key: string): boolean {
+function claimSlackSystemNoticeSlot(
+  key: string,
+  ttlMs = SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS,
+): boolean {
   const now = Date.now();
   const expiresAt = slackSystemNoticeCache.get(key);
   if (expiresAt && expiresAt > now) return false;
@@ -72,7 +77,7 @@ function claimSlackSystemNoticeSlot(key: string): boolean {
     const oldestKey = slackSystemNoticeCache.keys().next().value;
     if (oldestKey) slackSystemNoticeCache.delete(oldestKey);
   }
-  slackSystemNoticeCache.set(key, now + SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS);
+  slackSystemNoticeCache.set(key, now + ttlMs);
   return true;
 }
 
@@ -519,11 +524,14 @@ export function slackAdapter(
     async sendSystemNotice(
       incoming: IncomingMessage,
       text: string,
-      opts?: { dedupeKey?: string },
+      opts?: { dedupeKey?: string; dedupeTtlMs?: number },
     ): Promise<void> {
       if (!text.trim()) return;
       const dedupeKey = opts?.dedupeKey;
-      if (dedupeKey && !claimSlackSystemNoticeSlot(dedupeKey)) {
+      if (
+        dedupeKey &&
+        !claimSlackSystemNoticeSlot(dedupeKey, opts?.dedupeTtlMs)
+      ) {
         return;
       }
       try {

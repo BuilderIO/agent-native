@@ -7,17 +7,30 @@ import {
 import { slackInstallationKey } from "./slack-oauth.js";
 import type { IncomingMessage, IntegrationExecutionContext } from "./types.js";
 
+export type IntegrationIdentityDeclineReason =
+  | "unverified"
+  | "guest"
+  | "unlinked-workspace"
+  | "membership-check-failed";
+
 /**
  * Thrown when the default Slack DM identity ladder declines to run a message.
- * `userFacingMessage` is safe to send back to the sender as a polite reply;
- * `message` stays log-only.
+ * `reason` is a stable machine-readable discriminator (used e.g. to dedupe
+ * decline replies); `userFacingMessage` is safe to send back to the sender as
+ * a polite reply; `message` stays log-only.
  */
 export class IntegrationIdentityDeclinedError extends Error {
+  readonly reason: IntegrationIdentityDeclineReason;
   readonly userFacingMessage: string;
 
-  constructor(message: string, userFacingMessage: string) {
+  constructor(
+    reason: IntegrationIdentityDeclineReason,
+    message: string,
+    userFacingMessage: string,
+  ) {
     super(message);
     this.name = "IntegrationIdentityDeclinedError";
+    this.reason = reason;
     this.userFacingMessage = userFacingMessage;
   }
 }
@@ -105,6 +118,7 @@ export async function resolveDefaultIntegrationExecutionContext(
   // retry decline here, never on the anonymous org-scoped tier below.
   if (incoming.actorTrust?.verified !== true) {
     throw new IntegrationIdentityDeclinedError(
+      "unverified",
       "Slack DM sender identity could not be hydrated; declining instead of guessing a principal.",
       "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     );
@@ -114,12 +128,14 @@ export async function resolveDefaultIntegrationExecutionContext(
     incoming.actorTrust.memberType === "external"
   ) {
     throw new IntegrationIdentityDeclinedError(
+      "guest",
       "External or guest Slack members cannot use this integration.",
       "This assistant is only available to members of this workspace's organization.",
     );
   }
   if (!installation?.orgId) {
     throw new IntegrationIdentityDeclinedError(
+      "unlinked-workspace",
       "Slack workspace is not connected to an Agent Native organization.",
       "This Slack workspace isn't connected to an organization yet.",
     );
@@ -139,6 +155,7 @@ export async function resolveDefaultIntegrationExecutionContext(
       // A membership-store outage is not evidence that the sender is merely
       // unlinked. Fail closed instead of widening them to org-wide access.
       throw new IntegrationIdentityDeclinedError(
+        "membership-check-failed",
         "Slack DM organization membership could not be verified.",
         "I couldn't verify your organization membership just now, so I can't run this request. Please try again in a moment.",
       );

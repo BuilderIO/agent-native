@@ -651,10 +651,22 @@ export function verifySessionReplayAgentAccess(
   recordingId: string,
   token: string,
 ): boolean {
-  return verifyScopedAgentAccessToken(token, {
+  return resolveSessionReplayAgentAccess(recordingId, token) !== null;
+}
+
+export function resolveSessionReplayAgentAccess(
+  recordingId: string,
+  token: string,
+): { viewerEmail: string } | null {
+  const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
-  }).ok;
+  });
+  // Replay grants are always minted by an authenticated viewer. Fail closed
+  // for grants without that signed identity: demo-mode policy is viewer-scoped,
+  // so guessing from the ambient request could expose identities to agents.
+  if (!result.ok || !result.viewerEmail) return null;
+  return { viewerEmail: result.viewerEmail };
 }
 
 export async function createSessionReplayAgentLink({
@@ -707,14 +719,18 @@ export async function buildSessionReplayAgentContext({
   origin?: string;
   includeTimeline?: boolean;
 }) {
-  if (!verifySessionReplayAgentAccess(recordingId, token)) {
+  const access = resolveSessionReplayAgentAccess(recordingId, token);
+  if (!access) {
     const error = Object.assign(new Error("Invalid or expired agent access"), {
       statusCode: 401,
     });
     throw error;
   }
 
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    access.viewerEmail,
+  );
   const resolvedOrigin = appOrigin(origin);
   const basePath = appBasePath();
   const contextUrl = buildAgentAccessApiUrl({
@@ -747,7 +763,9 @@ export async function buildSessionReplayAgentContext({
   });
 
   const eventsResponse = includeTimeline
-    ? await getSessionReplayTokenizedEvents(recording.id, { limit: 10000 })
+    ? await getSessionReplayTokenizedEvents(recording.id, access.viewerEmail, {
+        limit: 10000,
+      })
     : null;
   const events =
     eventsResponse?.chunks.flatMap((chunk) =>
