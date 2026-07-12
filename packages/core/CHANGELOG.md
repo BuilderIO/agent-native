@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.7
+
+### Patch Changes
+
+- b94940e: Keep replay recording recoverable across transient upload failures and tab races, preserve object resources, and prevent late A2A workers from overwriting terminal task states.
+
 ## 0.98.6
 
 ### Patch Changes
