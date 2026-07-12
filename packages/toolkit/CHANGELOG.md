@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.4.8
+
+### Patch Changes
+
+- ffad302: Allow command dialogs to configure the underlying command root for custom ranking and controlled selection.
+- ffad302: Ease in the backdrop blur for instant command dialogs while keeping the command surface immediately responsive.
+
 ## 0.4.7
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.296
+
+### Patch Changes
+
+- Updated dependencies [ffad302]
+- Updated dependencies [ffad302]
+  - @agent-native/core@0.98.3
+
 ## 0.2.295
 
 ### Patch Changes
