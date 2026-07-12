@@ -10,6 +10,7 @@ import {
   applyAnalyticsPlanModePolicy,
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
+import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import {
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
@@ -26,8 +27,6 @@ import {
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
 } from "../lib/real-data-actions";
-const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
-
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
   "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
@@ -254,8 +253,7 @@ export default createAgentChatPlugin({
   // Operators deploying to trusted internal environments can set
   // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
   codeExecution: { production: "sandboxed" },
-  durableBackgroundRuns: true,
-  runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

@@ -280,6 +280,7 @@ export function FormsListPage() {
                 <Skeleton className="h-3 w-1/2" />
               </div>
               <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
               <Skeleton className="h-4 w-24" />
               <Skeleton className="h-4 w-24" />
               <Skeleton className="h-10 w-10 rounded-lg md:ms-auto" />
@@ -346,7 +347,7 @@ export function FormsListPage() {
           value={view}
           onValueChange={(v) => setView(v as "active" | "archive")}
         >
-          <TabsList>
+          <TabsList className="h-12">
             <TabsTrigger
               value="active"
               className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
@@ -527,10 +528,6 @@ export function FormsListPage() {
                       <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
                         {form.title}
                       </h3>
-                      <VisibilityBadge
-                        visibility={(form as any).visibility}
-                        className="shrink-0"
-                      />
                     </div>
                     {form.description && (
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -538,6 +535,10 @@ export function FormsListPage() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div className="flex min-w-0 items-center">
+                  <VisibilityBadge visibility={(form as any).visibility} />
                 </div>
 
                 <div className="flex items-center md:justify-start">

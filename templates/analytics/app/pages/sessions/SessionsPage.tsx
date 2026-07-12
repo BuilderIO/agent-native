@@ -21,7 +21,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -167,6 +167,7 @@ type SessionRecordingIdentity = Pick<
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const SESSION_QUERY_DEBOUNCE_MS = 250;
 
 export default function SessionsPage() {
   const t = useT();
@@ -175,7 +176,37 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
+  const [queryInput, setQueryInput] = useState(query);
   const from = useMemo(() => rangeToFrom(range), [range]);
+
+  useEffect(() => {
+    setQueryInput(query);
+  }, [query]);
+
+  const updateFilter = useCallback(
+    (key: string, value: string) => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          const emptyDefault =
+            (key === "range" && value === "30d") || value.trim() === "";
+          if (emptyDefault) next.delete(key);
+          else next.set(key, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  useEffect(() => {
+    if (queryInput === query) return;
+    const timeout = window.setTimeout(() => {
+      updateFilter("q", queryInput);
+    }, SESSION_QUERY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [query, queryInput, updateFilter]);
 
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
@@ -192,15 +223,6 @@ export default function SessionsPage() {
 
   const recordings = data ?? [];
 
-  function updateFilter(key: string, value: string) {
-    const next = new URLSearchParams(searchParams);
-    const emptyDefault =
-      (key === "range" && value === "30d") || value.trim() === "";
-    if (emptyDefault) next.delete(key);
-    else next.set(key, value);
-    setSearchParams(next, { replace: true });
-  }
-
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
       <Card>
@@ -213,8 +235,8 @@ export default function SessionsPage() {
             <div className="analytics-sessions-filter-search relative min-w-0">
               <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={query}
-                onChange={(event) => updateFilter("q", event.target.value)}
+                value={queryInput}
+                onChange={(event) => setQueryInput(event.target.value)}
                 placeholder={t("sessions.searchPlaceholder")}
                 className="h-9 ps-9"
               />

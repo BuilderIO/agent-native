@@ -33,7 +33,8 @@ export default defineAction({
     ),
   }),
   readOnly: true,
-  http: false,
+  http: { method: "GET" },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {
     return queryFirstPartyAnalytics(args.sql, resolveScope());
   },

@@ -21,6 +21,7 @@ import {
   IconPlus,
   IconChevronDown,
   IconCopy,
+  IconArrowLeft,
   IconArrowUp,
   IconArrowDown,
   IconArrowsSort,
@@ -333,7 +334,19 @@ export function FormBuilderPage() {
       <div className="flex flex-col h-full">
         {/* Top bar */}
         <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 shrink-0 gap-1.5 px-2 text-xs active:scale-[0.96]"
+              onClick={() => navigate("/forms")}
+              aria-label={t("builder.backToForms")}
+            >
+              <IconArrowLeft className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">
+                {t("builder.backToForms")}
+              </span>
+            </Button>
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-14 rounded-full" />
           </div>
@@ -538,7 +551,17 @@ export function FormBuilderPage() {
       {codeRequiredDialog}
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
-        <div className="flex items-center gap-2 sm:gap-3 relative min-w-0 flex-1 me-2">
+        <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 shrink-0 gap-1.5 px-2 text-xs active:scale-[0.96]"
+            onClick={() => navigate("/forms")}
+            aria-label={t("builder.backToForms")}
+          >
+            <IconArrowLeft className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{t("builder.backToForms")}</span>
+          </Button>
           <span
             ref={titleMeasureRef}
             aria-hidden
@@ -1002,10 +1025,10 @@ function BuilderContent({
                         )
                       }
                       className={cn(
-                        "group relative cursor-pointer rounded-xl border p-4 transition-[background-color,border-color,box-shadow,opacity,transform] duration-150 ease-out",
+                        "group relative cursor-pointer rounded-lg border p-4 transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out",
                         selectedFieldId === field.id
-                          ? "border-primary bg-card shadow-[0_0_0_1px_hsl(var(--primary)/0.16),0_2px_4px_-2px_hsl(var(--foreground)/0.12)] ring-1 ring-primary/20"
-                          : "border-transparent bg-card shadow-[0_0_0_1px_hsl(var(--border)/0.72),0_1px_2px_-1px_hsl(var(--foreground)/0.08),0_4px_8px_-4px_hsl(var(--foreground)/0.12)] hover:-translate-y-px hover:border-primary/30 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.24),0_4px_10px_-4px_hsl(var(--foreground)/0.14)]",
+                          ? "border-primary bg-card shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.16)] ring-1 ring-primary/20"
+                          : "border-transparent bg-transparent shadow-none hover:border-border/80 hover:bg-card/70 hover:shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.12)]",
                         dragIdx === idx && "opacity-50",
                       )}
                     >
@@ -1022,7 +1045,7 @@ function BuilderContent({
                     side="right"
                     align="start"
                     sideOffset={12}
-                    className="w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto rounded-2xl p-0 shadow-[0_0_0_1px_hsl(var(--border)/0.65),0_8px_24px_-12px_hsl(var(--foreground)/0.28),0_16px_32px_-16px_hsl(var(--foreground)/0.18)] sm:w-72 sm:max-h-[520px]"
+                    className="w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto rounded-lg p-0 shadow-md sm:w-72 sm:max-h-[520px]"
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     onInteractOutside={(e) => {
                       // Don't close when interacting with dropdowns portaled to body
@@ -1046,7 +1069,7 @@ function BuilderContent({
               ) : (
                 <div
                   key={field.id}
-                  className="relative rounded-xl border border-transparent bg-card p-4 shadow-[0_0_0_1px_hsl(var(--border)/0.72),0_1px_2px_-1px_hsl(var(--foreground)/0.08),0_4px_8px_-4px_hsl(var(--foreground)/0.12)]"
+                  className="relative rounded-lg border border-transparent bg-transparent p-4 transition-[background-color,border-color] duration-150 hover:border-border/70 hover:bg-card/70"
                 >
                   <FieldRenderer field={field} preview />
                 </div>
@@ -1099,7 +1122,7 @@ function BuilderContent({
                   side="top"
                   align="end"
                   sideOffset={8}
-                  className="w-[calc(100vw-2rem)] rounded-2xl p-0 shadow-[0_0_0_1px_hsl(var(--border)/0.65),0_8px_24px_-12px_hsl(var(--foreground)/0.28),0_16px_32px_-16px_hsl(var(--foreground)/0.18)] sm:w-80"
+                  className="w-[calc(100vw-2rem)] rounded-lg p-0 shadow-md sm:w-80"
                   onOpenAutoFocus={(e) => {
                     e.preventDefault();
                     agentPromptRef.current?.focus();
@@ -1581,7 +1604,7 @@ function SettingsEditor({
         />
       </div>
 
-      <div className="flex items-start justify-between gap-4 rounded-xl border border-transparent bg-card p-3 shadow-[0_0_0_1px_hsl(var(--border)/0.72),0_1px_2px_-1px_hsl(var(--foreground)/0.08),0_4px_8px_-4px_hsl(var(--foreground)/0.12)]">
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-card p-3">
         <div className="space-y-1">
           <Label htmlFor="anonymous-responses" className="text-xs">
             {t("builder.settings.anonymousResponses")}
@@ -1673,12 +1696,12 @@ function IntegrationBrandMark({
     return (
       <div
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-background shadow-sm",
+          "flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-background",
           className,
         )}
       >
         <img
-          src={meta.logoSrc}
+          src={appPath(meta.logoSrc)}
           alt={t("builder.integrations.logoAlt", { label })}
           className="h-5 w-5 object-contain"
         />
@@ -1689,7 +1712,7 @@ function IntegrationBrandMark({
   return (
     <div
       className={cn(
-        "flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-foreground text-background shadow-sm",
+        "flex h-10 w-10 items-center justify-center rounded-lg border border-border/70 bg-foreground text-background",
         className,
       )}
     >
@@ -1766,7 +1789,7 @@ function IntegrationsEditor({
       </div>
 
       {!hasIntegrations && (
-        <div className="rounded-2xl border border-transparent bg-muted/20 p-5 shadow-[0_0_0_1px_hsl(var(--border)/0.62),0_2px_4px_-2px_hsl(var(--foreground)/0.08),0_6px_12px_-6px_hsl(var(--foreground)/0.1)]">
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-5">
           <div className="space-y-4">
             <div className="space-y-2">
               <h3 className="text-sm font-medium">
@@ -1788,7 +1811,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="min-h-[44px] cursor-pointer rounded-xl border border-transparent bg-background p-3 text-start shadow-[0_0_0_1px_hsl(var(--border)/0.62),0_1px_2px_-1px_hsl(var(--foreground)/0.06)] transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-px hover:bg-muted/40 hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_3px_8px_-4px_hsl(var(--foreground)/0.1)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:scale-[0.96] motion-reduce:active:scale-100"
+                  className="min-h-[44px] cursor-pointer rounded-lg border border-border/60 bg-background p-3 text-start transition-[background-color,border-color,box-shadow] duration-150 ease-out hover:border-primary/30 hover:bg-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:scale-[0.96] motion-reduce:active:scale-100"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
@@ -1820,7 +1843,7 @@ function IntegrationsEditor({
         return (
           <div
             key={integration.id}
-            className="space-y-3 rounded-2xl border border-transparent bg-card p-4 shadow-[0_0_0_1px_hsl(var(--border)/0.72),0_1px_2px_-1px_hsl(var(--foreground)/0.08),0_4px_8px_-4px_hsl(var(--foreground)/0.12)]"
+            className="space-y-3 rounded-lg border border-border/60 bg-card p-4"
           >
             <div className="flex items-start gap-3">
               <IntegrationBrandMark type={integration.type} />
@@ -1902,7 +1925,7 @@ function IntegrationsEditor({
           <Button
             variant="outline"
             size="sm"
-            className="h-11 w-full rounded-xl active:scale-[0.96]"
+            className="h-11 w-full rounded-lg active:scale-[0.96]"
           >
             <IconPlus className="h-3.5 w-3.5 me-1.5" />
             {hasIntegrations

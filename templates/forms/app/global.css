@@ -28,24 +28,19 @@
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
-  --forms-radius-control: 0.75rem;
-  --forms-radius-surface: 1rem;
-  --forms-radius-floating: 1.25rem;
+  --forms-radius-control: 0.625rem;
+  --forms-radius-surface: 0.75rem;
+  --forms-radius-floating: 1rem;
   --forms-shadow-surface:
-    0 0 0 1px hsl(var(--foreground) / 0.06),
-    0 1px 2px -1px hsl(var(--foreground) / 0.08),
-    0 8px 20px -12px hsl(var(--foreground) / 0.14);
-  --forms-shadow-surface-hover:
-    0 0 0 1px hsl(var(--foreground) / 0.1),
-    0 4px 10px -6px hsl(var(--foreground) / 0.1),
-    0 12px 28px -16px hsl(var(--foreground) / 0.18);
-  --forms-shadow-control:
-    0 0 0 1px hsl(var(--foreground) / 0.045),
+    0 0 0 1px hsl(var(--foreground) / 0.04),
     0 1px 2px -1px hsl(var(--foreground) / 0.08);
-  --forms-shadow-floating:
+  --forms-shadow-surface-hover:
     0 0 0 1px hsl(var(--foreground) / 0.08),
-    0 8px 16px -8px hsl(var(--foreground) / 0.14),
-    0 20px 38px -18px hsl(var(--foreground) / 0.18);
+    0 2px 6px -3px hsl(var(--foreground) / 0.1);
+  --forms-shadow-control: 0 0 0 1px hsl(var(--foreground) / 0.035);
+  --forms-shadow-floating:
+    0 0 0 1px hsl(var(--foreground) / 0.06),
+    0 6px 16px -10px hsl(var(--foreground) / 0.12);
   --forms-shadow-focus:
     0 0 0 3px hsl(var(--ring) / 0.18), 0 0 0 1px hsl(var(--ring) / 0.55);
 
@@ -208,12 +203,12 @@
 
 @container agent-native-main (min-width: 720px) {
   .forms-list-skeleton-row {
-    grid-template-columns: minmax(0, 1fr) 110px 140px 88px 40px;
+    grid-template-columns: minmax(0, 1fr) 100px 110px 140px 88px 40px;
     align-items: center;
   }
 
   .forms-list-row {
-    grid-template-columns: minmax(0, 1fr) 110px 140px 88px 40px;
+    grid-template-columns: minmax(0, 1fr) 100px 110px 140px 88px 40px;
     align-items: center;
   }
 }
