@@ -113,3 +113,4 @@ test-reports/
 
 # tsup transient bundled config artifacts
 tsup.config.bundled_*.mjs
+packages/core/corpus.tmp-*/

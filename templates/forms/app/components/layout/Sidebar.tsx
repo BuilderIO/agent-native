@@ -180,7 +180,7 @@ export function Sidebar() {
           <Button
             variant="secondary"
             size="icon"
-            className="h-7 w-7"
+            className="relative h-7 w-7 before:absolute before:-inset-1.5"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -200,7 +200,7 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setCollapsed(false)}
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-accent/50 hover:text-muted-foreground"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground/55 transition-[color,background-color,scale] duration-150 ease-out hover:bg-accent/50 hover:text-muted-foreground active:scale-[0.96] motion-reduce:active:scale-100"
               aria-label={t("sidebar.expandSidebar")}
             >
               <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
@@ -260,7 +260,7 @@ export function Sidebar() {
                   <button
                     type="button"
                     aria-label={t("sidebar.newForm")}
-                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,scale] duration-150 ease-out hover:bg-accent/50 hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                   >
                     <IconPlus className="h-4 w-4" />
                   </button>
@@ -337,7 +337,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="relative h-8 w-8 before:absolute before:-inset-1.5"
             onClick={() => setMobileOpen(false)}
           >
             <IconX size={18} />
@@ -349,7 +349,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
+                className="relative h-8 w-8 text-muted-foreground/55 before:absolute before:-inset-1.5 hover:bg-accent/50 hover:text-muted-foreground"
                 onClick={() => setCollapsed(true)}
                 aria-label={t("sidebar.collapseSidebar")}
               >

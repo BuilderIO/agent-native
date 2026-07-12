@@ -574,7 +574,12 @@ export function FormBuilderPage() {
           {form.status === "published" && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative h-8 w-8 before:absolute before:-inset-y-1 before:content-['']"
+                  asChild
+                >
                   <a
                     href={appPath(`/f/${form.slug}`)}
                     target="_blank"
@@ -596,7 +601,7 @@ export function FormBuilderPage() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="relative h-8 w-8 before:absolute before:-inset-y-1 before:content-['']"
                   onClick={copyShareLink}
                   disabled={form.status !== "published"}
                   aria-label={
@@ -605,11 +610,24 @@ export function FormBuilderPage() {
                       : t("builder.publishBeforeCopyPublicFormLink")
                   }
                 >
-                  {copied ? (
-                    <IconCheck className="h-4 w-4" />
-                  ) : (
-                    <IconCopy className="h-4 w-4" />
-                  )}
+                  <span className="relative inline-flex h-4 w-4 items-center justify-center">
+                    <IconCopy
+                      className={cn(
+                        "absolute h-4 w-4 transition-[opacity,scale] duration-200 ease-out",
+                        copied
+                          ? "scale-[0.25] opacity-0"
+                          : "scale-100 opacity-100",
+                      )}
+                    />
+                    <IconCheck
+                      className={cn(
+                        "absolute h-4 w-4 transition-[opacity,scale] duration-200 ease-out",
+                        copied
+                          ? "scale-100 opacity-100"
+                          : "scale-[0.25] opacity-0",
+                      )}
+                    />
+                  </span>
                 </Button>
               </span>
             </TooltipTrigger>
@@ -662,7 +680,7 @@ export function FormBuilderPage() {
           {canEdit && form.status !== "published" && (
             <Button
               size="sm"
-              className="text-xs"
+              className="relative text-xs before:absolute before:-inset-y-0.5 before:content-['']"
               onClick={handleTogglePublish}
               disabled={pendingStatus !== null}
             >
@@ -684,7 +702,7 @@ export function FormBuilderPage() {
                     <Button
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 bg-transparent"
+                      className="relative h-9 w-9 bg-transparent before:absolute before:-inset-y-1 before:-inset-x-0.5 before:content-['']"
                       aria-label={t("forms.formActions")}
                     >
                       <IconDots className="h-4 w-4" />
@@ -1100,7 +1118,7 @@ function BuilderContent({
                     <Button
                       variant="secondary"
                       size="icon"
-                      className="h-7 w-7"
+                      className="relative h-7 w-7 before:absolute before:-inset-1.5 before:content-['']"
                       onClick={onSubmitAgent}
                       disabled={
                         !agentPrompt.trim() ||
@@ -1460,18 +1478,33 @@ function ResultsSortableHeader({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+      className="relative inline-flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer before:absolute before:-inset-3 before:content-['']"
     >
       <span>{label}</span>
-      {active ? (
-        dir === "asc" ? (
-          <IconArrowUp className="h-3 w-3" />
-        ) : (
-          <IconArrowDown className="h-3 w-3" />
-        )
-      ) : (
-        <IconArrowsSort className="h-3 w-3 opacity-40" />
-      )}
+      <span className="relative inline-flex h-3 w-3 items-center justify-center">
+        <IconArrowUp
+          className={cn(
+            "absolute h-3 w-3 transition-[opacity,scale] duration-200 ease-out",
+            active && dir === "asc"
+              ? "scale-100 opacity-100"
+              : "scale-[0.25] opacity-0",
+          )}
+        />
+        <IconArrowDown
+          className={cn(
+            "absolute h-3 w-3 transition-[opacity,scale] duration-200 ease-out",
+            active && dir === "desc"
+              ? "scale-100 opacity-100"
+              : "scale-[0.25] opacity-0",
+          )}
+        />
+        <IconArrowsSort
+          className={cn(
+            "absolute h-3 w-3 transition-[opacity,scale] duration-200 ease-out",
+            active ? "scale-[0.25] opacity-0" : "scale-100 opacity-40",
+          )}
+        />
+      </span>
     </button>
   );
 }
@@ -1735,7 +1768,7 @@ function IntegrationsEditor({
                   key={type}
                   type="button"
                   onClick={() => addIntegration(type)}
-                  className="cursor-pointer rounded-lg border bg-background p-3 text-start hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
+                  className="cursor-pointer rounded-lg border bg-background p-3 text-start transition-transform duration-150 ease-out hover:bg-muted/40 active:scale-[0.96] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[44px]"
                 >
                   <div className="flex items-center gap-3">
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
@@ -1801,7 +1834,7 @@ function IntegrationsEditor({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                className="relative h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive before:absolute before:-inset-1 before:content-['']"
                 onClick={() => removeIntegration(integration.id)}
               >
                 <IconTrash className="h-4 w-4" />
@@ -1869,7 +1902,7 @@ function IntegrationsEditor({
                 key={type}
                 onClick={() => addIntegration(type)}
                 disabled={selectedTypes.has(type)}
-                className="rounded-md px-3 py-3"
+                className="px-3 py-3"
               >
                 <div className="flex items-center gap-3">
                   <IntegrationBrandMark type={type} />

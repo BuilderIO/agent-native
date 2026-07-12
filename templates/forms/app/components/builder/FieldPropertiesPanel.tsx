@@ -181,7 +181,7 @@ export function FieldPropertiesPanel({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 w-7 p-0"
+                    className="relative h-7 w-7 p-0 before:absolute before:-inset-1"
                     onClick={() => removeOption(i)}
                     aria-label={t("fieldProperties.removeOption", {
                       option: opt,
@@ -202,7 +202,7 @@ export function FieldPropertiesPanel({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0"
+                  className="relative h-7 w-7 p-0 before:absolute before:-inset-1"
                   onClick={addOption}
                   aria-label={t("fieldProperties.addOption")}
                 >

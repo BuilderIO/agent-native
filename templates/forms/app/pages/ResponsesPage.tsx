@@ -525,11 +525,15 @@ function SortableHeader(props: {
 }) {
   const t = useT();
   const { label, active, dir, onClick } = props;
-  const Icon = !active
-    ? IconArrowsSort
+  const sortState: "neutral" | "asc" | "desc" = !active
+    ? "neutral"
     : dir === "asc"
-      ? IconArrowUp
-      : IconArrowDown;
+      ? "asc"
+      : "desc";
+  const iconBase =
+    "absolute inset-0 transition-[opacity,scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]";
+  const iconVisible = "scale-100 opacity-60 blur-none";
+  const iconHidden = "scale-[0.25] opacity-0 blur-[4px]";
   return (
     <th
       scope="col"
@@ -539,13 +543,33 @@ function SortableHeader(props: {
         type="button"
         onClick={onClick}
         className={cn(
-          "inline-flex items-center gap-1 cursor-pointer hover:text-foreground",
+          "relative inline-flex items-center gap-1 cursor-pointer transition-[color,scale] duration-150 ease-out hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100",
+          "before:absolute before:-inset-2.5 before:content-['']",
           active && "text-foreground",
         )}
         aria-label={t("responses.sortBy", { label })}
       >
         {label}
-        <Icon className="h-3 w-3 opacity-60" />
+        <span className="relative inline-block h-3 w-3 shrink-0">
+          <IconArrowsSort
+            className={cn(
+              iconBase,
+              sortState === "neutral" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowUp
+            className={cn(
+              iconBase,
+              sortState === "asc" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowDown
+            className={cn(
+              iconBase,
+              sortState === "desc" ? iconVisible : iconHidden,
+            )}
+          />
+        </span>
       </button>
     </th>
   );

@@ -204,7 +204,7 @@ export function FieldRenderer({
               key={star}
               type="button"
               onClick={() => !disabled && handleChange(star)}
-              className="cursor-pointer p-2 sm:p-1.5 disabled:cursor-not-allowed"
+              className="cursor-pointer p-2 transition-transform duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100 disabled:cursor-not-allowed sm:p-1.5"
               disabled={disabled}
               aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >
