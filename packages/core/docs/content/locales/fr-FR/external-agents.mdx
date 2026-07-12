@@ -325,8 +325,10 @@ Le serveur MCP propose par défaut un **catalogue compact à chaque appelant** 
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> découvre les outils du niveau complet à la demande ;
+  le catalogue du connecteur ou la politique de lectures authentifiées doit
+  encore autoriser l'exécution, sauf si l'appelant choisit explicitement le
+  niveau complet.
 </p>
 ```
 
@@ -364,15 +366,45 @@ Le serveur MCP propose par défaut un **catalogue compact à chaque appelant** 
 
 ### Niveau Compact/Connecteur (par défaut) {#connector-tier}
 
-Par défaut, chaque agent connecté voit un petit catalogue organisé (environ 20 à 30 outils contre environ 105 dans la surface complète) :
+Par défaut, chaque agent connecté voit un petit catalogue organisé (environ 20 à 30 outils contre environ 105 dans la surface complète). Les applications peuvent maintenir un `connectorCatalog` explicite ou choisir la politique de lectures authentifiées :
 
 - **Application déclarée par modèle actions** — la liste verte sécurisée au niveau de l'application. Pour les plans `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search` et similaires.
 - **Outils multi-applications intégrés** : `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** est toujours présent, donc tout ce qui se trouve en dehors de la liste reste accessible à la demande (voir ci-dessous).
+- **`tool-search`** est toujours présent pour la découverte. Une action découverte doit encore figurer dans le catalogue du connecteur, être incluse par la politique de lectures authentifiées ou être activée par l'option explicite de catalogue complet avant que `tools/call` puisse l'exécuter.
 
-Les outils en dehors de la liste (par exemple `db-exec`, `seed-*`, la suite d'extensions, les outils de session de navigateur et les outils de radiographie contextuelle) ne sont pas annoncés et les appels vers ces outils sont rejetés avec « Outil inconnu », sauf si l'appelant a choisi d'accéder au catalogue complet. Cela permet de garder la fenêtre contextuelle de chaque agent connecté petite et de supprimer les armes à pied qui ne sont sûres que pour le développement local à locataire unique. Le niveau de connecteur est actif **chaque fois qu'un modèle déclare un `connectorCatalog`** — il n'est pas protégé par une variable d'environnement.
+Les outils en dehors de la liste (par exemple `db-exec`, `seed-*`, la suite d'extensions, les outils de session de navigateur et les outils de radiographie contextuelle) ne sont pas annoncés et les appels vers ces outils sont rejetés avec « Outil inconnu », sauf si l'appelant a choisi d'accéder au catalogue complet. Cela permet de garder la fenêtre contextuelle de chaque agent connecté petite et de supprimer les armes à pied qui ne sont sûres que pour le développement local à locataire unique.
 
-`tool-search` fonctionne de deux manières : appelez-le avec **aucune requête** pour le menu complet des noms d'outils ainsi que des descriptions sur une ligne (bon marché, sans schémas), ou avec une requête pour les correspondances classées avec des résumés de paramètres. C'est ainsi qu'un client compact découvre et charge n'importe quel outil pleine surface lorsqu'il en a besoin.
+`tool-search` fonctionne de deux manières : appelez-le **sans requête** pour obtenir le menu complet des noms d'outils et des descriptions sur une ligne (peu coûteux, sans schémas), ou avec une requête pour obtenir des correspondances classées et des résumés de paramètres. Il aide un client compact à découvrir les capacités ; utilisez `ask_app` pour tout ce qui nécessite le raisonnement plus large de l'agent de l'application ou une écriture.
+
+#### Lectures authentifiées par défaut
+
+Les applications qui souhaitent que les outils de lecture directe fonctionnent sans maintenir une longue liste d'autorisation peuvent activer les lectures authentifiées automatiques :
+
+```ts
+export default createAgentChatPlugin({
+  appId: "analytics",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Veto facultatif de défense en profondeur pour les lectures particulièrement sensibles.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+`authenticatedReads: "auto"` ajoute uniquement les actions qui déclarent explicitement tous les éléments suivants :
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+La politique combine ces actions avec les entrées explicites de `connectorCatalog`, puis applique `denyActions`. Avec `writes: "ask_app_only"` (la valeur par défaut quand les lectures automatiques sont activées), les outils qui modifient des données ne sont pas directement appelables ; acheminez le travail en plusieurs étapes et les mutations via `ask_app`. `writes: "allowlisted"` est réservé aux applications qui maintiennent volontairement une liste explicite d'écritures autorisées.
+
+La politique est authentifiée, et non anonyme. L'identité MCP OAuth/connect est transmise via `runWithRequestContext`, de sorte que les contrôles d'accès des actions, les périmètres propriétaire/organisation et les portées de lecture OAuth restent appliqués. Les actions publiques ou non authentifiées ne sont pas incluses automatiquement.
+
+Les outils Core `db-schema` et `db-query` ne sont pas automatiquement exposés comme lectures externes. Ils restent disponibles pour l'agent interne de l'application via le chemin SQL habituellement délimité, mais un accès large au schéma/SQL est trop puissant pour être déduit de simples métadonnées de lecture. Si une application a besoin de requêtes externes directes, elle doit exposer une action GET propre avec des contrôles d'accès et des limites, ou une liste explicite de tables/colonnes avec des limites de lignes, d'octets, de durée et d'audit. `db-exec` et `db-patch` restent hors de la surface automatique.
+
+Les messages directs Slack utilisent l'identité de l'utilisateur uniquement après vérification de son adresse e-mail et confirmation de son appartenance à l'organisation Agent Native. Les canaux partagés utilisent un principal de service et n'empruntent pas les autorisations privées d'un participant. OAuth géré et le manifeste Slack généré demandent `users:read.email` ; les installations existantes doivent être reconnectées après l'ajout de cette portée et les anciens jetons bot doivent être mis à jour manuellement dans Slack.
 
 ### Niveau complet (adhésion explicite uniquement) {#full-tier}
 
@@ -474,7 +506,7 @@ En plus des outils par action, le serveur MCP expose un ensemble de verbes stabl
 
 `create_workspace_app` rejette tout modèle non autorisé : la liste verte de modèles publics dans `packages/shared-app-config/templates.ts` fait autorité et est protégée par CI ; un agent extérieur ne peut pas l’élargir. Une action de modèle du même nom remplace une action intégrée (précédence du modèle sur le noyau). Désactivez l'ensemble avec `MCPConfig.builtinCrossAppTools: false`.
 
-Les catalogues d'outils et de ressources pour les hôtes d'applications sont compacts par défaut – voir [Catalog tiers](#catalog-tiers). `publicAgent.expose` reste l'option d'adhésion pour les outils de lecture/ingestion sécurisés en dehors de ce catalogue compact ; définissez `mcpApp.compactCatalog: true` uniquement comme une exception rare pour actions qui doit apparaître dans la découverte de l'hôte de discussion.
+Les catalogues d'outils et de ressources pour les hôtes d'applications sont compacts par défaut – voir [Catalog tiers](#catalog-tiers). `publicAgent.expose` reste l'option au niveau de l'action pour les outils de lecture/ingestion sécurisés en dehors de ce catalogue compact ; les applications peuvent définir `externalAgents.authenticatedReads: "auto"` pour annoncer ces lectures authentifiées sans catalogue rédigé à la main. Définissez `mcpApp.compactCatalog: true` uniquement comme une exception rare pour les actions qui doivent apparaître dans la découverte de l'hôte de discussion.
 
 Pour des transferts rapides ChatGPT/Claude, le chemin idéal est direct : appelez l'action qui crée ou ouvre l'artefact, puis laissez l'application MCP lancer l'itinéraire. Une requête Mail doit appeler `manage_draft` et afficher la véritable route de composition. Une demande de tableau de bord doit appeler `open_app({ path, embed: true })` ou une action de tableau de bord avec `mcpApp` et afficher l'itinéraire Analytics complet. Le calendrier, les formulaires, le contenu, les diapositives, la conception et les clips doivent suivre le même modèle avec leur brouillon/création/recherche actions. `list_apps` est utile lorsque le modèle doit choisir parmi les applications accordées ; Une large `resources/list`, une découverte de catalogue complet ou une délégation `ask_app` ne devraient pas être la voie normale pour un transfert évident de UI.
 

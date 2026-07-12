@@ -40,6 +40,7 @@ vi.mock("./task-store.js", () => {
         artifacts: [],
         metadata,
         ownerEmail: ownerEmail ?? null,
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
       tasks[id] = task;
@@ -95,6 +96,10 @@ vi.mock("./task-store.js", () => {
           typeof task.metadata?.testUpdatedAt === "number"
             ? task.metadata.testUpdatedAt
             : task.updatedAt,
+        createdAt:
+          typeof task.metadata?.testCreatedAt === "number"
+            ? task.metadata.testCreatedAt
+            : task.createdAt,
       };
     },
     async touchQueuedA2ATaskDispatch() {
@@ -112,6 +117,22 @@ vi.mock("./task-store.js", () => {
     async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
       const task = tasks[id];
       if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: reason }],
+        },
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      return true;
+    },
+    async failStuckQueuedA2ATask(id: string, _cutoff: number, reason: string) {
+      const task = tasks[id];
+      if (!task || !["submitted", "working"].includes(task.status.state)) {
+        return false;
+      }
       task.status = {
         state: "failed",
         message: {
@@ -552,6 +573,167 @@ describe("handleJsonRpc", () => {
       "async A2A processor timed out",
     );
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails a queued async task that never leaves submitted/working past the lifetime cap", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 3-minute A2A_QUEUED_LIFETIME_MAX_MS default — dispatch
+            // never got the task out of submitted/working.
+            testCreatedAt: Date.now() - 3 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.state).toBe("working");
+    const taskId = result.result.id;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "dispatch kept failing",
+    );
+  });
+
+  it("fails a processing async task past the processing lifetime cap even though the heartbeat kept it fresh", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      return new Promise<never>(() => {});
+    });
+    const sideEffectConfig: A2AConfig = {
+      ...customHandler,
+      handler,
+    };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Fresh heartbeat (well under the 5-minute stale check) but past
+            // the 30-minute A2A_PROCESSING_LIFETIME_MAX_MS default — a hung
+            // await inside an otherwise-alive process.
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      sideEffectConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    void processA2ATaskFromQueue(taskId, sideEffectConfig);
+    await startedPromise;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      sideEffectConfig,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns false without an unhandled rejection when refire dispatch keeps throwing", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 10s queued-dispatch-stuck threshold, but well under
+            // the 3-minute lifetime cap — should attempt one refire.
+            testUpdatedAt: Date.now() - 11_000,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    // Every dispatch attempt (including the initial one above) fails from
+    // here on — mirrors a persistently missing background function or bad
+    // A2A secret.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    // No throw out of handleJsonRpc (no unhandled rejection) and the task is
+    // left exactly as it was — still working, not incorrectly marked failed.
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("working");
   });
 
   it("refuses async message/send on hosted runtimes without A2A auth config", async () => {

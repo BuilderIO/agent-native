@@ -113,11 +113,26 @@ details live in `.agents/skills/`.
   clicks when needed. The authenticated connector catalog is the fast fallback
   and exposes only bounded, user/org-scoped read actions for incident triage:
   `list-session-recordings`, `get-session-replay-summary`,
-  `get-session-replay-events`, `query-agent-native-analytics`,
-  `list-error-issues`, and `get-error-issue`. Fetch the summary before raw
-  events, use the event filters/limits to keep the response bounded, and do not
-  add replay blob or dashboard mutation actions to this catalog without an
-  explicit security review.
+  `get-session-replay-timeline`, `query-agent-native-analytics`,
+  `list-error-issues`, and `get-error-issue`. Fetch the summary before the
+  sanitized timeline; the timeline contains bounded page/click/error markers
+  without raw replay events or storage references. Do not add replay blob or
+  dashboard mutation actions to this catalog without an explicit security
+  review.
+- While Demo mode is enabled, session and error identities display anonymized
+  (`anonymous@builder.io`), so incident lookups must filter by the stable
+  `userId`/email parameter (e.g. `userId: "user@example.com"`) or recording/
+  issue id — never by matching emails read back from previously displayed
+  output.
+- Analytics opts into the framework's authenticated-read connector policy, so
+  every Analytics action explicitly marked GET + read-only +
+  `publicAgent.requiresAuth` is directly callable by a signed-in external
+  agent. This includes the incident reads above plus safe dashboard/analysis
+  reads. Generic core `db-schema` / `db-query` remain in-app agent tools and
+  are not automatically exposed because broad SQL/schema access is too
+  powerful to infer from read-only metadata. Writes remain `ask_app`-only.
+  Use the explicit catalog and `denyActions` policy for any unusually
+  sensitive read instead of exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
   evals, experiments, and feedback. `/agents?view=dashboards` shows the

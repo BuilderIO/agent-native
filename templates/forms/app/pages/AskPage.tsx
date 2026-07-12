@@ -1,6 +1,7 @@
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
+  sendToAgentChat,
   useT,
 } from "@agent-native/core/client";
 import { IconChartBar, IconDatabase, IconSettings } from "@tabler/icons-react";
@@ -26,6 +27,28 @@ export function AskPage() {
     };
   }, []);
 
+  function prefillSuggestion(message: string) {
+    sendToAgentChat({ message, submit: false, chatTarget: "local" });
+  }
+
+  const suggestions = [
+    {
+      label: t("home.pillForms"),
+      prompt: "@forms",
+      icon: IconDatabase,
+    },
+    {
+      label: t("home.pillAnalytics"),
+      prompt: "analytics",
+      icon: IconChartBar,
+    },
+    {
+      label: t("home.pillConfiguration"),
+      prompt: "configuration",
+      icon: IconSettings,
+    },
+  ];
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
@@ -48,19 +71,18 @@ export function AskPage() {
           <div className="forms-chat-intro">
             <h1>{t("home.heading")}</h1>
             <p>{t("home.description")}</p>
-            <div className="forms-chat-pill-row" aria-hidden="true">
-              <span className="forms-chat-pill">
-                <IconDatabase className="size-3.5" />
-                {t("home.pillForms")}
-              </span>
-              <span className="forms-chat-pill">
-                <IconChartBar className="size-3.5" />
-                {t("home.pillAnalytics")}
-              </span>
-              <span className="forms-chat-pill">
-                <IconSettings className="size-3.5" />
-                {t("home.pillConfiguration")}
-              </span>
+            <div className="forms-chat-pill-row">
+              {suggestions.map(({ icon: Icon, label, prompt }) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="forms-chat-pill"
+                  onClick={() => prefillSuggestion(prompt)}
+                >
+                  <Icon className="size-3.5" />
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         }

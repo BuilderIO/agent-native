@@ -26,6 +26,18 @@ export default defineAction({
       .optional()
       .describe("Search across issue title, type, culprit, and fingerprint."),
     app: z.string().optional().describe("Optional app filter."),
+    sessionRecordingId: z
+      .string()
+      .optional()
+      .describe(
+        "Filter to issues with an occurrence in this session recording.",
+      ),
+    userId: z
+      .string()
+      .optional()
+      .describe(
+        "Filter to issues with an occurrence for this user ID or user key.",
+      ),
     sort: z
       .enum(["lastSeen", "eventCount", "firstSeen"])
       .optional()

@@ -1512,6 +1512,9 @@ export function createAgentChatPlugin(
           ...(options?.connectorCatalog
             ? { connectorCatalog: options.connectorCatalog }
             : {}),
+          ...(options?.externalAgents
+            ? { externalAgents: options.externalAgents }
+            : {}),
           askAgent: async (message: string) => {
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,

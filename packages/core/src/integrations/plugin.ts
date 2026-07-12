@@ -53,6 +53,7 @@ import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
+import { resolveDefaultIntegrationExecutionContext } from "./identity.js";
 import {
   disconnectIntegrationInstallation,
   listIntegrationInstallations,
@@ -2343,12 +2344,52 @@ export function createIntegrationsPlugin(
             return { error: `Integration ${platform} is not enabled` };
           }
 
-          const incoming = await withCredentialContext(credentialContext, () =>
+          let incoming = await withCredentialContext(credentialContext, () =>
             adapter.parseIncomingMessage(event),
           );
           if (!incoming) {
             setResponseStatus(event, 200);
             return "ok";
+          }
+          if (adapter.hydrateIncomingIdentity) {
+            try {
+              incoming = await withCredentialContext(credentialContext, () =>
+                adapter.hydrateIncomingIdentity!(incoming!),
+              );
+            } catch (err) {
+              // Identity hydration is best-effort for platforms that have an
+              // app-specific resolver. Slack's default DM resolver below will
+              // still fail closed when the identity is absent or unverified.
+              console.warn(
+                `[integrations] Could not hydrate ${platform} sender identity:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          let defaultExecutionContext: IntegrationExecutionContext | null =
+            null;
+          if (
+            incoming.platform === "slack" &&
+            incoming.conversationType === "dm"
+          ) {
+            try {
+              defaultExecutionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              // An app-specific resolver may intentionally support a legacy
+              // Slack setup. When no override exists, the branch below fails
+              // closed instead of falling back to a service principal.
+              if (!options?.resolveExecutionContext && !options?.resolveOwner) {
+                console.error(
+                  `[integrations] default Slack DM identity denied message:`,
+                  err,
+                );
+                setResponseStatus(event, 200);
+                return "ok";
+              }
+            }
           }
           let executionContext: IntegrationExecutionContext = {
             ownerEmail: `integration@${platform}`,
@@ -2370,6 +2411,8 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 200);
               return "ok";
             }
+          } else if (defaultExecutionContext) {
+            executionContext = defaultExecutionContext;
           } else if (options?.resolveOwner) {
             try {
               executionContext.ownerEmail = await withCredentialContext(
@@ -2381,6 +2424,20 @@ export function createIntegrationsPlugin(
                 `[integrations] resolveOwner failed, using default:`,
                 err,
               );
+            }
+          } else {
+            try {
+              executionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] default execution identity denied message:`,
+                err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
             }
           }
           if (executionContext.scopeId) {

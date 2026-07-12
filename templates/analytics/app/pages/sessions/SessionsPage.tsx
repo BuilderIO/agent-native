@@ -21,7 +21,7 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -169,6 +169,40 @@ type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 const SESSION_QUERY_DEBOUNCE_MS = 250;
 
+/**
+ * Local input state for a URL-backed filter, debounced into the URL.
+ *
+ * `urlValue` only resyncs local state when it changes for a reason other
+ * than this hook's own debounced write (back/forward navigation, an agent
+ * driven URL change, etc). React Router commits `setSearchParams` inside a
+ * transition, so without this guard the echo of our own write can land
+ * after a newer keystroke and clobber it.
+ */
+export function useDebouncedUrlFilter(
+  urlValue: string,
+  onCommit: (value: string) => void,
+): [string, (value: string) => void] {
+  const [input, setInput] = useState(urlValue);
+  const lastPushedRef = useRef(urlValue);
+
+  useEffect(() => {
+    if (urlValue === lastPushedRef.current) return;
+    lastPushedRef.current = urlValue;
+    setInput(urlValue);
+  }, [urlValue]);
+
+  useEffect(() => {
+    if (input === urlValue) return;
+    const timeout = window.setTimeout(() => {
+      lastPushedRef.current = input;
+      onCommit(input);
+    }, SESSION_QUERY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [input, urlValue, onCommit]);
+
+  return [input, setInput];
+}
+
 export default function SessionsPage() {
   const t = useT();
   const navigate = useNavigate();
@@ -176,12 +210,7 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
-  const [queryInput, setQueryInput] = useState(query);
   const from = useMemo(() => rangeToFrom(range), [range]);
-
-  useEffect(() => {
-    setQueryInput(query);
-  }, [query]);
 
   const updateFilter = useCallback(
     (key: string, value: string) => {
@@ -200,13 +229,17 @@ export default function SessionsPage() {
     [setSearchParams],
   );
 
-  useEffect(() => {
-    if (queryInput === query) return;
-    const timeout = window.setTimeout(() => {
-      updateFilter("q", queryInput);
-    }, SESSION_QUERY_DEBOUNCE_MS);
-    return () => window.clearTimeout(timeout);
-  }, [query, queryInput, updateFilter]);
+  const commitQuery = useCallback(
+    (value: string) => updateFilter("q", value),
+    [updateFilter],
+  );
+  const [queryInput, setQueryInput] = useDebouncedUrlFilter(query, commitQuery);
+
+  const commitApp = useCallback(
+    (value: string) => updateFilter("app", value),
+    [updateFilter],
+  );
+  const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
 
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
@@ -291,10 +324,8 @@ export default function SessionsPage() {
                       {t("sessions.userFilters")}
                     </div>
                     <Input
-                      value={app}
-                      onChange={(event) =>
-                        updateFilter("app", event.target.value)
-                      }
+                      value={appInput}
+                      onChange={(event) => setAppInput(event.target.value)}
                       placeholder={t("sessions.appPlaceholder")}
                       className="h-9"
                     />

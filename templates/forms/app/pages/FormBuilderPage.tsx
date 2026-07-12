@@ -1031,7 +1031,7 @@ function BuilderContent({
                         )
                       }
                       className={cn(
-                        "group relative cursor-pointer rounded-lg border p-4 transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out",
+                        "group relative -mx-3 cursor-pointer rounded-lg border px-3 py-4 transition-[background-color,border-color,box-shadow,opacity] duration-150 ease-out sm:-mx-4 sm:px-4",
                         selectedFieldId === field.id
                           ? "border-primary bg-card shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.16)] ring-1 ring-primary/20"
                           : "border-transparent bg-transparent shadow-none hover:border-border/80 hover:bg-card/70 hover:shadow-[0_1px_3px_-2px_hsl(var(--foreground)/0.12)]",
@@ -1075,7 +1075,7 @@ function BuilderContent({
               ) : (
                 <div
                   key={field.id}
-                  className="relative rounded-lg border border-transparent bg-transparent p-4 transition-[background-color,border-color] duration-150 hover:border-border/70 hover:bg-card/70"
+                  className="relative -mx-3 rounded-lg border border-transparent bg-transparent px-3 py-4 transition-[background-color,border-color] duration-150 hover:border-border/70 hover:bg-card/70 sm:-mx-4 sm:px-4"
                 >
                   <FieldRenderer field={field} preview />
                 </div>
@@ -1233,7 +1233,6 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
 
   const allResponses = data?.responses || [];
   const fields: FormField[] = data?.fields || form?.fields || [];
-  const total = data?.total ?? 0;
   const hasSubmitterEmail = allResponses.some((r: any) =>
     responseValueAsString(r.submitterEmail).trim(),
   );
@@ -1358,13 +1357,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="text-xs">
-            {t("builder.results.responseCount", {
-              count: total,
-              formattedCount: formatNumber(total),
-            })}
-          </Badge>
+        <div className="ms-auto flex items-center gap-2">
           {search.trim() && filtered.length !== allResponses.length && (
             <span className="text-xs text-muted-foreground">
               {t("builder.results.matchCount", {
@@ -1373,8 +1366,6 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
               })}
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-2">
           <div className="relative">
             <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -1397,17 +1388,20 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
         </div>
       </div>
       <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
-        <div className="min-w-full">
+        <div className="w-full min-w-full">
           <table
-            className="min-w-full table-fixed text-sm"
-            style={{ minWidth: responseTableMinWidth }}
+            className="w-full min-w-full table-fixed text-sm"
+            style={{ width: "100%", minWidth: responseTableMinWidth }}
           >
             <colgroup>
               <col className="w-16" />
               <col className="w-40" />
               {hasSubmitterEmail ? <col className="w-56" /> : null}
-              {fields.map((f) => (
-                <col key={f.id} className="w-80" />
+              {fields.map((f, index) => (
+                <col
+                  key={f.id}
+                  className={index === fields.length - 1 ? "w-auto" : "w-80"}
+                />
               ))}
             </colgroup>
             <thead>

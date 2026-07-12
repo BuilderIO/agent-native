@@ -32,6 +32,101 @@ describe("slackAdapter", () => {
     });
   });
 
+  it("hydrates a verified Slack sender identity before the agent runs", async () => {
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              user: {
+                name: "alice",
+                real_name: "Alice Example",
+                profile: {
+                  email: "alice@example.test",
+                  real_name: "Alice Example",
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    await expect(
+      adapter.hydrateIncomingIdentity?.({
+        platform: "slack",
+        externalThreadId: "A123:T123:D123:1.2",
+        text: "hello",
+        senderId: "U123",
+        tenantId: "T123",
+        conversationType: "dm",
+        platformContext: { teamId: "T123" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toMatchObject({
+      senderEmail: "alice@example.test",
+      senderName: "Alice Example",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
+    });
+  });
+
+  it("re-attempts identity lookup shortly after a failed users.info call", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => {
+      throw new Error("transient slack blip");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+
+    await adapter.hydrateIncomingIdentity?.({
+      platform: "slack",
+      externalThreadId: "A777:T777:D777:1.2",
+      text: "hello",
+      senderId: "U777",
+      tenantId: "T777",
+      conversationType: "dm",
+      platformContext: { teamId: "T777" },
+      timestamp: Date.now(),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Immediately after the failure, the short negative cache absorbs retries.
+    await adapter.hydrateIncomingIdentity?.({
+      platform: "slack",
+      externalThreadId: "A777:T777:D777:1.2",
+      text: "hello again",
+      senderId: "U777",
+      tenantId: "T777",
+      conversationType: "dm",
+      platformContext: { teamId: "T777" },
+      timestamp: Date.now(),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Well before the 10-minute positive TTL, the lookup is re-attempted, so
+    // a transient users.info blip cannot fail-close this sender's identity.
+    vi.setSystemTime(Date.now() + 31_000);
+    await adapter.hydrateIncomingIdentity?.({
+      platform: "slack",
+      externalThreadId: "A777:T777:D777:1.2",
+      text: "hello once more",
+      senderId: "U777",
+      tenantId: "T777",
+      conversationType: "dm",
+      platformContext: { teamId: "T777" },
+      timestamp: Date.now(),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not bold-wrap bare URLs", () => {
     const formatted = slackAdapter().formatAgentResponse(
       "**https://slides.agent-native.com/deck/deck-qa**",

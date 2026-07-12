@@ -91,6 +91,9 @@ async function resolveSlackSenderProfile(
 async function resolveIncomingEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
+  if (incoming.senderVerified === true && incoming.senderEmail?.trim()) {
+    return incoming.senderEmail.trim().toLowerCase();
+  }
   if (incoming.platform === "slack") {
     return (await resolveSlackSenderProfile(incoming)).email;
   }

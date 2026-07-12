@@ -10,6 +10,7 @@ export {
   buildLinkArtifacts,
 } from "./build-server.js";
 export type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
+export type { ExternalAgentPolicy } from "./external-agent-policy.js";
 
 // stdio transport for `agent-native mcp serve` (Node-only).
 export { runMCPStdio } from "./stdio.js";

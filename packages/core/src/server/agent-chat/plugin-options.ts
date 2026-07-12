@@ -5,6 +5,7 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
+import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
 
@@ -293,7 +294,9 @@ export interface AgentChatPluginOptions {
    * browser-session tools) from connectors. It is no longer gated behind an
    * environment variable, and the catalog is never inferred from the client.
    *
-   * `tool-search` stays available so any trimmed tool is reachable on demand.
+   * `tool-search` stays available for discovery; a trimmed action still needs
+   * the connector catalog, authenticated-read policy, or full-catalog opt-in
+   * before an external caller can execute it.
    * Callers who need the full surface up front opt in explicitly with
    * `agent-native connect --full-catalog` (embeds a `catalog_scope: "full"`
    * claim in their connect-minted JWT) or the deployment-wide
@@ -302,6 +305,14 @@ export interface AgentChatPluginOptions {
    * Declare here rather than in MCPConfig directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+
+  /**
+   * Default authenticated external-agent policy. In `auto` read mode, every
+   * action explicitly marked as GET + readOnly + publicAgent.requiresAuth is
+   * added to the connector surface automatically. Writes remain ask_app-only
+   * unless `writes: "allowlisted"` is explicitly selected.
+   */
+  externalAgents?: ExternalAgentPolicy;
 
   /**
    * Skip mounting the remote MCP protocol route.

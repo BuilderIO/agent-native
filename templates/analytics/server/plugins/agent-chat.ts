@@ -258,6 +258,10 @@ export default createAgentChatPlugin({
   // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
   codeExecution: { production: "sandboxed" },
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+  },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

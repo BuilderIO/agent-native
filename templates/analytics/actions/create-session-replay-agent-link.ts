@@ -20,7 +20,6 @@ export default defineAction({
   schema: z.object({
     recordingId: z.string().describe("The session_recordings id"),
   }),
-  readOnly: true,
   run: async (args) => {
     return createSessionReplayAgentLink({
       recordingId: args.recordingId,

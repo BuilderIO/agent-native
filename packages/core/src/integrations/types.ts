@@ -275,6 +275,13 @@ export interface PlatformAdapter {
   hydrateIncomingMessage?(incoming: IncomingMessage): Promise<IncomingMessage>;
 
   /**
+   * Hydrate only verified sender identity before execution-context selection.
+   * This runs on the provider acknowledgement path and must avoid fetching
+   * conversation history or file bodies.
+   */
+  hydrateIncomingIdentity?(incoming: IncomingMessage): Promise<IncomingMessage>;
+
+  /**
    * Provider-specific response returned only after a message is verified and
    * durably enqueued. Discord uses this to return a type-5 deferred response
    * within its three-second interaction deadline.

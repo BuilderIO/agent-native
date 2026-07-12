@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
  * reads go through `accessFilter` so an org-scoped key surfaces its issues to
  * the whole org exactly like session recordings.
  */
-import { readAppState } from "@agent-native/core/application-state";
+import { appStateGet } from "@agent-native/core/application-state";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -26,6 +26,7 @@ import {
   and,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   notInArray,
@@ -1073,6 +1074,8 @@ export interface ListErrorIssuesFilters {
   status?: IssueStatus | "all";
   query?: string;
   app?: string;
+  sessionRecordingId?: string;
+  userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
 }
@@ -1106,10 +1109,14 @@ export function anonymizeErrorReportingEmails<T>(value: T): T {
   return value;
 }
 
-async function isErrorDemoModeEnabled(): Promise<boolean> {
+async function isErrorDemoModeEnabled(
+  userEmail?: string | null,
+): Promise<boolean> {
   if (process.env.DEMO_MODE === "true") return true;
+  if (!userEmail) return false;
   try {
-    const state = await readAppState("demo-mode");
+    // Keep demo state tied to the caller whose issues are being read.
+    const state = await appStateGet(userEmail, "demo-mode");
     return state?.enabled === true;
   } catch {
     return false;
@@ -1195,7 +1202,7 @@ export async function listErrorIssues(
   scope: ErrorReadScope,
   filters: ListErrorIssuesFilters = {},
 ): Promise<ErrorIssueSummary[]> {
-  const demoModeEnabled = isErrorDemoModeEnabled();
+  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const limit = Math.min(
     MAX_ISSUE_LIMIT,
@@ -1206,6 +1213,41 @@ export async function listErrorIssues(
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
+  const sessionRecordingId = filters.sessionRecordingId?.trim();
+  const userId = filters.userId?.trim();
+  if (sessionRecordingId || userId) {
+    const occurrenceConditions: any[] = [
+      eq(schema.errorEvents.issueId, schema.errorIssues.id),
+      // Keep the child occurrence in the same tenant as its parent issue even
+      // when the issue is visible through an org share.
+      eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
+      or(
+        eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
+        and(isNull(schema.errorEvents.orgId), isNull(schema.errorIssues.orgId)),
+      ),
+    ];
+    if (sessionRecordingId) {
+      occurrenceConditions.push(
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      );
+    }
+    if (userId) {
+      occurrenceConditions.push(
+        or(
+          eq(schema.errorEvents.userId, userId),
+          eq(schema.errorEvents.userKey, userId),
+        ),
+      );
+    }
+    conditions.push(
+      exists(
+        db
+          .select({ id: schema.errorEvents.id })
+          .from(schema.errorEvents)
+          .where(and(...occurrenceConditions)),
+      ),
+    );
+  }
   const query = filters.query?.trim();
   if (query) {
     conditions.push(
@@ -1343,7 +1385,7 @@ export async function getErrorIssue(
   issueId: string,
   options: { eventsLimit?: number } = {},
 ): Promise<ErrorIssueDetail> {
-  const demoModeEnabled = isErrorDemoModeEnabled();
+  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const [issueRow] = await db
     .select()

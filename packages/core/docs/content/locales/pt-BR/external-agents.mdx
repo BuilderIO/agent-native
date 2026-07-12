@@ -325,8 +325,10 @@ O servidor MCP fornece um **catálogo compacto por padrão para cada chamador** 
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> descobre ferramentas da camada completa sob demanda;
+  o catálogo do conector ou a política de leituras autenticadas ainda precisa
+  permitir a execução, salvo quando o chamador opta explicitamente pela camada
+  completa.
 </p>
 ```
 
@@ -364,15 +366,45 @@ O servidor MCP fornece um **catálogo compacto por padrão para cada chamador** 
 
 ### Camada compacta/conector (padrão) {#connector-tier}
 
-Por padrão, cada agente conectado vê um catálogo pequeno e selecionado (cerca de 20 a 30 ferramentas versus cerca de 105 na superfície completa):
+Por padrão, cada agente conectado vê um catálogo pequeno e selecionado (cerca de 20 a 30 ferramentas versus cerca de 105 na superfície completa). Os aplicativos podem manter um `connectorCatalog` explícito ou optar pela política de leituras autenticadas:
 
 - **Aplicativo declarado por modelo actions** — a lista de permissões segura no nível do aplicativo. Para planos `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search` e similares.
 - **Ferramentas integradas para vários aplicativos** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** está sempre presente, então qualquer coisa fora da lista permanece acessível sob demanda (veja abaixo).
+- **`tool-search`** está sempre presente para descoberta. Uma action descoberta ainda precisa estar no catálogo do conector, ser incluída pela política de leituras autenticadas ou ser habilitada pela opção explícita de catálogo completo antes que `tools/call` possa executá-la.
 
-Ferramentas fora da lista — por exemplo `db-exec`, `seed-*`, o conjunto de extensões, ferramentas de sessão de navegador e ferramentas de raio X de contexto — não são anunciadas e as chamadas para elas são rejeitadas com "Ferramenta desconhecida", a menos que o chamador tenha optado pelo catálogo completo. Isso mantém pequena a janela de contexto de cada agente conectado e remove armas de fogo que são seguras apenas para desenvolvimento local de locatário único. A camada do conector fica ativa **sempre que um modelo declara um `connectorCatalog`** — ele não está protegido por uma variável de ambiente.
+Ferramentas fora da lista — por exemplo `db-exec`, `seed-*`, o conjunto de extensões, ferramentas de sessão de navegador e ferramentas de raio X de contexto — não são anunciadas e as chamadas para elas são rejeitadas com "Ferramenta desconhecida", a menos que o chamador tenha optado pelo catálogo completo. Isso mantém pequena a janela de contexto de cada agente conectado e remove armas de fogo que são seguras apenas para desenvolvimento local de locatário único.
 
-`tool-search` funciona de duas maneiras: chame-o com **sem consulta** para obter o menu completo de nomes de ferramentas mais descrições de uma linha (barato, sem esquemas) ou com uma consulta para correspondências classificadas com resumos de parâmetros. É assim que um cliente compactado descobre e carrega qualquer ferramenta de superfície completa quando precisa.
+`tool-search` funciona de duas maneiras: chame-o **sem consulta** para obter o menu completo de nomes de ferramentas mais descrições de uma linha (barato, sem esquemas) ou com uma consulta para correspondências classificadas com resumos de parâmetros. Ele ajuda um cliente compacto a descobrir recursos; use `ask_app` para qualquer tarefa que exija o raciocínio mais amplo do agente do aplicativo ou uma gravação.
+
+#### Leituras autenticadas por padrão
+
+Aplicativos que desejam que as ferramentas de leitura direta funcionem sem manter uma lista longa podem optar por leituras autenticadas automáticas:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "analytics",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Veto opcional de defesa em profundidade para leituras especialmente sensíveis.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+`authenticatedReads: "auto"` adiciona somente actions que declaram explicitamente todos os itens a seguir:
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+A política combina essas actions com entradas explícitas de `connectorCatalog` e depois aplica `denyActions`. Com `writes: "ask_app_only"` (o padrão quando as leituras automáticas estão habilitadas), ferramentas que alteram dados não podem ser chamadas diretamente; encaminhe trabalhos de várias etapas e mutações por `ask_app`. `writes: "allowlisted"` existe apenas para aplicativos que mantêm intencionalmente uma lista explícita de gravações permitidas.
+
+A política é autenticada, não anônima. A identidade MCP OAuth/connect é transmitida por `runWithRequestContext`, portanto as verificações de acesso das actions, os escopos de proprietário/organização e os escopos de leitura OAuth continuam valendo. Actions públicas ou não autenticadas não são incluídas automaticamente.
+
+Os `db-schema` e `db-query` do Core não são expostos automaticamente como leituras externas. Eles continuam disponíveis ao agente interno do aplicativo pelo caminho SQL com escopo normal, mas o acesso amplo ao esquema/SQL é poderoso demais para ser inferido apenas de metadados de leitura. Se o aplicativo precisar de consultas externas diretas, exponha uma action GET própria com controles e limites de acesso, ou uma lista explícita de tabelas/colunas com limites de linhas, bytes, tempo e auditoria. `db-exec` e `db-patch` permanecem fora da superfície automática.
+
+DMs do Slack usam a identidade do usuário somente após verificar o e-mail e confirmar a associação à organização Agent Native. Canais compartilhados usam um principal de serviço e não herdam as permissões privadas de um participante. O OAuth gerenciado e o manifesto gerado do Slack solicitam `users:read.email`; instalações existentes precisam ser reconectadas após adicionar o escopo e tokens antigos de bot precisam ser atualizados manualmente no Slack.
 
 ### Nível completo (somente aceitação explícita) {#full-tier}
 
@@ -474,7 +506,7 @@ Além das ferramentas por ação, o servidor MCP expõe um conjunto de verbos es
 
 `create_workspace_app` rejeita qualquer modelo não listado na lista de permissões — a lista de permissões de modelos públicos no `packages/shared-app-config/templates.ts` é oficial e protegida por CI; um agente externo não pode ampliá-lo. Uma ação de modelo com o mesmo nome substitui uma ação interna (precedência de modelo sobre núcleo). Desative todo o conjunto com `MCPConfig.builtinCrossAppTools: false`.
 
-Os catálogos de ferramentas e recursos para hosts de aplicativos são compactos por padrão — consulte [Catalog tiers](#catalog-tiers). `publicAgent.expose` continua sendo a opção para ferramentas seguras de leitura/ingestão fora desse catálogo compacto; defina `mcpApp.compactCatalog: true` apenas como uma rara exceção para actions que deve aparecer na descoberta do host do chat.
+Os catálogos de ferramentas e recursos para hosts de aplicativos são compactos por padrão — consulte [Catalog tiers](#catalog-tiers). `publicAgent.expose` continua sendo a opção no nível da action para ferramentas seguras de leitura/ingestão fora desse catálogo compacto; os aplicativos podem definir `externalAgents.authenticatedReads: "auto"` para anunciar essas leituras autenticadas sem um catálogo escrito à mão. Defina `mcpApp.compactCatalog: true` apenas como uma rara exceção para actions que precisam aparecer na descoberta do host do chat.
 
 Para transferências rápidas de ChatGPT/Claude, o caminho ideal é direto: chame a ação que cria ou abre o artefato e deixe o aplicativo MCP iniciar a rota. Uma solicitação de correio deve chamar `manage_draft` e renderizar a rota de composição real. Uma solicitação de painel deve chamar `open_app({ path, embed: true })` ou uma ação de painel com `mcpApp` e renderizar a rota completa do Analytics. Calendário, Formulários, Conteúdo, Slides, Design e Clipes devem seguir o mesmo padrão com seu rascunho/criação/pesquisa actions. `list_apps` é útil quando o modelo precisa escolher entre aplicativos concedidos; `resources/list` amplo, descoberta de catálogo completo ou delegação `ask_app` não devem ser o caminho normal para uma transferência óbvia de UI.
 

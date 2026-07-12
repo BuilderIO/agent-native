@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
+import { createDbScriptEntries } from "../server/agent-chat/script-entries.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
@@ -141,6 +142,38 @@ describe("shared coding tools", () => {
         command: 'pnpm action db-exec --sql "UPDATE forms SET status = 1"',
       }),
     ).resolves.toContain("raw database write tools are disabled");
+  });
+
+  it("keeps core read-only database tools out of automatic external exposure", async () => {
+    const registry = await createDbScriptEntries("read", {
+      extensionTools: false,
+    });
+
+    for (const name of ["db-schema", "db-query"]) {
+      expect(registry[name]).toMatchObject({
+        readOnly: true,
+      });
+      expect(registry[name].http).toBeUndefined();
+      expect(registry[name].publicAgent).toBeUndefined();
+    }
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+  });
+
+  it("rejects CLI-only database flags from native DB read tools", async () => {
+    const registry = await createDbScriptEntries("read", {
+      extensionTools: false,
+    });
+
+    await expect(
+      registry["db-query"].run({
+        sql: "SELECT 1",
+        db: "/tmp/other-app.db",
+      }),
+    ).rejects.toThrow("Unknown argument: db");
+    await expect(
+      registry["db-schema"].run({ db: "/tmp/other-app.db" }),
+    ).rejects.toThrow("Unknown argument: db");
   });
 
   it("can expose legacy aliases explicitly for compatibility callers", async () => {

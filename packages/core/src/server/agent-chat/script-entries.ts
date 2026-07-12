@@ -31,7 +31,10 @@ import {
 function wrapCliScript(
   tool: ActionTool,
   cliDefault: (args: string[]) => Promise<void>,
-  opts?: { readOnly?: boolean },
+  opts?: {
+    allowedArgs?: readonly string[];
+    readOnly?: boolean;
+  },
 ): ActionEntry {
   return {
     tool,
@@ -39,6 +42,14 @@ function wrapCliScript(
     run: async (args: Record<string, string>): Promise<string> => {
       const cliArgs: string[] = [];
       for (const [k, v] of Object.entries(args)) {
+        // MCP input schemas are descriptive and some hosts can still send
+        // undeclared keys. The externally exposed DB readers must never accept
+        // the CLI-only `--db` escape hatch, which could point at another local
+        // SQLite file. Keep their runtime surface identical to the advertised
+        // schema instead of trusting the client to validate it.
+        if (opts?.allowedArgs && !opts.allowedArgs.includes(k)) {
+          throw new Error(`Unknown argument: ${k}`);
+        }
         const raw = v as unknown;
         const value =
           raw != null && typeof raw === "object"
@@ -101,7 +112,10 @@ export async function createDbScriptEntries(
           },
         },
         schemaMod.default,
-        { readOnly: true },
+        {
+          allowedArgs: ["format"],
+          readOnly: true,
+        },
       ),
       "db-query": wrapCliScript(
         {
@@ -134,7 +148,10 @@ export async function createDbScriptEntries(
           },
         },
         queryMod.default,
-        { readOnly: true },
+        {
+          allowedArgs: ["sql", "args", "format", "limit"],
+          readOnly: true,
+        },
       ),
     };
 

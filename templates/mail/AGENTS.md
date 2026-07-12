@@ -61,7 +61,9 @@ Detailed draft, queue, and contact-resolution patterns live in
   (`draft-queue` skill), not `send-email` directly. The requester and reviewer
   must both be members of the active organization; Slack intake resolves the
   sender's real email via `users.info` (requires `users:read.email` bot scope)
-  before it will queue anything.
+  before it will queue anything. Managed installs request that scope through
+  the generated OAuth manifest; reconnect an existing Slack install after
+  granting it. Legacy bot-token installs must add the scope in Slack manually.
 - Never edit the email store to change a draft the user is currently composing;
   use `manage-draft` or the `compose-{id}` application-state key described in
   `email-drafts`.
