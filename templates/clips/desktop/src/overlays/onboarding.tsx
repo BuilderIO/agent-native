@@ -122,16 +122,18 @@ export function Onboarding() {
     if (submitting) return;
     setSubmitting(true);
     try {
+      // Merge over the live config: onboarding only owns the feature
+      // choices. Writing a fixed object here would silently reset every
+      // other setting (whisper model choice, screen memory, recording
+      // mode) to defaults.
+      const current =
+        await invoke<Record<string, unknown>>("get_feature_config");
       await invoke("set_feature_config", {
         config: {
+          ...current,
           clipsEnabled: clips,
           meetingsEnabled: meetings,
           voiceEnabled: voice,
-          launchAtLoginEnabled: true,
-          autoHidePopoverEnabled: false,
-          meetingTranscriptionMode: "ask",
-          showMeetingWidgetEnabled: true,
-          showInScreenCapture: false,
           onboardingComplete: true,
         },
       });

@@ -554,6 +554,7 @@ pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
 /// false. Reuses an existing window if one is somehow already open (e.g. a
 /// hot-reload re-triggering setup in dev) instead of building a second one.
 pub fn show_onboarding_window(app: &AppHandle) {
+    crate::config::mark_onboarding_complete(app);
     if let Some(existing) = app.get_webview_window(ONBOARDING_LABEL) {
         let _ = existing.show();
         let _ = existing.set_focus();

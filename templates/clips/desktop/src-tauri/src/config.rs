@@ -275,6 +275,21 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 }
 
 /// Save feature config to disk and emit a change event.
+/// Persist `onboarding_complete: true` without touching any other setting.
+/// Called when the onboarding window is first shown: seeing it once is
+/// enough — permission state lives in the popover's Permissions section,
+/// so a restart mid-flow must not re-force the full-screen onboarding.
+pub fn mark_onboarding_complete(app: &AppHandle) {
+    let mut config = load_config(app);
+    if config.onboarding_complete {
+        return;
+    }
+    config.onboarding_complete = true;
+    if let Err(err) = save_config(app, &config) {
+        eprintln!("[clips-tray] persisting onboarding_complete failed: {err}");
+    }
+}
+
 #[tauri::command]
 pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
     let previous = load_config(&app);
