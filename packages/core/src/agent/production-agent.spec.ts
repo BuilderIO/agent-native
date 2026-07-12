@@ -1519,6 +1519,237 @@ describe("runAgentLoop", () => {
     });
   });
 
+  // ─── FIX 2: foreground first-model-event no-progress cap ───────────────────
+  // A hung FIRST engine-stream event previously rode the full 90s
+  // MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS watchdog before auto_continue could
+  // fire — but the clamped ~40s HOSTED foreground runtime is killed before
+  // that watchdog ever gets a chance, so the run died as a silent platform
+  // kill instead of a recoverable checkpoint.
+  // FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS (25s) closes that gap — gated on
+  // `isHostedRuntime() && !isInBackgroundFunctionRuntime()`, so local dev /
+  // self-hosted runtimes (no soft-timeout regime, no platform wall) and
+  // proven background-function workers keep the full 90s window. See
+  // production-agent.ts for the ordering invariant.
+
+  // Every env var the two runtime predicates read (`isHostedRuntime` in
+  // run-manager.ts; `isInBackgroundFunctionRuntime` in durable-background.ts).
+  // Snapshot + clear them all so each test pins BOTH predicates explicitly,
+  // regardless of the machine/CI environment the suite happens to run on.
+  const RUNTIME_PREDICATE_ENV_KEYS = [
+    "NETLIFY",
+    "NETLIFY_LOCAL",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
+    "CF_PAGES",
+    "VERCEL",
+    "VERCEL_ENV",
+    "RENDER",
+    "FLY_APP_NAME",
+    "K_SERVICE",
+  ] as const;
+  function snapshotAndClearRuntimePredicateEnv(): () => void {
+    const saved = new Map<string, string | undefined>();
+    for (const key of RUNTIME_PREDICATE_ENV_KEYS) {
+      saved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    return () => {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    };
+  }
+  const hangingFirstEventEngine = (): AgentEngine => ({
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: true,
+    },
+    async *stream(): AsyncIterable<EngineEvent> {
+      // Zero tokens, ever — mirrors the incident's hung first model call.
+      await new Promise(() => {});
+    },
+  });
+
+  it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    // Hosted (non-background Lambda name, e.g. the regular `server` function)
+    // + not a background-function runtime: the exact clamped runtime from the
+    // incident.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Just past the 25s foreground cap, comfortably under the normal 90s
+      // watchdog — only the tightened first-event deadline explains a fire
+      // this early.
+      await vi.advanceTimersByTimeAsync(26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a hung FIRST model event keeps the full 90s window on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
+    // All hosted markers cleared — resolveRunSoftTimeoutMs resolves to 0
+    // here (no soft-timeout regime, no platform wall), so a genuinely slow
+    // first token (large local contexts, slow local providers) must NOT be
+    // chopped at 25s.
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Past the 25s cap — a non-hosted runtime must be unaffected by it.
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).toHaveLength(0);
+
+      // The normal 90s in-loop watchdog still applies and eventually fires.
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a hung FIRST model event does NOT fire early when proven to be running inside a background function", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    // Hosted AND proven background-function runtime (`-background` Lambda
+    // name) — the 15-min budget applies, so the cap must stay off.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Past the 25s foreground cap — a proven background-function worker
+      // must be unaffected by it.
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).toHaveLength(0);
+
+      // The normal 90s watchdog still applies and eventually fires.
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a gap AFTER the first event keeps the normal 90s window on the HOSTED foreground runtime", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        // A real first event arrives promptly...
+        yield { type: "text-delta", text: "thinking" };
+        // ...then the stream goes silent. Only the FIRST await on a fresh
+        // model call is capped at 25s — this gap must ride the normal 90s
+        // watchdog even though it also exceeds 25s.
+        await new Promise(() => {});
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
   it("closes the event stream after an action-preparation stall", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);

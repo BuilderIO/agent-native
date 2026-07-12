@@ -38,6 +38,7 @@ import {
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
+  useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
 
@@ -208,6 +209,126 @@ describe("resolveAssistantChatSubmitIntent", () => {
 });
 
 describe("dedupeReconnectContentAgainstMessages", () => {
+  it("hides reasoning already rendered in the latest assistant message", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "reasoning", text: "Inspect the schema." }],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [{ type: "reasoning", text: "Inspect the schema." }],
+        persistedMessages,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps only the new tail of a reconnect reasoning segment", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "reasoning", text: "Inspect the schema." }],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          {
+            type: "reasoning",
+            text: "Inspect the schema. Then query it.",
+          },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([{ type: "reasoning", text: " Then query it." }]);
+  });
+
+  it("preserves a legitimately repeated later reasoning segment", () => {
+    const completedTool = {
+      type: "tool-call" as const,
+      toolCallId: "toolu_1",
+      toolName: "read-file",
+      argsText: "{}",
+      args: {},
+      result: "done",
+    };
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "reasoning", text: "Check it." }, completedTool],
+      },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        [
+          { type: "reasoning", text: "Check it." },
+          completedTool,
+          { type: "reasoning", text: "Check it." },
+        ],
+        persistedMessages,
+      ),
+    ).toEqual([{ type: "reasoning", text: "Check it." }]);
+  });
+
+  it("does not fuzzy-dedupe divergent reasoning", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [{ type: "reasoning", text: "Check schema." }],
+      },
+    ];
+    const reconnectContent = [
+      { type: "reasoning" as const, text: "Check docs." },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+      ),
+    ).toBe(reconnectContent);
+  });
+
+  it("dedupes a tail-only reconnect inside the latest reasoning segment", () => {
+    const persistedMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "Earlier thought." },
+          {
+            type: "tool-call",
+            toolCallId: "toolu_1",
+            toolName: "read-file",
+            args: {},
+            result: "done",
+          },
+          { type: "reasoning", text: "Inspect the schema." },
+        ],
+      },
+    ];
+    const reconnectContent = [
+      { type: "reasoning" as const, text: " the schema." },
+    ];
+
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+      ),
+    ).toBe(reconnectContent);
+    expect(
+      dedupeReconnectContentAgainstMessages(
+        reconnectContent,
+        persistedMessages,
+        { trimTailTextOverlap: true },
+      ),
+    ).toEqual([]);
+  });
+
   it("hides replayed reconnect tool calls already present in thread messages", () => {
     const persistedMessages = [
       {
@@ -1054,6 +1175,9 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
     expect(source).toContain("useNearBottomAutoscroll<HTMLDivElement>");
+    expect(source).toContain(
+      "if (!hideUserMessage) resumeFollowingRef.current()",
+    );
     expect(source).toContain('aria-label="Scroll to bottom"');
     expect(source).toContain("autoScroll={false}");
     expect(source).not.toContain("scrollAnchor");
@@ -1128,6 +1252,140 @@ describe("resolveAssistantChatRunningState", () => {
         isAutoResuming: true,
       }),
     ).toEqual({ isRunning: false, showRunningInUI: false });
+  });
+});
+
+describe("useAutoResumeStatus", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  interface AutoResumeApi {
+    isAutoResuming: boolean;
+    clearAutoResume: () => void;
+  }
+
+  function AutoResumeHarness({
+    apiRef,
+    tabId,
+    forceStopped = false,
+  }: {
+    apiRef: React.RefObject<AutoResumeApi | null>;
+    tabId: string | undefined;
+    forceStopped?: boolean;
+  }) {
+    const api = useAutoResumeStatus(tabId, forceStopped);
+    React.useLayoutEffect(() => {
+      apiRef.current = api;
+    });
+    return React.createElement(
+      "output",
+      { "data-testid": "auto-resume-state" },
+      api.isAutoResuming ? "resuming" : "idle",
+    );
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function renderHarness(tabId: string | undefined, forceStopped = false) {
+    const apiRef = React.createRef<AutoResumeApi>();
+    act(() => {
+      root.render(
+        React.createElement(AutoResumeHarness, {
+          apiRef,
+          tabId,
+          forceStopped,
+        }),
+      );
+    });
+    return apiRef;
+  }
+
+  function dispatchAutoContinue(tabId?: string) {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:auto-continue", { detail: { tabId } }),
+      );
+    });
+  }
+
+  function dispatchStreamProgress(tabId?: string) {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+      );
+    });
+  }
+
+  it("sets resuming on auto-continue and clears it on a matching-tab stream-progress event", () => {
+    const apiRef = renderHarness("tab-1");
+
+    dispatchAutoContinue("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(true);
+
+    dispatchStreamProgress("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(false);
+  });
+
+  it("ignores a stream-progress event for a different tab", () => {
+    const apiRef = renderHarness("tab-1");
+
+    dispatchAutoContinue("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(true);
+
+    dispatchStreamProgress("tab-2");
+    expect(apiRef.current?.isAutoResuming).toBe(true);
+
+    // The matching tab still clears it.
+    dispatchStreamProgress("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(false);
+  });
+
+  it("does not let the 30s failsafe re-trigger after stream-progress already cleared it", () => {
+    const apiRef = renderHarness("tab-1");
+
+    dispatchAutoContinue("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(true);
+
+    dispatchStreamProgress("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(apiRef.current?.isAutoResuming).toBe(false);
+  });
+
+  it("clears resuming when the run is force-stopped", () => {
+    const apiRef = renderHarness("tab-1", false);
+
+    dispatchAutoContinue("tab-1");
+    expect(apiRef.current?.isAutoResuming).toBe(true);
+
+    act(() => {
+      root.render(
+        React.createElement(AutoResumeHarness, {
+          apiRef,
+          tabId: "tab-1",
+          forceStopped: true,
+        }),
+      );
+    });
+    expect(apiRef.current?.isAutoResuming).toBe(false);
   });
 });
 

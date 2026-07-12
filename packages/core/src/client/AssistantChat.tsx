@@ -1002,6 +1002,91 @@ function latestRenderedAssistantText(messages: readonly unknown[]): string {
   return assistantTextFromContent(latestMessage.content);
 }
 
+function latestRenderedAssistantReasoning(
+  messages: readonly unknown[],
+): string[] {
+  const latestEntry = messages.at(-1);
+  const latestMessage = getRepoMessage(latestEntry as any);
+  if (
+    latestMessage?.role !== "assistant" ||
+    !Array.isArray(latestMessage.content)
+  ) {
+    return [];
+  }
+  return latestMessage.content.flatMap((part) =>
+    part?.type === "reasoning" &&
+    typeof part.text === "string" &&
+    part.text.length > 0
+      ? [part.text]
+      : [],
+  );
+}
+
+function trimReconnectReasoningAlreadyRendered(
+  content: ContentPart[],
+  renderedReasoning: readonly string[],
+  options?: { trimTailOverlap?: boolean },
+): ContentPart[] {
+  if (renderedReasoning.length === 0) return content;
+  const firstReconnectReasoning = content.find(
+    (part): part is Extract<ContentPart, { type: "reasoning" }> =>
+      part.type === "reasoning" && part.text.length > 0,
+  )?.text;
+  let renderedOffset = 0;
+  if (options?.trimTailOverlap && firstReconnectReasoning) {
+    for (let index = renderedReasoning.length - 1; index >= 0; index -= 1) {
+      const rendered = renderedReasoning[index];
+      if (
+        rendered === firstReconnectReasoning ||
+        rendered.startsWith(firstReconnectReasoning) ||
+        firstReconnectReasoning.startsWith(rendered) ||
+        longestSuffixPrefixOverlap(rendered, firstReconnectReasoning) > 0
+      ) {
+        renderedOffset = index;
+        break;
+      }
+    }
+  }
+  let reasoningIndex = 0;
+  let changed = false;
+  const next: ContentPart[] = [];
+
+  for (const part of content) {
+    if (part.type !== "reasoning") {
+      next.push(part);
+      continue;
+    }
+    const rendered = renderedReasoning[renderedOffset + reasoningIndex];
+    reasoningIndex += 1;
+    if (!rendered) {
+      next.push(part);
+      continue;
+    }
+    if (rendered === part.text || rendered.startsWith(part.text)) {
+      changed = true;
+      continue;
+    }
+    if (part.text.startsWith(rendered)) {
+      const tail = part.text.slice(rendered.length);
+      if (tail) next.push({ ...part, text: tail });
+      changed = true;
+      continue;
+    }
+    if (options?.trimTailOverlap) {
+      const overlap = longestSuffixPrefixOverlap(rendered, part.text);
+      if (overlap > 0) {
+        const tail = part.text.slice(overlap);
+        if (tail) next.push({ ...part, text: tail });
+        changed = true;
+        continue;
+      }
+    }
+    next.push(part);
+  }
+
+  return changed ? next : content;
+}
+
 function dedupePendingToolCallReplaysWithinContent(
   content: ContentPart[],
 ): ContentPart[] {
@@ -1188,11 +1273,13 @@ export function dedupeReconnectContentAgainstMessages(
   const { byId, latestAssistantByFingerprint, latestAssistantByName } =
     collectRenderedToolCallStates(messages);
   const renderedAssistantText = latestRenderedAssistantText(messages);
+  const renderedAssistantReasoning = latestRenderedAssistantReasoning(messages);
   if (
     byId.size === 0 &&
     latestAssistantByFingerprint.size === 0 &&
     latestAssistantByName.size === 0 &&
-    !renderedAssistantText
+    !renderedAssistantText &&
+    renderedAssistantReasoning.length === 0
   ) {
     return changed ? snapshotDeduped : content;
   }
@@ -1313,12 +1400,18 @@ export function dedupeReconnectContentAgainstMessages(
           return true;
         })
       : snapshotDeduped;
-  const textDeduped = trimReconnectTextAlreadyRendered(
+  const reasoningDeduped = trimReconnectReasoningAlreadyRendered(
     filtered,
+    renderedAssistantReasoning,
+    { trimTailOverlap: options?.trimTailTextOverlap },
+  );
+  if (reasoningDeduped !== filtered) changed = true;
+  const textDeduped = trimReconnectTextAlreadyRendered(
+    reasoningDeduped,
     renderedAssistantText,
     { trimTailOverlap: options?.trimTailTextOverlap },
   );
-  if (textDeduped !== filtered) changed = true;
+  if (textDeduped !== reasoningDeduped) changed = true;
   return changed ? textDeduped : content;
 }
 
@@ -1953,6 +2046,87 @@ function stripBase64FromRepo(repo: unknown): unknown {
   return { ...r, messages };
 }
 
+/**
+ * Owns the "Resuming…" status shown during the adapter's auto-continuation
+ * window — the gap between the end of one serverless chunk and the POST for
+ * the next. Set true the moment the adapter dispatches
+ * `agent-chat:auto-continue`. Cleared here as soon as the successor chunk
+ * produces real output (`agent-chat:stream-progress` — dispatched by the SSE
+ * processor for non-empty text/reasoning deltas) or the run is force-stopped;
+ * a 30s failsafe timer covers any case neither fires. The caller clears it
+ * via the returned `clearAutoResume` for other real-progress signals (tool
+ * activity, an accepted run error, an explicit stop) that live outside this
+ * hook.
+ *
+ * Deliberately NOT cleared by `agent-chat:activity-clear` or merely-idle
+ * `isRunning`: both also fire for old-chunk `tool_done` replays / server
+ * retries, and clearing on those would re-expose terminal message controls
+ * during the exact gap this state exists to cover.
+ */
+export function useAutoResumeStatus(
+  tabId: string | undefined,
+  forceStopped: boolean,
+): { isAutoResuming: boolean; clearAutoResume: () => void } {
+  const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const autoResumeTimerRef = useRef<number | null>(null);
+
+  const clearAutoResume = useCallback(() => {
+    if (autoResumeTimerRef.current !== null) {
+      window.clearTimeout(autoResumeTimerRef.current);
+      autoResumeTimerRef.current = null;
+    }
+    setIsAutoResuming(false);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+      }
+      setIsAutoResuming(true);
+      autoResumeTimerRef.current = window.setTimeout(() => {
+        autoResumeTimerRef.current = null;
+        setIsAutoResuming(false);
+      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
+    };
+    window.addEventListener("agent-chat:auto-continue", handler);
+    return () => {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
+      window.removeEventListener("agent-chat:auto-continue", handler);
+    };
+  }, [tabId]);
+
+  // Real forward progress in the current chunk (visible text or reasoning
+  // deltas) means the run is not stuck between chunks — clear the indicator
+  // immediately rather than waiting on the 30s failsafe. This is the
+  // plain-text-continuation case: no tool call fires `agent-chat:activity`
+  // to clear it, so without this listener "Resuming" would linger for up to
+  // AUTO_RESUME_STATUS_TIMEOUT_MS after the run already resumed or finished.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      clearAutoResume();
+    };
+    window.addEventListener("agent-chat:stream-progress", handler);
+    return () =>
+      window.removeEventListener("agent-chat:stream-progress", handler);
+  }, [clearAutoResume, tabId]);
+
+  useEffect(() => {
+    if (forceStopped) {
+      clearAutoResume();
+    }
+  }, [clearAutoResume, forceStopped]);
+
+  return { isAutoResuming, clearAutoResume };
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -2318,15 +2492,6 @@ const AssistantChatInner = forwardRef<
     runId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  // True during the 250ms continuation window and startup of the next chunk
-  // (adapter's auto-continue delay before POSTing the next chunk).
-  const [isAutoResuming, setIsAutoResuming] = useState(false);
-  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
-  // during an adapter auto-continuation the runtime can flick false between
-  // chunks while the adapter is still driving the turn.
-  const isAutoResumingRef = useRef(isAutoResuming);
-  isAutoResumingRef.current = isAutoResuming;
-  const autoResumeTimerRef = useRef<number | null>(null);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
     string | null
@@ -2373,6 +2538,17 @@ const AssistantChatInner = forwardRef<
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
+  // True during the 250ms continuation window and startup of the next chunk
+  // (adapter's auto-continue delay before POSTing the next chunk).
+  const { isAutoResuming, clearAutoResume } = useAutoResumeStatus(
+    tabId,
+    forceStopped,
+  );
+  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
+  // during an adapter auto-continuation the runtime can flick false between
+  // chunks while the adapter is still driving the turn.
+  const isAutoResumingRef = useRef(isAutoResuming);
+  isAutoResumingRef.current = isAutoResuming;
   const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
     activeRunMatchesThread(getActiveRun(), threadId),
   );
@@ -2435,6 +2611,10 @@ const AssistantChatInner = forwardRef<
   const stopActiveRunRef = useRef<
     (options?: { preserveQueuedMessages?: boolean }) => void
   >(() => {});
+  // addToQueue is declared before the autoscroll hook because it also feeds
+  // the reconnect/imperative APIs. Keep a stable bridge so an accepted visible
+  // submit can explicitly reattach bottom-following without closure churn.
+  const resumeFollowingRef = useRef<() => void>(() => {});
 
   const markOptimisticRunning = useCallback(() => {
     setOptimisticRunning(true);
@@ -3694,10 +3874,13 @@ const AssistantChatInner = forwardRef<
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
+      // An errored continuation must not keep showing "Resuming" — there is
+      // no further chunk coming to clear it.
+      clearAutoResume();
     };
     window.addEventListener("agent-chat:run-error", handler);
     return () => window.removeEventListener("agent-chat:run-error", handler);
-  }, [latestAssistantRunId, tabId, threadId]);
+  }, [clearAutoResume, latestAssistantRunId, tabId, threadId]);
 
   // Real activity means the next chunk has started. Surface longer-lived
   // activity such as "Still generating image" so active-run reconnects do not
@@ -3714,7 +3897,7 @@ const AssistantChatInner = forwardRef<
         typeof detail?.label === "string" ? detail.label.trim() : "";
       if (!label) return;
       const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
-      setIsAutoResuming(false);
+      clearAutoResume();
       setRunningActivityTool(tool || null);
       updateActiveRunActivity(tool || null);
       latestActivityLabelRef.current = label;
@@ -3749,51 +3932,23 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:activity", handler);
       window.removeEventListener("agent-chat:activity-clear", clear);
     };
-  }, [resetRunningActivity, tabId]);
+  }, [clearAutoResume, resetRunningActivity, tabId]);
 
-  // Show "Resuming…" during the adapter's auto-continuation window (the
-  // ~250ms gap between the end of one serverless chunk and the POST for the
-  // next). The adapter dispatches `agent-chat:auto-continue` at that moment.
+  // "Resuming…" itself (auto-continue → stream-progress/forceStopped clear,
+  // plus the 30s failsafe) is owned by useAutoResumeStatus above. Real
+  // next-chunk activity (tool start/activity events) clears it in the
+  // activity handler above; real streamed output (text/reasoning) clears it
+  // via that hook's own stream-progress listener. This effect only handles
+  // the running-activity reset once both running signals go idle — it does
+  // NOT clear auto-resume merely because `isRunning` is still true: the
+  // adapter dispatches auto-continue before the old chunk's runtime flips
+  // idle, so doing that would expose terminal message controls during the
+  // exact gap this state is meant to cover.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { tabId?: string };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-      }
-      setIsAutoResuming(true);
-      autoResumeTimerRef.current = window.setTimeout(() => {
-        autoResumeTimerRef.current = null;
-        setIsAutoResuming(false);
-      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
-    };
-    window.addEventListener("agent-chat:auto-continue", handler);
-    return () => {
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-        autoResumeTimerRef.current = null;
-      }
-      window.removeEventListener("agent-chat:auto-continue", handler);
-    };
-  }, [tabId]);
-
-  // Clear auto-resume when the user stops. Real next-chunk activity clears it
-  // in the activity handler above. Do not clear it merely because `isRunning`
-  // is still true: the adapter dispatches auto-continue before the old chunk's
-  // runtime flips idle, so doing that exposes terminal message controls during
-  // the exact gap this state is meant to cover.
-  useEffect(() => {
-    if (forceStopped) {
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-        autoResumeTimerRef.current = null;
-      }
-      setIsAutoResuming(false);
-    }
     if (!isRunning && !isAutoResuming) {
       resetRunningActivity();
     }
-  }, [forceStopped, isAutoResuming, isRunning, resetRunningActivity]);
+  }, [isAutoResuming, isRunning, resetRunningActivity]);
 
   // Auto-dequeue: when the agent is idle, send the next queued message. This
   // intentionally does not depend on observing the running -> idle transition:
@@ -4096,11 +4251,7 @@ const AssistantChatInner = forwardRef<
       setOptimisticRunning(false);
       setHasActiveServerRun(false);
       setPendingReconnectRecovery(null);
-      setIsAutoResuming(false);
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-        autoResumeTimerRef.current = null;
-      }
+      clearAutoResume();
       resetRunningActivity();
       if (!options?.preserveQueuedMessages) {
         queueStopVersionRef.current += 1;
@@ -4158,6 +4309,7 @@ const AssistantChatInner = forwardRef<
     [
       apiUrl,
       applyLocalQueuedMessages,
+      clearAutoResume,
       isReconnecting,
       resetRunningActivity,
       reconnectContent,
@@ -4204,9 +4356,6 @@ const AssistantChatInner = forwardRef<
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
-      // Sending a message is an explicit user action. The scroller anchors the
-      // appended user turn so the new message and reply land in view without
-      // re-pinning the viewport during ordinary streaming.
       const submitted = includeComposerContext
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
@@ -4415,6 +4564,10 @@ const AssistantChatInner = forwardRef<
       // intentionally reported before the agent's response resolves: a
       // caller like sendToAgentChatAndConfirm only needs to know the submit
       // wasn't silently dropped, not whether the run itself later succeeds.
+      // A visible submit is explicit user intent to see the new turn. Reattach
+      // following only after the message was queued/appended successfully;
+      // hidden reconnect recovery turns must leave the user's viewport alone.
+      if (!hideUserMessage) resumeFollowingRef.current();
       reportAgentChatSubmitResult(submitMessageId, true);
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
@@ -4593,10 +4746,12 @@ const AssistantChatInner = forwardRef<
     showScrollToBottom,
     scrollToBottom,
     scrollToBottomAfterPaint,
+    resumeFollowing,
   } = useNearBottomAutoscroll<HTMLDivElement>({
     followKey: autoscrollFollowKey,
     streaming: textStreaming,
   });
+  resumeFollowingRef.current = resumeFollowing;
 
   const scrollToBottomWhileLayoutSettles = useCallback(() => {
     scrollToBottomAfterPaint();

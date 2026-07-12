@@ -57,6 +57,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
   isAgentChatForegroundSelfChainEnabled,
+  isInBackgroundFunctionRuntime,
   resolveAgentChatProcessRunDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
@@ -124,6 +125,8 @@ import {
   abortRun,
   abortRunDurably,
   tryClaimRunSlot,
+  isHostedRuntime,
+  resolveRunSoftTimeoutMs,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -1054,6 +1057,38 @@ const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
 const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+/**
+ * FIX 2 (durable-background incident): tighter no-progress deadline for ONLY
+ * the FIRST engine-stream event of a model call, and ONLY on the clamped
+ * HOSTED foreground runtime — `isHostedRuntime()` (run-manager.ts, the same
+ * predicate that selects the 40s soft budget) AND NOT proven to be running
+ * inside a Netlify background function (`isInBackgroundFunctionRuntime`). A
+ * hung first model event previously rode the full
+ * `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS` (90s) before the in-loop watchdog
+ * could emit `auto_continue` — but the hosted foreground function is killed
+ * around 40s, so that watchdog could never actually fire: the run died as a
+ * silent platform kill instead of a recoverable checkpoint (observed: ~40s of
+ * "Contacting model" with zero tokens, then a hard timeout with no
+ * auto_continue ever emitted). Once ANY event (including a heartbeat) has
+ * been observed for this model call, subsequent gaps revert to the normal 90s
+ * watchdog — this only guards the "nothing has happened yet" window.
+ *
+ * ORDERING INVARIANT (each bound must stay strictly smaller than the next —
+ * do not change one without re-checking the others). This cap exists ONLY
+ * where the 40s ceiling exists: off hosted runtimes (local dev, self-hosted
+ * long-lived Node) `resolveRunSoftTimeoutMs` resolves to 0 (no soft-timeout
+ * regime, no platform wall), a genuinely slow first token — large local
+ * contexts, slow local providers — is legitimate, and the full 90s window
+ * applies unchanged:
+ *   FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS (25s, here)
+ * < HOSTED_SOFT_TIMEOUT_CEILING_MS           (40s, run-manager.ts)
+ * < MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS      (90s, above)
+ * < RUN_NO_PROGRESS_HARD_TIMEOUT_MS          (150s, run-manager.ts)
+ *
+ * Background-function runs (proven 15-min budget, no ~40s wall) are likewise
+ * unaffected — they keep the full 90s window for every event, first or not.
+ */
+const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // Raised from 1 -> 2 now that each retry actually adapts (raises the token
 // ceiling and steps reasoning effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
@@ -3129,6 +3164,20 @@ export async function runAgentLoop(opts: {
         let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         let lastModelStreamProgressAt = Date.now();
+        // FIX 2: true once ANY engine-stream event (including a heartbeat)
+        // has been retrieved for THIS model call — gates
+        // `FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS` below to only the first
+        // await on a fresh `engine.stream()` call, never subsequent gaps.
+        let hasReceivedFirstEngineEvent = false;
+        // Resolved once per model-call attempt (not per event) so a single
+        // call's deadline math can't observe the runtime predicates changing
+        // mid-flight. Requires BOTH a hosted runtime (where the 40s clamp and
+        // the platform wall behind it exist — local dev/self-hosted resolve
+        // the soft timeout to 0 and legitimately tolerate slow first tokens)
+        // AND not being a proven background-function worker. See
+        // `FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS`.
+        const isClampedForegroundRuntimeForThisCall =
+          isHostedRuntime() && !isInBackgroundFunctionRuntime();
         const sendToolInputActivity = (
           toolName: string | undefined,
           toolInputId?: string,
@@ -3185,8 +3234,23 @@ export async function runAgentLoop(opts: {
           }
           return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
         };
-        const modelStreamNoProgressDeadlineAt = () =>
-          lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+        const modelStreamNoProgressDeadlineAt = () => {
+          const baseDeadlineAt =
+            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+          // FIX 2: cap the FIRST event's deadline tighter on the clamped
+          // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
+          // for the ordering invariant this protects.
+          if (
+            hasReceivedFirstEngineEvent ||
+            !isClampedForegroundRuntimeForThisCall
+          ) {
+            return baseDeadlineAt;
+          }
+          return Math.min(
+            baseDeadlineAt,
+            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS,
+          );
+        };
         const noProgressDeadlineAt = () => {
           const actionDeadlineAt = actionPreparationDeadlineAt();
           const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
@@ -3306,6 +3370,11 @@ export async function runAgentLoop(opts: {
               eventIteratorDone = true;
               break;
             }
+            // FIX 2: only the deadline for THIS await could have been
+            // tightened by FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS — every
+            // subsequent call in this model call reverts to the normal 90s
+            // watchdog regardless of what kind of event this turned out to be.
+            hasReceivedFirstEngineEvent = true;
             const event = nextEvent.value;
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
@@ -4325,7 +4394,7 @@ export async function runAgentLoop(opts: {
           isError = true;
         }
         mcpApp = mcpResult?.mcpApp;
-        // Demo mode: the agent must see the same fake data the UI shows, so
+        // Demo mode: the agent must see the same anonymized data the UI shows, so
         // it can't read out a real name/email on a live screen share. Redact
         // the structured result (not the JSON string) so IDs/dates/URLs stay
         // intact and follow-up tool calls still work. Gated — the expensive
@@ -5017,6 +5086,71 @@ export function shouldChainBackgroundContinuation(opts: {
     endsAtContinuationBoundary(opts.run) &&
     opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
   );
+}
+
+/**
+ * Minimum remaining budget (ms) a synchronous self-chain continuation chunk
+ * must have left — after subtracting the wall-clock this invocation has
+ * ALREADY spent on its own pre-`startRun` setup (auth, DB reads, marker
+ * validation) — before it is safe to let it start real agent-loop work at
+ * all. Below this, even a reduced soft-timeout risks the run making an LLM
+ * call that then gets cut off by Netlify's ~60s synchronous-function hard
+ * kill mid-stream instead of checkpointing cleanly — exactly the "run wedged
+ * until stale-run recovery" failure `resolveSelfChainContinuationBudget`
+ * hardens against. 8s leaves enough runway for a small model round trip (or
+ * the soft-timeout timer itself) to still land cleanly before the hard wall.
+ */
+export const SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS = 8_000;
+
+/** Result of `resolveSelfChainContinuationBudget`. */
+export interface SelfChainContinuationBudget {
+  /**
+   * True when there isn't enough wall-clock left in THIS invocation to
+   * safely start real agent-loop work. The caller should skip straight to a
+   * synthetic `run_timeout` boundary (the same one a normal soft-timeout
+   * produces) instead of invoking the loop, so the existing continuation
+   * machinery (`chainServerDrivenContinuation` / the client's `auto_continue`
+   * re-POST fallback) hands off to a fresh invocation instead of risking a
+   * mid-stream kill.
+   */
+  skipToBoundary: boolean;
+  /**
+   * The soft-timeout budget to pass into `startRun` when NOT skipping — the
+   * chunk's normal ceiling minus wall-clock already spent on setup. Always
+   * `<= chunkCeilingMs` and `>= minContinuationBudgetMs` when `skipToBoundary`
+   * is false.
+   */
+  softTimeoutMs: number;
+}
+
+/**
+ * Budgets a synchronous (non-`-background`-function) self-chain continuation
+ * chunk against the wall-clock ALREADY spent on this invocation's own setup
+ * before `startRun` is ever called, instead of handing it a fresh
+ * `chunkCeilingMs` window that ignores that setup cost entirely.
+ *
+ * Root cause this hardens against: when `AGENT_CHAT_FOREGROUND_SELF_CHAIN` is
+ * enabled, a continuation is dispatched to the `_process-run` route running as
+ * a REGULAR synchronous serverless function (hard ~60s wall on Netlify). The
+ * handler burns setup time (DB reads, auth, marker validation) before ever
+ * calling `startRun()`, which — unaware of that elapsed time — grants a fresh
+ * ~40s run ceiling. Total handler time (setup + a fresh 40s) can then exceed
+ * the 60s wall, so the function is killed mid-stream instead of checkpointing,
+ * and the run sits "active" until stale-run recovery (~90s later) instead of
+ * cleanly handing off.
+ *
+ * Pure function — no I/O, unit-testable in isolation.
+ */
+export function resolveSelfChainContinuationBudget(
+  elapsedSinceHandlerEntryMs: number,
+  chunkCeilingMs: number,
+  minContinuationBudgetMs: number = SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
+): SelfChainContinuationBudget {
+  const remaining = chunkCeilingMs - Math.max(0, elapsedSinceHandlerEntryMs);
+  if (remaining < minContinuationBudgetMs) {
+    return { skipToBoundary: true, softTimeoutMs: 0 };
+  }
+  return { skipToBoundary: false, softTimeoutMs: remaining };
 }
 
 export async function markBackgroundContinuationChunkTerminal(opts: {
@@ -6061,10 +6195,7 @@ export function createProductionAgentHandler(
       variantId: string;
     }> = [];
 
-    // Database-backed experiments remain available to app operators. A
-    // platform-wide hosted rollout is layered in only when no explicit or
-    // persisted model selection exists, and only on the cross-provider Builder
-    // engine. This preserves the model picker's user intent.
+    // Database-backed experiments remain available to app operators.
     try {
       if (ownerEmail) {
         const { resolveActiveExperimentConfig } =
@@ -6077,22 +6208,6 @@ export function createProductionAgentHandler(
               engine,
               expConfig.configs.model,
             );
-            modelSelectionSource = "experiment";
-          }
-        }
-
-        if (modelSelectionSource === "default") {
-          const { resolveHostedDefaultModelExperiment } =
-            await import("../observability/hosted-model-experiment.js");
-          const hostedExperiment = resolveHostedDefaultModelExperiment({
-            userId: ownerEmail,
-            engineName: engine.name,
-            isDefaultModelSelection: true,
-            supportedModels: engine.supportedModels,
-          });
-          if (hostedExperiment) {
-            effectiveModel = hostedExperiment.model;
-            experimentAssignments.push(hostedExperiment.assignment);
             modelSelectionSource = "experiment";
           }
         }
@@ -6854,9 +6969,11 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
         }
       : null;
-    // Foreground self-chain: gated on hosted runtime + A2A_SECRET, with an
-    // explicit env opt-out, AND this specific run never having been routed to
-    // the durable background worker. A run that WAS dispatched to background
+    // Foreground self-chain: opt-in only — requires the app/deploy to
+    // explicitly set AGENT_CHAT_FOREGROUND_SELF_CHAIN truthy (unset/false
+    // means disabled), on top of the hosted runtime + A2A_SECRET gates, AND
+    // this specific run never having been routed to the durable background
+    // worker. A run that WAS dispatched to background
     // (`dispatchToBackground`) already has its recovery owned by the background
     // circuit-breaker / `isBackgroundWorker` chain above — this flag must never
     // double up with that path, only stand in for it on plain foreground turns. A persistent
@@ -7137,6 +7254,33 @@ export function createProductionAgentHandler(
       (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
       firstRequestPayloadDetail;
 
+    // Synchronous self-chain budgeting: this is a `_process-run` re-entry
+    // that landed on the regular ~60s function (not a proven `-background`
+    // function), AND it got here WITHOUT the durable-background path being
+    // active for this app — the only other way to reach `isBackgroundWorker`
+    // is `AGENT_CHAT_FOREGROUND_SELF_CHAIN` chaining onto the framework route
+    // (see `chainServerDrivenContinuation`'s `chainViaDurableBackground`
+    // choice). That chunk must budget its soft-timeout against the wall-clock
+    // THIS invocation already spent on setup above, not a fresh ceiling — see
+    // `resolveSelfChainContinuationBudget`. Deliberately excludes a durable
+    // worker that merely landed on the wrong runtime (handled unchanged by
+    // the existing `runsInBackgroundFunction` clamp below).
+    const isSynchronousSelfChainContinuation =
+      isBackgroundWorker &&
+      !runsInBackgroundFunction &&
+      !isAgentChatDurableBackgroundEnabled({
+        appOptIn: options.durableBackgroundRuns === true,
+      });
+    const selfChainBudget = isSynchronousSelfChainContinuation
+      ? resolveSelfChainContinuationBudget(
+          Date.now() - setupT0,
+          resolveRunSoftTimeoutMs(options.runSoftTimeoutMs, {
+            useHostedDefault: true,
+            backgroundFunction: false,
+          }),
+        )
+      : null;
+
     startRun(
       runId,
       effectiveThreadId,
@@ -7145,6 +7289,25 @@ export function createProductionAgentHandler(
           rawSend(event);
           updateTrackedProgressFromEvent(event);
         };
+
+        if (selfChainBudget?.skipToBoundary) {
+          // Not enough wall-clock left in this synchronous function
+          // invocation to safely start real agent-loop work — doing so
+          // anyway risks Netlify's ~60s hard kill cutting it off mid-stream
+          // (the exact incident `resolveSelfChainContinuationBudget` hardens
+          // against). Skip straight to the same `run_timeout` boundary a
+          // normal soft-timeout produces so the existing continuation
+          // machinery (`chainServerDrivenContinuation` below, plus the
+          // client's `auto_continue` re-POST fallback) hands the turn off to
+          // a fresh invocation instead.
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerSetupStep,
+            `self_chain_budget_exhausted elapsed=${Date.now() - setupT0}ms`,
+          ).catch(() => {});
+          send({ type: "auto_continue", reason: "run_timeout" });
+          return;
+        }
 
         send({ type: "activity", label: "Starting agent" });
 
@@ -7595,7 +7758,17 @@ export function createProductionAgentHandler(
       },
       handleRunComplete,
       {
-        softTimeoutMs: options.runSoftTimeoutMs,
+        // A synchronous self-chain chunk with enough remaining budget gets
+        // that REDUCED budget (ceiling minus setup already spent) instead of
+        // a fresh `options.runSoftTimeoutMs`/hosted-default window — see
+        // `resolveSelfChainContinuationBudget`. Every other caller
+        // (durable-background worker, plain foreground POST) is unaffected:
+        // `selfChainBudget` is `null` for them and this falls through to the
+        // exact prior value.
+        softTimeoutMs:
+          selfChainBudget && !selfChainBudget.skipToBoundary
+            ? selfChainBudget.softTimeoutMs
+            : options.runSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
         // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
         // executing inside a real Netlify `-background` function (15-min budget,

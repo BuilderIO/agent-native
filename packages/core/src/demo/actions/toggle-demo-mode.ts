@@ -5,7 +5,7 @@ import { writeAppState } from "../../application-state/script-helpers.js";
 
 export default defineAction({
   description:
-    "Turn demo mode on or off. When demo mode is on, the UI replaces email addresses with realistic fake data and supported dashboards reshape chart values for presentations. Agent-visible results replace emails and numbers while keeping names, free text, labels, IDs, dates, and structure intact. Use when the user asks to 'hide my data', 'turn on demo mode', 'anonymize this for a screen share / recording', or similar. This is the same toggle as the Demo mode switch in settings.",
+    "Turn demo mode on or off. When demo mode is on, the UI replaces every email address with anonymous@builder.io and supported dashboards reshape chart values for presentations. Agent-visible results use the same anonymous email and anonymize numbers while keeping names, free text, labels, IDs, dates, and structure intact. Use when the user asks to 'hide my data', 'turn on demo mode', 'anonymize this for a screen share / recording', or similar. This is the same toggle as the Demo mode switch in settings.",
   schema: z.object({
     enabled: z
       .boolean()

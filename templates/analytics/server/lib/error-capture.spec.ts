@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
+const readAppStateMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => null),
+);
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/index.js", async () => {
@@ -19,6 +22,14 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return { ...actual, recordChange: recordChangeMock };
 });
 
+vi.mock("@agent-native/core/application-state", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/application-state")
+    >();
+  return { ...actual, readAppState: readAppStateMock };
+});
+
 vi.mock("@agent-native/core/notifications", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/notifications")>();
@@ -27,12 +38,15 @@ vi.mock("@agent-native/core/notifications", async (importOriginal) => {
 
 import { schema } from "../db/index.js";
 import {
+  anonymizeErrorReportingEmails,
   candidateFingerprintsForConsole,
   culpritFromFrames,
   deriveConsoleExceptionIdentity,
   extractExceptionInput,
   fingerprint,
+  getErrorIssue,
   ingestException,
+  listErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
@@ -42,6 +56,11 @@ import {
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
+
+beforeEach(() => {
+  readAppStateMock.mockReset();
+  readAppStateMock.mockResolvedValue(null);
+});
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -240,6 +259,36 @@ describe("deriveConsoleExceptionIdentity", () => {
     expect(deriveConsoleExceptionIdentity("just a message")).toEqual({
       type: "Error",
       message: "just a message",
+    });
+  });
+});
+
+describe("anonymizeErrorReportingEmails", () => {
+  it("replaces emails throughout error details, including URLs and identities", () => {
+    expect(
+      anonymizeErrorReportingEmails({
+        title: "Failure for alice@example.com",
+        events: [
+          {
+            userId: "alice@example.com",
+            userKey: "alice@example.com",
+            url: "https://app.example.com/error?email=alice@example.com",
+            tags: { reporter: "bob@example.com" },
+            breadcrumbs: [{ message: "Signed in as bob@example.com" }],
+          },
+        ],
+      }),
+    ).toEqual({
+      title: "Failure for anonymous@builder.io",
+      events: [
+        {
+          userId: "anonymous@builder.io",
+          userKey: "anonymous@builder.io",
+          url: "https://app.example.com/error?email=anonymous@builder.io",
+          tags: { reporter: "anonymous@builder.io" },
+          breadcrumbs: [{ message: "Signed in as anonymous@builder.io" }],
+        },
+      ],
     });
   });
 });
@@ -571,6 +620,53 @@ describe("ingestException", () => {
     expect(new Set(issues.map((i: any) => i.ownerEmail))).toEqual(
       new Set(["alice@example.com", "bob@example.com"]),
     );
+  });
+
+  it("anonymizes list and detail reads at the server seam in demo mode", async () => {
+    const result = await ingestException(
+      SCOPE,
+      baseRaw({
+        message: "Checkout failed for customer@example.com",
+        rawStack:
+          "TypeError: customer@example.com\n    at doThing (https://app.example.com/main.js:12:34)",
+        tags: { reporter: "support@example.com" },
+        extra: { accountEmail: "customer@example.com" },
+        breadcrumbs: [{ message: "Signed in as customer@example.com" }],
+      }),
+      derivedFor({
+        userId: "customer@example.com",
+        userKey: "customer@example.com",
+        url: "https://app.example.com/checkout?email=customer@example.com",
+      }),
+    );
+    const normalDetail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    expect(JSON.stringify(normalDetail)).toContain("customer@example.com");
+
+    readAppStateMock.mockResolvedValue({ enabled: true });
+
+    const issues = await listErrorIssues({
+      userEmail: SCOPE.ownerEmail,
+      orgId: null,
+    });
+    const detail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    const rendered = JSON.stringify({ issues, detail });
+
+    expect(rendered).toContain("anonymous@builder.io");
+    expect(rendered).not.toContain("customer@example.com");
+    expect(rendered).not.toContain("support@example.com");
+    expect(detail.events[0]).toMatchObject({
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      url: "https://app.example.com/checkout?email=anonymous@builder.io",
+      tags: { reporter: "anonymous@builder.io" },
+      extra: { accountEmail: "anonymous@builder.io" },
+    });
   });
 });
 

@@ -12,10 +12,12 @@ import {
 } from "../lib/agent-chat-plan-mode";
 import {
   failedDataQueryAttemptMessage,
+  GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
   hasIncompleteDataEvidence,
+  isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
   looksLikeCoverageSensitiveAnalyticsRequest,
@@ -31,6 +33,18 @@ export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
 
 export const NON_ANALYTICS_REQUEST_GUIDANCE =
   "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
+
+// Deterministic backstop for the soft NON_ANALYTICS_REQUEST_GUIDANCE prompt
+// above: if a model still parrots the canned no-grounded-data fallback on a
+// non-analytics turn, retry once with this synthetic user message instead of
+// letting the canned sentence reach the user. Wrapped in an injected-context
+// tag (registered in INJECTED_CONTEXT_BLOCKS) so `looksLikeAnalyticsDataRequest`
+// never classifies the guard's own retry turn as a data request and loops.
+export const NON_ANALYTICS_FALLBACK_RETRY_MESSAGE =
+  "<non-analytics-retry>\nThe user's latest message is ordinary conversation. Reply to it directly and naturally. Never answer it with the no-grounded-data disclaimer.\n</non-analytics-retry>";
+
+export const NON_ANALYTICS_FALLBACK_FINAL_MESSAGE =
+  "I got stuck generating a reply to that message. Please try again or rephrase it.";
 
 export function analyticsSourceGuidanceOpening(): string {
   return (
@@ -128,7 +142,20 @@ export function realDataFinalGuard(
     return null;
   }
   const userText = latestUserText(context.messages ?? []);
-  if (!looksLikeAnalyticsDataRequest(userText)) return null;
+  if (!looksLikeAnalyticsDataRequest(userText)) {
+    // Deterministic backstop: the soft NON_ANALYTICS_REQUEST_GUIDANCE prompt
+    // sentence is not always enough, and a model occasionally parrots the
+    // canned no-grounded-data fallback even for ordinary conversation. Catch
+    // that case here instead of letting it reach the user.
+    if (isGenericNoDataFallback(context.text)) {
+      return {
+        retryMessage: NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+        fallbackMessage: NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
+        maxRetries: 2,
+      };
+    }
+    return null;
+  }
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
@@ -204,7 +231,7 @@ export function realDataFinalGuard(
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
     fallbackMessage: configuredSources.length
       ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
-      : "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+      : GENERIC_NO_DATA_FALLBACK_MESSAGE,
     // Some models use separate turns for status, schema discovery, and the
     // actual query. One corrective turn was enough for Sonnet but caused Luna
     // to hit the fallback before it reached the query.

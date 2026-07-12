@@ -254,7 +254,7 @@ export function ResponsesPage() {
           variant="outline"
           size="sm"
           onClick={() => refetch()}
-          className="gap-2"
+          className="min-h-10 gap-2 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
         >
           <IconRefresh className="h-3.5 w-3.5" />
           {t("common.retry")}
@@ -272,7 +272,7 @@ export function ResponsesPage() {
             variant="ghost"
             size="sm"
             asChild
-            className="gap-1.5 shrink-0"
+            className="min-h-10 shrink-0 gap-1.5 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
           >
             <Link to={`/forms/${id}`}>
               <IconArrowLeft className="h-3.5 w-3.5" />
@@ -305,14 +305,14 @@ export function ResponsesPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("responses.filterPlaceholder")}
-                className="h-8 pl-7 w-48 text-xs"
+                className="h-10 w-48 pl-7 text-xs transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none"
               />
             </div>
           ) : null}
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5 text-xs shrink-0"
+            className="min-h-10 shrink-0 gap-1.5 text-xs transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
             onClick={exportCsv}
             disabled={filteredSorted.length === 0}
           >
@@ -332,7 +332,7 @@ export function ResponsesPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("responses.filterPlaceholder")}
-              className="h-8 pl-7 text-xs"
+              className="h-10 pl-7 text-xs transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none"
             />
           </div>
         </div>
@@ -371,10 +371,10 @@ export function ResponsesPage() {
                 ))}
               </colgroup>
               <thead>
-                <tr className="border-b border-border bg-muted/30">
+                <tr className="border-b border-border bg-muted/40">
                   <th
                     scope="col"
-                    className="min-w-16 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="min-w-16 px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     #
                   </th>
@@ -423,7 +423,7 @@ export function ResponsesPage() {
                 {filteredSorted.map((response, idx) => (
                   <tr
                     key={response.id}
-                    className="border-b border-border hover:bg-muted/20"
+                    className="border-b border-border transition-[background-color] duration-150 hover:bg-muted/20 motion-reduce:transition-none"
                   >
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {filteredSorted.length - idx}
@@ -533,13 +533,13 @@ function SortableHeader(props: {
   return (
     <th
       scope="col"
-      className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+      className="min-w-40 px-4 py-1 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
     >
       <button
         type="button"
         onClick={onClick}
         className={cn(
-          "inline-flex items-center gap-1 cursor-pointer hover:text-foreground",
+          "-mx-2 inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-md px-2 transition-[scale,background-color,color,box-shadow] duration-150 hover:bg-accent hover:text-foreground active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
           active && "text-foreground",
         )}
         aria-label={t("responses.sortBy", { label })}

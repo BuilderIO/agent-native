@@ -46,9 +46,9 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/runs",
 ];
 
-// Raw rrweb payloads (and their chunk manifest) are playback data, not
-// ordinary app UI records. Skipping these is not just a perf optimization to
-// avoid walking/cloning huge DOM/event trees on the main thread: demo number
+// Raw rrweb payloads are playback data, not ordinary app UI records. Skipping
+// these is not just a perf optimization that avoids walking/cloning huge
+// DOM/event trees on the main thread: demo number
 // redaction previously ran over this exact raw replay JSON and faked any
 // integer >= 1000 it found — Meta/ViewportResize widths, pointer x/y
 // coordinates, and numeric values inside `_cssText` and SVG attributes. That
@@ -56,12 +56,11 @@ const SKIP_SUBSTRINGS = [
 // rendered thousands of pixels wide, frozen/teleporting cursors, giant
 // icons) even though every stored recording was always geometrically sane —
 // the corruption happened at *view* time, not at capture/storage time. Small
-// list/summary responses stay eligible so rendered visitor identities are
-// still anonymized. NEVER remove these skips or narrow them back to only the
-// chunk/event endpoints; the manifest is included belt-and-suspenders even
-// though it currently carries no raw geometry.
+// list/summary/manifest responses stay eligible so rendered visitor identities
+// are still anonymized. NEVER remove the raw payload skips or broaden them to
+// metadata endpoints that the UI renders directly.
 const RAW_REPLAY_PAYLOAD_RE =
-  /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events|manifest)(?:[/?#]|$)/;
+  /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events)(?:[/?#]|$)/;
 const RAW_AGENT_REPLAY_EVENTS_RE =
   /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
 

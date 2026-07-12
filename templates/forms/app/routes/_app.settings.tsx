@@ -54,7 +54,7 @@ export default function SettingsRoute() {
             {t("settings.description")}
           </p>
 
-          <Card id="language" className="scroll-mt-16">
+          <Card id="language" className="forms-settings-card scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.languageTitle")}

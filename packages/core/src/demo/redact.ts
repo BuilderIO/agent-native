@@ -1,13 +1,12 @@
 /**
  * Pure, dependency-free, deterministic demo-mode redactor.
  *
- * Replaces sensitive values (emails and free numbers) with stable fake
- * substitutes so a demo looks coherent — the same input always maps to the
- * same fake. Crucially, it NEVER rewrites identifiers, structural tokens, or
- * timestamps. Names and other free text are deliberately left alone because
- * guessing whether arbitrary text is a person's name is too inaccurate. The
- * string redactor uses a protect-first strategy (mask IDs with opaque
- * placeholders before any transform runs, restore them byte-identical
+ * Replaces every email with one canonical anonymous address and free numbers
+ * with stable fake substitutes. Crucially, it NEVER rewrites identifiers,
+ * structural tokens, or timestamps. Names and other free text are deliberately
+ * left alone because guessing whether arbitrary text is a person's name is too
+ * inaccurate. The string redactor uses a protect-first strategy (mask IDs with
+ * opaque placeholders before any transform runs, restore them byte-identical
  * afterwards), and the structure-aware walker additionally protects leaf
  * values by key name.
  */
@@ -56,10 +55,6 @@ function mulberry32(seed: number): () => number {
 function seededRng(value: string, salt: string): () => number {
   const seedFn = xmur3(`${value}${salt}`);
   return mulberry32(seedFn());
-}
-
-function pick<T>(rng: () => number, pool: readonly T[]): T {
-  return pool[Math.floor(rng() * pool.length) % pool.length];
 }
 
 /* ------------------------------------------------------------------ *
@@ -158,149 +153,18 @@ function memoFake(
 }
 
 /* ------------------------------------------------------------------ *
- * Curated name pools
- * ------------------------------------------------------------------ */
-
-const FIRST_NAMES: readonly string[] = [
-  "Jane",
-  "John",
-  "Alex",
-  "Maria",
-  "Sam",
-  "Olivia",
-  "Liam",
-  "Emma",
-  "Noah",
-  "Ava",
-  "Lucas",
-  "Mia",
-  "Ethan",
-  "Sofia",
-  "Mason",
-  "Isla",
-  "Leo",
-  "Aria",
-  "Henry",
-  "Zoe",
-  "Owen",
-  "Nora",
-  "Caleb",
-  "Lily",
-  "Ryan",
-  "Ruby",
-  "Adam",
-  "Chloe",
-  "Eli",
-  "Hazel",
-  "Max",
-  "Iris",
-  "Ben",
-  "Clara",
-  "Theo",
-  "Maya",
-  "Felix",
-  "Elena",
-  "Jonah",
-  "Greta",
-];
-
-const LAST_NAMES: readonly string[] = [
-  "Doe",
-  "Smith",
-  "Johnson",
-  "Lee",
-  "Brown",
-  "Garcia",
-  "Miller",
-  "Davis",
-  "Wilson",
-  "Moore",
-  "Taylor",
-  "Anderson",
-  "Thomas",
-  "Jackson",
-  "White",
-  "Harris",
-  "Martin",
-  "Clark",
-  "Lewis",
-  "Walker",
-  "Hall",
-  "Young",
-  "King",
-  "Wright",
-  "Hill",
-  "Green",
-  "Adams",
-  "Baker",
-  "Nelson",
-  "Carter",
-  "Mitchell",
-  "Perez",
-  "Roberts",
-  "Turner",
-  "Phillips",
-  "Campbell",
-  "Parker",
-  "Evans",
-  "Edwards",
-  "Collins",
-];
-
-/* ------------------------------------------------------------------ *
  * Fake value generators (deterministic in value + salt)
  * ------------------------------------------------------------------ */
 
-// Realistic-looking but safe stand-in domains: real consumer providers (the
-// local part is fake, so no real mailbox is implied) plus the canonical
-// reserved fictional-company domains (Contoso/Fabrikam/Northwind), which read
-// as real businesses but are intentional placeholders. No example.com.
-const FAKE_EMAIL_DOMAINS: readonly string[] = [
-  "gmail.com",
-  "outlook.com",
-  "icloud.com",
-  "yahoo.com",
-  "proton.me",
-  "hey.com",
-  "fastmail.com",
-  "contoso.com",
-  "fabrikam.com",
-  "northwind.com",
-  "acme.io",
-  "globex.net",
-];
+export const DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 
 function fakeEmail(original: string, salt: string): string {
-  return memoFake("email", original.toLowerCase(), salt, () => {
-    const rng = seededRng(`email:${original.toLowerCase()}`, salt);
-    const first = pick(rng, FIRST_NAMES).toLowerCase();
-    const last = pick(rng, LAST_NAMES).toLowerCase();
-    const domain = pick(rng, FAKE_EMAIL_DOMAINS);
-    // Vary the local part so addresses don't all look templated.
-    const shape = Math.floor(rng() * 6);
-    let local: string;
-    switch (shape) {
-      case 0:
-        local = `${first}.${last}`;
-        break;
-      case 1:
-        local = `${first}${last}`;
-        break;
-      case 2:
-        local = `${first[0]}${last}`;
-        break;
-      case 3:
-        local = `${first}.${last}${1 + Math.floor(rng() * 89)}`;
-        break;
-      case 4:
-        local = `${first}_${last}`;
-        break;
-      default:
-        local = `${last}.${first}`;
-        break;
-    }
-    return `${local}@${domain}`;
-  });
+  return memoFake(
+    "email",
+    original.toLowerCase(),
+    salt,
+    () => DEMO_ANONYMOUS_EMAIL,
+  );
 }
 
 /**

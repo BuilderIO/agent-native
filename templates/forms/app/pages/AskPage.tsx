@@ -49,15 +49,15 @@ export function AskPage() {
             <h1>{t("home.heading")}</h1>
             <p>{t("home.description")}</p>
             <div className="forms-chat-pill-row" aria-hidden="true">
-              <span>
+              <span className="forms-chat-pill">
                 <IconDatabase className="size-3.5" />
                 {t("home.pillForms")}
               </span>
-              <span>
+              <span className="forms-chat-pill">
                 <IconChartBar className="size-3.5" />
                 {t("home.pillAnalytics")}
               </span>
-              <span>
+              <span className="forms-chat-pill">
                 <IconSettings className="size-3.5" />
                 {t("home.pillConfiguration")}
               </span>

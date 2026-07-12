@@ -2,6 +2,13 @@ import { gunzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  SESSION_REPLAY_IFRAME_PROBE,
+  SESSION_REPLAY_IFRAME_START,
+  SESSION_REPLAY_IFRAME_STOP,
+} from "../session-replay-iframe-protocol.js";
+
 const recordMock = vi.hoisted(() => vi.fn());
 const sentryMock = vi.hoisted(() => ({
   init: vi.fn(),
@@ -157,14 +164,20 @@ function installBrowser(
     search: parsed.search,
     hash: parsed.hash,
   };
-  const windowListeners = new Map<string, Set<() => void>>();
+  const windowListeners = new Map<string, Set<(event?: unknown) => void>>();
   const documentListeners = new Map<string, Set<() => void>>();
-  const addWindowListener = (event: string, listener: () => void) => {
+  const addWindowListener = (
+    event: string,
+    listener: (event?: unknown) => void,
+  ) => {
     const set = windowListeners.get(event) ?? new Set();
     set.add(listener);
     windowListeners.set(event, set);
   };
-  const removeWindowListener = (event: string, listener: () => void) => {
+  const removeWindowListener = (
+    event: string,
+    listener: (event?: unknown) => void,
+  ) => {
     windowListeners.get(event)?.delete(listener);
   };
   const addDocumentListener = (event: string, listener: () => void) => {
@@ -203,7 +216,7 @@ function installBrowser(
       sessionStorageMap.delete(key);
     }),
   };
-  vi.stubGlobal("window", {
+  const windowStub: Record<string, unknown> = {
     location,
     history,
     localStorage,
@@ -215,7 +228,10 @@ function installBrowser(
     clearInterval,
     setTimeout,
     clearTimeout,
-  });
+  };
+  // A real top-level browsing context exposes itself as window.parent.
+  windowStub.parent = windowStub;
+  vi.stubGlobal("window", windowStub);
   vi.stubGlobal("document", {
     referrer: "",
     title: "Inbox",
@@ -252,6 +268,12 @@ function installBrowser(
     location,
     storage: sessionStorageMap,
     localStorage: localStorageMap,
+    windowStub,
+    fireWindowEvent(event: string, payload?: unknown) {
+      for (const listener of windowListeners.get(event) ?? []) {
+        listener(payload);
+      }
+    },
   };
 }
 
@@ -533,7 +555,7 @@ describe("session replay", () => {
       maskTextSelector: "[data-an-mask]",
       maskAllInputs: true,
       recordCanvas: false,
-      recordCrossOriginIframes: false,
+      recordCrossOriginIframes: true,
       collectFonts: false,
       inlineImages: false,
       inlineStylesheet: true,
@@ -594,6 +616,128 @@ describe("session replay", () => {
 
     stopSessionReplay();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it("keeps local emission enabled when the app is embedded by a nonparticipating host", async () => {
+    const { windowStub } = installBrowser();
+    windowStub.parent = {};
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+
+    expect(recordOptions.recordCrossOriginIframes).toBe(false);
+    await stopSessionReplay();
+  });
+
+  it("honors explicit cross-origin iframe overrides in top-level and embedded apps", async () => {
+    const { windowStub } = installBrowser();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      recordCrossOriginIframes: false,
+      blockSelector: ".custom-private-zone",
+    });
+    expect(recordOptions.recordCrossOriginIframes).toBe(false);
+    expect(recordOptions.blockSelector).toContain(".custom-private-zone");
+    expect(recordOptions.blockSelector).toContain(
+      `iframe[${SESSION_REPLAY_IFRAME_ATTRIBUTE}]`,
+    );
+    await replay.stopSessionReplay();
+
+    windowStub.parent = {};
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      recordCrossOriginIframes: true,
+    });
+    expect(recordOptions.recordCrossOriginIframes).toBe(true);
+    await replay.stopSessionReplay();
+  });
+
+  it("starts and stops only marked direct cooperative iframe recorders", async () => {
+    const { fireWindowEvent } = installBrowser();
+    const childWindow = { postMessage: vi.fn() };
+    const unmarkedWindow = { postMessage: vi.fn() };
+    const markedIframe = {
+      contentWindow: childWindow,
+      hasAttribute: (name: string) => name === SESSION_REPLAY_IFRAME_ATTRIBUTE,
+    } as unknown as HTMLIFrameElement;
+    (
+      document as unknown as { querySelectorAll: ReturnType<typeof vi.fn> }
+    ).querySelectorAll = vi.fn(() => [markedIframe]);
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+
+    expect(recordOptions.recordCrossOriginIframes).toBe(true);
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: SESSION_REPLAY_IFRAME_START,
+        options: expect.objectContaining({
+          blockSelector: expect.stringContaining("[data-an-private]"),
+          maskAllInputs: true,
+          maskInputOptions: expect.objectContaining({
+            email: true,
+            password: true,
+          }),
+          sampling: expect.objectContaining({ scroll: 100 }),
+        }),
+      }),
+      "*",
+    );
+
+    childWindow.postMessage.mockClear();
+    fireWindowEvent("message", {
+      data: { type: SESSION_REPLAY_IFRAME_PROBE },
+      source: unmarkedWindow,
+    });
+    expect(unmarkedWindow.postMessage).not.toHaveBeenCalled();
+    expect(childWindow.postMessage).not.toHaveBeenCalled();
+
+    fireWindowEvent("message", {
+      data: { type: SESSION_REPLAY_IFRAME_PROBE },
+      source: childWindow,
+    });
+    expect(childWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_REPLAY_IFRAME_START }),
+      "*",
+    );
+
+    await replay.stopSessionReplay();
+    expect(childWindow.postMessage).toHaveBeenLastCalledWith(
+      { type: SESSION_REPLAY_IFRAME_STOP },
+      "*",
+    );
+    childWindow.postMessage.mockClear();
+    fireWindowEvent("message", {
+      data: { type: SESSION_REPLAY_IFRAME_PROBE },
+      source: childWindow,
+    });
+    expect(childWindow.postMessage).not.toHaveBeenCalled();
   });
 
   it("preserves signed DOM resources without leaking navigation secrets", async () => {
@@ -1244,6 +1388,265 @@ describe("session replay", () => {
     );
   });
 
+  it("drops only an unsplittable 413 event and continues later retry halves", async () => {
+    const { fetchMock, storage } = installBrowser(
+      "https://app.agent-native.com/inbox",
+    );
+    vi.stubGlobal("CompressionStream", undefined);
+    let uploadCalls = 0;
+    fetchMock.mockImplementation(() => {
+      uploadCalls += 1;
+      return Promise.resolve(
+        uploadCalls <= 3
+          ? new Response("too large", { status: 413 })
+          : new Response("{}"),
+      );
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onUploadRejected = vi.fn();
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    const started = await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      maxEventsPerBatch: 4,
+      flushIntervalMs: 100_000,
+      onUploadRejected,
+    });
+    for (let index = 1; index <= 4; index += 1) {
+      recordOptions.emit({ type: 3, data: { href: `/event-${index}` } });
+    }
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 0, 0, 0, 1]);
+    expect(
+      bodies.map((body) => body.events.map((event: any) => event.data.href)),
+    ).toEqual([
+      ["/event-1", "/event-2", "/event-3", "/event-4"],
+      ["/event-1", "/event-2"],
+      ["/event-1"],
+      ["/event-2"],
+      ["/event-3", "/event-4"],
+    ]);
+    expect(
+      JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+        .sequence,
+    ).toBe(2);
+    expect(replay.isSessionReplayActive()).toBe(true);
+    expect(replay.getSessionReplayId()).toBe(started.replayId);
+    expect(onUploadRejected).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[session-replay] dropping oversized replay event (HTTP 413)",
+      expect.any(Error),
+    );
+  });
+
+  it("quarantines DOM-dependent events after an oversized snapshot until the next snapshot", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubGlobal("CompressionStream", undefined);
+    fetchMock
+      .mockResolvedValueOnce(new Response("too large", { status: 413 }))
+      .mockResolvedValue(new Response("{}"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const replay = await freshSessionReplay();
+
+    await replay.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "/api/analytics/replay",
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({
+      type: 2,
+      data: { node: { type: 0, id: "oversized-root" } },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await tick();
+
+    recordOptions.emit({
+      type: 3,
+      data: { source: 0, adds: [{ parentId: 1, node: { id: 2 } }] },
+    });
+    recordOptions.emit({ type: 5, data: { tag: "unsafe-tail" } });
+    await tick();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    recordOptions.emit({
+      type: 2,
+      data: { node: { type: 0, id: "replacement-root" } },
+    });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const recovered = await parseReplayUpload(
+      fetchMock.mock.calls[1][1] as RequestInit,
+    );
+    expect(recovered.sequence).toBe(0);
+    expect(recovered.events).toEqual([
+      { type: 2, data: { node: { type: 0, id: "replacement-root" } } },
+    ]);
+    expect(replay.isSessionReplayActive()).toBe(true);
+  });
+
+  it.each(["pagehide", "manual", "max-duration"] as const)(
+    "preserves the final %s reason and unload reservation through a 413 split",
+    async (reason) => {
+      const { fetchMock, storage } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("CompressionStream", undefined);
+      let uploadCalls = 0;
+      const sequenceAtRequest: number[] = [];
+      fetchMock.mockImplementation((input: unknown) => {
+        if (String(input).includes("/_agent-native/auth/session")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "not authenticated" }), {
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        sequenceAtRequest.push(
+          JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+            .sequence ?? 0,
+        );
+        uploadCalls += 1;
+        return Promise.resolve(
+          uploadCalls === 1
+            ? new Response("too large", { status: 413 })
+            : new Response("{}"),
+        );
+      });
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "/api/analytics/replay",
+        maxEventsPerBatch: 10,
+        flushIntervalMs: 100_000,
+      });
+      for (let index = 1; index <= 4; index += 1) {
+        recordOptions.emit({ type: 3, data: { href: `/event-${index}` } });
+      }
+
+      if (reason === "pagehide") {
+        await replay.flushSessionReplay(reason);
+      } else {
+        await replay.stopSessionReplay(reason);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies.map((body) => body.sequence)).toEqual([0, 0, 1]);
+      expect(bodies.map((body) => body.reason)).toEqual([
+        reason,
+        reason,
+        reason,
+      ]);
+      expect(bodies.map((body) => body.status)).toEqual([
+        "completed",
+        "completed",
+        "completed",
+      ]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.keepalive)).toEqual([
+        true,
+        true,
+        true,
+      ]);
+      if (reason === "pagehide") {
+        // The rejected reservation rolls back to zero; each accepted half then
+        // reserves the sequence again before its keepalive request begins.
+        expect(sequenceAtRequest).toEqual([1, 1, 2]);
+      }
+      expect(
+        JSON.parse(storage.get("agent-native.session_replay_id") ?? "{}")
+          .sequence,
+      ).toBe(2);
+    },
+  );
+
+  it.each([
+    { reason: "manual", stop: true },
+    { reason: "pagehide", stop: false },
+  ] as const)(
+    "drains a small $reason tail requested during an active upload",
+    async ({ reason, stop }) => {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("CompressionStream", undefined);
+      const firstUpload = deferred<Response>();
+      fetchMock
+        .mockImplementationOnce(() => firstUpload.promise)
+        .mockResolvedValue(new Response("{}"));
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "/api/analytics/replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+      recordOptions.emit({ type: 3, data: { href: "/in-flight" } });
+      await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      recordOptions.emit({ type: 3, data: { href: "/final-tail" } });
+
+      let settled = false;
+      const finalFlush = (
+        stop
+          ? replay.stopSessionReplay(reason)
+          : replay.flushSessionReplay(reason)
+      ).then(() => {
+        settled = true;
+      });
+      await tick();
+      expect(settled).toBe(false);
+
+      firstUpload.resolve(new Response("{}"));
+      await finalFlush;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const bodies = await Promise.all(
+        fetchMock.mock.calls.map(([, init]) =>
+          parseReplayUpload(init as RequestInit),
+        ),
+      );
+      expect(bodies.map((body) => body.reason)).toEqual(["max-events", reason]);
+      expect(bodies.map((body) => body.status)).toEqual([
+        "active",
+        "completed",
+      ]);
+      expect(bodies[1].events[0].data.href).toBe("/final-tail");
+
+      if (!stop) await replay.stopSessionReplay();
+    },
+  );
+
   it("retries failed batches without merging newly queued events", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
     vi.stubGlobal("CompressionStream", undefined);
@@ -1274,15 +1677,16 @@ describe("session replay", () => {
     await startSessionReplay({
       publicKey: "anpk_test",
       endpoint: "/api/analytics/replay",
-      maxEventsPerBatch: 1,
+      maxEventsPerBatch: 10,
       flushIntervalMs: 100_000,
     });
     recordOptions.emit({ type: 3, data: { href: "/first" } });
+    const firstFlush = flushSessionReplay("max-events");
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     recordOptions.emit({ type: 3, data: { href: "/second" } });
 
     firstUpload.resolve(new Response("nope", { status: 500 }));
-    await tick();
+    await firstFlush;
     await flushSessionReplay("retry");
     await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     await flushSessionReplay("manual");

@@ -28,6 +28,27 @@
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
+  --forms-radius-control: 0.75rem;
+  --forms-radius-surface: 1rem;
+  --forms-radius-floating: 1.25rem;
+  --forms-shadow-surface:
+    0 0 0 1px hsl(var(--foreground) / 0.06),
+    0 1px 2px -1px hsl(var(--foreground) / 0.08),
+    0 8px 20px -12px hsl(var(--foreground) / 0.14);
+  --forms-shadow-surface-hover:
+    0 0 0 1px hsl(var(--foreground) / 0.1),
+    0 4px 10px -6px hsl(var(--foreground) / 0.1),
+    0 12px 28px -16px hsl(var(--foreground) / 0.18);
+  --forms-shadow-control:
+    0 0 0 1px hsl(var(--foreground) / 0.045),
+    0 1px 2px -1px hsl(var(--foreground) / 0.08);
+  --forms-shadow-floating:
+    0 0 0 1px hsl(var(--foreground) / 0.08),
+    0 8px 16px -8px hsl(var(--foreground) / 0.14),
+    0 20px 38px -18px hsl(var(--foreground) / 0.18);
+  --forms-shadow-focus:
+    0 0 0 3px hsl(var(--ring) / 0.18),
+    0 0 0 1px hsl(var(--ring) / 0.55);
 
   --sidebar-background: 0 0% 97%;
   --sidebar-foreground: 0 0% 45%;
@@ -59,6 +80,13 @@
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
+  --forms-shadow-surface: 0 0 0 1px hsl(var(--foreground) / 0.08);
+  --forms-shadow-surface-hover: 0 0 0 1px hsl(var(--foreground) / 0.14);
+  --forms-shadow-control: 0 0 0 1px hsl(var(--foreground) / 0.07);
+  --forms-shadow-floating: 0 0 0 1px hsl(var(--foreground) / 0.1);
+  --forms-shadow-focus:
+    0 0 0 3px hsl(var(--ring) / 0.2),
+    0 0 0 1px hsl(var(--ring) / 0.65);
 
   --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 60%;
@@ -94,6 +122,66 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
+.forms-list-shell,
+.forms-selection-toolbar,
+.forms-settings-card {
+  border-radius: var(--forms-radius-surface);
+  box-shadow: var(--forms-shadow-surface);
+}
+
+.forms-settings-card {
+  border: 0;
+}
+
+.forms-list-shell {
+  transition-property: box-shadow;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+
+.forms-list-shell:hover,
+.forms-settings-card:hover {
+  box-shadow: var(--forms-shadow-surface-hover);
+}
+
+.forms-selection-toolbar {
+  transition-property: box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+.forms-list-row {
+  transition-property: background-color, box-shadow, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+.forms-list-row:hover {
+  box-shadow: var(--forms-shadow-control);
+}
+
+.forms-list-row:focus-visible {
+  outline: none;
+  box-shadow: var(--forms-shadow-focus);
+}
+
+.forms-empty-state {
+  box-shadow: var(--forms-shadow-control);
+}
+
+.forms-sidebar-nav-item {
+  border-radius: var(--forms-radius-control);
+}
+
+.forms-sidebar-nav-item:hover {
+  box-shadow: var(--forms-shadow-control);
+}
+
+.forms-new-form-popover {
+  border: 0;
+  box-shadow: var(--forms-shadow-floating);
+}
+
 .forms-ask-chat-panel {
   width: 100%;
 }
@@ -122,7 +210,8 @@
 
 @container agent-native-main (min-width: 720px) {
   .forms-list-skeleton-row {
-    grid-template-columns: minmax(0, 1fr) 120px 120px 80px;
+    grid-template-columns: minmax(0, 1fr) 110px 140px 88px 40px;
+    align-items: center;
   }
 
   .forms-list-row {
@@ -150,14 +239,36 @@
 }
 
 .forms-ask-chat-panel .agent-composer-root--hero {
-  border-radius: 1.25rem;
+  border-radius: var(--forms-radius-floating);
   background: hsl(var(--background));
-  box-shadow: none;
+  box-shadow: var(--forms-shadow-floating);
+  transition-property: border-color, box-shadow, transform;
+  transition-duration: 180ms;
+  transition-timing-function: ease-out;
+}
+
+.forms-ask-chat-panel .agent-composer-root--hero:hover {
+  box-shadow: var(--forms-shadow-surface-hover);
+  transform: translateY(-1px);
 }
 
 .forms-ask-chat-panel .agent-composer-root--hero:focus-within {
   border-color: hsl(var(--ring) / 0.9);
-  box-shadow: none;
+  box-shadow: var(--forms-shadow-focus), var(--forms-shadow-floating);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forms-list-shell,
+  .forms-selection-toolbar,
+  .forms-list-row,
+  .forms-sidebar-nav-item,
+  .forms-ask-chat-panel .agent-composer-root--hero {
+    transition: none;
+  }
+
+  .forms-ask-chat-panel .agent-composer-root--hero:hover {
+    transform: none;
+  }
 }
 
 .forms-chat-intro {
@@ -203,6 +314,7 @@
   border: 1px solid hsl(var(--border));
   border-radius: 999px;
   background: hsl(var(--background) / 0.78);
+  box-shadow: var(--forms-shadow-control);
   padding: 0.375rem 0.625rem;
   color: hsl(var(--muted-foreground));
   font-size: 0.75rem;

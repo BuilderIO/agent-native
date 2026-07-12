@@ -118,7 +118,7 @@ export function FormsListPage() {
       <Button
         onClick={handleCreate}
         size="sm"
-        className="shrink-0 cursor-pointer"
+        className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
         <IconPlus className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">{t("forms.newForm")}</span>
@@ -269,7 +269,7 @@ export function FormsListPage() {
   if (isLoading) {
     return (
       <div className="p-3 sm:p-6 max-w-5xl mx-auto">
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="forms-list-shell overflow-hidden bg-card">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -281,7 +281,8 @@ export function FormsListPage() {
               </div>
               <Skeleton className="h-5 w-20 rounded-full" />
               <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-8 w-8 rounded-md md:ms-auto" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-10 w-10 rounded-lg md:ms-auto" />
             </div>
           ))}
         </div>
@@ -300,6 +301,7 @@ export function FormsListPage() {
           <Button
             variant="outline"
             size="sm"
+            className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={() => {
               const next = encodeURIComponent(
                 window.location.pathname + window.location.search,
@@ -322,8 +324,8 @@ export function FormsListPage() {
         <Button
           variant="outline"
           size="sm"
+          className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           onClick={() => refetch()}
-          className="gap-2"
         >
           <IconRefresh className="h-3.5 w-3.5" />
           {t("common.retry")}
@@ -345,10 +347,16 @@ export function FormsListPage() {
           onValueChange={(v) => setView(v as "active" | "archive")}
         >
           <TabsList>
-            <TabsTrigger value="active" className="text-xs gap-1.5">
+            <TabsTrigger
+              value="active"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
               {t("header.forms")}
             </TabsTrigger>
-            <TabsTrigger value="archive" className="text-xs gap-1.5">
+            <TabsTrigger
+              value="archive"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
               <IconArchive className="h-3.5 w-3.5" />
               {t("forms.archive")}
             </TabsTrigger>
@@ -359,7 +367,7 @@ export function FormsListPage() {
           <Button
             variant={selectionMode ? "secondary" : "ghost"}
             size="sm"
-            className="h-8 gap-1.5 text-xs"
+            className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={() => {
               setSelectionMode((current) => {
                 if (current) setSelectedIds(new Set());
@@ -374,7 +382,7 @@ export function FormsListPage() {
       </div>
 
       {selectionMode && forms.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+        <div className="forms-selection-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 px-3 py-2">
           <span className="text-xs font-medium text-foreground">
             {t("forms.selectedCount", {
               count: selectedCount,
@@ -385,7 +393,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 text-xs"
+            className="min-h-10 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={toggleSelectAll}
           >
             {allFormsSelected ? t("common.clearAll") : t("common.selectAll")}
@@ -393,7 +401,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive"
+            className="min-h-10 gap-1.5 text-xs text-destructive hover:text-destructive active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={() =>
               isArchive ? setBulkPurgeOpen(true) : handleBulkDelete(false)
             }
@@ -405,7 +413,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="icon"
-            className="ms-auto h-8 w-8"
+            className="ms-auto size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >
@@ -415,7 +423,7 @@ export function FormsListPage() {
       )}
 
       {forms.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
+        <div className="forms-empty-state flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-20">
           {isArchive ? (
             <>
               <h3 className="font-medium mb-1">
@@ -431,7 +439,11 @@ export function FormsListPage() {
               <p className="text-sm text-muted-foreground mb-4">
                 {t("forms.emptyDescription")}
               </p>
-              <Button onClick={handleCreate} size="sm" className="gap-2">
+              <Button
+                onClick={handleCreate}
+                size="sm"
+                className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+              >
                 <IconPlus className="h-4 w-4" />
                 {t("forms.createForm")}
               </Button>
@@ -439,7 +451,7 @@ export function FormsListPage() {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="forms-list-shell overflow-hidden bg-card">
           {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
             const dateLabel =
@@ -558,7 +570,7 @@ export function FormsListPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-10 w-10 sm:h-8 sm:w-8 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                          className="size-10 rounded-lg p-0 active:scale-[0.96] transition-[background-color,opacity,transform] sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
                           aria-label={t("forms.formActions")}
                         >
                           <IconDots className="h-4 w-4" />
@@ -695,10 +707,12 @@ export function FormsListPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]">
+              {t("common.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handlePurge}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             >
               {t("forms.deleteForever")}
             </AlertDialogAction>
@@ -718,13 +732,16 @@ export function FormsListPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeletePending}>
+            <AlertDialogCancel
+              disabled={bulkDeletePending}
+              className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            >
               {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => handleBulkDelete(true)}
               disabled={bulkDeletePending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             >
               {t("forms.deleteForever")}
             </AlertDialogAction>

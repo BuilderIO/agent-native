@@ -6,10 +6,12 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
+import { injectSessionReplayIframeBootstrap } from "../../extensions/session-replay-iframe.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Popover,
@@ -61,6 +63,10 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
   const [deleting, setDeleting] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const previewHtml = useMemo(
+    () => injectSessionReplayIframeBootstrap(content),
+    [content],
+  );
 
   const slotsQuery = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
@@ -425,7 +431,8 @@ export function ExtensionEditor({ extensionId }: ExtensionEditorProps) {
           <div className="w-1/2">
             {content ? (
               <iframe
-                srcDoc={content}
+                {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+                srcDoc={previewHtml}
                 className="h-full w-full border-0"
                 sandbox="allow-scripts allow-forms"
                 title={t("extensions.previewTitle")}

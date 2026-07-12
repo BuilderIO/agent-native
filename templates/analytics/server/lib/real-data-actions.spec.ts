@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   failedDataQueryAttemptMessage,
+  GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -9,6 +10,7 @@ import {
   hasIncompleteDataEvidence,
   hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
+  isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
@@ -525,6 +527,30 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
         "how many signups happened last week in the signups table?",
       ),
     ).toBe(true);
+  });
+});
+
+describe("isGenericNoDataFallback", () => {
+  it("matches the exact canned fallback sentence", () => {
+    expect(isGenericNoDataFallback(GENERIC_NO_DATA_FALLBACK_MESSAGE)).toBe(
+      true,
+    );
+  });
+
+  it("matches case-insensitively and ignores surrounding whitespace", () => {
+    expect(
+      isGenericNoDataFallback(
+        `  ${GENERIC_NO_DATA_FALLBACK_MESSAGE.toUpperCase()}  `,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match unrelated safe no-data responses", () => {
+    expect(
+      isGenericNoDataFallback(
+        "I can't retrieve this data right now because BigQuery credentials are not configured.",
+      ),
+    ).toBe(false);
   });
 });
 
