@@ -118,11 +118,10 @@ function CommandLoadingGroup({
   return (
     <CommandGroup heading={heading} forceMount>
       {Array.from({ length: rows }).map((_, index) => (
-        <CommandItem
+        <div
           key={`${heading}-loading-${index}`}
-          disabled
-          forceMount
-          value={`${heading} loading ${index + 1}`}
+          aria-hidden="true"
+          className="flex items-center px-2 py-3"
         >
           <Skeleton className="me-2 h-4 w-4 shrink-0 rounded-sm" />
           <Skeleton
@@ -130,7 +129,7 @@ function CommandLoadingGroup({
               loadingRowWidths[index % loadingRowWidths.length]
             }`}
           />
-        </CommandItem>
+        </div>
       ))}
     </CommandGroup>
   );
@@ -384,13 +383,6 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          {explorerDashboardsFetching && explorerDashboards.length === 0 && (
-            <CommandLoadingGroup
-              heading={t("commandPalette.groupExplorerDashboards")}
-              rows={2}
-            />
-          )}
-
           {visibleExplorerDashboards.length > 0 && (
             <CommandGroup heading={t("commandPalette.groupExplorerDashboards")}>
               {visibleExplorerDashboards.map((d) => (
@@ -418,13 +410,6 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          {sqlDashboardsFetching && sqlDashboards.length === 0 && (
-            <CommandLoadingGroup
-              heading={t("commandPalette.groupSqlDashboards")}
-              rows={3}
-            />
-          )}
-
           {visibleSqlDashboards.length > 0 && (
             <CommandGroup heading={t("commandPalette.groupSqlDashboards")}>
               {visibleSqlDashboards.map((d) => (
@@ -448,13 +433,6 @@ export function CommandPalette() {
                 </CommandItem>
               ))}
             </CommandGroup>
-          )}
-
-          {extensionsFetching && extensions.length === 0 && (
-            <CommandLoadingGroup
-              heading={t("commandPalette.groupExtensions")}
-              rows={3}
-            />
           )}
 
           {extensions.length > 0 && (
@@ -606,13 +584,6 @@ export function CommandPalette() {
             </CommandItem>
           </CommandGroup>
 
-          {savedChartsFetching && savedCharts.length === 0 && (
-            <CommandLoadingGroup
-              heading={t("commandPalette.groupSavedCharts")}
-              rows={2}
-            />
-          )}
-
           {savedCharts.length > 0 && (
             <CommandGroup heading={t("commandPalette.groupSavedCharts")}>
               {savedCharts.map((c) => (
@@ -631,6 +602,34 @@ export function CommandPalette() {
                 </CommandItem>
               ))}
             </CommandGroup>
+          )}
+
+          {explorerDashboardsFetching && explorerDashboards.length === 0 && (
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupExplorerDashboards")}
+              rows={2}
+            />
+          )}
+
+          {sqlDashboardsFetching && sqlDashboards.length === 0 && (
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupSqlDashboards")}
+              rows={3}
+            />
+          )}
+
+          {extensionsFetching && extensions.length === 0 && (
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupExtensions")}
+              rows={3}
+            />
+          )}
+
+          {savedChartsFetching && savedCharts.length === 0 && (
+            <CommandLoadingGroup
+              heading={t("commandPalette.groupSavedCharts")}
+              rows={2}
+            />
           )}
         </CommandList>
       </CommandDialog>
