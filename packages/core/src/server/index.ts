@@ -321,6 +321,7 @@ export {
   mountActionRoutes,
   type MountActionRoutesOptions,
   type ActionRouteAuthAdapter,
+  type ActionRouteResolvedCaller,
 } from "./action-routes.js";
 export {
   AGENT_RUN_OWNER_CONTEXT_KEY,

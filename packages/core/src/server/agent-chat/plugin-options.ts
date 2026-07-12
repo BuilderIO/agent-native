@@ -116,7 +116,10 @@ export interface AgentChatPluginOptions {
    *
    * Returning `null` defers to the normal chain; THROWING hard-rejects with a
    * 401 (an invalid/forged credential must not fall through to a same-origin
-   * session cookie). See {@link import("../action-routes.js").ActionRouteAuthAdapter}.
+   * session cookie). A resolved caller's org comes exclusively from the
+   * verified credential — the returned `orgId` or the owner-email membership
+   * lookup — never from the request's session cookie.
+   * See {@link import("../action-routes.js").ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
   /**

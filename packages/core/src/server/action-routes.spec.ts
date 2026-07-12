@@ -37,8 +37,8 @@ vi.mock("./action-change.js", () => ({
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
 
-// The adapter path in mountActionRoutes derives org via resolveAgentRunOrgId,
-// which pulls from these modules. Mocked here so the owner-based fallback is
+// The adapter path in mountActionRoutes derives org from the verified caller
+// via resolveOrgIdForEmail. Mocked here so the owner-based lookup is
 // deterministic without a live DB/session.
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: unknown[]) =>
@@ -990,5 +990,148 @@ describe("mountActionRoutes", () => {
     );
     expect(received.ctx.orgId).toBe("org-owner-derived");
     expect(received.requestOrgId).toBe("org-owner-derived");
+  });
+
+  it("never lets the ambient session org override the adapter caller's org", async () => {
+    // A request can carry BOTH a valid A2A bearer and an unrelated same-origin
+    // browser cookie. The identity comes from the token, so the org must too:
+    // the session-backed resolveOrgId (and getSession/getOrgContext) must not
+    // be consulted, or the token caller would execute under the cookie user's
+    // org — a cross-org confusion.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-of-a2a-caller");
+    mockGetSession.mockResolvedValue({
+      email: "cookie-user@example.com",
+      orgId: "org-of-cookie-user",
+    } as any);
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-of-cookie-user" });
+    const resolveOrgId = vi.fn(async () => "org-of-cookie-user");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "cookie-user@example.com",
+      resolveOrgId,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-of-a2a-caller");
+    expect(received.requestOrgId).toBe("org-of-a2a-caller");
+    expect(resolveOrgId).not.toHaveBeenCalled();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(mockGetOrgContext).not.toHaveBeenCalled();
+  });
+
+  it("uses the adapter-asserted orgId verbatim, skipping the owner lookup", async () => {
+    // When the adapter verified an org from the credential itself (e.g. the
+    // A2A token's org claim), that org wins and no membership lookup runs.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      resolveOrgId: async () => "org-of-cookie-user",
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          orgId: "org-from-token",
+        }),
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.ctx.orgId).toBe("org-from-token");
+    expect(received.requestOrgId).toBe("org-from-token");
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not seed the adapter's orgId into the owner context", async () => {
+    // seedAgentRunOwnerContext carries identity only; org is request-context
+    // state. Downstream consumers of the seeded owner context must not see
+    // adapter-specific fields.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AGENT_RUN_OWNER_CONTEXT_KEY } =
+      await import("./agent-run-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          name: "A2A Caller",
+          orgId: "org-from-token",
+        }),
+      },
+    });
+
+    const event = {
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    };
+    await mounted[0].handler(event);
+
+    expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
+      owner: "a2a-caller@example.com",
+      anonymous: false,
+      name: "A2A Caller",
+    });
   });
 });

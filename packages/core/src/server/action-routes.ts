@@ -11,6 +11,7 @@ import {
 
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -20,7 +21,6 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import { notifyActionChange } from "./action-change.js";
 import {
-  resolveAgentRunOrgId,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -178,13 +178,27 @@ function handleOptionsRequest(event: any): string {
  *
  * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
  */
+export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
+  /**
+   * Org to scope the request to, verified from the same credential as the
+   * caller identity (e.g. the A2A token's org claim). When omitted, the org
+   * is derived from the verified owner email via the framework's owner→org
+   * membership lookup. The ambient session/org state on the request is never
+   * consulted for adapter-resolved callers: a request can carry both a valid
+   * A2A bearer and an unrelated browser cookie, and the cookie user's org
+   * must not leak into the token caller's request context.
+   */
+  orgId?: string;
+};
+
 export interface ActionRouteAuthAdapter {
   /**
    * Resolve a caller from the raw event before the cookie/bearer chain.
    *
-   * - Return the resolved owner context to run the action scoped to that
-   *   caller (the org is then derived the same way the framework chain derives
-   *   it, including the owner-based fallback).
+   * - Return the resolved caller to run the action scoped to that identity.
+   *   Org scoping comes exclusively from the caller: the returned `orgId` if
+   *   set, otherwise the owner-email membership lookup — never from the
+   *   request's session cookie or org context.
    * - Return `null` when the credential isn't yours to judge — the request
    *   defers to `getOwnerFromEvent` / `getSession`.
    * - THROW to hard-reject: the credential is present but invalid (e.g. an
@@ -195,7 +209,10 @@ export interface ActionRouteAuthAdapter {
    */
   resolveCaller?: (
     event: any,
-  ) => AgentRunOwnerContext | null | Promise<AgentRunOwnerContext | null>;
+  ) =>
+    | ActionRouteResolvedCaller
+    | null
+    | Promise<ActionRouteResolvedCaller | null>;
 }
 
 export interface MountActionRoutesOptions {
@@ -213,6 +230,12 @@ export interface MountActionRoutesOptions {
    * the action route declaratively. See {@link ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: ActionRouteAuthAdapter;
+}
+
+function normalizeOrgId(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }
 
 function isAuthResolutionFailure(error: unknown): boolean {
@@ -312,9 +335,9 @@ export function mountActionRoutes(
         // bearer) and is a hard rejection: we surface a 401 instead of falling
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
-        let resolvedCaller: AgentRunOwnerContext | null = null;
+        let resolvedCaller: ActionRouteResolvedCaller | null = null;
         if (options?.actionRouteAuth?.resolveCaller) {
-          let caller: AgentRunOwnerContext | null;
+          let caller: ActionRouteResolvedCaller | null;
           try {
             caller = await options.actionRouteAuth.resolveCaller(event);
           } catch {
@@ -324,7 +347,11 @@ export function mountActionRoutes(
             });
           }
           if (caller) {
-            seedAgentRunOwnerContext(event, caller);
+            seedAgentRunOwnerContext(event, {
+              owner: caller.owner,
+              anonymous: caller.anonymous,
+              name: caller.name,
+            });
             userEmail = caller.owner;
             userName = caller.name;
             resolvedCaller = caller;
@@ -348,19 +375,27 @@ export function mountActionRoutes(
             }
           }
         }
-        // Org scoping. When the adapter resolved the caller, the app's
-        // `resolveOrgId` (implemented via getSession) returns null for an A2A
-        // caller — which would leave org-scoped writes with org_id NULL. Reuse
-        // core's own org resolver so the adapter path picks up the same
-        // owner-derived fallback the framework auth chain does. Non-adapter
-        // callers keep the original resolveOrgId-only behavior.
+        // Org scoping. For adapter-resolved callers the org must come
+        // exclusively from the verified credential: the adapter-asserted
+        // orgId when present, otherwise the owner-email membership lookup.
+        // The request's ambient session/org state (`resolveOrgId`, usually
+        // getSession-backed) is deliberately NOT consulted — a request can
+        // carry both a valid A2A bearer and an unrelated same-origin browser
+        // cookie, and the cookie user's org must not become the org the
+        // token caller's actions execute under. Non-adapter callers keep the
+        // original resolveOrgId-only behavior.
         let orgId: string | undefined;
         if (resolvedCaller) {
-          orgId = await resolveAgentRunOrgId({
-            event,
-            ownerContext: resolvedCaller,
-            resolveOrgId: options?.resolveOrgId,
-          });
+          orgId = normalizeOrgId(resolvedCaller.orgId);
+          if (!orgId && resolvedCaller.owner && !resolvedCaller.anonymous) {
+            try {
+              orgId = normalizeOrgId(
+                await resolveOrgIdForEmail(resolvedCaller.owner),
+              );
+            } catch {
+              // Org tables may not exist yet on first boot.
+            }
+          }
         } else {
           orgId = options?.resolveOrgId
             ? ((await options.resolveOrgId(event)) ?? undefined)

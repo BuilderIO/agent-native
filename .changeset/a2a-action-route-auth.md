@@ -17,7 +17,11 @@ stop reaching into core internals:
   JWTs declaratively instead of intercepting Nitro's `request` hook. Returning
   `null` defers to the existing framework auth chain; throwing hard-rejects the
   request with a 401 so an invalid credential can't fall through to a
-  same-origin session cookie. A resolved caller's org is derived with the same
-  owner-based fallback the framework chain uses, so A2A writes stay org-scoped.
+  same-origin session cookie. A resolved caller's org comes exclusively from
+  the verified credential — the adapter-returned `orgId`
+  (`ActionRouteResolvedCaller`) or the owner-email membership lookup — never
+  from ambient session/org cookie state, so a request carrying both a valid
+  A2A bearer and an unrelated browser cookie can't execute under the cookie
+  user's org. A2A writes stay org-scoped.
 
 All additive — existing callers are unaffected.
