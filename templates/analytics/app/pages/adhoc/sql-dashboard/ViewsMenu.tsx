@@ -125,8 +125,22 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   }, [selectedView, currentFilters]);
 
   const slugExists = useMemo(() => {
-    const slug = slugify(viewName.trim());
-    return views.some((v) => v.id === slug);
+    const name = viewName.trim().toLowerCase();
+    if (!name) return false;
+
+    const baseSlug = viewName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60);
+
+    return views.some((v) => {
+      const existingName = v.name.trim().toLowerCase();
+      if (existingName === name) return true;
+      if (baseSlug && v.id === baseSlug) return true;
+      return false;
+    });
   }, [viewName, views]);
 
   const handleUpdateActiveView = async (e: React.MouseEvent) => {
