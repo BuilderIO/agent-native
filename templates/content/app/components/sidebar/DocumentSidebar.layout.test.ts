@@ -20,17 +20,19 @@ function treeNode(
 }
 
 describe("document sidebar layout", () => {
-  it("keeps deeply nested page rows reachable in the sidebar", () => {
+  it("keeps deeply nested page rows within the sidebar viewport", () => {
     const layout = readSidebarSource("../layout/Layout.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const scrollArea = readSidebarSource("../ui/scroll-area.tsx");
 
     expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
-    expect(sidebar).toContain('className="min-w-full w-max py-2 pe-2"');
+    expect(sidebar).toContain(
+      "[&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden",
+    );
+    expect(sidebar).toContain('className="w-full min-w-0 py-2 pe-2"');
+    expect(sidebar).not.toContain("w-max");
     expect(treeItem).toContain("const indent = depth * 12 + 12");
     expect(treeItem).toContain("min-w-0");
-    expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
   });
 
   it("keeps row actions inside the visible sidebar at narrow widths", () => {
