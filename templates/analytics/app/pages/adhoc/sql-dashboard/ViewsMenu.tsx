@@ -113,11 +113,10 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const selectedView = useMemo(() => {
     const paramViewId = searchParams.get("view");
     if (paramViewId) {
-      const found = views.find((x) => x.id === paramViewId);
-      if (found) return found;
+      return views.find((x) => x.id === paramViewId) ?? null;
     }
-    return views.find((v) => filtersMatch(currentFilters, v.filters)) ?? null;
-  }, [searchParams, views, currentFilters]);
+    return null;
+  }, [searchParams, views]);
 
   const hasFilterChanges = useMemo(() => {
     if (!selectedView) return false;
