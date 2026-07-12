@@ -302,6 +302,82 @@ describe("task store", () => {
     expect(tasks).toHaveLength(1);
   });
 
+  it("counts a repeated id once when bulk deleting", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "t2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    const result = await bulkDeleteTasks({
+      ownerEmail: "alice@example.com",
+      taskIds: ["t1", "t1", "t2"],
+    });
+
+    expect(result.deleted).toBe(2);
+    expect(await listTasks({ ownerEmail: "alice@example.com" })).toHaveLength(
+      0,
+    );
+  });
+
+  it("returns each task once when bulk updating with a repeated id", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "t2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    const updated = await bulkUpdateTasks({
+      ownerEmail: "alice@example.com",
+      taskIds: ["t1", "t1", "t2"],
+      done: true,
+      now: "2026-06-22T11:00:00.000Z",
+    });
+
+    expect(updated.map((task) => task.id)).toEqual(["t1", "t2"]);
+    expect(updated.every((task) => task.done)).toBe(true);
+  });
+
+  it("rejects duplicate ids when reordering tasks", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "t1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "t2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    await expect(
+      reorderTasks({
+        ownerEmail: "alice@example.com",
+        taskIds: ["t1", "t1"],
+        includeDone: false,
+      }),
+    ).rejects.toThrow(/duplicates/i);
+
+    const tasks = await listTasks({ ownerEmail: "alice@example.com" });
+    expect(tasks.map((task) => task.id)).toEqual(["t1", "t2"]);
+  });
+
   it("rolls back task and field patches together", async () => {
     await createTask({
       ownerEmail: "alice@example.com",

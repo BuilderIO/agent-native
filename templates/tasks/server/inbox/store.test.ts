@@ -231,4 +231,80 @@ describe("inbox store", () => {
     const items = await listInboxItems({ ownerEmail: "alice@example.com" });
     expect(items).toHaveLength(1);
   });
+
+  it("counts a repeated id once when bulk deleting inbox items", async () => {
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "i1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "i2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    const result = await bulkDeleteInboxItems({
+      ownerEmail: "alice@example.com",
+      inboxItemIds: ["i1", "i1", "i2"],
+    });
+
+    expect(result.deleted).toBe(2);
+    expect(
+      await listInboxItems({ ownerEmail: "alice@example.com" }),
+    ).toHaveLength(0);
+  });
+
+  it("promotes a repeated id once when bulk marking ready", async () => {
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "i1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "i2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    const { tasks } = await bulkMarkInboxItemsReady({
+      ownerEmail: "alice@example.com",
+      inboxItemIds: ["i1", "i1", "i2"],
+      now: "2026-06-22T10:02:00.000Z",
+    });
+
+    expect(tasks.map((task) => task.id)).toEqual(["i1", "i2"]);
+    expect(
+      await listInboxItems({ ownerEmail: "alice@example.com" }),
+    ).toHaveLength(0);
+  });
+
+  it("rejects duplicate ids when reordering inbox items", async () => {
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "First",
+      id: "i1",
+      now: "2026-06-22T10:00:00.000Z",
+    });
+    await createInboxItem({
+      ownerEmail: "alice@example.com",
+      title: "Second",
+      id: "i2",
+      now: "2026-06-22T10:01:00.000Z",
+    });
+
+    await expect(
+      reorderInboxItems({
+        ownerEmail: "alice@example.com",
+        inboxItemIds: ["i1", "i1"],
+      }),
+    ).rejects.toThrow(/duplicates/i);
+
+    const items = await listInboxItems({ ownerEmail: "alice@example.com" });
+    expect(items.map((item) => item.id)).toEqual(["i1", "i2"]);
+  });
 });
