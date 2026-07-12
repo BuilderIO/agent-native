@@ -903,6 +903,9 @@ const messages = {
     reportSubscriptionDeleteFailed: "無法刪除訂閱：{{message}}",
     reportSendFailed: "無法傳送報告：{{message}}",
     never: "從不",
+    savedFiltersTo: "已將篩選器儲存至「{{name}}」",
+    saveCurrentFiltersTo: "將目前篩選器儲存至「{{name}}」",
+    viewNameExists: "已儲存的檢視名稱已存在",
   },
   analyses: {
     historyTitle: "分析歷史記錄",

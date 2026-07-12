@@ -668,6 +668,9 @@ const enUS = {
     reportSubscriptionDeleteFailed: "Couldn't delete subscription: {{message}}",
     reportSendFailed: "Couldn't send report: {{message}}",
     never: "Never",
+    savedFiltersTo: 'Saved filters to "{{name}}"',
+    saveCurrentFiltersTo: 'Save current filters to "{{name}}"',
+    viewNameExists: "already saved view name exists",
   },
   analyses: {
     description: "Ad-hoc analyses that can be re-run anytime for fresh results",

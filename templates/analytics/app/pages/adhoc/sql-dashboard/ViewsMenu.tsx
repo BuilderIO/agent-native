@@ -139,7 +139,9 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         name: selectedView.name,
         filters: currentFilters,
       });
-      toast.success(`Saved filters to "${selectedView.name}"`);
+      toast.success(
+        t("sqlDashboard.savedFiltersTo", { name: selectedView.name }),
+      );
     } catch {
       toast.error(t("sqlDashboard.failedToSave"));
     }
@@ -295,12 +297,18 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                                 name: v.name,
                                 filters: currentFilters,
                               });
-                              toast.success(`Saved filters to "${v.name}"`);
+                              toast.success(
+                                t("sqlDashboard.savedFiltersTo", {
+                                  name: v.name,
+                                }),
+                              );
                             } catch {
                               toast.error(t("sqlDashboard.failedToSave"));
                             }
                           }}
-                          title={`Save current filters to "${v.name}"`}
+                          title={t("sqlDashboard.saveCurrentFiltersTo", {
+                            name: v.name,
+                          })}
                         >
                           <IconDeviceFloppy className="h-3.5 w-3.5" />
                         </Button>
@@ -366,7 +374,9 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Save current filters to "{selectedView.name}"
+              {t("sqlDashboard.saveCurrentFiltersTo", {
+                name: selectedView.name,
+              })}
             </TooltipContent>
           </Tooltip>
         )}
@@ -389,7 +399,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             />
             {slugExists && (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
-                already saved view name exists
+                {t("sqlDashboard.viewNameExists")}
               </p>
             )}
             {Object.keys(currentFilters).length === 0 && (
