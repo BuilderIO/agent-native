@@ -2,7 +2,6 @@ import {
   AgentSidebar,
   AgentToggleButton,
   DevDatabaseLink,
-  FeedbackButton,
   appPath,
   getBrowserTabId,
   useT,
@@ -539,7 +538,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             <div className="shrink-0 space-y-2 px-3 py-2">
               <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
-              <FeedbackButton />
             </div>
           </>
         )}
