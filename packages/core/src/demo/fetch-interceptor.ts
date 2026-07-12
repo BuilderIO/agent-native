@@ -46,6 +46,23 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/runs",
 ];
 
+// Raw rrweb payloads are playback data, not ordinary app UI records. Walking
+// and cloning their huge DOM/event trees on the main thread stalls playback
+// and can corrupt replay fidelity. Small list/summary/manifest responses stay
+// eligible so rendered visitor identities are still anonymized.
+const RAW_REPLAY_PAYLOAD_RE =
+  /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events)(?:[/?#]|$)/;
+const RAW_AGENT_REPLAY_EVENTS_RE =
+  /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
+
+export function shouldSkipDemoResponseRedaction(url: string): boolean {
+  return (
+    SKIP_SUBSTRINGS.some((substring) => url.includes(substring)) ||
+    RAW_REPLAY_PAYLOAD_RE.test(url) ||
+    RAW_AGENT_REPLAY_EVENTS_RE.test(url)
+  );
+}
+
 let installed = false;
 let demoEnabled = false;
 let originalFetch: typeof fetch | null = null;
@@ -148,7 +165,7 @@ export function ensureDemoModeFetchInterceptor(): void {
 
     try {
       const url = urlOf(input);
-      if (SKIP_SUBSTRINGS.some((s) => url.includes(s))) return res;
+      if (shouldSkipDemoResponseRedaction(url)) return res;
 
       // Only buffered, finite JSON. SSE / streaming / chunked-forever bodies
       // never reach `redactDemoData`: streaming content-types are excluded,
@@ -167,7 +184,13 @@ export function ensureDemoModeFetchInterceptor(): void {
       if (res.bodyUsed) return res;
 
       const data = await withTimeout(res.clone().json(), 3_000);
-      const redacted = redactDemoData(data);
+      // Frontend reads only need identity privacy. Dashboard charts apply
+      // their purpose-built demo trend transform at render time, so mutating
+      // every numeric field in every JSON response is unnecessary work.
+      const redacted = redactDemoData(data, {
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      });
 
       const headers = new Headers(res.headers);
       // Body is re-serialized — these would be wrong now.

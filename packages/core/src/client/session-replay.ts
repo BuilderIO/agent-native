@@ -68,6 +68,20 @@ interface SessionReplayState {
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
   lastAuthenticatedProperties: Record<string, unknown> | null;
+  /** rrweb node ids for resource-bearing `<link>` elements in this checkout. */
+  resourceLinkNodeIds: Set<number>;
+  /**
+   * Prevents a permanently misconfigured endpoint from causing an automatic
+   * 409 -> restart -> 409 loop. A successful upload resets the allowance, so
+   * a later, independent sequence conflict can still recover in-place.
+   */
+  automaticConflictRestartAttempted: boolean;
+  /**
+   * Cross-tab "who is recording this replayId" channel, open for the
+   * lifetime of an active recording. See `getOrCreateReplaySession` for why
+   * this exists (duplicated-tab guard against a shared `replayId`).
+   */
+  broadcastChannel: BroadcastChannel | null;
 }
 
 interface StoredReplaySession {
@@ -76,6 +90,27 @@ interface StoredReplaySession {
   startedAtMs?: number;
   sequence?: number;
 }
+
+/** Broadcast on `SESSION_REPLAY_BROADCAST_CHANNEL_NAME` by a tab resuming a
+ * stored replay session, to check whether another tab is already recording
+ * that same `replayId` (see the duplicated-tab guard in
+ * `getOrCreateReplaySession`'s doc comment). */
+interface ReplayClaimMessage {
+  type: "an-replay-claim";
+  replayId: string;
+  instanceNonce: string;
+}
+
+/** Reply from a tab that is actively recording the claimed `replayId`. */
+interface ReplayClaimTakenMessage {
+  type: "an-replay-claim-taken";
+  replayId: string;
+  /** Only the claimant with this nonce should yield the stored replay id.
+   * Optional while older recorder bundles can still be open during rollout. */
+  claimantNonce?: string;
+}
+
+type ReplayBroadcastMessage = ReplayClaimMessage | ReplayClaimTakenMessage;
 
 /** rrweb `sampling` shape (mousemove/scroll/media throttles, input strategy). */
 export type ReplayEventSampling = Record<string, unknown>;
@@ -105,6 +140,13 @@ export interface SessionReplayNetworkOptions {
   maxEvents?: number;
   captureErrorBodies?: boolean;
   maxErrorBodyLength?: number;
+}
+
+export interface SessionReplayUploadRejectedDetails {
+  status: number;
+  restartAttempted: boolean;
+  restartSucceeded: boolean;
+  restartReason?: SessionReplayStartResult["reason"];
 }
 
 export interface SessionReplayOptions {
@@ -157,6 +199,8 @@ export interface SessionReplayOptions {
    * disable, or an options object to override caps.
    */
   network?: boolean | SessionReplayNetworkOptions;
+  /** Rare recorder lifecycle signal; never includes replay content or URLs. */
+  onUploadRejected?: (details: SessionReplayUploadRejectedDetails) => void;
   extraProperties?:
     | Record<string, unknown>
     | (() => Record<string, unknown> | undefined);
@@ -209,6 +253,7 @@ interface NormalizedSessionReplayOptions {
   console: NormalizedCaptureOptions | null;
   /** Null disables network capture entirely. */
   network: NormalizedCaptureOptions | null;
+  onUploadRejected?: SessionReplayOptions["onUploadRejected"];
   extraProperties?: SessionReplayOptions["extraProperties"];
   shouldStart?: SessionReplayOptions["shouldStart"];
 }
@@ -266,6 +311,11 @@ const DEFAULT_MAX_EVENTS_PER_BATCH = 50;
 const DEFAULT_MAX_BATCH_BYTES = 256 * 1024;
 const MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES = 60 * 1024;
 const RRWEB_FULL_SNAPSHOT_EVENT_TYPE = 2;
+/** Cross-tab channel name used by the duplicated-tab claim guard. */
+const SESSION_REPLAY_BROADCAST_CHANNEL_NAME = "agent-native-session-replay";
+/** How long a resuming tab waits for a "someone else already owns this
+ * replayId" reply before proceeding to record with the resumed id. */
+const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 
 /** rrweb custom-event tag for captured console/window-error entries. */
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
@@ -354,24 +404,58 @@ function getState(): SessionReplayState {
       restoreCaptures: null,
       options: null,
       lastAuthenticatedProperties: null,
+      resourceLinkNodeIds: new Set(),
+      automaticConflictRestartAttempted: false,
+      broadcastChannel: null,
     };
   }
   return g[SESSION_REPLAY_STATE_KEY]!;
 }
 
-function safeStorageGet(key: string): string | null {
+// The replay session record (replayId + sequence counter) lives in
+// `sessionStorage`, not `localStorage`: `localStorage` is shared by every
+// open tab of the origin, which would hand every tab the same `replayId` and
+// the same sequence counter. See the guard comment above
+// `getOrCreateReplaySession` for the corruption that causes.
+function safeSessionStorageGet(key: string): string | null {
   try {
-    return window.localStorage.getItem(key);
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function safeStorageSet(key: string, value: string): void {
+function safeSessionStorageSet(key: string, value: string): void {
   try {
-    window.localStorage.setItem(key, value);
+    window.sessionStorage.setItem(key, value);
   } catch {
     // private browsing / storage disabled -- replay still works for this page
+  }
+}
+
+function safeSessionStorageRemove(key: string): void {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // private browsing / storage disabled -- replay still works for this page
+  }
+}
+
+let legacyLocalStorageReplaySessionCleared = false;
+
+/**
+ * Best-effort, one-time removal of the pre-fix replay session record that
+ * used to live in `localStorage`. Never read from it -- adopting its
+ * `replayId` would recreate the exact shared-identity bug this file now
+ * avoids by using `sessionStorage` instead.
+ */
+function clearLegacyLocalStorageReplaySession(): void {
+  if (legacyLocalStorageReplaySessionCleared) return;
+  legacyLocalStorageReplaySessionCleared = true;
+  try {
+    window.localStorage.removeItem(SESSION_REPLAY_ID_STORAGE_KEY);
+  } catch {
+    // best-effort only -- a stray legacy record is harmless once ignored
   }
 }
 
@@ -390,7 +474,7 @@ function generateReplayId(): string {
 }
 
 function readStoredReplaySession(): StoredReplaySession | null {
-  const raw = safeStorageGet(SESSION_REPLAY_ID_STORAGE_KEY);
+  const raw = safeSessionStorageGet(SESSION_REPLAY_ID_STORAGE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as StoredReplaySession;
@@ -402,14 +486,47 @@ function readStoredReplaySession(): StoredReplaySession | null {
 }
 
 function writeStoredReplaySession(value: StoredReplaySession): void {
-  safeStorageSet(SESSION_REPLAY_ID_STORAGE_KEY, JSON.stringify(value));
+  safeSessionStorageSet(SESSION_REPLAY_ID_STORAGE_KEY, JSON.stringify(value));
 }
 
+function removeStoredReplaySession(replayId: string): void {
+  if (readStoredReplaySession()?.replayId !== replayId) return;
+  safeSessionStorageRemove(SESSION_REPLAY_ID_STORAGE_KEY);
+}
+
+/**
+ * Per-tab replay identity is deliberate -- do not "fix" this by reading or
+ * writing the session record through `localStorage` again.
+ *
+ * `sessionStorage` is scoped to a single tab (and survives reloads/
+ * navigations within that tab, which is exactly the lifetime a recording
+ * needs). `localStorage` is shared by every open tab of the origin. If this
+ * record lived there, two tabs open to the same app would read/write the
+ * *same* `replayId` and the *same* sequence counter, so rrweb in each tab
+ * would record independently but upload chunks under one shared identity.
+ * The two interleaved DOM mutation streams get merged into a single
+ * recording server-side: mutations reference the other tab's node ids
+ * (broken CSS), the viewport/meta events reflect whichever tab resized last
+ * (wrong or ultra-wide viewport), and lost mousemove batches from the
+ * "other" tab's chunks read as a frozen cursor or a fake inactivity gap. A
+ * chunk-sequence collision with a different checksum gets rejected
+ * server-side (409) rather than merged, so one tab's batches are silently
+ * dropped -- there is no way to reconstruct or repair this at playback time.
+ * Keep this per-tab. A tab *duplicated* mid-session still shares a
+ * `sessionStorage` snapshot, which is what the `BroadcastChannel` claim
+ * check in `startSessionReplayRecorder` guards against.
+ */
 function getOrCreateReplaySession(sessionId: string): {
   replayId: string;
   startedAtMs: number;
   sequence: number;
+  /** True when resuming a session found in this tab's `sessionStorage`
+   * (e.g. a reload), as opposed to minting a brand-new id. Only the resumed
+   * case needs the duplicated-tab claim check -- a fresh id can never
+   * collide with anything already recording. */
+  resumed: boolean;
 } {
+  clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
   if (parsed?.sessionId === sessionId && parsed.replayId) {
     const startedAtMs =
@@ -424,12 +541,127 @@ function getOrCreateReplaySession(sessionId: string): {
       parsed.sequence >= 0
         ? Math.floor(parsed.sequence)
         : 0;
-    return { replayId: parsed.replayId, startedAtMs, sequence };
+    return { replayId: parsed.replayId, startedAtMs, sequence, resumed: true };
   }
   const replayId = generateReplayId();
   const startedAtMs = Date.now();
   writeStoredReplaySession({ sessionId, replayId, startedAtMs, sequence: 0 });
-  return { replayId, startedAtMs, sequence: 0 };
+  return { replayId, startedAtMs, sequence: 0, resumed: false };
+}
+
+/**
+ * Open the cross-tab claim channel used to detect a *duplicated* tab (a
+ * browser "duplicate tab" or same-origin `window.open` copies
+ * `sessionStorage`, so two tabs can legitimately start with the same
+ * resumed `replayId`). Returns `null` when `BroadcastChannel` is
+ * unavailable -- callers must treat that as "skip the guard", never as an
+ * error.
+ */
+function openReplayBroadcastChannel(): BroadcastChannel | null {
+  if (typeof BroadcastChannel === "undefined") return null;
+  try {
+    return new BroadcastChannel(SESSION_REPLAY_BROADCAST_CHANNEL_NAME);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wires up the duplicated-tab claim channel for one recorder lifetime.
+ * `respond` keeps listening for the whole life of the channel (any tab may
+ * later claim the `replayId` this tab is actively recording); `probeClaim`
+ * is used once, only when resuming a stored session, to ask "is anyone else
+ * already recording this id?" and wait up to
+ * `SESSION_REPLAY_CLAIM_TIMEOUT_MS` for a reply.
+ */
+function createReplayClaimChannel(
+  state: SessionReplayState,
+  instanceNonce: string,
+): {
+  channel: BroadcastChannel | null;
+  probeClaim: (replayId: string) => Promise<boolean>;
+} {
+  const channel = openReplayBroadcastChannel();
+  if (!channel) {
+    return { channel: null, probeClaim: async () => false };
+  }
+  let pending: {
+    replayId: string;
+    resolve: (taken: boolean) => void;
+    timer: number;
+  } | null = null;
+  channel.onmessage = (event: MessageEvent) => {
+    const data = event?.data as ReplayBroadcastMessage | undefined | null;
+    if (!data || typeof data !== "object") return;
+    if (data.type === "an-replay-claim") {
+      if (data.instanceNonce === instanceNonce) return;
+      const ownsReplayId = state.active && state.replayId === data.replayId;
+      const winsSimultaneousClaim =
+        pending?.replayId === data.replayId &&
+        instanceNonce.localeCompare(data.instanceNonce) < 0;
+      if (!ownsReplayId && !winsSimultaneousClaim) {
+        // If both duplicated tabs start simultaneously, deterministically
+        // yield to the lower nonce rather than letting both probes time out
+        // and record under the copied replay id.
+        if (
+          pending?.replayId === data.replayId &&
+          data.instanceNonce.localeCompare(instanceNonce) < 0
+        ) {
+          window.clearTimeout(pending.timer);
+          const resolve = pending.resolve;
+          pending = null;
+          resolve(true);
+        }
+        return;
+      }
+      try {
+        const reply: ReplayClaimTakenMessage = {
+          type: "an-replay-claim-taken",
+          replayId: data.replayId,
+          claimantNonce: data.instanceNonce,
+        };
+        channel.postMessage(reply);
+      } catch {
+        // best-effort -- a lost reply just means the duplicate tab resumes
+        // recording under the shared id; later 409s still protect the
+        // stream from getting corrupted merges.
+      }
+      return;
+    }
+    if (data.type === "an-replay-claim-taken") {
+      if (
+        pending &&
+        data.replayId === pending.replayId &&
+        (!data.claimantNonce || data.claimantNonce === instanceNonce)
+      ) {
+        window.clearTimeout(pending.timer);
+        const resolve = pending.resolve;
+        pending = null;
+        resolve(true);
+      }
+    }
+  };
+  const probeClaim = (replayId: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        pending = null;
+        resolve(false);
+      }, SESSION_REPLAY_CLAIM_TIMEOUT_MS);
+      pending = { replayId, resolve, timer };
+      try {
+        const claim: ReplayClaimMessage = {
+          type: "an-replay-claim",
+          replayId,
+          instanceNonce,
+        };
+        channel.postMessage(claim);
+      } catch {
+        window.clearTimeout(timer);
+        pending = null;
+        resolve(false);
+      }
+    });
+  return { channel, probeClaim };
 }
 
 function persistReplaySequence(
@@ -658,6 +890,7 @@ function normalizeOptions(
       options.network,
       DEFAULT_MAX_NETWORK_EVENTS,
     ),
+    onUploadRejected: options.onUploadRejected,
     extraProperties: options.extraProperties,
     shouldStart: options.shouldStart,
   };
@@ -732,8 +965,99 @@ function scrubReplayValue(
  * the scrub into the single serialization pass avoids a separate deep-clone of
  * every emitted event (FullSnapshots are large DOM trees) on the hot path.
  */
-function scrubReplayReplacer(key: string, value: unknown): unknown {
-  return typeof value === "string" ? scrubStringValue(key, value) : value;
+const REPLAY_RESOURCE_URL_ATTRIBUTES = new Set([
+  "src",
+  "srcset",
+  "poster",
+  "data",
+]);
+
+const REPLAY_RESOURCE_LINK_RELS = new Set([
+  "stylesheet",
+  "preload",
+  "modulepreload",
+  "icon",
+  "apple-touch-icon",
+  "mask-icon",
+]);
+
+/**
+ * Build a path-aware replay serializer without cloning the rrweb event.
+ *
+ * Privacy still wins for Meta/navigation URLs, anchor hrefs, and custom
+ * console/network diagnostics. The narrow exception is captured DOM resource
+ * attributes: changing a signed stylesheet/image/font URL makes rrweb rebuild
+ * a page that never existed and commonly produces missing CSS or giant fallback
+ * icons. JSON.stringify calls a replacer for an `attributes` object before its
+ * children, so the WeakMap lets the child callback recognize only that bag.
+ */
+function createReplayScrubReplacer(
+  resourceLinkNodeIds: Set<number>,
+): (this: unknown, key: string, value: unknown) => unknown {
+  const preservedAttributes = new WeakMap<object, Set<string>>();
+
+  return function replayScrubReplacer(
+    this: unknown,
+    key: string,
+    value: unknown,
+  ): unknown {
+    if (key === "attributes" && value && typeof value === "object") {
+      const attributes = value as Record<string, unknown>;
+      const resourceKeys = new Set<string>();
+      for (const attribute of REPLAY_RESOURCE_URL_ATTRIBUTES) {
+        if (typeof attributes[attribute] === "string") {
+          resourceKeys.add(attribute);
+        }
+      }
+
+      const holder =
+        this && typeof this === "object"
+          ? (this as Record<string, unknown>)
+          : undefined;
+      const tagName =
+        typeof holder?.tagName === "string" ? holder.tagName.toLowerCase() : "";
+      const nodeId =
+        typeof holder?.id === "number" && Number.isFinite(holder.id)
+          ? holder.id
+          : undefined;
+      const rel = String(attributes.rel ?? "")
+        .toLowerCase()
+        .split(/\s+/);
+      const hasResourceRel = rel.some((token) =>
+        REPLAY_RESOURCE_LINK_RELS.has(token),
+      );
+      if (nodeId !== undefined && tagName === "link" && hasResourceRel) {
+        resourceLinkNodeIds.add(nodeId);
+      } else if (
+        nodeId !== undefined &&
+        tagName === "" &&
+        Object.hasOwn(attributes, "rel")
+      ) {
+        if (hasResourceRel) resourceLinkNodeIds.add(nodeId);
+        else resourceLinkNodeIds.delete(nodeId);
+      }
+      if (
+        typeof attributes.href === "string" &&
+        ((tagName === "link" && hasResourceRel) ||
+          (nodeId !== undefined && resourceLinkNodeIds.has(nodeId)))
+      ) {
+        resourceKeys.add("href");
+      }
+
+      if (resourceKeys.size > 0) preservedAttributes.set(value, resourceKeys);
+      return value;
+    }
+
+    if (
+      typeof value === "string" &&
+      this &&
+      typeof this === "object" &&
+      preservedAttributes.get(this)?.has(key.toLowerCase())
+    ) {
+      return value;
+    }
+    return typeof value === "string" ? scrubStringValue(key, value) : value;
+  };
 }
 
 /**
@@ -741,9 +1065,15 @@ function scrubReplayReplacer(key: string, value: unknown): unknown {
  * directly on the queue and reused verbatim at flush, so each event is
  * stringified exactly once (was: deep-clone + size-stringify + flush-stringify).
  */
-function serializeReplayEvent(event: ReplayEvent): string {
+function serializeReplayEvent(
+  event: ReplayEvent,
+  resourceLinkNodeIds: Set<number>,
+): string {
   try {
-    return JSON.stringify(event, scrubReplayReplacer);
+    return JSON.stringify(
+      event,
+      createReplayScrubReplacer(resourceLinkNodeIds),
+    );
   } catch {
     return "";
   }
@@ -766,7 +1096,7 @@ function enqueueReplayEvent(
   event: ReplayEvent,
 ): void {
   if (!state.options) return;
-  const serialized = serializeReplayEvent(event);
+  const serialized = serializeReplayEvent(event, state.resourceLinkNodeIds);
   if (!serialized) return;
   const estimatedBytes = serialized.length;
   if (
@@ -977,6 +1307,27 @@ function canUseReplayKeepalive(body: BodyInit): boolean {
   return replayUploadBodyBytes(body) <= MAX_KEEPALIVE_REPLAY_UPLOAD_BYTES;
 }
 
+/** Thrown by `sendReplayUpload` on a non-ok HTTP response, carrying the
+ * status so `flushSessionReplay` can tell a permanent client rejection
+ * (e.g. a 409 checksum conflict, which can never succeed on retry) apart
+ * from a transient failure worth retrying. */
+class ReplayUploadHttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Session replay upload failed with HTTP ${status}`);
+    this.name = "ReplayUploadHttpError";
+    this.status = status;
+  }
+}
+
+/** 4xx statuses where retrying the exact same batch can never succeed --
+ * e.g. a 409 chunk-sequence/checksum conflict, or a 400 the server will
+ * reject again. 408 (timeout) and 429 (rate limit) are excluded because a
+ * later retry can plausibly succeed. */
+function isDefinitiveReplayUploadClientError(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 async function sendReplayUpload(
   options: NormalizedSessionReplayOptions,
   body: string,
@@ -992,9 +1343,7 @@ async function sendReplayUpload(
       headers: { "Content-Type": "text/plain;charset=UTF-8" },
     });
     if (!response.ok) {
-      throw new Error(
-        `Session replay upload failed with HTTP ${response.status}`,
-      );
+      throw new ReplayUploadHttpError(response.status);
     }
     return;
   }
@@ -1012,9 +1361,7 @@ async function sendReplayUpload(
     },
   });
   if (!response.ok) {
-    throw new Error(
-      `Session replay upload failed with HTTP ${response.status}`,
-    );
+    throw new ReplayUploadHttpError(response.status);
   }
 }
 
@@ -1120,6 +1467,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   state.flushing = true;
   let uploaded = false;
   let reservedSequence = false;
+  let definitiveClientErrorStatus: number | null = null;
   try {
     await sendReplayUpload(state.options, payload.body, {
       beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
@@ -1130,16 +1478,44 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         : undefined,
     });
     if (!reservedSequence) advanceReplaySequence(state, payload);
+    state.automaticConflictRestartAttempted = false;
     uploaded = true;
   } catch (error) {
     if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
-    restoreReplayEvents(state, events);
+    // A definitive 4xx (e.g. a 409 chunk-sequence/checksum conflict) can
+    // never succeed by retrying the exact same batch -- requeuing it would
+    // just spin forever, blocking every later batch behind it (flushes are
+    // FIFO via `retryBatches`). Drop it and move on instead.
+    const isDefinitiveClientError =
+      error instanceof ReplayUploadHttpError &&
+      isDefinitiveReplayUploadClientError(error.status);
+    if (isDefinitiveClientError) {
+      // Continuing after a checksum/sequence conflict would reuse the same
+      // rejected sequence forever. More importantly, advancing past it would
+      // append mutations to a replay whose DOM stream may belong to another
+      // tab. End this recorder and clear its persisted identity so the next
+      // start creates a clean replay instead of producing corrupt playback.
+      state.queue = [];
+      state.queuedBytes = 0;
+      state.retryBatches = [];
+      removeStoredReplaySession(payload.replayId);
+      definitiveClientErrorStatus = error.status;
+    } else {
+      restoreReplayEvents(state, events);
+    }
     // Guard the recorder's own warning so console capture never records it
     // (a captured warning would enqueue an event and retrigger a flush).
     const previousInternal = replayCaptureInternal;
     replayCaptureInternal = true;
     try {
-      console.warn("[session-replay] upload failed", error);
+      if (isDefinitiveClientError) {
+        console.warn(
+          `[session-replay] dropping upload (HTTP ${(error as ReplayUploadHttpError).status})`,
+          error,
+        );
+      } else {
+        console.warn("[session-replay] upload failed", error);
+      }
     } finally {
       replayCaptureInternal = previousInternal;
     }
@@ -1148,6 +1524,51 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   }
   if (uploaded && hasPendingReplayBatch(state)) {
     flushQueuedReplayIfNeeded(state);
+  }
+  if (
+    definitiveClientErrorStatus !== null &&
+    state.replayId === payload.replayId
+  ) {
+    const rejectedOptions = state.options;
+    const shouldRestartAfterConflict =
+      definitiveClientErrorStatus === 409 &&
+      !state.automaticConflictRestartAttempted;
+    if (shouldRestartAfterConflict) {
+      state.automaticConflictRestartAttempted = true;
+    }
+
+    await stopSessionReplay("upload-rejected");
+
+    // A 409 means this replay identity can no longer append safely (usually a
+    // duplicated tab that inherited sessionStorage, or an old shared identity
+    // still open during rollout). Do not leave a long-lived SPA tab silently
+    // unrecorded until its next page load: restart rrweb under a fresh per-tab
+    // id so it emits a new Meta + FullSnapshot stream. Limit this to one retry
+    // until an upload succeeds; other definitive 4xx responses usually reflect
+    // configuration/input errors and must not create a restart loop.
+    let restartResult: SessionReplayStartResult | null = null;
+    if (shouldRestartAfterConflict && rejectedOptions) {
+      restartResult = await startSessionReplay({
+        ...rejectedOptions,
+        console: rejectedOptions.console ?? false,
+        network: rejectedOptions.network ?? false,
+      });
+    }
+
+    // Rare recovery-path telemetry lets Analytics owners quantify conflicts
+    // without recording the rejected replay id, URL, or any captured content.
+    try {
+      rejectedOptions?.onUploadRejected?.({
+        status: definitiveClientErrorStatus,
+        restartAttempted: shouldRestartAfterConflict,
+        restartSucceeded: restartResult?.started === true,
+        ...(restartResult?.reason
+          ? { restartReason: restartResult.reason }
+          : {}),
+      });
+    } catch {
+      // best-effort telemetry must never interfere with recording recovery
+    }
   }
 }
 
@@ -2043,7 +2464,34 @@ async function startSessionReplayRecorder(
     return { started: false, reason: "disabled", sessionId, sampled };
   }
 
-  const replaySession = getOrCreateReplaySession(sessionId);
+  let replaySession = getOrCreateReplaySession(sessionId);
+  const instanceNonce = generateReplayId();
+  const { channel: replayChannel, probeClaim } = createReplayClaimChannel(
+    state,
+    instanceNonce,
+  );
+  // Only a *resumed* id needs the duplicated-tab check -- a freshly minted
+  // id can never collide with a recorder that's already running, so this
+  // never adds startup latency for the common "new tab" case.
+  if (replaySession.resumed && replayChannel) {
+    const taken = await probeClaim(replaySession.replayId);
+    if (taken) {
+      const freshReplayId = generateReplayId();
+      const freshStartedAtMs = Date.now();
+      writeStoredReplaySession({
+        sessionId,
+        replayId: freshReplayId,
+        startedAtMs: freshStartedAtMs,
+        sequence: 0,
+      });
+      replaySession = {
+        replayId: freshReplayId,
+        startedAtMs: freshStartedAtMs,
+        sequence: 0,
+        resumed: false,
+      };
+    }
+  }
   state.options = normalized;
   state.replayId = replaySession.replayId;
   state.startedAtMs = replaySession.startedAtMs;
@@ -2051,7 +2499,9 @@ async function startSessionReplayRecorder(
   state.queue = [];
   state.queuedBytes = 0;
   state.retryBatches = [];
+  state.resourceLinkNodeIds.clear();
   state.stopRecorder = null;
+  state.broadcastChannel = replayChannel;
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
     : null;
@@ -2096,6 +2546,12 @@ async function startSessionReplayRecorder(
       state.replayId = null;
       state.startedAtMs = null;
       state.lastAuthenticatedProperties = null;
+      try {
+        state.broadcastChannel?.close();
+      } catch {
+        // best-effort cleanup
+      }
+      state.broadcastChannel = null;
       return { started: false, reason: "record-failed", sessionId, sampled };
     }
     state.stopRecorder = stopRecorder;
@@ -2133,6 +2589,12 @@ async function startSessionReplayRecorder(
     state.replayId = null;
     state.startedAtMs = null;
     state.lastAuthenticatedProperties = null;
+    try {
+      state.broadcastChannel?.close();
+    } catch {
+      // best-effort cleanup
+    }
+    state.broadcastChannel = null;
     return { started: false, reason: "record-failed", sessionId, sampled };
   }
 }
@@ -2167,6 +2629,12 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   }
   state.restoreUrlMonitor?.();
   state.removeLifecycleListeners?.();
+  try {
+    state.broadcastChannel?.close();
+  } catch {
+    // best-effort cleanup
+  }
+  state.broadcastChannel = null;
   await flushSessionReplay(reason);
 }
 
@@ -2182,9 +2650,10 @@ export function isSessionReplayActive(): boolean {
 
 /**
  * The active session replay id when a recording is running, or the last one
- * persisted for this analytics session in `localStorage`. First-party error
- * capture uses this to tie each captured exception to the replay it happened
- * in, so triage can jump straight to `/sessions/<recordingId>`.
+ * persisted for this analytics session in this tab's `sessionStorage`.
+ * First-party error capture uses this to tie each captured exception to the
+ * replay it happened in, so triage can jump straight to
+ * `/sessions/<recordingId>`.
  */
 export function getSessionReplayId(): string | null {
   const state = getState();

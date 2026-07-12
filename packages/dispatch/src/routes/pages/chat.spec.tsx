@@ -29,6 +29,11 @@ describe("Dispatch ChatRoute", () => {
   let root: Root;
 
   beforeEach(() => {
+    // ChatRoute intentionally clears navigation handoff state on a zero-delay
+    // timer. Keep that timer deterministic so a busy workspace test run cannot
+    // advance to the post-handoff hero render before this spec inspects the
+    // transition frame.
+    vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.surfaceProps = null;
     container = document.createElement("div");
@@ -39,6 +44,7 @@ describe("Dispatch ChatRoute", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 

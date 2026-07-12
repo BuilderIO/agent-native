@@ -14,6 +14,13 @@
 
 export interface RedactOptions {
   salt?: string;
+  /** Redact numeric values. Defaults to true for backward compatibility. */
+  redactNumbers?: boolean;
+  /**
+   * Redact emails stored in otherwise protected structural fields such as
+   * `userId` and `userKey`. Intended for display-only frontend responses.
+   */
+  redactProtectedEmails?: boolean;
 }
 
 /* ------------------------------------------------------------------ *
@@ -532,18 +539,29 @@ function transformNumbers(text: string, salt: string): string {
  * Public: string redactor
  * ------------------------------------------------------------------ */
 
-function redactDemoStringInternal(text: string, salt: string): string {
+function redactDemoStringInternal(
+  text: string,
+  salt: string,
+  redactNumbers: boolean,
+): string {
   if (typeof text !== "string" || text.length === 0) return text;
+  if (!text.includes("@") && (!redactNumbers || !/[\d$€£¥]/.test(text))) {
+    return text;
+  }
 
   const { text: masked, restore } = protect(text);
   let out = masked;
   out = transformEmails(out, salt);
-  out = transformNumbers(out, salt);
+  if (redactNumbers) out = transformNumbers(out, salt);
   return unprotect(out, restore);
 }
 
 export function redactDemoString(text: string, opts?: RedactOptions): string {
-  return redactDemoStringInternal(text, opts?.salt ?? "");
+  return redactDemoStringInternal(
+    text,
+    opts?.salt ?? "",
+    opts?.redactNumbers !== false,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -586,6 +604,8 @@ function walk(
   salt: string,
   depth: number,
   seen: WeakSet<object>,
+  redactNumbers: boolean,
+  redactProtectedEmails: boolean,
 ): unknown {
   if (depth > MAX_DEPTH) return value;
 
@@ -594,11 +614,11 @@ function walk(
   const t = typeof value;
 
   if (t === "string") {
-    return redactDemoStringInternal(value as string, salt);
+    return redactDemoStringInternal(value as string, salt, redactNumbers);
   }
 
   if (t === "number") {
-    return redactNumberLeaf(value as number, salt);
+    return redactNumbers ? redactNumberLeaf(value as number, salt) : value;
   }
 
   if (t === "boolean" || t === "bigint" || t === "function" || t === "symbol") {
@@ -610,7 +630,9 @@ function walk(
   if (Array.isArray(value)) {
     if (seen.has(value)) return value;
     seen.add(value);
-    const out = value.map((item) => walk(item, salt, depth + 1, seen));
+    const out = value.map((item) =>
+      walk(item, salt, depth + 1, seen, redactNumbers, redactProtectedEmails),
+    );
     seen.delete(value);
     return out;
   }
@@ -629,14 +651,34 @@ function walk(
         ) {
           // Still recurse into nested structures, but the protected key does
           // not transform its own leaf value.
-          out[key] = walk(entry, salt, depth + 1, seen);
+          out[key] = walk(
+            entry,
+            salt,
+            depth + 1,
+            seen,
+            redactNumbers,
+            redactProtectedEmails,
+          );
+        } else if (
+          redactProtectedEmails &&
+          typeof entry === "string" &&
+          entry.includes("@")
+        ) {
+          out[key] = redactDemoStringInternal(entry, salt, false);
         } else {
           // Leaf under a protected key: pass through completely untouched.
           out[key] = entry;
         }
         continue;
       }
-      out[key] = walk(entry, salt, depth + 1, seen);
+      out[key] = walk(
+        entry,
+        salt,
+        depth + 1,
+        seen,
+        redactNumbers,
+        redactProtectedEmails,
+      );
     }
     seen.delete(value);
     return out;
@@ -648,7 +690,14 @@ function walk(
 
 export function redactDemoData<T>(value: T, opts?: RedactOptions): T {
   const salt = opts?.salt ?? "";
-  return walk(value, salt, 0, new WeakSet<object>()) as T;
+  return walk(
+    value,
+    salt,
+    0,
+    new WeakSet<object>(),
+    opts?.redactNumbers !== false,
+    opts?.redactProtectedEmails === true,
+  ) as T;
 }
 
 /**

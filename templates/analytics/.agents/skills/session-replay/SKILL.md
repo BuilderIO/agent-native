@@ -102,9 +102,9 @@ agent answers about browser recordings in the Analytics template.
 - Wait for all replay chunks (`isComplete`) before constructing the rrweb
   `Replayer`. Progressive chunk publishes should only update the loading bar;
   rebuilding the player mid-load desyncs the scrubber and playhead.
-- Pass events to `Replayer` untouched. rrweb rebuilds them in a sandboxed iframe;
-  pre-processing DOM, stylesheet, resource, or mutation payloads makes playback
-  diverge from the captured page. In particular, never rewrite `href`, `src`,
+- Pass normal events to `Replayer` untouched. rrweb rebuilds them in a sandboxed
+  iframe; pre-processing DOM, stylesheet, resource, or mutation payloads makes
+  playback diverge from the captured page. In particular, never rewrite `href`, `src`,
   `_cssText`, CSS `url()`, or Meta URLs to `about:blank`; that exact remediation
   broke historical replay CSS in PR #2040. Handle request privacy at capture or
   the sandbox boundary instead of mutating stored rrweb events. Historical
@@ -112,15 +112,46 @@ agent answers about browser recordings in the Analytics template.
   requests for accurate rendering; the viewer accepts that fidelity tradeoff,
   uses rrweb's script-disabled sandbox plus `referrerpolicy="no-referrer"`, and
   must never add credentials or proxy those URLs through a privileged server.
+- Capture-time URL scrubbing must preserve load-bearing DOM resource attributes:
+  `src`, `srcset`, `poster`, `data`, and `href` only on resource links such as
+  stylesheets, preloads, and icons. Signed CDN query parameters are part of the
+  resource identity; redacting them produces missing CSS, fonts, images, and
+  oversized fallback icons. Keep scrubbing Meta/navigation URLs, anchor hrefs,
+  and console/network diagnostics. Captured `_cssText` and CSS `@import`/`url()`
+  values must remain byte-identical.
+- rrweb rebuilds into an `about:srcdoc` iframe, which inherits the Analytics
+  document's CSP. Analytics currently sends no CSP header; if a future change
+  adds restrictive `style-src`, `font-src`, or `img-src` directives, verify
+  historical replays and resolve external imports/fonts at capture before
+  blocking the recorded resource origins. Do not diagnose current font loss as
+  CSP without checking the deployed response headers first.
 - Let rrweb own normal iframe sizing via Meta / ViewportResize, and keep the
   outer wrapper in that same coordinate system for fit-to-stage scaling. Some
   legacy recordings contain demonstrably corrupt 4,000–7,500px-wide viewport
   values from ordinary desktop sessions. Only widths of at least 4,000px with
   aspect ratios above 4:1 are recovered to a 16:10 viewport; real 32:9 and
   mobile portrait captures remain untouched. The resize handler applies the
-  recovery to **both** rrweb's iframe and the outer stage.
+  recovery to **both** rrweb's iframe and the outer stage. This includes the
+  historical 3,000–3,999px-wide, sub-1,000px-high malformed shape; do not
+  narrow the guard back to only 4,000px+ recordings.
   Never remove this recovery, clamp only one layer, or broadly rewrite event
   geometry: those changes repeatedly recreated the ribbon/clipping regression.
+- The malformed-viewport recovery's sole event-data exception is pointer
+  geometry: project MouseMove, TouchMove, Drag, and MouseInteraction x/y into
+  the corrected camera and clamp impossible coordinates. Correcting the iframe
+  without its paired pointer projection makes rrweb cast valid target ids
+  thousands of pixels off-stage. Normal-viewport pointer events must retain
+  their original object references and exact coordinates.
+- Keep rrweb's stock cursor stylesheet and its hotspot transform. During
+  playback, hide the viewer's native pointer over Analytics' transparent
+  click-to-pause overlay so it cannot masquerade as a frozen recorded cursor.
+- Keep rrweb's recorded focus handling enabled. Focus and focus-visible state
+  affect menus, forms, and keyboard UX; disabling `triggerFocus` makes a valid
+  snapshot diverge from the source page.
+- `insertStyleRules` may suppress known toast/snackbar containers only. Never
+  hide generic framework primitives such as
+  `[data-radix-popper-content-wrapper]`: Radix dropdowns, selects, tooltips,
+  and other real recorded product UI all share that wrapper.
 - Keep the realistic fidelity and malformed-viewport tests in
   `SessionDetailPage.spec.ts`. Do not change their expectations merely to bless
   a new sanitizer or raw ultra-wide sizing; validate the affected replay in a
@@ -161,3 +192,14 @@ agent answers about browser recordings in the Analytics template.
   `.an-mask` or `data-an-mask`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for
   sensitive zones that should not be captured.
+- A definitive upload `409` abandons only the conflicted replay identity and
+  immediately starts rrweb again under a fresh per-tab id, producing a new
+  Meta + FullSnapshot for long-lived SPA tabs. Recovery is limited to one
+  restart until an upload succeeds so a misconfigured endpoint cannot loop;
+  Analytics tracks the content-free `session replay upload rejected` lifecycle
+  event so conflicts and recovery success are measurable.
+- Do not label an old recording "corrupt" from pointer coordinates, unknown
+  mutation node ids, or changing Meta geometry alone. Those shapes can be
+  legitimate with scrolling, iframes/shadow DOM, navigation, and resize. A
+  historical-artifact notice needs a durable capture/ingest marker or another
+  low-false-positive invariant; do not guess from playback heuristics.

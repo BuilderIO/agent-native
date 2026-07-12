@@ -9,6 +9,8 @@ import {
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
+  projectReplayPointerCoordinates,
+  REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
   replayInitialDisplayDimensions,
   replayInitialViewportDimensions,
@@ -26,6 +28,14 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
+  it("suppresses only toast notifications, not recorded Radix product UI", () => {
+    const rules = REPLAY_OVERLAY_STYLE_RULES.join("\n");
+
+    expect(rules).toContain("Toastify");
+    expect(rules).toContain("Snackbar");
+    expect(rules).not.toContain("data-radix-popper-content-wrapper");
+  });
+
   it("passes captured rrweb URL and CSS payloads through untouched", () => {
     const events = [
       {
@@ -88,8 +98,13 @@ describe("session replay event normalization", () => {
       },
     ];
 
+    const serializedBeforeNormalization = JSON.stringify(events);
     const normalized = normalizeReplayEvents(events);
     expect(normalized).toEqual(events);
+    // Structural tripwire: playback normalization may filter and stable-sort,
+    // but it must never rewrite a byte of valid rrweb event data.
+    expect(JSON.stringify(normalized)).toBe(serializedBeforeNormalization);
+    expect(JSON.stringify(events)).toBe(serializedBeforeNormalization);
     expect(normalized[0]).toBe(events[0]);
     expect(normalized[1]).toBe(events[1]);
     expect(normalized[2]).toBe(events[2]);
@@ -109,6 +124,70 @@ describe("session replay event normalization", () => {
     expect(normalized).toEqual([earlier, later]);
     expect(normalized[0]).toBe(earlier);
     expect(normalized[1]).toBe(later);
+  });
+
+  it("projects pointer coordinates with malformed viewport recovery", () => {
+    const meta = {
+      type: 4,
+      timestamp: 1_000,
+      data: { width: 4_491, height: 941 },
+    };
+    const snapshot = {
+      type: 2,
+      timestamp: 1_010,
+      data: { node: { type: 0 } },
+    };
+    const move = {
+      type: 3,
+      timestamp: 2_000,
+      data: {
+        source: 1,
+        positions: [
+          { id: 417, x: 4_462, y: 125, timeOffset: 0 },
+          { id: 417, x: 8_114, y: 125, timeOffset: 40 },
+        ],
+      },
+    };
+    const click = {
+      type: 3,
+      timestamp: 2_050,
+      data: { source: 2, type: 2, id: 417, x: 4_462, y: 125 },
+    };
+
+    const projected = projectReplayPointerCoordinates([
+      meta,
+      snapshot,
+      move,
+      click,
+    ]);
+
+    expect(projected[0]).toBe(meta);
+    expect(projected[1]).toBe(snapshot);
+    expect(projected[2]).not.toBe(move);
+    expect(projected[2]?.data.positions[0].x).toBeCloseTo(1_496.28, 2);
+    expect(projected[2]?.data.positions[0].y).toBe(125);
+    expect(projected[2]?.data.positions[1].x).toBe(1_505);
+    expect(projected[3]).not.toBe(click);
+    expect(projected[3]?.data.x).toBeCloseTo(1_496.28, 2);
+    expect(projected[3]?.data.y).toBe(125);
+  });
+
+  it("preserves normal-viewport pointer references and coordinates", () => {
+    const meta = {
+      type: 4,
+      timestamp: 1_000,
+      data: { width: 1_440, height: 900 },
+    };
+    const click = {
+      type: 3,
+      timestamp: 2_000,
+      data: { source: 2, type: 2, id: 7, x: 900, y: 450 },
+    };
+
+    const projected = projectReplayPointerCoordinates([meta, click]);
+
+    expect(projected[0]).toBe(meta);
+    expect(projected[1]).toBe(click);
   });
 
   it("starts the display camera at the first recorded viewport", () => {
@@ -170,6 +249,16 @@ describe("session replay event normalization", () => {
       width: 300,
       height: 1200,
     });
+    expect(clampReplayDisplayDimensions({ width: 3189, height: 885 })).toEqual({
+      width: 1416,
+      height: 885,
+    });
+    expect(clampReplayDisplayDimensions({ width: 3440, height: 1440 })).toEqual(
+      {
+        width: 3440,
+        height: 1440,
+      },
+    );
     expect(clampReplayDisplayDimensions({ width: 5120, height: 1440 })).toEqual(
       {
         width: 5120,
@@ -430,7 +519,7 @@ describe("session replay timeline markers", () => {
 });
 
 describe("session replay inactivity ranges", () => {
-  it("ignores mutation, mouse-move, and custom diagnostic noise", () => {
+  it("ignores mutation, empty mouse-move, and custom diagnostic noise", () => {
     const ranges = buildIdleSkipRanges([
       { type: 4, timestamp: 1_000, data: {} },
       { type: 3, timestamp: 5_000, data: { source: 0 } },
@@ -459,6 +548,38 @@ describe("session replay inactivity ranges", () => {
     expect(ranges).toEqual([
       { startMs: 1_200, endMs: 18_800 },
       { startMs: 25_200, endMs: 47_800 },
+    ]);
+  });
+
+  it("keeps captured pointer movement out of inactivity skip ranges", () => {
+    const ranges = buildIdleSkipRanges([
+      { type: 4, timestamp: 1_000, data: {} },
+      {
+        type: 3,
+        timestamp: 10_000,
+        data: {
+          source: 1,
+          positions: [
+            { id: 1, x: 10, y: 20, timeOffset: -400 },
+            { id: 1, x: 30, y: 40, timeOffset: 0 },
+          ],
+        },
+      },
+      {
+        type: 3,
+        timestamp: 20_000,
+        data: {
+          source: 12,
+          positions: [{ id: 1, x: 50, y: 60, timeOffset: 100 }],
+        },
+      },
+      { type: 3, timestamp: 30_000, data: { source: 0 } },
+    ]);
+
+    expect(ranges).toEqual([
+      { startMs: 1_200, endMs: 7_400 },
+      { startMs: 10_200, endMs: 17_900 },
+      { startMs: 20_300, endMs: 27_800 },
     ]);
   });
 

@@ -80,6 +80,49 @@ describe("emails", () => {
     expect(emails[0]).toBe(emails[1]);
     expect(emails[0]).not.toContain("example.com");
   });
+
+  it("can redact email-backed identities while preserving other IDs", () => {
+    const out = redactDemoData(
+      {
+        userId: "jane.doe@acme.com",
+        user_key: "jane.doe@acme.com",
+        sessionId: "session-1234",
+      },
+      {
+        salt: "s",
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      },
+    ) as {
+      userId: string;
+      user_key: string;
+      sessionId: string;
+    };
+
+    expect(out.userId).not.toBe("jane.doe@acme.com");
+    expect(out.user_key).toBe(out.userId);
+    expect(out.sessionId).toBe("session-1234");
+  });
+
+  it("supports email-only frontend redaction without changing numbers", () => {
+    const out = redactDemoData(
+      {
+        email: "jane.doe@acme.com",
+        count: 4200,
+        summary: "4200 visits by jane.doe@acme.com",
+      },
+      { salt: "s", redactNumbers: false },
+    ) as {
+      email: string;
+      count: number;
+      summary: string;
+    };
+
+    expect(out.email).not.toBe("jane.doe@acme.com");
+    expect(out.count).toBe(4200);
+    expect(out.summary).toContain("4200 visits");
+    expect(out.summary).not.toContain("jane.doe@acme.com");
+  });
 });
 
 describe("names and free text", () => {
