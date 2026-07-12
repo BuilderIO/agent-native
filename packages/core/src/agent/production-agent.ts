@@ -4352,8 +4352,8 @@ export async function runAgentLoop(opts: {
         // content parts; first-party actions opt in via the well-known
         // `_agentImages` result field (stripped from the JSON the model
         // reads, even in demo mode). Demo mode drops the images themselves —
-        // text redaction can't scrub pixels, and a screenshot would leak the
-        // real contact names/emails/numbers the redaction exists to hide. The images array
+        // text redaction can't scrub pixels, and a screenshot may expose
+        // original visual data. The images array
         // never touches the ledger — only the compact text notes appended
         // below are persisted.
         let imageNotes: string[] = [];

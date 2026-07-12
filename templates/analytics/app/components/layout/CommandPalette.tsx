@@ -19,10 +19,11 @@ import {
   IconHistory,
   IconLanguage,
   IconRefresh,
+  IconSettings,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
@@ -41,10 +42,19 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { dashboards } from "@/pages/adhoc/registry";
+import {
+  buildAnalyticsGeneralSettingsSearchEntries,
+  buildAnalyticsSettingsCommandItems,
+} from "@/pages/settings/settings-search";
 
 import changelog from "../../../CHANGELOG.md?raw";
-import { commandPaletteKeywords } from "./command-palette-search";
+import {
+  commandPaletteFilter,
+  commandPaletteKeywords,
+  uniqueCommandItems,
+} from "./command-palette-search";
 
 interface SavedConfig {
   id: string;
@@ -128,7 +138,7 @@ function CommandLoadingGroup({
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
   const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
-  return (Array.isArray(rows) ? rows : []) as SavedConfig[];
+  return uniqueCommandItems((Array.isArray(rows) ? rows : []) as SavedConfig[]);
 }
 
 async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
@@ -143,13 +153,15 @@ async function fetchExplorerDashboards(): Promise<ExplorerDashboard[]> {
     result && typeof result === "object" && "dashboards" in result
       ? (result as { dashboards: unknown[] }).dashboards
       : [];
-  return (Array.isArray(dashboards) ? dashboards : [])
-    .filter((d: any) => d && d.name)
-    .map((d: any) => ({
-      id: d.id,
-      name: d.name,
-      hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
-    }));
+  return uniqueCommandItems(
+    (Array.isArray(dashboards) ? dashboards : [])
+      .filter((d: any) => d && d.name)
+      .map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
+      })),
+  );
 }
 
 async function fetchSqlDashboards(
@@ -160,40 +172,44 @@ async function fetchSqlDashboards(
     { hidden: "all" },
     { method: "GET" },
   );
-  return (Array.isArray(rows) ? rows : [])
-    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
-    .map((d: any) => ({
-      id: d.id,
-      name:
-        typeof d.name === "string" && d.name.trim().length > 0
-          ? d.name
-          : t("commandPalette.untitledDashboard"),
-      hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
-    }));
+  return uniqueCommandItems(
+    (Array.isArray(rows) ? rows : [])
+      .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+      .map((d: any) => ({
+        id: d.id,
+        name:
+          typeof d.name === "string" && d.name.trim().length > 0
+            ? d.name
+            : t("commandPalette.untitledDashboard"),
+        hiddenAt: typeof d.hiddenAt === "string" ? d.hiddenAt : null,
+      })),
+  );
 }
 
 async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
   const res = await fetch(agentNativePath("/_agent-native/extensions"));
   if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
   const data = await res.json();
-  return (Array.isArray(data) ? data : [])
-    .filter((extension: any) => {
-      return (
-        extension &&
-        typeof extension.id === "string" &&
-        extension.id.length > 0 &&
-        typeof extension.name === "string" &&
-        extension.name.trim().length > 0
-      );
-    })
-    .map((extension: any) => ({
-      id: extension.id,
-      name: extension.name,
-      description:
-        typeof extension.description === "string"
-          ? extension.description
-          : undefined,
-    }));
+  return uniqueCommandItems(
+    (Array.isArray(data) ? data : [])
+      .filter((extension: any) => {
+        return (
+          extension &&
+          typeof extension.id === "string" &&
+          extension.id.length > 0 &&
+          typeof extension.name === "string" &&
+          extension.name.trim().length > 0
+        );
+      })
+      .map((extension: any) => ({
+        id: extension.id,
+        name: extension.name,
+        description:
+          typeof extension.description === "string"
+            ? extension.description
+            : undefined,
+      })),
+  );
 }
 
 function persistThemePreference(theme: "light" | "dark") {
@@ -211,9 +227,19 @@ export function CommandPalette() {
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCommand, setSelectedCommand] = useState("");
+  const commandListRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const replayStorageStatus = useReplayStorageStatus({ enabled: open });
+  const settingsCommands = useMemo(() => {
+    const generalEntries = buildAnalyticsGeneralSettingsSearchEntries(
+      t,
+      !!replayStorageStatus.data?.configured,
+    );
+    return buildAnalyticsSettingsCommandItems(t, generalEntries);
+  }, [replayStorageStatus.data?.configured, t]);
 
   const savedChartsQuery = useQuery({
     queryKey: ["explorer-configs-palette"],
@@ -286,6 +312,13 @@ export function CommandPalette() {
     };
   }, []);
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (commandListRef.current) commandListRef.current.scrollTop = 0;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchQuery]);
+
   const go = useCallback(
     (href: string) => {
       navigate(href);
@@ -312,17 +345,28 @@ export function CommandPalette() {
       <CommandDialog
         open={open}
         motion="instant"
+        commandProps={{
+          filter: commandPaletteFilter,
+          value: selectedCommand,
+          onValueChange: setSelectedCommand,
+        }}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) setSearchQuery("");
+          if (!next) {
+            setSearchQuery("");
+            setSelectedCommand("");
+          }
         }}
       >
         <CommandInput
           placeholder={t("commandPalette.searchPlaceholder")}
           value={searchQuery}
-          onValueChange={setSearchQuery}
+          onValueChange={(nextQuery) => {
+            setSelectedCommand("");
+            setSearchQuery(nextQuery);
+          }}
         />
-        <CommandList>
+        <CommandList ref={commandListRef}>
           {!asyncGroupsLoading && !asyncGroupsErrored && (
             <CommandEmpty>{t("commandPalette.noResults")}</CommandEmpty>
           )}
@@ -331,7 +375,7 @@ export function CommandPalette() {
             <CommandGroup heading={t("commandPalette.loadFailed")} forceMount>
               <CommandItem
                 forceMount
-                value="retry failed command palette data"
+                value="action:retry-command-palette-data"
                 onSelect={retryAsyncGroups}
               >
                 <IconRefresh className="me-2 h-4 w-4 text-muted-foreground" />
@@ -352,6 +396,7 @@ export function CommandPalette() {
               {visibleExplorerDashboards.map((d) => (
                 <CommandItem
                   key={`ed-${d.id}`}
+                  value={`explorer-dashboard:${d.id}:${d.name}`}
                   onSelect={() =>
                     go(`/dashboards/explorer-dashboard?id=${d.id}`)
                   }
@@ -385,6 +430,7 @@ export function CommandPalette() {
               {visibleSqlDashboards.map((d) => (
                 <CommandItem
                   key={`sql-${d.id}`}
+                  value={`sql-dashboard:${d.id}:${d.name}`}
                   onSelect={() => go(`/dashboards/${d.id}`)}
                   keywords={commandPaletteKeywords(
                     d.name,
@@ -416,6 +462,7 @@ export function CommandPalette() {
               {extensions.map((extension) => (
                 <CommandItem
                   key={`extension-${extension.id}`}
+                  value={`extension:${extension.id}:${extension.name}`}
                   onSelect={() =>
                     go(extensionPath(extension.id, extension.name))
                   }
@@ -437,6 +484,7 @@ export function CommandPalette() {
             {dashboards.map((d) => (
               <CommandItem
                 key={`dash-${d.id}`}
+                value={`dashboard:${d.id}:${d.name}`}
                 onSelect={() => go(`/dashboards/${d.id}`)}
                 keywords={commandPaletteKeywords(d.name, "dashboard")}
               >
@@ -452,6 +500,7 @@ export function CommandPalette() {
               .map((tool) => (
                 <CommandItem
                   key={`tool-${tool.id}`}
+                  value={`tool:${tool.id}:${t(tool.nameKey)}`}
                   onSelect={() => go(tool.href)}
                   keywords={commandPaletteKeywords(
                     t(tool.nameKey),
@@ -465,8 +514,29 @@ export function CommandPalette() {
               ))}
           </CommandGroup>
 
+          {showHiddenResults && (
+            <CommandGroup heading={t("navigation.settings")}>
+              {settingsCommands.map((setting) => (
+                <CommandItem
+                  key={`setting-${setting.id}`}
+                  value={`setting:${setting.id}:${setting.label}`}
+                  onSelect={() => go(setting.href)}
+                  keywords={commandPaletteKeywords(
+                    setting.label,
+                    setting.keywords,
+                    "settings",
+                  )}
+                >
+                  <IconSettings className="me-2 h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{setting.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
           <CommandGroup heading={t("commandPalette.groupAppearance")}>
             <CommandItem
+              value={`appearance:language:${t("settings.languageTitle")}`}
               onSelect={() => {
                 setOpen(false);
                 setLanguageOpen(true);
@@ -485,12 +555,25 @@ export function CommandPalette() {
               {t("settings.languageTitle")}
             </CommandItem>
             <CommandItem
+              value={`appearance:theme:${
+                isDark
+                  ? t("commandPalette.toggleLightMode")
+                  : t("commandPalette.toggleDarkMode")
+              }`}
               onSelect={() => {
                 const nextTheme = isDark ? "light" : "dark";
                 setTheme(nextTheme);
                 persistThemePreference(nextTheme);
               }}
-              keywords={["theme", "dark", "light", "mode"]}
+              keywords={commandPaletteKeywords(
+                isDark
+                  ? t("commandPalette.toggleLightMode")
+                  : t("commandPalette.toggleDarkMode"),
+                "theme",
+                "dark",
+                "light",
+                "mode",
+              )}
             >
               {isDark ? (
                 <IconSun className="me-2 h-4 w-4 text-muted-foreground" />
@@ -505,6 +588,7 @@ export function CommandPalette() {
 
           <CommandGroup heading={t("commandPalette.groupHelp")}>
             <CommandItem
+              value={`help:changelog:${t("commandPalette.whatsNew")}`}
               onSelect={() => {
                 setOpen(false);
                 setChangelogOpen(true);
@@ -534,6 +618,7 @@ export function CommandPalette() {
               {savedCharts.map((c) => (
                 <CommandItem
                   key={`chart-${c.id}`}
+                  value={`saved-chart:${c.id}:${c.name}`}
                   onSelect={() => go(`/dashboards/explorer?config=${c.id}`)}
                   keywords={commandPaletteKeywords(
                     c.name,

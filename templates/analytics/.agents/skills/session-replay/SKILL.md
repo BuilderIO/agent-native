@@ -104,10 +104,22 @@ agent answers about browser recordings in the Analytics template.
   rebuilding the player mid-load desyncs the scrubber and playhead.
 - Pass events to `Replayer` untouched. rrweb rebuilds them in a sandboxed iframe;
   pre-processing DOM, stylesheet, resource, or mutation payloads makes playback
-  diverge from the captured page. Let rrweb own iframe sizing via Meta /
-  ViewportResize, and keep the outer wrapper in that same coordinate system for
-  fit-to-stage scaling. Never clamp only one layer, rewrite Meta widths, or force
-  iframe dimensions — that desyncs the FullSnapshot DOM and breaks the stage.
+  diverge from the captured page. In particular, never rewrite `href`, `src`,
+  `_cssText`, CSS `url()`, or Meta URLs to `about:blank`; that exact remediation
+  broke historical replay CSS in PR #2040. Handle request privacy at capture or
+  the sandbox boundary instead of mutating stored rrweb events.
+- Let rrweb own normal iframe sizing via Meta / ViewportResize, and keep the
+  outer wrapper in that same coordinate system for fit-to-stage scaling. Some
+  legacy recordings contain demonstrably corrupt 4,000–7,500px-wide viewport
+  values from ordinary desktop sessions. For only those impossible aspect
+  ratios, `clampReplayDisplayDimensions` recovers a 16:10 viewport and the
+  resize handler applies it to **both** rrweb's iframe and the outer stage.
+  Never remove this recovery, clamp only one layer, or broadly rewrite event
+  geometry: those changes repeatedly recreated the ribbon/clipping regression.
+- Keep the realistic fidelity and malformed-viewport tests in
+  `SessionDetailPage.spec.ts`. Do not change their expectations merely to bless
+  a new sanitizer or raw ultra-wide sizing; validate the affected replay in a
+  browser first.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.

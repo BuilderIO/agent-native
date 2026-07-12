@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { commandPaletteKeywords } from "./command-palette-search";
+import {
+  commandPaletteFilter,
+  commandPaletteKeywords,
+  uniqueCommandItems,
+} from "./command-palette-search";
 
 describe("commandPaletteKeywords", () => {
   it("adds hyphen and space variants for resource names", () => {
@@ -22,5 +26,46 @@ describe("commandPaletteKeywords", () => {
 
   it("skips empty values", () => {
     expect(commandPaletteKeywords("", undefined, null)).toEqual([]);
+  });
+});
+
+describe("commandPaletteFilter", () => {
+  it("ranks exact and prefix matches above loose fuzzy matches", () => {
+    const themeScore = commandPaletteFilter(
+      "appearance:theme",
+      "light",
+      commandPaletteKeywords("Toggle light mode", "theme", "light mode"),
+    );
+    const dashboardScore = commandPaletteFilter(
+      "sql:clara-wright",
+      "light",
+      commandPaletteKeywords("Clara Wright", "dashboard"),
+    );
+
+    expect(themeScore).toBeGreaterThan(0.9);
+    expect(themeScore).toBeGreaterThan(dashboardScore);
+  });
+
+  it("keeps typo-friendly subsequence matches below direct matches", () => {
+    expect(
+      commandPaletteFilter("tool:explorer", "explr", ["Explorer"]),
+    ).toBeGreaterThan(0);
+    expect(commandPaletteFilter("tool:admin", "explr", ["Admin"])).toBe(0);
+  });
+});
+
+describe("uniqueCommandItems", () => {
+  it("keeps the first copy of duplicated ids and indistinguishable names", () => {
+    expect(
+      uniqueCommandItems([
+        { id: "demo", name: "Demo Node Exporter Full" },
+        { id: "demo-copy", name: "  demo node exporter full  " },
+        { id: "billing", name: "On Demand Billing" },
+        { id: "billing", name: "Renamed duplicate id" },
+      ]),
+    ).toEqual([
+      { id: "demo", name: "Demo Node Exporter Full" },
+      { id: "billing", name: "On Demand Billing" },
+    ]);
   });
 });

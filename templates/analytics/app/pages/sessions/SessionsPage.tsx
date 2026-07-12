@@ -464,7 +464,11 @@ function EmptySessionsState() {
   );
 }
 
-export function ReplayStorageHint() {
+export function ReplayStorageHint({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const t = useT();
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -523,22 +527,29 @@ export function ReplayStorageHint() {
 
   return (
     <Collapsible open={s3Expanded} onOpenChange={setS3Expanded}>
-      <div className="mb-6 rounded-md border border-primary/30 bg-primary/5 p-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
-              <IconCloud className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">
-                {t("sessions.storageSetupTitle")}
+      <div
+        className={cn(
+          !embedded &&
+            "mb-6 rounded-md border border-primary/30 bg-primary/5 p-4",
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-4">
+          {!embedded ? (
+            <div className="flex min-w-[min(100%,24rem)] flex-1 items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
+                <IconCloud className="h-5 w-5" />
               </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {t("sessions.storageSetupDescription")}
-              </p>
+              <div className="min-w-0">
+                <div className="text-sm font-medium">
+                  {t("sessions.storageSetupTitle")}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("sessions.storageSetupDescription")}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-3">
+          ) : null}
+          <div className="flex max-w-full flex-wrap items-center gap-3">
             <Button
               type="button"
               size="sm"
@@ -584,7 +595,12 @@ export function ReplayStorageHint() {
           </div>
         </div>
         <CollapsibleContent>
-          <div className="mt-4 border-t border-primary/20 pt-4">
+          <div
+            className={cn(
+              "mt-4 border-t pt-4",
+              embedded ? "border-border" : "border-primary/20",
+            )}
+          >
             <p className="mb-4 text-xs text-muted-foreground">
               {t("settings.s3OwnBucketDescription")}
             </p>

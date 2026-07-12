@@ -50,6 +50,15 @@ import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import {
+  AGENT_SETTINGS_SECTIONS,
+  ALL_SETTINGS_SECTIONS,
+  CONNECTION_SETTINGS_SECTIONS,
+  SETTINGS_SECTION_IDS,
+  WORKSPACE_SETTINGS_SECTIONS,
+  getAgentSettingsSearchTabs,
+  type SettingsSectionId,
+} from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
@@ -60,10 +69,7 @@ import {
   useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
-import type {
-  SettingsSearchEntry,
-  SettingsTabItem,
-} from "./SettingsTabsPage.js";
+import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
   type BuilderConnectFlow,
@@ -2299,192 +2305,6 @@ export interface SettingsPanelProps {
   sectionRequestKey?: number;
 }
 
-type SettingsSectionId =
-  | "account"
-  | "llm"
-  | "app-models"
-  | "limits"
-  | "voice"
-  | "demo-mode"
-  | "automations"
-  | "secrets"
-  | "hosting"
-  | "database"
-  | "uploads"
-  | "auth"
-  | "email"
-  | "browser"
-  | "background"
-  | "integrations"
-  | "usage"
-  | "a2a";
-
-const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
-  "account",
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "demo-mode",
-  "automations",
-  "secrets",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-  "email",
-  "browser",
-  "background",
-  "integrations",
-  "usage",
-  "a2a",
-]);
-
-const ALL_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "demo-mode",
-  "automations",
-  "secrets",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-  "email",
-  "browser",
-  "background",
-  "integrations",
-  "usage",
-  "a2a",
-];
-
-const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "automations",
-  "background",
-  "a2a",
-];
-
-const CONNECTION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "secrets",
-  "integrations",
-  "email",
-  "browser",
-  "usage",
-];
-
-const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
-  "demo-mode",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-];
-
-// Search metadata for each section so settings search can deep-link straight
-// to a section from any tab. Labels mirror the section headers; keywords add
-// synonyms and provider names the header doesn't spell out.
-const SETTINGS_SECTION_SEARCH_META: Record<
-  SettingsSectionId,
-  { label: string; keywords: string; description?: string }
-> = {
-  account: {
-    label: "Account",
-    keywords: "profile photo avatar identity signed in email name",
-  },
-  llm: {
-    label: "LLM",
-    keywords:
-      "model claude gpt openai anthropic gemini api key provider ai engine llm",
-  },
-  "app-models": {
-    label: "App Default Model",
-    keywords: "default model provider app template composer",
-  },
-  limits: {
-    label: "Agent Limits",
-    keywords: "max iterations budget loop timeout runtime",
-  },
-  voice: {
-    label: "Voice Transcription",
-    keywords: "microphone dictation speech to text whisper",
-  },
-  "demo-mode": {
-    label: "Demo mode",
-    keywords: "fake data anonymize redact screenshot privacy mask",
-  },
-  automations: {
-    label: "Automations",
-    keywords: "triggers scheduled events cron jobs",
-  },
-  secrets: {
-    label: "API Keys & Connections",
-    keywords: "secrets credentials tokens api keys environment variables",
-  },
-  hosting: {
-    label: "Hosting",
-    keywords: "deploy netlify vercel cloudflare builder nitro",
-  },
-  database: {
-    label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
-  },
-  uploads: {
-    label: "File uploads",
-    keywords: "files storage s3 avatars attachments bucket blob",
-  },
-  auth: {
-    label: "Authentication",
-    keywords: "login signup oauth google github better auth access sso",
-  },
-  email: {
-    label: "Email",
-    keywords: "resend sendgrid smtp transactional notifications reports",
-  },
-  browser: {
-    label: "Browser Automation",
-    keywords: "web scraping playwright chrome headless",
-  },
-  background: {
-    label: "Background Agent",
-    keywords: "code changes branches builder production async",
-  },
-  integrations: {
-    label: "Integrations",
-    keywords: "slack telegram whatsapp discord messaging connect",
-  },
-  usage: {
-    label: "Usage",
-    keywords: "tokens cost spend billing consumption",
-  },
-  a2a: {
-    label: "Connected Agents (A2A)",
-    keywords: "remote agents protocol a2a connected",
-  },
-};
-
-function buildSectionSearchEntries(
-  sections: readonly SettingsSectionId[],
-): SettingsSearchEntry[] {
-  return sections.map((section) => {
-    const meta = SETTINGS_SECTION_SEARCH_META[section];
-    return {
-      id: `section:${section}`,
-      label: meta.label,
-      keywords: meta.keywords,
-      description: meta.description,
-      hash: section,
-    };
-  });
-}
-
 function normalizeSettingsSection(
   value?: string | null,
 ): SettingsSectionId | null {
@@ -2970,7 +2790,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
             title="Demo mode"
-            subtitle="Replace contact/free-text names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. Labels, IDs, and structure are preserved so the app keeps working."
+            subtitle="Replace emails and numbers with realistic fake data everywhere — in the UI and what the agent sees. Names, free text, labels, IDs, and structure are preserved so the app keeps working."
             open={openSection === "demo-mode"}
             onToggle={() => toggle("demo-mode")}
           >
@@ -3250,15 +3070,14 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     [canToggle, isDevMode, setDevMode],
   );
 
-  return useMemo<SettingsTabItem[]>(
-    () => [
+  return useMemo<SettingsTabItem[]>(() => {
+    const [agent, connections, organization, workspace] =
+      getAgentSettingsSearchTabs();
+    return [
       {
-        id: "agent",
-        label: "Agent",
+        ...agent,
         icon: IconBrain,
         group: "agent",
-        keywords: "agent model llm limits voice automations",
-        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3270,12 +3089,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "connections",
-        label: "Connections",
+        ...connections,
         icon: IconPlugConnected,
         group: "agent",
-        keywords: "connections secrets integrations email browser usage",
-        searchEntries: buildSectionSearchEntries(CONNECTION_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3287,11 +3103,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "organization",
-        label: "Organization",
+        ...organization,
         icon: IconUsersGroup,
         group: "workspace",
-        keywords: "organization org team members invites collaborators",
         content: (
           <div className="mx-auto w-full max-w-2xl">
             <TeamPage showTitle={false} />
@@ -3299,12 +3113,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "workspace",
-        label: "Workspace",
+        ...workspace,
         icon: IconCloud,
         group: "workspace",
-        keywords: "workspace account hosting database uploads auth",
-        searchEntries: buildSectionSearchEntries(WORKSPACE_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3315,7 +3126,6 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
           />
         ),
       },
-    ],
-    [baseProps],
-  );
+    ];
+  }, [baseProps]);
 }

@@ -5,7 +5,6 @@ import {
   useAgentSettingsTabs,
   useSession,
   useT,
-  type SettingsSearchEntry,
   type SettingsTabItem,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
@@ -27,6 +26,7 @@ import changelog from "../../CHANGELOG.md?raw";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
+import { buildAnalyticsGeneralSettingsSearchEntries } from "./settings/settings-search";
 
 export default function Settings() {
   // Settings is also reachable directly from the full-page agent surface.
@@ -56,49 +56,12 @@ export default function Settings() {
     [agentSettingsTabs, t],
   );
 
-  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
-    () => [
-      {
-        id: "analytics-account",
-        label: t("settings.account"),
-        keywords: "profile email signed in identity",
-        hash: "account",
-      },
-      {
-        id: "analytics-credentials",
-        label: t("settings.credentials"),
-        keywords: "data sources api keys manage credentials",
-        hash: "credentials",
-      },
-      {
-        id: "analytics-dashboard-templates",
-        label: t("settings.dashboardTemplates"),
-        keywords: "templates catalog dashboards",
-        hash: "dashboard-templates",
-      },
-      ...(replayStorageStatus.data?.configured
-        ? [
-            {
-              id: "analytics-replay-storage",
-              label: t("sessions.storageSetupTitle"),
-              keywords: "session replay recording storage s3 bucket builder",
-              hash: "replay-storage",
-            },
-          ]
-        : []),
-      {
-        id: "analytics-language",
-        label: t("settings.languageTitle"),
-        keywords: "language locale translation i18n",
-        hash: "language",
-      },
-      {
-        id: "analytics-about",
-        label: t("settings.about"),
-        keywords: "about version info usage",
-        hash: "about",
-      },
-    ],
+  const generalSearchEntries = useMemo(
+    () =>
+      buildAnalyticsGeneralSettingsSearchEntries(
+        t,
+        !!replayStorageStatus.data?.configured,
+      ),
     [replayStorageStatus.data?.configured, t],
   );
 
@@ -184,7 +147,7 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ReplayStorageHint />
+                <ReplayStorageHint embedded />
               </CardContent>
             </Card>
           ) : null}
