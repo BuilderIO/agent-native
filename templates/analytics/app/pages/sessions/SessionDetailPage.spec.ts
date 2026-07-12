@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildIdleSkipRanges,
   buildReplayMarkers,
+  buildReplayViewportTimeline,
   clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
@@ -99,14 +100,14 @@ describe("session replay event normalization", () => {
     });
   });
 
-  it("filters invalid entries without cloning or reordering valid events", () => {
+  it("filters invalid entries and sorts valid event references", () => {
     const later = { type: 3, timestamp: 2000, data: { source: 0 } };
     const earlier = { type: 4, timestamp: 1000, data: { width: 1280 } };
     const normalized = normalizeReplayEvents([later, null, "bad", earlier]);
 
-    expect(normalized).toEqual([later, earlier]);
-    expect(normalized[0]).toBe(later);
-    expect(normalized[1]).toBe(earlier);
+    expect(normalized).toEqual([earlier, later]);
+    expect(normalized[0]).toBe(earlier);
+    expect(normalized[1]).toBe(later);
   });
 
   it("starts the display camera at the first recorded viewport", () => {
@@ -132,11 +133,12 @@ describe("session replay event normalization", () => {
       width: 7535,
       height: 873,
     });
-    expect(replayViewportDimensionsAtTime(events, 0)).toEqual({
+    const timeline = buildReplayViewportTimeline(events);
+    expect(replayViewportDimensionsAtTime(timeline, 0)).toEqual({
       width: 1024,
       height: 640,
     });
-    expect(replayViewportDimensionsAtTime(events, 1100)).toEqual({
+    expect(replayViewportDimensionsAtTime(timeline, 1100)).toEqual({
       width: 7535,
       height: 873,
     });
@@ -149,7 +151,17 @@ describe("session replay event normalization", () => {
     });
     expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
       width: 300,
-      height: 480,
+      height: 1200,
+    });
+    expect(clampReplayDisplayDimensions({ width: 5120, height: 1440 })).toEqual(
+      {
+        width: 5120,
+        height: 1440,
+      },
+    );
+    expect(clampReplayDisplayDimensions({ width: 7535, height: 5 })).toEqual({
+      width: 1024,
+      height: 640,
     });
     expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
       width: 1440,

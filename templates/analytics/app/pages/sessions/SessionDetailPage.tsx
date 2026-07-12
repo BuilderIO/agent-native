@@ -160,10 +160,15 @@ type ReplayViewportDimensions = {
   height: number;
 };
 
+type ReplayViewportChange = ReplayViewportDimensions & {
+  offsetMs: number;
+};
+
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
-const MAX_REPLAY_DISPLAY_ASPECT_RATIO = 3;
-const MIN_REPLAY_DISPLAY_ASPECT_RATIO = 0.45;
+const MALFORMED_REPLAY_MIN_WIDTH = 4000;
+const MALFORMED_REPLAY_MIN_ASPECT_RATIO = 4;
+const MIN_REPLAY_DISPLAY_DIMENSION = 240;
 const RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO =
   DEFAULT_PLAYER_WIDTH / DEFAULT_PLAYER_HEIGHT;
 const DEFAULT_SPEED = 2;
@@ -495,7 +500,13 @@ function ReplayPlayer({
     () => replayInitialViewportDimensions(events),
     [events],
   );
+  const viewportTimeline = useMemo(
+    () => buildReplayViewportTimeline(events),
+    [events],
+  );
   const eventsRef = useLiveRef(events);
+  const viewportTimelineRef = useLiveRef(viewportTimeline);
+  const streamedDimsRef = useLiveRef(streamedDims);
   // Stable identity for the loaded event set so progressive chunk publishes
   // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(
@@ -512,9 +523,9 @@ function ReplayPlayer({
   // Some stored sessions contain impossible 4,000–7,500px-wide Meta/resize
   // values even though the browser was a normal desktop viewport. Rendering
   // those raw values collapses the replay into a tiny horizontal ribbon. Keep
-  // normal recordings exact; recover only clearly malformed aspect ratios to
-  // the player's standard 16:10 viewport. The same corrected dimensions are
-  // also applied to rrweb's iframe below so CSS breakpoints and the camera agree.
+  // normal recordings exact—including 32:9 and mobile portrait. Recover only
+  // widths >=4,000px with aspect >4:1 to the standard 16:10 viewport. The same
+  // dimensions are applied to rrweb's iframe so CSS breakpoints/camera agree.
   const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
   const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
   const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
@@ -637,7 +648,7 @@ function ReplayPlayer({
         return;
       }
       const seekDims = replayViewportDimensionsAtTime(
-        eventsRef.current,
+        viewportTimelineRef.current,
         clamped,
       );
       if (seekDims) {
@@ -645,14 +656,26 @@ function ReplayPlayer({
         // IMPORTANT: correct both layers together. Correcting only the outer
         // stage or only rrweb's iframe recreates the ultra-wide/clipped bug.
         const correctedSeekDims = clampReplayDisplayDimensions(seekDims);
-        if (correctedSeekDims) {
+        const currentDims = streamedDimsRef.current;
+        if (
+          correctedSeekDims &&
+          (currentDims?.width !== correctedSeekDims.width ||
+            currentDims?.height !== correctedSeekDims.height)
+        ) {
           replayer.handleResize?.(correctedSeekDims);
           setStreamedDims(correctedSeekDims);
         }
       }
       updateTime(clamped);
     },
-    [eventsRef, playingRef, status, totalTime, updateTime],
+    [
+      playingRef,
+      status,
+      streamedDimsRef,
+      totalTime,
+      updateTime,
+      viewportTimelineRef,
+    ],
   );
 
   const beginScrub = useCallback(
@@ -769,6 +792,13 @@ function ReplayPlayer({
           // rrweb handles the raw resize before notifying us. Override only
           // impossible legacy geometry so its iframe and our stage stay equal.
           // DO NOT clamp just one layer; that breaks responsive CSS and clicks.
+          const currentDims = streamedDimsRef.current;
+          if (
+            currentDims?.width === correctedDims.width &&
+            currentDims?.height === correctedDims.height
+          ) {
+            return;
+          }
           if (
             correctedDims.width !== rawDims.width ||
             correctedDims.height !== rawDims.height
@@ -1906,7 +1936,9 @@ function useReplayEvents(
  * controls belong at capture or the sandbox boundary, never in rrweb events.
  */
 export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
-  return events.filter((event): event is AnyReplayEvent => isRecord(event));
+  return events
+    .filter((event): event is AnyReplayEvent => isRecord(event))
+    .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
 export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
@@ -2246,11 +2278,12 @@ export function replayInitialViewportDimensions(
   return null;
 }
 
-export function replayViewportDimensionsAtTime(
+export function buildReplayViewportTimeline(
   events: AnyReplayEvent[],
-  elapsedMs: number,
-): ReplayViewportDimensions | null {
-  const cutoff = replayStartedAt(events) + Math.max(0, elapsedMs);
+): ReplayViewportChange[] {
+  const initial = replayInitialViewportDimensions(events);
+  if (!initial) return [];
+  const startedAt = replayStartedAt(events);
   const firstMetaTimestamp = events.reduce((best, event) => {
     if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
     const timestamp = Number(event.timestamp ?? 0);
@@ -2258,24 +2291,40 @@ export function replayViewportDimensionsAtTime(
       ? Math.min(best, timestamp)
       : best;
   }, Number.POSITIVE_INFINITY);
-  let best: ReplayViewportDimensions | null = null;
-  let bestTimestamp = Number.NEGATIVE_INFINITY;
+  const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
   for (const event of events) {
     const timestamp = Number(event.timestamp ?? 0);
-    if (
-      !Number.isFinite(timestamp) ||
-      timestamp > cutoff || // i18n-ignore: boolean expression, not UI copy.
-      timestamp < firstMetaTimestamp
-    ) {
+    if (!Number.isFinite(timestamp) || timestamp <= firstMetaTimestamp)
+      continue;
+    const dims = dimensionsFromReplayEvent(event);
+    if (!dims) continue;
+    const previous = changes[changes.length - 1];
+    if (previous?.width === dims.width && previous.height === dims.height) {
       continue;
     }
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims && timestamp >= bestTimestamp) {
-      best = dims;
-      bestTimestamp = timestamp;
-    }
+    changes.push({
+      ...dims,
+      offsetMs: Math.max(0, timestamp - startedAt),
+    });
   }
-  return best ?? replayInitialViewportDimensions(events);
+  return changes;
+}
+
+export function replayViewportDimensionsAtTime(
+  changes: ReplayViewportChange[],
+  elapsedMs: number,
+): ReplayViewportDimensions | null {
+  if (changes.length === 0) return null;
+  const target = Math.max(0, elapsedMs);
+  let low = 0;
+  let high = changes.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if ((changes[middle]?.offsetMs ?? 0) <= target) low = middle;
+    else high = middle - 1;
+  }
+  const match = changes[low];
+  return match ? { width: match.width, height: match.height } : null;
 }
 
 function dimensionsFromReplayEvent(
@@ -2318,17 +2367,20 @@ export function clampReplayDisplayDimensions(
   dims: ReplayViewportDimensions | null,
 ): ReplayViewportDimensions | null {
   if (!dims) return null;
+  if (
+    dims.width < MIN_REPLAY_DISPLAY_DIMENSION ||
+    dims.height < MIN_REPLAY_DISPLAY_DIMENSION
+  ) {
+    return { width: DEFAULT_PLAYER_WIDTH, height: DEFAULT_PLAYER_HEIGHT };
+  }
   const aspect = dims.width / dims.height;
-  if (aspect > MAX_REPLAY_DISPLAY_ASPECT_RATIO) {
+  if (
+    dims.width >= MALFORMED_REPLAY_MIN_WIDTH &&
+    aspect > MALFORMED_REPLAY_MIN_ASPECT_RATIO
+  ) {
     return {
       width: Math.round(dims.height * RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO),
       height: dims.height,
-    };
-  }
-  if (aspect < MIN_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: dims.width,
-      height: Math.round(dims.width * RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO),
     };
   }
   return dims;

@@ -3071,8 +3071,18 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
   );
 
   return useMemo<SettingsTabItem[]>(() => {
-    const [agent, connections, organization, workspace] =
-      getAgentSettingsSearchTabs();
+    const searchTabs = getAgentSettingsSearchTabs();
+    const searchTab = (
+      id: "agent" | "connections" | "organization" | "workspace",
+    ) => {
+      const tab = searchTabs.find((candidate) => candidate.id === id);
+      if (!tab) throw new Error(`Missing agent settings tab: ${id}`);
+      return tab;
+    };
+    const agent = searchTab("agent");
+    const connections = searchTab("connections");
+    const organization = searchTab("organization");
+    const workspace = searchTab("workspace");
     return [
       {
         ...agent,

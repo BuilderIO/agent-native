@@ -46,6 +46,36 @@ describe("commandPaletteFilter", () => {
     expect(themeScore).toBeGreaterThan(dashboardScore);
   });
 
+  it("ranks an exact theme command above settings that only fuzzy-match light", () => {
+    const themeScore = commandPaletteFilter(
+      "appearance:theme:Toggle light mode",
+      "light",
+      commandPaletteKeywords("Toggle light mode", "theme", "light"),
+    );
+    const browserScore = commandPaletteFilter(
+      "setting:section:browser:Browser Automation",
+      "light",
+      commandPaletteKeywords(
+        "Browser Automation",
+        "web scraping playwright chrome headless Workspace settings",
+        "settings",
+      ),
+    );
+    const authenticationScore = commandPaletteFilter(
+      "setting:section:auth:Authentication",
+      "light",
+      commandPaletteKeywords(
+        "Authentication",
+        "login signup oauth google github access sso Workspace settings",
+        "settings",
+      ),
+    );
+
+    expect(themeScore).toBe(1);
+    expect(themeScore).toBeGreaterThan(browserScore);
+    expect(themeScore).toBeGreaterThan(authenticationScore);
+  });
+
   it("keeps typo-friendly subsequence matches below direct matches", () => {
     expect(
       commandPaletteFilter("tool:explorer", "explr", ["Explorer"]),
@@ -55,7 +85,7 @@ describe("commandPaletteFilter", () => {
 });
 
 describe("uniqueCommandItems", () => {
-  it("keeps the first copy of duplicated ids and indistinguishable names", () => {
+  it("keeps distinct ids even when resources have the same display name", () => {
     expect(
       uniqueCommandItems([
         { id: "demo", name: "Demo Node Exporter Full" },
@@ -65,6 +95,7 @@ describe("uniqueCommandItems", () => {
       ]),
     ).toEqual([
       { id: "demo", name: "Demo Node Exporter Full" },
+      { id: "demo-copy", name: "  demo node exporter full  " },
       { id: "billing", name: "On Demand Billing" },
     ]);
   });

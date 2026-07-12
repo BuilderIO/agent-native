@@ -107,13 +107,18 @@ agent answers about browser recordings in the Analytics template.
   diverge from the captured page. In particular, never rewrite `href`, `src`,
   `_cssText`, CSS `url()`, or Meta URLs to `about:blank`; that exact remediation
   broke historical replay CSS in PR #2040. Handle request privacy at capture or
-  the sandbox boundary instead of mutating stored rrweb events.
+  the sandbox boundary instead of mutating stored rrweb events. Historical
+  captures without inlined resources require live stylesheet/image/font
+  requests for accurate rendering; the viewer accepts that fidelity tradeoff,
+  uses rrweb's script-disabled sandbox plus `referrerpolicy="no-referrer"`, and
+  must never add credentials or proxy those URLs through a privileged server.
 - Let rrweb own normal iframe sizing via Meta / ViewportResize, and keep the
   outer wrapper in that same coordinate system for fit-to-stage scaling. Some
   legacy recordings contain demonstrably corrupt 4,000–7,500px-wide viewport
-  values from ordinary desktop sessions. For only those impossible aspect
-  ratios, `clampReplayDisplayDimensions` recovers a 16:10 viewport and the
-  resize handler applies it to **both** rrweb's iframe and the outer stage.
+  values from ordinary desktop sessions. Only widths of at least 4,000px with
+  aspect ratios above 4:1 are recovered to a 16:10 viewport; real 32:9 and
+  mobile portrait captures remain untouched. The resize handler applies the
+  recovery to **both** rrweb's iframe and the outer stage.
   Never remove this recovery, clamp only one layer, or broadly rewrite event
   geometry: those changes repeatedly recreated the ribbon/clipping regression.
 - Keep the realistic fidelity and malformed-viewport tests in

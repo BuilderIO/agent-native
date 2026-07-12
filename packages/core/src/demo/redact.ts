@@ -569,10 +569,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function redactDemoStringWithSalt(text: string, salt: string): string {
-  return redactDemoStringInternal(text, salt);
-}
-
 function redactNumberLeaf(value: number, salt: string): number {
   if (!Number.isFinite(value)) return value;
   const repr = String(value);
@@ -598,7 +594,7 @@ function walk(
   const t = typeof value;
 
   if (t === "string") {
-    return redactDemoStringWithSalt(value as string, salt);
+    return redactDemoStringInternal(value as string, salt);
   }
 
   if (t === "number") {

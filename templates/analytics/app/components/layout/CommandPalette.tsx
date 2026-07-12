@@ -277,10 +277,10 @@ export function CommandPalette() {
   const explorerDashboards = explorerDashboardsQuery.data ?? [];
   const sqlDashboards = sqlDashboardsQuery.data ?? [];
   const extensions = extensionsQuery.data ?? [];
-  const savedChartsFetching = savedChartsQuery.isFetching;
-  const explorerDashboardsFetching = explorerDashboardsQuery.isFetching;
-  const sqlDashboardsFetching = sqlDashboardsQuery.isFetching;
-  const extensionsFetching = extensionsQuery.isFetching;
+  const savedChartsLoading = savedChartsQuery.isLoading;
+  const explorerDashboardsLoading = explorerDashboardsQuery.isLoading;
+  const sqlDashboardsLoading = sqlDashboardsQuery.isLoading;
+  const extensionsLoading = extensionsQuery.isLoading;
   const asyncGroupsErrored =
     savedChartsQuery.isError ||
     explorerDashboardsQuery.isError ||
@@ -327,10 +327,10 @@ export function CommandPalette() {
   );
 
   const asyncGroupsLoading =
-    (explorerDashboardsFetching && explorerDashboards.length === 0) ||
-    (sqlDashboardsFetching && sqlDashboards.length === 0) ||
-    (extensionsFetching && extensions.length === 0) ||
-    (savedChartsFetching && savedCharts.length === 0);
+    (explorerDashboardsLoading && explorerDashboards.length === 0) ||
+    (sqlDashboardsLoading && sqlDashboards.length === 0) ||
+    (extensionsLoading && extensions.length === 0) ||
+    (savedChartsLoading && savedCharts.length === 0);
   const showHiddenResults = searchQuery.trim().length > 0;
   const visibleExplorerDashboards = showHiddenResults
     ? explorerDashboards
@@ -371,7 +371,11 @@ export function CommandPalette() {
           )}
 
           {asyncGroupsErrored && (
-            <CommandGroup heading={t("commandPalette.loadFailed")} forceMount>
+            <CommandGroup
+              key="load-error"
+              heading={t("commandPalette.loadFailed")}
+              forceMount
+            >
               <CommandItem
                 forceMount
                 value="action:retry-command-palette-data"
@@ -384,7 +388,10 @@ export function CommandPalette() {
           )}
 
           {visibleExplorerDashboards.length > 0 && (
-            <CommandGroup heading={t("commandPalette.groupExplorerDashboards")}>
+            <CommandGroup
+              key="explorer-dashboards"
+              heading={t("commandPalette.groupExplorerDashboards")}
+            >
               {visibleExplorerDashboards.map((d) => (
                 <CommandItem
                   key={`ed-${d.id}`}
@@ -411,7 +418,10 @@ export function CommandPalette() {
           )}
 
           {visibleSqlDashboards.length > 0 && (
-            <CommandGroup heading={t("commandPalette.groupSqlDashboards")}>
+            <CommandGroup
+              key="sql-dashboards"
+              heading={t("commandPalette.groupSqlDashboards")}
+            >
               {visibleSqlDashboards.map((d) => (
                 <CommandItem
                   key={`sql-${d.id}`}
@@ -436,7 +446,10 @@ export function CommandPalette() {
           )}
 
           {extensions.length > 0 && (
-            <CommandGroup heading={t("commandPalette.groupExtensions")}>
+            <CommandGroup
+              key="extensions"
+              heading={t("commandPalette.groupExtensions")}
+            >
               {extensions.map((extension) => (
                 <CommandItem
                   key={`extension-${extension.id}`}
@@ -458,7 +471,10 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          <CommandGroup heading={t("commandPalette.groupDashboards")}>
+          <CommandGroup
+            key="dashboards"
+            heading={t("commandPalette.groupDashboards")}
+          >
             {dashboards.map((d) => (
               <CommandItem
                 key={`dash-${d.id}`}
@@ -472,7 +488,7 @@ export function CommandPalette() {
             ))}
           </CommandGroup>
 
-          <CommandGroup heading={t("commandPalette.groupTools")}>
+          <CommandGroup key="tools" heading={t("commandPalette.groupTools")}>
             {defaultTools
               .filter((tool) => tool.id !== "agents" || canManageOrg)
               .map((tool) => (
@@ -493,7 +509,7 @@ export function CommandPalette() {
           </CommandGroup>
 
           {showHiddenResults && (
-            <CommandGroup heading={t("navigation.settings")}>
+            <CommandGroup key="settings" heading={t("navigation.settings")}>
               {settingsCommands.map((setting) => (
                 <CommandItem
                   key={`setting-${setting.id}`}
@@ -512,7 +528,10 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          <CommandGroup heading={t("commandPalette.groupAppearance")}>
+          <CommandGroup
+            key="appearance"
+            heading={t("commandPalette.groupAppearance")}
+          >
             <CommandItem
               value={`appearance:language:${t("settings.languageTitle")}`}
               onSelect={() => {
@@ -564,7 +583,7 @@ export function CommandPalette() {
             </CommandItem>
           </CommandGroup>
 
-          <CommandGroup heading={t("commandPalette.groupHelp")}>
+          <CommandGroup key="help" heading={t("commandPalette.groupHelp")}>
             <CommandItem
               value={`help:changelog:${t("commandPalette.whatsNew")}`}
               onSelect={() => {
@@ -585,7 +604,10 @@ export function CommandPalette() {
           </CommandGroup>
 
           {savedCharts.length > 0 && (
-            <CommandGroup heading={t("commandPalette.groupSavedCharts")}>
+            <CommandGroup
+              key="saved-charts"
+              heading={t("commandPalette.groupSavedCharts")}
+            >
               {savedCharts.map((c) => (
                 <CommandItem
                   key={`chart-${c.id}`}
@@ -604,29 +626,33 @@ export function CommandPalette() {
             </CommandGroup>
           )}
 
-          {explorerDashboardsFetching && explorerDashboards.length === 0 && (
+          {explorerDashboardsLoading && explorerDashboards.length === 0 && (
             <CommandLoadingGroup
+              key="explorer-dashboards-loading"
               heading={t("commandPalette.groupExplorerDashboards")}
               rows={2}
             />
           )}
 
-          {sqlDashboardsFetching && sqlDashboards.length === 0 && (
+          {sqlDashboardsLoading && sqlDashboards.length === 0 && (
             <CommandLoadingGroup
+              key="sql-dashboards-loading"
               heading={t("commandPalette.groupSqlDashboards")}
               rows={3}
             />
           )}
 
-          {extensionsFetching && extensions.length === 0 && (
+          {extensionsLoading && extensions.length === 0 && (
             <CommandLoadingGroup
+              key="extensions-loading"
               heading={t("commandPalette.groupExtensions")}
               rows={3}
             />
           )}
 
-          {savedChartsFetching && savedCharts.length === 0 && (
+          {savedChartsLoading && savedCharts.length === 0 && (
             <CommandLoadingGroup
+              key="saved-charts-loading"
               heading={t("commandPalette.groupSavedCharts")}
               rows={2}
             />

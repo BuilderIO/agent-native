@@ -94,12 +94,9 @@ export function uniqueCommandItems<T extends { id: string; name: string }>(
   items: T[],
 ): T[] {
   const seenIds = new Set<string>();
-  const seenNames = new Set<string>();
   return items.filter((item) => {
-    const normalizedName = normalizeSearchText(item.name);
-    if (seenIds.has(item.id) || seenNames.has(normalizedName)) return false;
+    if (seenIds.has(item.id)) return false;
     seenIds.add(item.id);
-    seenNames.add(normalizedName);
     return true;
   });
 }
