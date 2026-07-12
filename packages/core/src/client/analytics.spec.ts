@@ -341,6 +341,53 @@ describe("browser analytics pageviews", () => {
     expect(events[1].properties.navigation_type).toBe("pushState");
   });
 
+  it("switches content capture before emitting client-side pageviews", async () => {
+    const { history } = installBrowser("https://plan.agent-native.com/plans");
+    const { analyticsCalls } = installFetch({
+      session: { email: "dev@example.com", userId: "user-1" },
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
+      sessionReplay: true,
+    });
+    await tick();
+
+    history.pushState(
+      {},
+      "",
+      "/local-plans/local#bridge=http%3A%2F%2F127.0.0.1%3A60166%2Flocal-plan.json%3Ftoken%3Dprivate-token",
+    );
+    await tick();
+    history.pushState({}, "", "/plans");
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(events).toHaveLength(3);
+    expect(events[1]).toMatchObject({
+      event: "pageview",
+      properties: {
+        url: "https://plan.agent-native.com/local-plans/local",
+        path: "/local-plans/local",
+      },
+    });
+    expect(events[1].properties).not.toHaveProperty("title");
+    expect(JSON.stringify(events[1])).not.toContain("private-token");
+    expect(events[2].properties).toMatchObject({
+      path: "/plans",
+      title: "Inbox",
+    });
+    expect(replayMock.stopSessionReplay).toHaveBeenCalledWith(
+      "content-capture-disabled",
+    );
+    expect(replayMock.maybeStartSessionReplay).toHaveBeenCalled();
+  });
+
   it("normalizes AI SDK engine names into provider connection labels", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({

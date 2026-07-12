@@ -8,7 +8,6 @@ import {
   getThemeInitScript,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
-  setTrackingContentCaptureEnabled,
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
@@ -54,11 +53,8 @@ import { i18nCatalog } from "./i18n";
 import stylesheet from "./global.css?url";
 // Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
 // but disable DOM/session capture so rendered plan contents stay on-device.
-const initialLocalPlanPrivacyRoute =
-  typeof window !== "undefined" &&
-  !shouldCapturePlanContent(window.location.pathname);
 configureTracking({
-  contentCapture: !initialLocalPlanPrivacyRoute,
+  contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "plan",
@@ -230,9 +226,6 @@ export default function Root() {
     location.pathname === "/local-plans" ||
     location.pathname.startsWith("/local-plans/");
   const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
-  useEffect(() => {
-    setTrackingContentCaptureEnabled(!localPlanPrivacyRoute);
-  }, [localPlanPrivacyRoute]);
   return (
     // Pass the plan-specific styled Toaster via `toaster` so only one sonner
     // instance renders (avoids the duplicate that would appear if AppProviders'

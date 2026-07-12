@@ -113,9 +113,9 @@ concurrency:
 jobs:
   gate:
     name: Gate
-    # Untrusted PR events always use an ephemeral GitHub-hosted runner. This is
-    # safe even if a custom label maps to a persistent self-hosted machine.
-    runs-on: ${{ (github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) && fromJSON(inputs.runs-on) || 'ubuntu-latest' }}
+    # Parse custom runner configuration inside this trusted, GitHub-hosted gate
+    # so malformed JSON can be reported instead of preventing the job from starting.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
@@ -124,6 +124,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       agent: ${{ steps.decide.outputs.agent }}
+      runs_on: ${{ steps.decide.outputs.runs_on }}
     steps:
       - id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -161,16 +162,15 @@ jobs:
             const association = (pr && pr.author_association || '').toUpperCase();
             const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
             const isTrustedAuthor = trustedAssociations.includes(association);
-            // The job-level runner expression keeps this gate on GitHub-hosted
-            // infrastructure for untrusted events. Also fail closed here so an
-            // untrusted PR cannot continue to the recap job in self-hosted mode.
-            let usesSelfHostedRunner = true;
+            let configuredRunner = 'ubuntu-latest';
+            let usesSelfHostedRunner = false;
             try {
-              const configuredRunner = JSON.parse(process.env.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"');
-              usesSelfHostedRunner = !(
-                typeof configuredRunner === 'string' &&
-                /^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(configuredRunner)
-              );
+              const candidate = JSON.parse(process.env.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"');
+              const hosted = typeof candidate === 'string' && /^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(candidate);
+              const selfHosted = Array.isArray(candidate) && candidate.length >= 1 && candidate.length <= 20 && candidate.includes('self-hosted') && candidate.every((label) => typeof label === 'string' && label.length >= 1 && label.length <= 100 && !/[\u0000-\u001f\u007f]/.test(label)) && new Set(candidate).size === candidate.length;
+              if (!hosted && !selfHosted) throw new Error('unsupported runner value');
+              configuredRunner = candidate;
+              usesSelfHostedRunner = selfHosted;
             } catch {
               reasons.push('invalid VISUAL_RECAP_RUNS_ON JSON');
             }
@@ -258,6 +258,7 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
+            core.setOutput('runs_on', JSON.stringify(configuredRunner));
             if (run) {
               core.info(`Visual recap will run (${agent}).`);
             } else {
@@ -314,7 +315,7 @@ jobs:
     name: Generate visual recap
     needs: gate
     if: needs.gate.outputs.run == 'true'
-    runs-on: ${{ (github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) && fromJSON(inputs.runs-on) || 'ubuntu-latest' }}
+    runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
     permissions:
       actions: write

@@ -2669,11 +2669,12 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--head-sha "$HEAD_SHA"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("runs-on: ubuntu-latest");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      `fromJSON(vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"')`,
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "github.event.pull_request.head.repo.full_name == github.repository",
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "self-hosted runner mode requires a trusted same-repository PR author",
@@ -3187,9 +3188,12 @@ describe("reusable workflow file structure", () => {
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
-    expect(content).toContain("&& fromJSON(inputs.runs-on) || 'ubuntu-latest'");
+    expect(content).toContain("runs-on: ubuntu-latest");
     expect(content).toContain(
-      "github.event.pull_request.head.repo.full_name == github.repository",
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
+    );
+    expect(content).toContain(
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );
     expect(content).toContain(
       "self-hosted runner mode requires a trusted same-repository PR author",

@@ -94,6 +94,8 @@ export type ConfigureTrackingOptions = {
    * session replay while retaining pageviews, explicit events, and Sentry.
    */
   contentCapture?: boolean;
+  /** Resolve content capture synchronously for each browser pathname. */
+  contentCaptureForPath?: (pathname: string) => boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -138,6 +140,7 @@ let _sessionReplayModuleForCapture:
   | typeof import("./session-replay.js")
   | null = null;
 let _trackingContentCaptureEnabled = true;
+let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -1013,7 +1016,11 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
-  _trackingContentCaptureEnabled = options.contentCapture !== false;
+  _contentCaptureForPath = options.contentCaptureForPath ?? null;
+  _trackingContentCaptureEnabled =
+    _contentCaptureForPath && typeof window !== "undefined"
+      ? _contentCaptureForPath(window.location.pathname)
+      : options.contentCapture !== false;
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
@@ -1033,12 +1040,20 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
 }
 
 export function setTrackingContentCaptureEnabled(enabled: boolean): void {
+  if (_trackingContentCaptureEnabled === enabled) return;
   _trackingContentCaptureEnabled = enabled;
   if (enabled) {
     void maybeStartSessionReplay();
   } else {
     void stopSessionReplay("content-capture-disabled");
   }
+}
+
+function syncTrackingContentCaptureForLocation(): void {
+  if (!_contentCaptureForPath) return;
+  setTrackingContentCaptureEnabled(
+    _contentCaptureForPath(window.location.pathname),
+  );
 }
 
 /**
@@ -1463,17 +1478,22 @@ function installPageviewTracking(): void {
 
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
+    syncTrackingContentCaptureForLocation();
     schedulePageview("pushState");
     return result;
   };
 
   window.history.replaceState = function replaceState(...args) {
     const result = originalReplaceState.apply(this, args);
+    syncTrackingContentCaptureForLocation();
     schedulePageview("replaceState");
     return result;
   };
 
-  window.addEventListener("popstate", () => schedulePageview("popstate"));
+  window.addEventListener("popstate", () => {
+    syncTrackingContentCaptureForLocation();
+    schedulePageview("popstate");
+  });
 }
 
 function sendAgentNativeAnalytics(

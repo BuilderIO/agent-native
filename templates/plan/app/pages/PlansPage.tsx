@@ -2025,9 +2025,20 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     () => new URLSearchParams(location.search),
     [location.search],
   );
-  const localPlanBridgeUrl = localPlanMode
-    ? localPlanBridgeUrlFromLocation(location.search, location.hash)
+  const localPlanBridgeRef = useRef<{ slug: string; url: string } | null>(null);
+  const routeLocalPlanBridgeUrl = localPlanMode
+    ? localPlanBridgeUrlFromLocation(location.hash)
     : null;
+  if (localPlanSlug && routeLocalPlanBridgeUrl) {
+    localPlanBridgeRef.current = {
+      slug: localPlanSlug,
+      url: routeLocalPlanBridgeUrl,
+    };
+  }
+  const localPlanBridgeUrl =
+    localPlanMode && localPlanBridgeRef.current?.slug === localPlanSlug
+      ? localPlanBridgeRef.current.url
+      : null;
   const localPlanRepoPath = localPlanMode
     ? routeSearchParams.get("path")
     : null;

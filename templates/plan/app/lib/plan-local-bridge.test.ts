@@ -20,16 +20,14 @@ describe("local plan bridge", () => {
 
     expect(
       localPlanBridgeUrlFromLocation(
-        "",
         `#bridge=${encodeURIComponent(bridgeUrl)}`,
       ),
     ).toBe(bridgeUrl);
-    expect(
-      localPlanBridgeUrlFromLocation(
-        `?bridge=${encodeURIComponent(bridgeUrl)}`,
-        "",
-      ),
-    ).toBe(bridgeUrl);
+    expect(localPlanBridgeUrlFromLocation("#overview")).toBeNull();
+  });
+
+  it("never reads bridge credentials from the request-visible query string", () => {
+    expect(localPlanBridgeUrlFromLocation("")).toBeNull();
   });
 
   it("keeps valid plan blocks visible when local MDX contains malformed blocks", async () => {
