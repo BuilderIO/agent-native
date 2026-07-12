@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.98.2
+
+### Patch Changes
+
+- dd6a05b: Expose a live client hook for reading the effective Demo mode status.
+- dd6a05b: Keep local Plan verification source on-device by skipping remote renderer validation, and protect bridge credentials from hosted requests.
+- dd6a05b: Allow PR Visual Recap workflows to select configurable self-hosted runners.
+
 ## 0.98.1
 
 ### Patch Changes
