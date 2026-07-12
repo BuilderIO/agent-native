@@ -47,8 +47,7 @@
     0 8px 16px -8px hsl(var(--foreground) / 0.14),
     0 20px 38px -18px hsl(var(--foreground) / 0.18);
   --forms-shadow-focus:
-    0 0 0 3px hsl(var(--ring) / 0.18),
-    0 0 0 1px hsl(var(--ring) / 0.55);
+    0 0 0 3px hsl(var(--ring) / 0.18), 0 0 0 1px hsl(var(--ring) / 0.55);
 
   --sidebar-background: 0 0% 97%;
   --sidebar-foreground: 0 0% 45%;
@@ -85,8 +84,7 @@
   --forms-shadow-control: 0 0 0 1px hsl(var(--foreground) / 0.07);
   --forms-shadow-floating: 0 0 0 1px hsl(var(--foreground) / 0.1);
   --forms-shadow-focus:
-    0 0 0 3px hsl(var(--ring) / 0.2),
-    0 0 0 1px hsl(var(--ring) / 0.65);
+    0 0 0 3px hsl(var(--ring) / 0.2), 0 0 0 1px hsl(var(--ring) / 0.65);
 
   --sidebar-background: 0 0% 10%;
   --sidebar-foreground: 0 0% 60%;

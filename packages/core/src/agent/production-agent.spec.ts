@@ -1535,30 +1535,22 @@ describe("runAgentLoop", () => {
   // run-manager.ts; `isInBackgroundFunctionRuntime` in durable-background.ts).
   // Snapshot + clear them all so each test pins BOTH predicates explicitly,
   // regardless of the machine/CI environment the suite happens to run on.
-  const RUNTIME_PREDICATE_ENV_KEYS = [
-    "NETLIFY",
-    "NETLIFY_LOCAL",
-    "AWS_LAMBDA_FUNCTION_NAME",
-    "AGENT_CHAT_FORCE_BACKGROUND_RUNTIME",
-    "CF_PAGES",
-    "VERCEL",
-    "VERCEL_ENV",
-    "RENDER",
-    "FLY_APP_NAME",
-    "K_SERVICE",
-  ] as const;
   function snapshotAndClearRuntimePredicateEnv(): () => void {
-    const saved = new Map<string, string | undefined>();
-    for (const key of RUNTIME_PREDICATE_ENV_KEYS) {
-      saved.set(key, process.env[key]);
-      delete process.env[key];
-    }
-    return () => {
-      for (const [key, value] of saved) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    };
+    // Keep each deployment flag explicit. Dynamic process.env indexing is
+    // forbidden in credential-adjacent agent code, including tests, because it
+    // can conceal an unscoped credential read. Vitest restores the original
+    // host values when the test finishes.
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("AGENT_CHAT_FORCE_BACKGROUND_RUNTIME", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("RENDER", "");
+    vi.stubEnv("FLY_APP_NAME", "");
+    vi.stubEnv("K_SERVICE", "");
+    return () => vi.unstubAllEnvs();
   }
   const hangingFirstEventEngine = (): AgentEngine => ({
     name: "test",
