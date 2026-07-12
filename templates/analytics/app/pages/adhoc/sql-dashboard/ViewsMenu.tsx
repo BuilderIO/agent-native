@@ -1,4 +1,3 @@
-import { cn } from "@/lib/utils";
 import { useT } from "@agent-native/core/client";
 import {
   IconCheck,
@@ -36,7 +35,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,6 +47,7 @@ import {
   useDashboardViews,
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
+import { cn } from "@/lib/utils";
 
 import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
 
@@ -110,7 +110,6 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
     [searchParams],
   );
 
-
   const selectedView = useMemo(() => {
     const paramViewId = searchParams.get("view");
     if (paramViewId) {
@@ -141,7 +140,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       });
       toast.success(`Saved filters to "${selectedView.name}"`);
     } catch {
-      toast.error("Failed to save changes");
+      toast.error(t("sqlDashboard.failedToSave"));
     }
   };
 
@@ -168,11 +167,20 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
     if (!name || savingView || slugExists) return;
     setSavingView(true);
     try {
+      const newId = slugify(name);
       await saveView({
-        id: slugify(name),
+        id: newId,
         name,
         filters: currentFilters,
       });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("view", newId);
+          return next;
+        },
+        { replace: true },
+      );
       setViewName("");
       setSaveDialogOpen(false);
     } finally {
@@ -185,16 +193,21 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
     const viewId = deleteTarget.id;
     await deleteView(viewId);
     if (searchParams.get("view") === viewId || views.length <= 1) {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("view");
-        return next;
-      }, { replace: true });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("view");
+          return next;
+        },
+        { replace: true },
+      );
     }
     setDeleteTarget(null);
   };
 
-  const triggerLabel = selectedView ? selectedView.name : t("sqlDashboard.views");
+  const triggerLabel = selectedView
+    ? selectedView.name
+    : t("sqlDashboard.views");
 
   return (
     <>
@@ -203,7 +216,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                >
                   <IconLayoutGrid className="h-3.5 w-3.5" />
                   <span className="max-w-[160px] truncate">{triggerLabel}</span>
                   <IconChevronDown className="h-3 w-3 opacity-60" />
@@ -225,7 +242,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                     setViewName("");
                     setSaveDialogOpen(true);
                   }}
-                  title="Save as new view"
+                  title={t("sqlDashboard.saveAsView")}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
                 </button>
@@ -279,7 +296,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                               });
                               toast.success(`Saved filters to "${v.name}"`);
                             } catch {
-                              toast.error("Failed to save changes");
+                              toast.error(t("sqlDashboard.failedToSave"));
                             }
                           }}
                           title={`Save current filters to "${v.name}"`}
@@ -331,7 +348,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                 <IconPlus className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Save as new view</TooltipContent>
+            <TooltipContent>{t("sqlDashboard.saveAsView")}</TooltipContent>
           </Tooltip>
         )}
 

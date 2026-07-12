@@ -1852,7 +1852,12 @@ export async function saveDashboardView(
     const [existingRow] = await db
       .select({ id: schema.dashboardViews.id })
       .from(schema.dashboardViews)
-      .where(eq(schema.dashboardViews.id, view.id))
+      .where(
+        and(
+          eq(schema.dashboardViews.id, view.id),
+          eq(schema.dashboardViews.dashboardId, dashboardId),
+        ),
+      )
       .limit(1);
     exists = !!existingRow;
   }
@@ -1861,7 +1866,12 @@ export async function saveDashboardView(
     await db
       .update(schema.dashboardViews)
       .set({ name: view.name, filters: JSON.stringify(view.filters) })
-      .where(eq(schema.dashboardViews.id, id));
+      .where(
+        and(
+          eq(schema.dashboardViews.id, id),
+          eq(schema.dashboardViews.dashboardId, dashboardId),
+        ),
+      );
   } else {
     await db.insert(schema.dashboardViews).values({
       id,
