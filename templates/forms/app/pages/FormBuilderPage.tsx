@@ -335,18 +335,20 @@ export function FormBuilderPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-10 shrink-0 gap-1.5 px-2 text-xs active:scale-[0.96]"
-              onClick={() => navigate("/forms")}
-              aria-label={t("builder.backToForms")}
-            >
-              <IconArrowLeft className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">
-                {t("builder.backToForms")}
-              </span>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-10 shrink-0 active:scale-[0.96]"
+                  onClick={() => navigate("/forms")}
+                  aria-label={t("builder.backToForms")}
+                >
+                  <IconArrowLeft className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("builder.backToForms")}</TooltipContent>
+            </Tooltip>
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-14 rounded-full" />
           </div>
@@ -552,16 +554,20 @@ export function FormBuilderPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border ps-12 pe-2 sm:px-4 md:ps-4 h-14 shrink-0 min-w-0">
         <div className="flex items-center gap-1 sm:gap-2 relative min-w-0 flex-1 me-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-10 shrink-0 gap-1.5 px-2 text-xs active:scale-[0.96]"
-            onClick={() => navigate("/forms")}
-            aria-label={t("builder.backToForms")}
-          >
-            <IconArrowLeft className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t("builder.backToForms")}</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0 active:scale-[0.96]"
+                onClick={() => navigate("/forms")}
+                aria-label={t("builder.backToForms")}
+              >
+                <IconArrowLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("builder.backToForms")}</TooltipContent>
+          </Tooltip>
           <span
             ref={titleMeasureRef}
             aria-hidden

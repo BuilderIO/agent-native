@@ -106,13 +106,18 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
-- External MCP callers use `ask_app` for multi-step Analytics work, but the
-  authenticated connector catalog also exposes four bounded read actions for
-  direct incident triage: `list-session-recordings`,
-  `query-agent-native-analytics`, `list-error-issues`, and `get-error-issue`.
-  These actions remain user/org scoped and read-only; do not add replay blob or
-  dashboard mutation actions to this catalog without an explicit security
-  review.
+- External MCP callers should use `ask_app` as the default for multi-step
+  Analytics work. It can resolve a person's known email, correlate sessions
+  with captured errors, mint a temporary replay-context link, and inspect the
+  timeline, page navigation, console diagnostics, failed network requests, and
+  clicks when needed. The authenticated connector catalog is the fast fallback
+  and exposes only bounded, user/org-scoped read actions for incident triage:
+  `list-session-recordings`, `get-session-replay-summary`,
+  `get-session-replay-events`, `query-agent-native-analytics`,
+  `list-error-issues`, and `get-error-issue`. Fetch the summary before raw
+  events, use the event filters/limits to keep the response bounded, and do not
+  add replay blob or dashboard mutation actions to this catalog without an
+  explicit security review.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
   evals, experiments, and feedback. `/agents?view=dashboards` shows the

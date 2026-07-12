@@ -6,6 +6,8 @@
  */
 export const ANALYTICS_CONNECTOR_CATALOG = [
   "list-session-recordings",
+  "get-session-replay-summary",
+  "get-session-replay-events",
   "query-agent-native-analytics",
   "list-error-issues",
   "get-error-issue",

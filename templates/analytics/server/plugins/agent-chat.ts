@@ -30,6 +30,9 @@ import {
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
   "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
+export const ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE =
+  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId and hasErrors=true over a bounded recent window. Use list-error-issues with userId or sessionRecordingId to identify the grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. When the timeline, page navigation, console diagnostics, failed network requests, or clicks are needed, use create-session-replay-agent-link and follow its bounded diagnostics/context APIs. Prefer these first-party actions over generic SQL; use query-agent-native-analytics only to correlate first-party events. Report the matching evidence and do not claim a root cause without a corroborating error or replay signal. ";
+
 export const NON_ANALYTICS_REQUEST_GUIDANCE =
   "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
 
@@ -51,6 +54,7 @@ export function analyticsSourceGuidanceOpening(): string {
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
     NON_ANALYTICS_REQUEST_GUIDANCE +
     SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
+    ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
     "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. "
   );
 }
