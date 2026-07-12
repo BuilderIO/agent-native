@@ -112,7 +112,11 @@ export interface AgentChatPluginOptions {
    * cookie/bearer `getSession` chain, letting an app accept caller identities
    * `getSession` doesn't understand (e.g. an A2A JWT verified with
    * `verifyA2AToken`) declaratively, instead of pre-seeding request context
-   * from a Nitro `request` hook. Returning `null` defers to the normal chain.
+   * from a Nitro `request` hook.
+   *
+   * Returning `null` defers to the normal chain; THROWING hard-rejects with a
+   * 401 (an invalid/forged credential must not fall through to a same-origin
+   * session cookie). See {@link import("../action-routes.js").ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
   /**

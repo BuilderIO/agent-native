@@ -148,8 +148,15 @@ export async function verifyA2AToken(
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
     if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
+      // Fail closed: the token was minted for a specific audience, but this
+      // receiver can't derive its own expected audience (no APP_URL/URL and no
+      // usable request host). Accepting here would let a correctly-signed token
+      // whose `aud` targets ANOTHER service verify against a shared secret. A
+      // token that self-declares an audience must be checked against ours, so
+      // when we have nothing to check it against we reject rather than skip.
       const aud = expectedJwtAudience(event);
-      if (aud) verifyOptions.audience = aud;
+      if (!aud) return { email: null, orgDomain: null };
+      verifyOptions.audience = aud;
     }
     if (
       unverifiedPayload &&

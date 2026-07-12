@@ -15,6 +15,9 @@ stop reaching into core internals:
   / `actionRouteAuth` on `mountActionRoutes`). Its `resolveCaller` runs before
   the `getSession` chain on `/_agent-native/actions/*`, letting apps accept A2A
   JWTs declaratively instead of intercepting Nitro's `request` hook. Returning
-  `null` (or throwing) defers to the existing framework auth chain.
+  `null` defers to the existing framework auth chain; throwing hard-rejects the
+  request with a 401 so an invalid credential can't fall through to a
+  same-origin session cookie. A resolved caller's org is derived with the same
+  owner-based fallback the framework chain uses, so A2A writes stay org-scoped.
 
 All additive — existing callers are unaffected.

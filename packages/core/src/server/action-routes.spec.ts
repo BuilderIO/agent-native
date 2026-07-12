@@ -3,8 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
+const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
+const mockGetOrgContext = vi.hoisted(() =>
+  vi.fn(async () => ({ orgId: undefined })),
+);
 
 vi.mock("h3", () => ({
+  createError: (opts: any) =>
+    Object.assign(new Error(opts?.statusMessage), opts),
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event._method ?? "GET",
   getQuery: (event: any) => event._query ?? {},
@@ -30,12 +37,30 @@ vi.mock("./action-change.js", () => ({
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
 
+// The adapter path in mountActionRoutes derives org via resolveAgentRunOrgId,
+// which pulls from these modules. Mocked here so the owner-based fallback is
+// deterministic without a live DB/session.
+vi.mock("../org/context.js", () => ({
+  resolveOrgIdForEmail: (...args: unknown[]) =>
+    mockResolveOrgIdForEmail(...args),
+  getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("./auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
+
 describe("mountActionRoutes", () => {
   afterEach(() => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
     delete process.env.AGENT_USER_TIMEZONE;
     mockNotifyActionChange.mockReset();
+    mockResolveOrgIdForEmail.mockReset();
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue(null);
+    mockGetOrgContext.mockReset();
+    mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     vi.restoreAllMocks();
   });
 
@@ -877,7 +902,10 @@ describe("mountActionRoutes", () => {
     expect(received.userEmail).toBe("session-user@example.com");
   });
 
-  it("defers to getOwnerFromEvent when resolveCaller throws", async () => {
+  it("hard-rejects with 401 when resolveCaller throws (session chain not consulted)", async () => {
+    // Contract: a throw means "the credential is mine but invalid". It must NOT
+    // fall through to getOwnerFromEvent/getSession — otherwise a forged A2A
+    // bearer plus a live same-origin cookie would run as the session user.
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -886,13 +914,9 @@ describe("mountActionRoutes", () => {
       ),
     };
     const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
-    let received: any;
     const actions: Record<string, ActionEntry> = {
       "do-thing": {
-        run: vi.fn(async (_params, ctx) => {
-          received = ctx;
-          return { ok: true };
-        }),
+        run: vi.fn(async () => ({ ok: true })),
       } as any,
     };
 
@@ -905,14 +929,66 @@ describe("mountActionRoutes", () => {
       },
     });
 
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: {},
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions["do-thing"].run).not.toHaveBeenCalled();
+  });
+
+  it("scopes the adapter-resolved caller to an owner-derived orgId", async () => {
+    // The app's resolveOrgId is session-backed and yields null for an A2A
+    // caller. The adapter path must still land the correct org by reusing
+    // core's owner-based fallback (resolveOrgIdForEmail) so org-scoped writes
+    // don't persist with org_id NULL.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-owner-derived");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "session-user@example.com",
+      // Session-backed org resolution returns null for an A2A caller.
+      resolveOrgId: async () => null,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+        }),
+      },
+    });
+
     await mounted[0].handler({
       _method: "POST",
       _headers: {},
-      context: {},
+      context: {} as Record<string, unknown>,
       req: { json: async () => ({}) },
     });
 
-    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
-    expect(received.userEmail).toBe("session-user@example.com");
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith(
+      "a2a-caller@example.com",
+    );
+    expect(received.ctx.orgId).toBe("org-owner-derived");
+    expect(received.requestOrgId).toBe("org-owner-derived");
   });
 });

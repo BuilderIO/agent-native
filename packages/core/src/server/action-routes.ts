@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -19,6 +20,7 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import { notifyActionChange } from "./action-change.js";
 import {
+  resolveAgentRunOrgId,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -178,10 +180,18 @@ function handleOptionsRequest(event: any): string {
  */
 export interface ActionRouteAuthAdapter {
   /**
-   * Resolve a caller from the raw event before the cookie/bearer chain. Return
-   * the resolved owner context to run the action scoped to that caller, or
-   * `null` to defer to `getOwnerFromEvent` / `getSession`. A thrown error is
-   * treated the same as returning `null` (the framework chain still runs).
+   * Resolve a caller from the raw event before the cookie/bearer chain.
+   *
+   * - Return the resolved owner context to run the action scoped to that
+   *   caller (the org is then derived the same way the framework chain derives
+   *   it, including the owner-based fallback).
+   * - Return `null` when the credential isn't yours to judge — the request
+   *   defers to `getOwnerFromEvent` / `getSession`.
+   * - THROW to hard-reject: the credential is present but invalid (e.g. an
+   *   expired or forged A2A bearer). The action route responds 401 and does
+   *   NOT fall through to the cookie/session chain, so a valid same-origin
+   *   session cookie can't be used to execute the request as the logged-in
+   *   user. Do not throw merely to signal "not mine" — return `null` for that.
    */
   resolveCaller?: (
     event: any,
@@ -293,24 +303,34 @@ export function mountActionRoutes(
         // identities the framework's getSession chain doesn't understand (e.g.
         // an A2A JWT). A resolved caller is seeded onto the event context so any
         // downstream resolveAgentRunOwnerContext (nested agent runs) sees the
-        // same identity; a null return (or a throw) falls through to
-        // getOwnerFromEvent below. The adapter is only consulted for the action
-        // route, so it can't affect other surfaces.
-        let resolvedByAdapter = false;
+        // same identity. The adapter is only consulted for the action route, so
+        // it can't affect other surfaces.
+        //
+        // Contract: `resolveCaller` returning `null` means "this credential
+        // isn't mine — defer to the cookie/session chain below". THROWING means
+        // "the credential is mine but invalid" (e.g. an expired/forged A2A
+        // bearer) and is a hard rejection: we surface a 401 instead of falling
+        // through, so a live same-origin session cookie can't silently execute
+        // the request as the logged-in user.
+        let resolvedCaller: AgentRunOwnerContext | null = null;
         if (options?.actionRouteAuth?.resolveCaller) {
+          let caller: AgentRunOwnerContext | null;
           try {
-            const caller = await options.actionRouteAuth.resolveCaller(event);
-            if (caller) {
-              seedAgentRunOwnerContext(event, caller);
-              userEmail = caller.owner;
-              userName = caller.name;
-              resolvedByAdapter = true;
-            }
+            caller = await options.actionRouteAuth.resolveCaller(event);
           } catch {
-            // Adapter failure defers to the framework auth chain below.
+            throw createError({
+              statusCode: 401,
+              statusMessage: "Unauthorized",
+            });
+          }
+          if (caller) {
+            seedAgentRunOwnerContext(event, caller);
+            userEmail = caller.owner;
+            userName = caller.name;
+            resolvedCaller = caller;
           }
         }
-        if (!resolvedByAdapter && options?.getOwnerFromEvent) {
+        if (!resolvedCaller && options?.getOwnerFromEvent) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent
@@ -328,9 +348,24 @@ export function mountActionRoutes(
             }
           }
         }
-        const orgId = options?.resolveOrgId
-          ? ((await options.resolveOrgId(event)) ?? undefined)
-          : undefined;
+        // Org scoping. When the adapter resolved the caller, the app's
+        // `resolveOrgId` (implemented via getSession) returns null for an A2A
+        // caller — which would leave org-scoped writes with org_id NULL. Reuse
+        // core's own org resolver so the adapter path picks up the same
+        // owner-derived fallback the framework auth chain does. Non-adapter
+        // callers keep the original resolveOrgId-only behavior.
+        let orgId: string | undefined;
+        if (resolvedCaller) {
+          orgId = await resolveAgentRunOrgId({
+            event,
+            ownerContext: resolvedCaller,
+            resolveOrgId: options?.resolveOrgId,
+          });
+        } else {
+          orgId = options?.resolveOrgId
+            ? ((await options.resolveOrgId(event)) ?? undefined)
+            : undefined;
+        }
         const timezone = readTimezoneHeader(event);
 
         return runWithRequestContext(
