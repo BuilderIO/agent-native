@@ -103,6 +103,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  VISUAL_RECAP_API_KEY (secret) + VISUAL_RECAP_AGENT=openai-compatible + VISUAL_RECAP_BASE_URL (variable) — use DeepSeek, Kimi, or any OpenAI-compatible API",
   "  VISUAL_RECAP_MODEL (variable, required for openai-compatible) — provider model id; optional override for Claude/Codex",
   "  VISUAL_RECAP_REASONING (variable) — reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
+  '  VISUAL_RECAP_RUNS_ON (variable) — JSON hosted label or self-hosted label array; defaults to "ubuntu-latest"',
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -170,12 +171,17 @@ export function buildReusableCallerWorkflow(
     ref?: string;
     agent?: RecapAgentValue;
     model?: string;
+    runsOn?: string;
   } = {},
 ): string {
   const ref = (options.ref ?? "main").replace(/^@/, "");
   const agentValue =
     options.agent ?? "${{ vars.VISUAL_RECAP_AGENT || 'claude' }}";
   const modelValue = options.model ?? "${{ vars.VISUAL_RECAP_MODEL || '' }}";
+  const runsOnValue =
+    options.runsOn === undefined
+      ? "${{ vars.VISUAL_RECAP_RUNS_ON || '\"ubuntu-latest\"' }}"
+      : JSON.stringify(options.runsOn);
   return (
     `name: PR Visual Recap\n` +
     `\n` +
@@ -210,6 +216,7 @@ export function buildReusableCallerWorkflow(
     `      reasoning: \${{ vars.VISUAL_RECAP_REASONING || '' }}\n` +
     `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
     `      secret-scan: \${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}\n` +
+    `      runs-on: ${runsOnValue}\n` +
     `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
     ``
   );
@@ -226,6 +233,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     ref?: string;
     agent?: RecapAgentValue;
     model?: string;
+    runsOn?: string;
   } = {},
 ): WriteWorkflowResult {
   const dir = path.resolve(baseDir, ".github", "workflows");
@@ -236,6 +244,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     ref: options.ref,
     agent: options.agent,
     model: options.model,
+    runsOn: options.runsOn,
   });
   if (fs.existsSync(file)) {
     const current = fs.readFileSync(file, "utf8");
@@ -414,6 +423,40 @@ function listGithubVariables(repo?: string): Map<string, string> | null {
   }
 }
 
+function listGithubOrganizationVariables(
+  repo: string,
+): Map<string, string> | null {
+  const result = gh([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repo}/actions/organization-variables?per_page=30`,
+  ]);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    const pages = Array.isArray(parsed) ? parsed : [parsed];
+    const out = new Map<string, string>();
+    for (const page of pages) {
+      if (!page || typeof page !== "object") continue;
+      const variables = (page as Record<string, unknown>).variables;
+      if (!Array.isArray(variables)) continue;
+      for (const variable of variables) {
+        if (!variable || typeof variable !== "object") continue;
+        const record = variable as Record<string, unknown>;
+        if (typeof record.name !== "string") continue;
+        out.set(
+          record.name,
+          typeof record.value === "string" ? record.value : "",
+        );
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 function setGithubSecret(
   name: string,
   value: string | undefined,
@@ -440,6 +483,63 @@ function setGithubVariable(
   return gh(args).ok ? "set" : "failed";
 }
 
+export interface RecapRunner {
+  name: string;
+  status: string;
+  labels: string[];
+}
+
+function listGithubRunners(repo: string): RecapRunner[] | null {
+  const result = gh([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repo}/actions/runners?per_page=100`,
+  ]);
+  if (!result.ok) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as unknown;
+    const pages = Array.isArray(parsed) ? parsed : [parsed];
+    const runners: RecapRunner[] = [];
+    for (const page of pages) {
+      if (!page || typeof page !== "object") continue;
+      const entries = (page as Record<string, unknown>).runners;
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        const record = entry as Record<string, unknown>;
+        if (typeof record.name !== "string") continue;
+        const rawLabels = Array.isArray(record.labels) ? record.labels : [];
+        runners.push({
+          name: record.name,
+          status: typeof record.status === "string" ? record.status : "",
+          labels: rawLabels.flatMap((label) => {
+            if (typeof label === "string") return [label];
+            if (!label || typeof label !== "object") return [];
+            const name = (label as Record<string, unknown>).name;
+            return typeof name === "string" ? [name] : [];
+          }),
+        });
+      }
+    }
+    return runners;
+  } catch {
+    return null;
+  }
+}
+
+export function matchingRecapRunners(
+  runners: RecapRunner[],
+  requiredLabels: string[],
+): RecapRunner[] {
+  const required = requiredLabels.map((label) => label.toLowerCase());
+  return runners.filter((runner) => {
+    if (runner.status.toLowerCase() !== "online") return false;
+    const labels = new Set(runner.labels.map((label) => label.toLowerCase()));
+    return required.every((label) => labels.has(label));
+  });
+}
+
 export interface RecapSetupPlan {
   agent: RecapAgent;
   appUrl: string;
@@ -454,7 +554,7 @@ export interface RecapSetupPlan {
 }
 
 export interface RecapVariableRequirement {
-  name: "VISUAL_RECAP_BASE_URL" | "VISUAL_RECAP_MODEL";
+  name: "VISUAL_RECAP_BASE_URL" | "VISUAL_RECAP_MODEL" | "VISUAL_RECAP_RUNS_ON";
   example: string;
 }
 
@@ -470,6 +570,85 @@ const OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS = [
   },
   { name: "VISUAL_RECAP_MODEL", example: "provider-model-id" },
 ] as const satisfies readonly RecapVariableRequirement[];
+
+const RECAP_RUNS_ON_REQUIREMENT = {
+  name: "VISUAL_RECAP_RUNS_ON",
+  example: '["self-hosted","linux","x64","visual-recap"]',
+} as const satisfies RecapVariableRequirement;
+
+export interface RecapRunsOnConfig {
+  json: string;
+  labels: string[];
+  selfHosted: boolean;
+}
+
+/** Parse the JSON consumed by GitHub Actions `fromJSON(...)` for `runs-on`. */
+export function parseRecapRunsOn(value: string): RecapRunsOnConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(
+      'VISUAL_RECAP_RUNS_ON must be valid JSON, such as "ubuntu-latest" or ["self-hosted","linux","x64"]',
+    );
+  }
+
+  if (typeof parsed === "string") {
+    if (!/^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(parsed)) {
+      throw new Error(
+        "VISUAL_RECAP_RUNS_ON JSON strings must name a standard GitHub-hosted ubuntu-, windows-, or macos- runner",
+      );
+    }
+    return {
+      json: JSON.stringify(parsed),
+      labels: [parsed],
+      selfHosted: false,
+    };
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.length > 20) {
+    throw new Error(
+      "VISUAL_RECAP_RUNS_ON must be a hosted runner JSON string or an array of 1-20 self-hosted labels",
+    );
+  }
+  if (
+    parsed.some(
+      (label) =>
+        typeof label !== "string" ||
+        label.length === 0 ||
+        label.length > 100 ||
+        /[\p{C}]/u.test(label),
+    )
+  ) {
+    throw new Error(
+      "VISUAL_RECAP_RUNS_ON labels must be non-empty strings up to 100 characters without control characters",
+    );
+  }
+  const labels = parsed as string[];
+  if (!labels.includes("self-hosted")) {
+    throw new Error(
+      'VISUAL_RECAP_RUNS_ON label arrays must include the exact "self-hosted" label',
+    );
+  }
+  if (
+    new Set(labels.map((label) => label.toLowerCase())).size !== labels.length
+  ) {
+    throw new Error("VISUAL_RECAP_RUNS_ON labels must be unique");
+  }
+  return { json: JSON.stringify(labels), labels, selfHosted: true };
+}
+
+function recapRunsOnProblem(value: string): RecapVariableProblem | null {
+  try {
+    parseRecapRunsOn(value);
+    return null;
+  } catch (error) {
+    return {
+      requirement: RECAP_RUNS_ON_REQUIREMENT,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 const RECAP_MODEL_PATTERN = /^[a-zA-Z0-9._-]{1,80}$/;
 const OPENAI_COMPATIBLE_RECAP_MODEL_PATTERN = /^[^\p{C}\p{Z}]{1,200}$/u;
@@ -517,6 +696,7 @@ export function buildRecapSetupPlan(input: {
   appUrl?: string;
   agent?: string;
   repo?: string;
+  runsOn?: string;
   env?: NodeJS.ProcessEnv;
 }): RecapSetupPlan {
   const env = input.env ?? process.env;
@@ -551,13 +731,19 @@ export function buildRecapSetupPlan(input: {
     const baseUrl = envValue(env, "VISUAL_RECAP_BASE_URL");
     if (baseUrl) variableValues.VISUAL_RECAP_BASE_URL = baseUrl;
   }
-  const variableProblems =
+  const variableProblems: RecapVariableProblem[] =
     agent === "openai-compatible"
       ? validateOpenAiCompatibleRecapVariables({
           baseUrl: variableValues.VISUAL_RECAP_BASE_URL,
           model: variableValues.VISUAL_RECAP_MODEL,
         })
       : [];
+  const runsOn = input.runsOn ?? envValue(env, "VISUAL_RECAP_RUNS_ON");
+  if (runsOn) {
+    const problem = recapRunsOnProblem(runsOn);
+    if (problem) variableProblems.push(problem);
+    else variableValues.VISUAL_RECAP_RUNS_ON = parseRecapRunsOn(runsOn).json;
+  }
   return {
     agent,
     appUrl,
@@ -596,7 +782,16 @@ function runSetup(args: Record<string, string | boolean>): void {
     appUrl: optionalArg(args, "app-url"),
     agent: optionalArg(args, "agent"),
     repo,
+    runsOn: optionalArg(args, "runs-on"),
   });
+  const runsOnProblem = plan.variableProblems.find(
+    (problem) => problem.requirement.name === "VISUAL_RECAP_RUNS_ON",
+  );
+  if (runsOnProblem) {
+    process.stderr.write(`recap setup: ${runsOnProblem.reason}.\n`);
+    process.exitCode = 1;
+    return;
+  }
   const lines = [
     reusable
       ? "PR Visual Recap setup (reusable workflow)"
@@ -616,6 +811,7 @@ function runSetup(args: Record<string, string | boolean>): void {
       force,
       ref: optionalArg(args, "ref") ?? "main",
       agent: plan.agent !== "claude" ? plan.agent : undefined,
+      runsOn: plan.variableValues.VISUAL_RECAP_RUNS_ON,
     });
     if (result.status === "refused") {
       process.stderr.write(`recap setup: ${result.message}\n`);
@@ -736,6 +932,12 @@ function runDoctor(args: Record<string, string | boolean>): void {
   const baseDir = process.cwd();
   const repo = resolveGithubRepo(optionalArg(args, "repo"));
   const variables = listGithubVariables(repo);
+  if (variables && repo) {
+    const organizationVariables = listGithubOrganizationVariables(repo);
+    for (const [name, value] of organizationVariables ?? []) {
+      if (!variables.has(name)) variables.set(name, value);
+    }
+  }
   const agent = normalizeRecapAgent(
     optionalArg(args, "agent") ??
       variables?.get("VISUAL_RECAP_AGENT") ??
@@ -841,6 +1043,47 @@ function runDoctor(args: Record<string, string | boolean>): void {
             repo,
           )}`,
         );
+      }
+    }
+
+    const configuredRunsOn = variables.get("VISUAL_RECAP_RUNS_ON")?.trim();
+    if (!configuredRunsOn) {
+      lines.push('[ok] Recap runner: "ubuntu-latest".');
+    } else {
+      const problem = recapRunsOnProblem(configuredRunsOn);
+      if (problem) {
+        ok = false;
+        lines.push(`[invalid] ${problem.reason}.`);
+        lines.push(
+          `  Set it with: ${commandForMissingVariable(
+            RECAP_RUNS_ON_REQUIREMENT.name,
+            RECAP_RUNS_ON_REQUIREMENT.example,
+            repo,
+          )}`,
+        );
+      } else {
+        const runsOn = parseRecapRunsOn(configuredRunsOn);
+        lines.push(`[ok] Recap runner configuration: ${runsOn.json}.`);
+        if (runsOn.selfHosted && repo) {
+          const runners = listGithubRunners(repo);
+          if (!runners) {
+            lines.push(
+              "[warn] Could not verify self-hosted runners with gh; repository Administration read access is required.",
+            );
+          } else {
+            const matches = matchingRecapRunners(runners, runsOn.labels);
+            if (matches.length === 0) {
+              ok = false;
+              lines.push(
+                `[missing] No online self-hosted runner matches: ${runsOn.labels.join(", ")}.`,
+              );
+            } else {
+              lines.push(
+                `[ok] Matching online self-hosted runner: ${matches.map((runner) => runner.name).join(", ")}.`,
+              );
+            }
+          }
+        }
       }
     }
   }
@@ -4466,7 +4709,7 @@ function runAgentSummary(args: Record<string, string | boolean>): void {
 const HELP = `npx @agent-native/core@latest recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
-  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--skip-secrets] [--dry-run] [--force]
+  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--runs-on <json>] [--skip-secrets] [--dry-run] [--force]
   npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>]
   npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   npx @agent-native/core@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
@@ -4519,11 +4762,15 @@ Usage:
     Write/refresh .github/workflows/pr-visual-recap.yml, then configure GitHub
     Actions secrets and variables with gh when values are available from env or
     the local Plans publish-token store. Missing values are printed as exact next
-    commands; secret values are sent to gh through stdin, never argv.
+    commands; secret values are sent to gh through stdin, never argv. Pass
+    --runs-on '["self-hosted","linux","x64","visual-recap"]' to opt into a
+    trusted self-hosted runner label set.
   npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets and variables for the
     selected backend, including provider-variable validity.
+    Self-hosted runner JSON is validated and matching online runners are checked
+    when the GitHub token has repository Administration read access.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {

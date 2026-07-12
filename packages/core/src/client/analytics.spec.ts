@@ -14,7 +14,23 @@ const sentryMock = vi.hoisted(() => ({
   captureException: vi.fn(() => "event_id"),
 }));
 
+const amplitudeMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  setOptOut: vi.fn(),
+  track: vi.fn(),
+}));
+
+const replayMock = vi.hoisted(() => ({
+  emitSessionReplayException: vi.fn(),
+  getSessionReplayId: vi.fn(() => undefined),
+  maybeStartSessionReplay: vi.fn(async () => ({ started: false })),
+  startSessionReplay: vi.fn(async () => ({ started: false })),
+  stopSessionReplay: vi.fn(async () => undefined),
+}));
+
 vi.mock("@sentry/browser", () => sentryMock);
+vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
+vi.mock("./session-replay.js", () => replayMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
 
@@ -107,10 +123,11 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
       },
     ),
   };
+  const gtag = vi.fn();
   const windowMock = {
     location,
     history,
-    gtag: vi.fn(),
+    gtag,
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = [...(listeners[event] ?? []), listener];
     }),
@@ -125,6 +142,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
 
   return {
     fetchMock: vi.fn().mockResolvedValue(new Response("{}")),
+    gtag,
     history,
     listeners,
     location,
@@ -139,6 +157,12 @@ describe("browser analytics pageviews", () => {
     sentryMock.setUser.mockClear();
     sentryMock.withScope.mockClear();
     sentryMock.captureException.mockClear();
+    amplitudeMock.init.mockClear();
+    amplitudeMock.setOptOut.mockClear();
+    amplitudeMock.track.mockClear();
+    replayMock.maybeStartSessionReplay.mockClear();
+    replayMock.startSessionReplay.mockClear();
+    replayMock.stopSessionReplay.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -185,6 +209,57 @@ describe("browser analytics pageviews", () => {
         llm_connection_source: "app_secrets",
       },
     });
+  });
+
+  it("keeps sanitized tracking but disables content capture on local Plan routes", async () => {
+    const { gtag } = installBrowser(
+      "https://plan.agent-native.com/local-plans/local#bridge=secret",
+    );
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const {
+      captureClientException,
+      configureTracking,
+      setTrackingContentCaptureEnabled,
+    } = await freshAnalytics();
+
+    configureTracking({
+      contentCapture: false,
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    setTrackingContentCaptureEnabled(false);
+    expect(captureClientException(new Error("Renderer failed"))).toBe(
+      "event_id",
+    );
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body).toMatchObject({
+      event: "pageview",
+      properties: {
+        url: "https://plan.agent-native.com/local-plans/local",
+        path: "/local-plans/local",
+      },
+    });
+    expect(body.properties).not.toHaveProperty("title");
+    expect(JSON.stringify(body)).not.toContain("bridge");
+    expect(JSON.stringify(body)).not.toContain("bridge=secret");
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "pageview",
+      expect.objectContaining({ path: "/local-plans/local" }),
+    );
+    expect(amplitudeMock.init).toHaveBeenCalledWith("amplitude_test", {
+      autocapture: false,
+    });
+    expect(amplitudeMock.track).toHaveBeenCalledWith(
+      "pageview",
+      expect.objectContaining({ path: "/local-plans/local" }),
+    );
+    expect(replayMock.stopSessionReplay).toHaveBeenCalled();
+    expect(sentryMock.captureException).toHaveBeenCalledTimes(1);
   });
 
   it("accepts the first-party public key and endpoint at configure time", async () => {

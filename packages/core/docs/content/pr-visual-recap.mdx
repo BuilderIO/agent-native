@@ -123,6 +123,41 @@ reference files the skill ships with. If your repo intentionally customizes and
 pins its committed `visual-recap` folder, set the repository variable
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Runner selection
+
+The workflow runs on GitHub-hosted `ubuntu-latest` runners by default. To use a
+different hosted runner or your own self-hosted runner, set the repository or
+organization variable `VISUAL_RECAP_RUNS_ON` to a valid JSON string or JSON
+array of runner labels:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+The JSON quotes are required. Both the lightweight `gate` job and the full
+`recap` job use the selected runner. To configure it during guided setup, pass
+the same JSON value to `--runs-on`, then validate the workflow and runner
+availability with `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` rejects malformed or unsupported JSON and reports when GitHub
+does not expose an online runner matching every configured label. Runner
+registration, installation, upgrades, capacity, and maintenance remain your
+responsibility; Agent Native selects the labels but does not provide or operate
+the runner.
+
+**Security:** Prefer ephemeral self-hosted runners. Persistent self-hosted
+runners should only serve private repositories whose contributors are trusted.
+The workflow fails closed before dispatching self-hosted work for untrusted
+public or fork PR authors, but a persistent machine still retains workspace and
+process state across jobs. Do not weaken that gate or route untrusted
+contributions to a persistent runner.
+
 ## Backend selection
 
 Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repository variable:
@@ -468,10 +503,11 @@ jobs:
       base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant.
+The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant. The reusable caller forwards `VISUAL_RECAP_RUNS_ON` through its `runs-on` input; the called workflow parses the JSON and uses the result for both jobs. Omitting the input preserves the `ubuntu-latest` default.
 
 ### Installing via the CLI
 

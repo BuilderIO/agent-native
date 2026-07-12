@@ -123,6 +123,26 @@ Referenzdateien, mit denen der Skill geliefert wird. Wenn Ihr Repo absichtlich a
 pinnen den festgeschriebenen `visual-recap`-Ordner an und legen die Repository-Variable fest
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Runner-Auswahl
+
+Standardmäßig wird der Workflow auf von GitHub gehosteten `ubuntu-latest`-Runnern ausgeführt. Um einen anderen gehosteten Runner oder einen eigenen selbst gehosteten Runner zu verwenden, setzen Sie die Repository- oder Organisationsvariable `VISUAL_RECAP_RUNS_ON` auf eine gültige JSON-Zeichenfolge oder ein JSON-Array mit Runner-Labels:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+Die JSON-Anführungszeichen sind erforderlich. Sowohl der einfache `gate`-Job als auch der vollständige `recap`-Job verwenden den ausgewählten Runner. Übergeben Sie zur Konfiguration während der geführten Einrichtung denselben JSON-Wert an `--runs-on` und prüfen Sie anschließend den Workflow und die Verfügbarkeit des Runners mit `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` lehnt fehlerhaftes oder nicht unterstütztes JSON ab und meldet, wenn GitHub keinen Online-Runner bereitstellt, der alle konfigurierten Labels erfüllt. Registrierung, Installation, Upgrades, Kapazität und Wartung des Runners liegen weiterhin in Ihrer Verantwortung; Agent Native wählt die Labels aus, stellt oder betreibt den Runner jedoch nicht.
+
+**Sicherheit:** Bevorzugen Sie kurzlebige selbst gehostete Runner. Persistente selbst gehostete Runner sollten nur privaten Repositorys mit vertrauenswürdigen Mitwirkenden dienen. Der Workflow bricht ab, bevor selbst gehostete Arbeit für nicht vertrauenswürdige Autoren öffentlicher oder Fork-PRs eingeplant wird, doch eine persistente Maschine behält zwischen Jobs weiterhin Arbeitsbereichs- und Prozesszustand. Schwächen Sie dieses Gate nicht ab und leiten Sie keine nicht vertrauenswürdigen Beiträge an einen persistenten Runner weiter.
+
 ## Backend-Auswahl
 
 Wählen Sie mit der Repository-Variable `VISUAL_RECAP_AGENT` aus, welcher Codierungsagent den Skill ausführt:
@@ -460,10 +480,11 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Es gelten die gleichen Geheimnisse und Variablen wie in [Secrets and variables](#secrets-and-variables) beschrieben – legen Sie sie in Ihren Repo-Einstellungen auf die gleiche Weise fest wie für die Kopiervariante.
+Es gelten die gleichen Geheimnisse und Variablen wie in [Secrets and variables](#secrets-and-variables) beschrieben – legen Sie sie in Ihren Repo-Einstellungen auf die gleiche Weise fest wie für die Kopiervariante. Der wiederverwendbare Aufrufer leitet `VISUAL_RECAP_RUNS_ON` über seine `runs-on`-Eingabe weiter; der aufgerufene Workflow analysiert das JSON und verwendet das Ergebnis für beide Jobs. Ohne diese Eingabe bleibt `ubuntu-latest` die Standardeinstellung.
 
 ### Installation über CLI
 

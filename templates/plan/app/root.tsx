@@ -8,6 +8,7 @@ import {
   getThemeInitScript,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+  setTrackingContentCaptureEnabled,
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
@@ -20,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -44,13 +45,20 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 // their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
 import { APP_TITLE } from "@/lib/app-config";
+import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+// Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
+// but disable DOM/session capture so rendered plan contents stay on-device.
+const initialLocalPlanPrivacyRoute =
+  typeof window !== "undefined" &&
+  !shouldCapturePlanContent(window.location.pathname);
 configureTracking({
+  contentCapture: !initialLocalPlanPrivacyRoute,
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "plan",
@@ -221,6 +229,10 @@ export default function Root() {
     location.pathname.startsWith("/recaps/") ||
     location.pathname === "/local-plans" ||
     location.pathname.startsWith("/local-plans/");
+  const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
+  useEffect(() => {
+    setTrackingContentCaptureEnabled(!localPlanPrivacyRoute);
+  }, [localPlanPrivacyRoute]);
   return (
     // Pass the plan-specific styled Toaster via `toaster` so only one sonner
     // instance renders (avoids the duplicate that would appear if AppProviders'
@@ -232,8 +244,13 @@ export default function Root() {
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
-        <DbSyncSetup />
-        <AppContent />
+        <div
+          data-an-mask={localPlanPrivacyRoute ? "" : undefined}
+          style={{ display: "contents" }}
+        >
+          <DbSyncSetup />
+          <AppContent />
+        </div>
       </AppProviders>
     </AppToolkitProvider>
   );

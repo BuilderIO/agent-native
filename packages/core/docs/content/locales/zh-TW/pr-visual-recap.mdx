@@ -123,6 +123,26 @@ npx @agent-native/core@latest recap doctor
 固定其提交的`visual-recap`資料夾，設定儲存庫變數
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## 執行器選取
+
+預設情況下，工作流程會在 GitHub 託管的 `ubuntu-latest` 執行器上執行。若要使用其他託管執行器或自己的自託管執行器，請將儲存庫或組織變數 `VISUAL_RECAP_RUNS_ON` 設為有效的 JSON 字串或執行器標籤的 JSON 陣列：
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON 引號不可省略。輕量級 `gate` 工作和完整的 `recap` 工作都會使用所選執行器。若要在引導設定期間進行設定，請將相同的 JSON 值傳給 `--runs-on`，然後使用 `doctor` 驗證工作流程和執行器可用性：
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` 會拒絕格式錯誤或不支援的 JSON，並在 GitHub 未提供符合所有已設定標籤的線上執行器時回報。執行器的註冊、安裝、升級、容量和維護仍由您負責；Agent Native 只選取標籤，不提供或營運執行器。
+
+**安全性：** 建議使用暫時性自託管執行器。持久自託管執行器應僅用於貢獻者可信任的私人儲存庫。工作流程會在向不受信任的公開或分支 PR 作者指派自託管工作前安全關閉，但持久機器仍會在工作之間保留工作區和程序狀態。請勿削弱此閘道，也不要將不受信任的貢獻路由至持久執行器。
+
 ## 後端選取
 
 選取哪個編碼代理使用 `VISUAL_RECAP_AGENT` 儲存庫變數執行技能：
@@ -458,10 +478,11 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數 - 在儲存庫設定中以與複製變體相同的方式設定它們。
+適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數 - 在儲存庫設定中以與複製變體相同的方式設定它們。可重複使用的呼叫端會透過 `runs-on` 輸入轉送 `VISUAL_RECAP_RUNS_ON`；被呼叫的工作流程會剖析 JSON，並將結果用於兩個工作。省略該輸入時會保留 `ubuntu-latest` 預設值。
 
 ### 透過 CLI 安裝
 

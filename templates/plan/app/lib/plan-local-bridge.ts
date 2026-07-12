@@ -67,6 +67,16 @@ export class LocalPlanBridgePermissionError extends Error {
   }
 }
 
+export function localPlanBridgeUrlFromLocation(
+  search: string,
+  hash: string,
+): string | null {
+  const hashParams = hash.startsWith("#bridge=")
+    ? new URLSearchParams(hash.slice(1))
+    : null;
+  return hashParams?.get("bridge") ?? new URLSearchParams(search).get("bridge");
+}
+
 export async function localNetworkAccessPermissionState(): Promise<
   Exclude<LocalNetworkAccessPermissionState, "checking">
 > {

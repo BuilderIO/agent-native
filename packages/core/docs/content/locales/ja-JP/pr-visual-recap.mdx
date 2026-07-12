@@ -123,6 +123,26 @@ npx @agent-native/core@latest recap doctor
 コミットされた `visual-recap` フォルダーを固定し、リポジトリ変数を設定します
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## ランナーの選択
+
+デフォルトでは、ワークフローは GitHub がホストする `ubuntu-latest` ランナーで実行されます。別のホスト型ランナーまたは独自のセルフホスト ランナーを使用するには、リポジトリまたは組織変数 `VISUAL_RECAP_RUNS_ON` を有効な JSON 文字列、またはランナー ラベルの JSON 配列に設定します。
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON の引用符は必須です。軽量な `gate` ジョブと完全な `recap` ジョブの両方が、選択したランナーを使用します。ガイド付きセットアップ中に構成するには、同じ JSON 値を `--runs-on` に渡し、`doctor` でワークフローとランナーの可用性を検証します。
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` は不正な形式または未対応の JSON を拒否し、構成されたすべてのラベルに一致するオンライン ランナーが GitHub にない場合に報告します。ランナーの登録、インストール、アップグレード、容量、保守は引き続き利用者の責任です。Agent Native はラベルを選択しますが、ランナーを提供または運用しません。
+
+**セキュリティ:** エフェメラルなセルフホスト ランナーを推奨します。永続的なセルフホスト ランナーは、信頼できるコントリビューターだけが参加するプライベート リポジトリに限定してください。ワークフローは、信頼されていない公開 PR またはフォーク PR の作成者にセルフホスト作業を割り当てる前に安全側で停止しますが、永続的なマシンはジョブ間でワークスペースとプロセスの状態を保持します。このゲートを弱めたり、信頼されていないコントリビューションを永続的なランナーに送ったりしないでください。
+
 ## バックエンドの選択
 
 `VISUAL_RECAP_AGENT` リポジトリ変数を使用してスキルを実行するコーディング エージェントを選択します:
@@ -458,10 +478,11 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。コピー バリアントと同じ方法でリポジトリ設定に設定します。
+[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。コピー バリアントと同じ方法でリポジトリ設定に設定します。再利用可能な呼び出し元は `VISUAL_RECAP_RUNS_ON` を `runs-on` 入力として転送し、呼び出されたワークフローは JSON を解析して両方のジョブにその結果を使用します。入力を省略すると、`ubuntu-latest` のデフォルトが維持されます。
 
 ### CLI 経由でのインストール
 

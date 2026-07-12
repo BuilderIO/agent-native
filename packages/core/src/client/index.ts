@@ -751,6 +751,7 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  setTrackingContentCaptureEnabled,
   maybeStartSessionReplay,
   startSessionReplay,
   stopSessionReplay,

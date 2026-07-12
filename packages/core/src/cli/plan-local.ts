@@ -194,7 +194,7 @@ export type RendererValidationIssue = {
 };
 
 export type RendererValidation = {
-  /** Whether the renderer validate endpoint was reachable and answered. */
+  /** Whether a loopback renderer validate endpoint was reachable and answered. */
   ran: boolean;
   endpoint: string;
   /** Renderer verdict — present only when `ran` is true. */
@@ -542,9 +542,11 @@ function localPlanBridgePageUrl(input: {
   bridgeUrl: string;
   appUrl?: string;
 }): string {
-  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/${encodeURIComponent(
-    path.basename(path.resolve(input.dir)),
-  )}?bridge=${encodeURIComponent(input.bridgeUrl)}`;
+  // Keep the real local folder name out of the hosted request path. The bridge
+  // payload supplies the actual slug after the browser connects on loopback.
+  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/local#bridge=${encodeURIComponent(
+    input.bridgeUrl,
+  )}`;
 }
 
 function writeLocalPlanUrlFile(dir: string, url: string, urlFile?: string) {
@@ -2393,14 +2395,29 @@ function localPlanBridgeWarnings(input: {
 
 const VALIDATE_LOCAL_PLAN_ACTION = "validate-local-plan-source";
 
+function isLoopbackAppUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      hostname === "::1" ||
+      hostname === "0.0.0.0" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Ask the Plan app to validate the folder against its real renderer schema
+ * Ask a loopback Plan app to validate the folder against its real renderer schema
  * (`parsePlanMdxFolder` + `planContentSchema`) via the public, no-DB
  * `validate-local-plan-source` action. This is what makes `verify`
- * authoritative: the hand-rolled `check` lint can disagree with the renderer,
- * but this runs the renderer's own parser. Degrades gracefully (`ran: false`)
- * when the endpoint is unreachable or a Plan app predates the action, so an
- * old deploy never turns into a hard failure.
+ * authoritative without transmitting local plan source off-device. Remote app
+ * URLs are intentionally skipped: local-files privacy mode must never POST MDX
+ * or assets to a hosted validation action. Degrades gracefully (`ran: false`)
+ * when no local Plan app is running or it predates the action.
  */
 export async function fetchRendererValidation(input: {
   appUrl: string;
@@ -2409,6 +2426,14 @@ export async function fetchRendererValidation(input: {
 }): Promise<RendererValidation> {
   const fetchFn = input.fetchFn ?? fetch;
   const endpoint = planActionEndpoint(input.appUrl, VALIDATE_LOCAL_PLAN_ACTION);
+  if (!isLoopbackAppUrl(input.appUrl)) {
+    return {
+      ran: false,
+      endpoint,
+      error:
+        "Skipped remote renderer validation to keep local plan source on this device.",
+    };
+  }
   try {
     const response = await fetchActionWithTimeout(
       endpoint,
@@ -2466,9 +2491,9 @@ function rendererValidationWarnings(
   offlineIssues: LocalPlanValidationIssue[],
 ): string[] {
   if (!validation.ran) {
-    const base = `Plan content was NOT validated against the renderer schema (${
+    const base = `Plan content was NOT validated against a local renderer schema (${
       validation.error ?? "validate endpoint unavailable"
-    }). Fell back to the offline lint. Run against a Plan app that exposes ${VALIDATE_LOCAL_PLAN_ACTION} (e.g. --app-url http://localhost:8096) for authoritative validation.`;
+    }). Fell back to the offline lint. For authoritative validation without data egress, run a local Plan app that exposes ${VALIDATE_LOCAL_PLAN_ACTION} and pass --app-url http://localhost:8096.`;
     if (offlineIssues.length === 0) return [base];
     const preview = offlineIssues
       .slice(0, 8)

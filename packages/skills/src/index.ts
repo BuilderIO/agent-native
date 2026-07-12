@@ -1634,6 +1634,7 @@ jobs:
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     with:
       skill-source: repo
+      runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
     secrets:
       PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}

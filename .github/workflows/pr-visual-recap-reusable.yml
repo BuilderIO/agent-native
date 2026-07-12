@@ -79,6 +79,11 @@ on:
         required: false
         type: string
         default: "high-confidence"
+      runs-on:
+        description: "JSON runner label or self-hosted label array"
+        required: false
+        type: string
+        default: '"ubuntu-latest"'
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -108,7 +113,9 @@ concurrency:
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-latest
+    # Untrusted PR events always use an ephemeral GitHub-hosted runner. This is
+    # safe even if a custom label maps to a persistent self-hosted machine.
+    runs-on: ${{ (github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) && fromJSON(inputs.runs-on) || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -128,6 +135,7 @@ jobs:
           HAS_COMPATIBLE: ${{ secrets.VISUAL_RECAP_API_KEY != '' }}
           AGENT: ${{ inputs.agent }}
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
+          VISUAL_RECAP_RUNS_ON: ${{ inputs.runs-on }}
           VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -153,6 +161,22 @@ jobs:
             const association = (pr && pr.author_association || '').toUpperCase();
             const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
             const isTrustedAuthor = trustedAssociations.includes(association);
+            // The job-level runner expression keeps this gate on GitHub-hosted
+            // infrastructure for untrusted events. Also fail closed here so an
+            // untrusted PR cannot continue to the recap job in self-hosted mode.
+            let usesSelfHostedRunner = true;
+            try {
+              const configuredRunner = JSON.parse(process.env.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"');
+              usesSelfHostedRunner = !(
+                typeof configuredRunner === 'string' &&
+                /^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(configuredRunner)
+              );
+            } catch {
+              reasons.push('invalid VISUAL_RECAP_RUNS_ON JSON');
+            }
+            if (usesSelfHostedRunner && (isFork || !isTrustedAuthor)) {
+              reasons.push('self-hosted runner mode requires a trusted same-repository PR author');
+            }
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -290,7 +314,7 @@ jobs:
     name: Generate visual recap
     needs: gate
     if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)) && fromJSON(inputs.runs-on) || 'ubuntu-latest' }}
     timeout-minutes: 30
     permissions:
       actions: write

@@ -123,6 +123,26 @@ arquivos de referência que acompanham a habilidade. Se o seu repositório for p
 fixa sua pasta `visual-recap` comprometida, defina a variável do repositório
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Seleção do executor
+
+Por padrão, o fluxo de trabalho é executado em executores `ubuntu-latest` hospedados pelo GitHub. Para usar outro executor hospedado ou seu próprio executor auto-hospedado, defina a variável de repositório ou organização `VISUAL_RECAP_RUNS_ON` como uma string JSON válida ou uma matriz JSON de rótulos de executor:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+As aspas JSON são obrigatórias. Tanto o trabalho leve `gate` quanto o trabalho completo `recap` usam o executor selecionado. Para configurá-lo durante a instalação guiada, passe o mesmo valor JSON para `--runs-on` e depois valide o fluxo de trabalho e a disponibilidade do executor com `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` rejeita JSON malformado ou não compatível e informa quando o GitHub não apresenta nenhum executor on-line que corresponda a todos os rótulos configurados. O registro, a instalação, as atualizações, a capacidade e a manutenção do executor continuam sendo sua responsabilidade; o Agent Native seleciona os rótulos, mas não fornece nem opera o executor.
+
+**Segurança:** Prefira executores auto-hospedados efêmeros. Executores auto-hospedados persistentes devem atender apenas a repositórios privados cujos colaboradores sejam confiáveis. O fluxo de trabalho falha de forma segura antes de agendar trabalho auto-hospedado para autores não confiáveis de PRs públicos ou de forks, mas uma máquina persistente ainda mantém o estado do espaço de trabalho e dos processos entre os trabalhos. Não enfraqueça essa barreira nem encaminhe contribuições não confiáveis para um executor persistente.
+
 ## Seleção de back-end
 
 Escolha qual agente de codificação executa a habilidade com a variável de repositório `VISUAL_RECAP_AGENT`:
@@ -460,10 +480,11 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables) — defina-os nas configurações do seu repositório da mesma forma que para a variante de cópia.
+Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables) — defina-os nas configurações do seu repositório da mesma forma que para a variante de cópia. O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` por meio da entrada `runs-on`; o fluxo de trabalho chamado analisa o JSON e usa o resultado para ambos os trabalhos. Omitir a entrada preserva o padrão `ubuntu-latest`.
 
 ### Instalação via CLI
 

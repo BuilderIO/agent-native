@@ -123,6 +123,26 @@ fichiers de référence avec lesquels la compétence est livrée. Si votre dép�
 épingle son dossier `visual-recap` validé, définit la variable du référentiel
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Sélection du runner
+
+Par défaut, le workflow s'exécute sur des runners `ubuntu-latest` hébergés par GitHub. Pour utiliser un autre runner hébergé ou votre propre runner auto-hébergé, définissez la variable de dépôt ou d'organisation `VISUAL_RECAP_RUNS_ON` sur une chaîne JSON valide ou un tableau JSON d'étiquettes de runner :
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+Les guillemets JSON sont obligatoires. Le job léger `gate` et le job complet `recap` utilisent tous deux le runner sélectionné. Pour le configurer pendant l'installation guidée, transmettez la même valeur JSON à `--runs-on`, puis validez le workflow et la disponibilité du runner avec `doctor` :
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+`recap doctor` rejette les données JSON mal formées ou non prises en charge et signale lorsque GitHub ne présente aucun runner en ligne correspondant à toutes les étiquettes configurées. L'enregistrement, l'installation, les mises à niveau, la capacité et la maintenance du runner restent sous votre responsabilité ; Agent Native sélectionne les étiquettes, mais ne fournit ni n'exploite le runner.
+
+**Sécurité :** Privilégiez les runners auto-hébergés éphémères. Les runners auto-hébergés persistants ne doivent servir que des dépôts privés dont les contributeurs sont dignes de confiance. Le workflow échoue de manière sûre avant de planifier du travail auto-hébergé pour des auteurs non fiables de PR publiques ou provenant de forks, mais une machine persistante conserve toujours l'état de l'espace de travail et des processus entre les jobs. N'affaiblissez pas cette barrière et n'acheminez pas de contributions non fiables vers un runner persistant.
+
 ## Sélection du back-end
 
 Choisissez quel agent de codage exécute la compétence avec la variable du référentiel `VISUAL_RECAP_AGENT` :
@@ -461,10 +481,11 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Les mêmes secrets et variables décrits dans [Secrets and variables](#secrets-and-variables) s'appliquent : définissez-les dans les paramètres de votre dépôt de la même manière que pour la variante de copie.
+Les mêmes secrets et variables décrits dans [Secrets and variables](#secrets-and-variables) s'appliquent : définissez-les dans les paramètres de votre dépôt de la même manière que pour la variante de copie. L'appelant réutilisable transmet `VISUAL_RECAP_RUNS_ON` via son entrée `runs-on` ; le workflow appelé analyse le JSON et utilise le résultat pour les deux jobs. L'omission de l'entrée conserve la valeur par défaut `ubuntu-latest`.
 
 ### Installation via le CLI
 

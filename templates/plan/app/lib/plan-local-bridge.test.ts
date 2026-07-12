@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
+  localPlanBridgeUrlFromLocation,
   LocalPlanBridgePermissionError,
   shouldRetryLocalPlanBridgeBundle,
   shouldShowLocalPlanLoadError,
@@ -12,6 +13,23 @@ describe("local plan bridge", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("reads bridge credentials from the URL fragment without requiring a query parameter", () => {
+    const bridgeUrl = "http://127.0.0.1:60166/local-plan.json?token=test-token";
+
+    expect(
+      localPlanBridgeUrlFromLocation(
+        "",
+        `#bridge=${encodeURIComponent(bridgeUrl)}`,
+      ),
+    ).toBe(bridgeUrl);
+    expect(
+      localPlanBridgeUrlFromLocation(
+        `?bridge=${encodeURIComponent(bridgeUrl)}`,
+        "",
+      ),
+    ).toBe(bridgeUrl);
   });
 
   it("keeps valid plan blocks visible when local MDX contains malformed blocks", async () => {

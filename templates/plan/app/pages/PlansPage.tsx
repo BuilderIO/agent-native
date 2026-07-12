@@ -273,6 +273,7 @@ import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
+  localPlanBridgeUrlFromLocation,
   localPlanBridgeQueryKey,
   localPlanBridgeRetryDelay,
   localPlanRoutePath,
@@ -2025,7 +2026,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     [location.search],
   );
   const localPlanBridgeUrl = localPlanMode
-    ? routeSearchParams.get("bridge")
+    ? localPlanBridgeUrlFromLocation(location.search, location.hash)
     : null;
   const localPlanRepoPath = localPlanMode
     ? routeSearchParams.get("path")

@@ -89,6 +89,11 @@ export type ConfigureTrackingOptions = {
   /** First-party analytics track endpoint. */
   endpoint?: string;
   getDefaultProps?: GetDefaultProps;
+  /**
+   * Disable content-capturing analytics such as interaction autocapture and
+   * session replay while retaining pageviews, explicit events, and Sentry.
+   */
+  contentCapture?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -132,6 +137,7 @@ let _errorCaptureDisposer: (() => void) | null = null;
 let _sessionReplayModuleForCapture:
   | typeof import("./session-replay.js")
   | null = null;
+let _trackingContentCaptureEnabled = true;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -575,7 +581,10 @@ function ensureAmplitude(): boolean {
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
-  amplitude.init(key, { autocapture: true });
+  // Standard pageviews and explicit events are emitted below. Keep SDK-level
+  // DOM/network autocapture off so rendered user content is never collected as
+  // an implicit analytics side effect.
+  amplitude.init(key, { autocapture: false });
   _amplitudeInitialized = true;
   return true;
 }
@@ -1004,6 +1013,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
+  _trackingContentCaptureEnabled = options.contentCapture !== false;
   if (typeof window !== "undefined") {
     ensureSentry();
     ensureAmplitude();
@@ -1011,11 +1021,23 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     installLlmConnectionRefresh();
     installTrackingAuthSessionRefresh();
     installPageviewTracking();
-    maybeInstallSessionReplay(options.sessionReplay, {
-      endpoint: options.endpoint,
-      publicKey,
-    });
+    maybeInstallSessionReplay(
+      _trackingContentCaptureEnabled ? options.sessionReplay : false,
+      {
+        endpoint: options.endpoint,
+        publicKey,
+      },
+    );
     maybeInstallErrorCapture(options.errorCapture);
+  }
+}
+
+export function setTrackingContentCaptureEnabled(enabled: boolean): void {
+  _trackingContentCaptureEnabled = enabled;
+  if (enabled) {
+    void maybeStartSessionReplay();
+  } else {
+    void stopSessionReplay("content-capture-disabled");
   }
 }
 
@@ -1371,15 +1393,17 @@ function pageviewKey(): string {
 
 function pageviewProperties(reason: string): Record<string, unknown> {
   const properties: Record<string, unknown> = {
-    url: scrubUrl(window.location.href),
+    url: !_trackingContentCaptureEnabled
+      ? window.location.origin + window.location.pathname
+      : scrubUrl(window.location.href),
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
   };
-  if (window.location.search) {
+  if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);
   }
-  if (typeof document !== "undefined") {
+  if (_trackingContentCaptureEnabled && typeof document !== "undefined") {
     if (document.referrer) {
       properties.referrer = scrubUrl(document.referrer);
     }
@@ -1400,6 +1424,9 @@ function emitPageview(reason: string): void {
 }
 
 function schedulePageview(reason: string): void {
+  if (!_trackingContentCaptureEnabled) {
+    void stopSessionReplay("local-plan-privacy");
+  }
   const run = () => emitPageview(reason);
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
