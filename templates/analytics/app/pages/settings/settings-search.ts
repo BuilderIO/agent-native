@@ -84,13 +84,24 @@ export function buildAnalyticsSettingsCommandItems(
     },
     ...getAgentSettingsSearchTabs(),
   ];
-  const seenLabels = new Set<string>();
+  const commandIndexByDestination = new Map<string, number>();
   const commands: SettingsCommandItem[] = [];
 
   const add = (command: SettingsCommandItem) => {
-    const label = normalizeLabel(command.label);
-    if (seenLabels.has(label)) return;
-    seenLabels.add(label);
+    const destinationKey = `${normalizeLabel(command.label)}\0${command.href}`;
+    const existingIndex = commandIndexByDestination.get(destinationKey);
+    if (existingIndex !== undefined) {
+      const existing = commands[existingIndex];
+      commands[existingIndex] = {
+        ...existing,
+        // Duplicate destinations can come from the app and shared settings
+        // catalogs. Preserve both sources' search phrases and tab context.
+        keywords: `${existing.keywords} ${command.keywords}`,
+      };
+      return;
+    }
+
+    commandIndexByDestination.set(destinationKey, commands.length);
     commands.push(command);
   };
 

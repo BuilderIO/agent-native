@@ -90,6 +90,25 @@ export function commandPaletteFilter(
   return bestScore;
 }
 
+export function rankCommandPaletteEntries<T>(
+  entries: T[],
+  search: string,
+  getSearchData: (entry: T) => { value: string; keywords?: string[] },
+): Array<{ entry: T; score: number }> {
+  return entries
+    .map((entry, index) => {
+      const { value, keywords } = getSearchData(entry);
+      return {
+        entry,
+        index,
+        score: commandPaletteFilter(value, search, keywords),
+      };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ entry, score }) => ({ entry, score }));
+}
+
 export function uniqueCommandItems<T extends { id: string; name: string }>(
   items: T[],
 ): T[] {

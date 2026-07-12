@@ -23,12 +23,12 @@ describe("DialogOverlay", () => {
     const overlay = renderDialogOverlay({ motion: "instant" });
 
     expect(overlay.props.className).toContain(
-      "transition-[backdrop-filter] duration-200 ease-[var(--ease-out-strong)]",
+      "transition-[backdrop-filter] duration-[1000ms] ease-[var(--ease-out-strong)]",
     );
     expect(overlay.props.className).toContain(
       "starting:[backdrop-filter:blur(0px)]",
     );
-    expect(overlay.props.className).toContain("backdrop-blur-[4px]");
+    expect(overlay.props.className).toContain("backdrop-blur-[1px]");
     expect(overlay.props.className).not.toContain("animate-in");
   });
 

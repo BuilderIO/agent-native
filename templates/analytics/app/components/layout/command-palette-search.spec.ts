@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   commandPaletteFilter,
   commandPaletteKeywords,
+  rankCommandPaletteEntries,
   uniqueCommandItems,
 } from "./command-palette-search";
 
@@ -47,33 +48,46 @@ describe("commandPaletteFilter", () => {
   });
 
   it("ranks an exact theme command above settings that only fuzzy-match light", () => {
-    const themeScore = commandPaletteFilter(
-      "appearance:theme:Toggle light mode",
+    const ranked = rankCommandPaletteEntries(
+      [
+        {
+          id: "browser",
+          value: "setting:section:browser:Browser Automation",
+          keywords: commandPaletteKeywords(
+            "Browser Automation",
+            "web scraping playwright chrome headless Workspace settings",
+            "settings",
+          ),
+        },
+        {
+          id: "authentication",
+          value: "setting:section:auth:Authentication",
+          keywords: commandPaletteKeywords(
+            "Authentication",
+            "login signup oauth google github access sso Workspace settings",
+            "settings",
+          ),
+        },
+        {
+          id: "theme",
+          value: "appearance:theme:Toggle light mode",
+          keywords: commandPaletteKeywords(
+            "Toggle light mode",
+            "theme",
+            "light",
+          ),
+        },
+      ],
       "light",
-      commandPaletteKeywords("Toggle light mode", "theme", "light"),
-    );
-    const browserScore = commandPaletteFilter(
-      "setting:section:browser:Browser Automation",
-      "light",
-      commandPaletteKeywords(
-        "Browser Automation",
-        "web scraping playwright chrome headless Workspace settings",
-        "settings",
-      ),
-    );
-    const authenticationScore = commandPaletteFilter(
-      "setting:section:auth:Authentication",
-      "light",
-      commandPaletteKeywords(
-        "Authentication",
-        "login signup oauth google github access sso Workspace settings",
-        "settings",
-      ),
+      (entry) => entry,
     );
 
-    expect(themeScore).toBe(1);
-    expect(themeScore).toBeGreaterThan(browserScore);
-    expect(themeScore).toBeGreaterThan(authenticationScore);
+    expect(ranked.map(({ entry }) => entry.id)).toEqual([
+      "theme",
+      "browser",
+      "authentication",
+    ]);
+    expect(ranked[0]?.score).toBe(1);
   });
 
   it("keeps typo-friendly subsequence matches below direct matches", () => {

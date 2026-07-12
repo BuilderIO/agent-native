@@ -497,7 +497,7 @@ function ReplayPlayer({
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
   const initialDims = useMemo(
-    () => replayInitialViewportDimensions(events),
+    () => replayInitialDisplayDimensions(events),
     [events],
   );
   const viewportTimeline = useMemo(
@@ -740,11 +740,13 @@ function ReplayPlayer({
 
       stageRootRef.current.innerHTML = "";
       // Match builder-internal: pass events through untouched and let rrweb own
-      // iframe sizing via Meta / ViewportResize. Only use dimensions for CSS
-      // fit-to-stage scaling of the outer wrapper — never rewrite Meta or force
-      // iframe width/height (that mismatches the FullSnapshot DOM and blanks
-      // the stage).
-      setStreamedDims(replayInitialViewportDimensions(replayEvents));
+      // normal iframe sizing via Meta / ViewportResize. Never rewrite Meta or
+      // force arbitrary iframe dimensions (that mismatches the FullSnapshot DOM
+      // and blanks the stage). The one exception below mirrors the narrowly
+      // detected legacy malformed viewport onto both the iframe and outer stage.
+      const rawInitialDims = replayInitialViewportDimensions(replayEvents);
+      const correctedInitialDims = replayInitialDisplayDimensions(replayEvents);
+      setStreamedDims(correctedInitialDims);
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
@@ -755,6 +757,17 @@ function ReplayPlayer({
         mouseTail: false,
         insertStyleRules: SUPPRESS_OVERLAYS_CSS,
       });
+      // IMPORTANT: rrweb constructs its iframe from the raw initial Meta event.
+      // When that legacy Meta width is malformed, correcting only streamedDims
+      // fixes the outer stage but leaves CSS breakpoints and clicks ultra-wide.
+      // Apply the same correction to rrweb immediately, before first playback.
+      if (
+        correctedInitialDims &&
+        (rawInitialDims?.width !== correctedInitialDims.width ||
+          rawInitialDims?.height !== correctedInitialDims.height)
+      ) {
+        localReplayer.handleResize?.(correctedInitialDims);
+      }
       // rrweb already sandboxes the replay document without script execution.
       // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
       // at the iframe boundary while retaining historical visual resources.
@@ -2276,6 +2289,14 @@ export function replayInitialViewportDimensions(
     if (dims) return dims;
   }
   return null;
+}
+
+export function replayInitialDisplayDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  // Keep the initial outer stage and rrweb iframe on one corrected camera.
+  // DO NOT use the raw initial Meta dimensions for only one of those layers.
+  return clampReplayDisplayDimensions(replayInitialViewportDimensions(events));
 }
 
 export function buildReplayViewportTimeline(

@@ -10,6 +10,7 @@ import {
   normalizeReplayEvents,
   partitionReplayChunkBatches,
   replayDevToolsIssueCount,
+  replayInitialDisplayDimensions,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -140,6 +141,22 @@ describe("session replay event normalization", () => {
     });
     expect(replayViewportDimensionsAtTime(timeline, 1100)).toEqual({
       width: 7535,
+      height: 873,
+    });
+  });
+
+  it("corrects a malformed initial Meta viewport before first playback", () => {
+    const events = [
+      { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
+      { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
+    ];
+
+    expect(replayInitialViewportDimensions(events)).toEqual({
+      width: 7535,
+      height: 873,
+    });
+    expect(replayInitialDisplayDimensions(events)).toEqual({
+      width: 1397,
       height: 873,
     });
   });

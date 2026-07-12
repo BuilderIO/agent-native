@@ -31,7 +31,7 @@ const DialogOverlay = React.forwardRef<
       motion === "default" &&
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       motion === "instant" &&
-        "backdrop-blur-[4px] transition-[backdrop-filter] duration-200 ease-[var(--ease-out-strong)] starting:[backdrop-filter:blur(0px)] motion-reduce:transition-none",
+        "transition-[backdrop-filter] duration-[1000ms] ease-[var(--ease-out-strong)] starting:[backdrop-filter:blur(0px)] motion-reduce:transition-none",
       className,
     )}
     {...props}

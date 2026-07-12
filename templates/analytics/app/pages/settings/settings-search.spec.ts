@@ -44,15 +44,40 @@ describe("Analytics settings command items", () => {
     );
   });
 
-  it("omits duplicate account and language commands", () => {
+  it("merges duplicate destinations without dropping shared search metadata", () => {
     const items = buildAnalyticsSettingsCommandItems(
       t,
       buildAnalyticsGeneralSettingsSearchEntries(t, false),
     );
     const labels = items.map((item) => item.label);
+    const account = items.find((item) => item.label === "Account");
 
     expect(labels.filter((label) => label === "Account")).toHaveLength(1);
+    expect(account).toMatchObject({
+      href: "/settings#account",
+      keywords: expect.stringContaining("profile photo avatar"),
+    });
+    expect(account?.keywords).toContain("General settings");
+    expect(account?.keywords).toContain("Workspace settings");
     expect(labels).not.toContain("Language");
     expect(labels).not.toContain("Replay storage");
+  });
+
+  it("keeps duplicate labels when they point to different destinations", () => {
+    const generalEntries = buildAnalyticsGeneralSettingsSearchEntries(t, false);
+    const items = buildAnalyticsSettingsCommandItems(t, [
+      ...generalEntries,
+      {
+        id: "analytics-account-security",
+        label: "Account",
+        keywords: "account security",
+        hash: "account-security",
+      },
+    ]);
+
+    expect(items.filter((item) => item.label === "Account")).toEqual([
+      expect.objectContaining({ href: "/settings#account" }),
+      expect.objectContaining({ href: "/settings#account-security" }),
+    ]);
   });
 });
