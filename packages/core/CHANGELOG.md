@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.98.3
+
+### Patch Changes
+
+- ffad302: Stop heuristically rewriting name-like text in demo mode while continuing to replace email addresses and numbers.
+- ffad302: Expose lightweight settings search metadata for command palettes and other navigation surfaces.
+- Updated dependencies [ffad302]
+- Updated dependencies [ffad302]
+  - @agent-native/toolkit@0.4.8
+
 ## 0.98.2
 
 ### Patch Changes
