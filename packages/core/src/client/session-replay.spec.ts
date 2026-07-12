@@ -362,7 +362,7 @@ describe("session replay", () => {
   });
 
   it("does not retry auth-required replay while content capture is disabled", async () => {
-    installBrowser("https://plan.agent-native.com/local-plans/local", {
+    const { history } = installBrowser("https://plan.agent-native.com/plans", {
       error: "not authenticated",
     });
     vi.resetModules();
@@ -371,10 +371,12 @@ describe("session replay", () => {
     configureTracking({
       key: "anpk_configured",
       endpoint: "https://analytics.example.test/api/analytics/track",
-      contentCapture: false,
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
       sessionReplay: { enabled: true, requireSignedInUser: true },
     });
     await tick();
+    history.pushState({}, "", "/local-plans/local#bridge=private-token");
     setSentryUser({ email: "dev@example.com", id: "user-1" });
     await tick();
 
