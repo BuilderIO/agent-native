@@ -777,4 +777,142 @@ describe("mountActionRoutes", () => {
     expect(result).toEqual({ ok: true });
     expect(actions["share-resource"].run).toHaveBeenCalledTimes(1);
   });
+
+  // ---------------------------------------------------------------------
+  // actionRouteAuth adapter (runs before getOwnerFromEvent / getSession)
+  // ---------------------------------------------------------------------
+
+  it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AGENT_RUN_OWNER_CONTEXT_KEY } =
+      await import("./agent-run-context.js");
+    const { getRequestUserEmail, getRequestUserName } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = {
+            ctx,
+            requestUserEmail: getRequestUserEmail(),
+            requestUserName: getRequestUserName(),
+          };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: {
+        resolveCaller: async () => ({
+          owner: "a2a-caller@example.com",
+          anonymous: false,
+          name: "A2A Caller",
+        }),
+      },
+    });
+
+    const event = {
+      _method: "POST",
+      _headers: {},
+      context: {} as Record<string, unknown>,
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({ ok: true });
+    expect(received.ctx.userEmail).toBe("a2a-caller@example.com");
+    expect(received.requestUserEmail).toBe("a2a-caller@example.com");
+    expect(received.requestUserName).toBe("A2A Caller");
+    // The framework session chain is never consulted when the adapter resolves.
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    // The resolved caller is seeded so nested agent runs see the same identity.
+    expect(event.context[AGENT_RUN_OWNER_CONTEXT_KEY]).toEqual({
+      owner: "a2a-caller@example.com",
+      anonymous: false,
+      name: "A2A Caller",
+    });
+  });
+
+  it("falls through to getOwnerFromEvent when resolveCaller returns null", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: { resolveCaller: async () => null },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(received.userEmail).toBe("session-user@example.com");
+  });
+
+  it("defers to getOwnerFromEvent when resolveCaller throws", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const getOwnerFromEvent = vi.fn(async () => "session-user@example.com");
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent,
+      actionRouteAuth: {
+        resolveCaller: async () => {
+          throw new Error("verifier exploded");
+        },
+      },
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(getOwnerFromEvent).toHaveBeenCalledTimes(1);
+    expect(received.userEmail).toBe("session-user@example.com");
+  });
 });

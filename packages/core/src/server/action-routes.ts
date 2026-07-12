@@ -19,6 +19,10 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import { notifyActionChange } from "./action-change.js";
 import {
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
+import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
@@ -164,6 +168,26 @@ function handleOptionsRequest(event: any): string {
   return "";
 }
 
+/**
+ * Declarative auth adapter for the HTTP action route. Its `resolveCaller` runs
+ * BEFORE the framework's `getOwnerFromEvent` / `getSession` chain, letting an
+ * app accept caller identities `getSession` doesn't understand (e.g. an A2A
+ * JWT) without reaching into request context from a Nitro `request` hook.
+ *
+ * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
+ */
+export interface ActionRouteAuthAdapter {
+  /**
+   * Resolve a caller from the raw event before the cookie/bearer chain. Return
+   * the resolved owner context to run the action scoped to that caller, or
+   * `null` to defer to `getOwnerFromEvent` / `getSession`. A thrown error is
+   * treated the same as returning `null` (the framework chain still runs).
+   */
+  resolveCaller?: (
+    event: any,
+  ) => AgentRunOwnerContext | null | Promise<AgentRunOwnerContext | null>;
+}
+
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
@@ -173,6 +197,12 @@ export interface MountActionRoutesOptions {
   ) => string | undefined | Promise<string | undefined>;
   /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional caller resolver that runs before the `getOwnerFromEvent` /
+   * `getSession` chain. Lets apps accept A2A JWTs (or other bearer schemes) on
+   * the action route declaratively. See {@link ActionRouteAuthAdapter}.
+   */
+  actionRouteAuth?: ActionRouteAuthAdapter;
 }
 
 function isAuthResolutionFailure(error: unknown): boolean {
@@ -259,7 +289,28 @@ export function mountActionRoutes(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
-        if (options?.getOwnerFromEvent) {
+        // An app-supplied auth adapter runs first: it can accept caller
+        // identities the framework's getSession chain doesn't understand (e.g.
+        // an A2A JWT). A resolved caller is seeded onto the event context so any
+        // downstream resolveAgentRunOwnerContext (nested agent runs) sees the
+        // same identity; a null return (or a throw) falls through to
+        // getOwnerFromEvent below. The adapter is only consulted for the action
+        // route, so it can't affect other surfaces.
+        let resolvedByAdapter = false;
+        if (options?.actionRouteAuth?.resolveCaller) {
+          try {
+            const caller = await options.actionRouteAuth.resolveCaller(event);
+            if (caller) {
+              seedAgentRunOwnerContext(event, caller);
+              userEmail = caller.owner;
+              userName = caller.name;
+              resolvedByAdapter = true;
+            }
+          } catch {
+            // Adapter failure defers to the framework auth chain below.
+          }
+        }
+        if (!resolvedByAdapter && options?.getOwnerFromEvent) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent

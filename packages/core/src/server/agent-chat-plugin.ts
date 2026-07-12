@@ -1716,6 +1716,7 @@ export function createAgentChatPlugin(
           getOwnerFromEvent,
           getUserNameFromEvent,
           resolveOrgId: options?.resolveOrgId,
+          actionRouteAuth: options?.actionRouteAuth,
         });
       }
 

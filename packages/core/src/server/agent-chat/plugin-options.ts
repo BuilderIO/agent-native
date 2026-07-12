@@ -107,6 +107,15 @@ export interface AgentChatPluginOptions {
    */
   anonymousReadOnly?: boolean;
   /**
+   * Optional auth adapter for the HTTP action route
+   * (`/_agent-native/actions/*`). Its `resolveCaller` runs before the
+   * cookie/bearer `getSession` chain, letting an app accept caller identities
+   * `getSession` doesn't understand (e.g. an A2A JWT verified with
+   * `verifyA2AToken`) declaratively, instead of pre-seeding request context
+   * from a Nitro `request` hook. Returning `null` defers to the normal chain.
+   */
+  actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
+  /**
    * Optional callback to append template-specific context to the system
    * prompt on each request. Runs after AGENTS.md / skills / memory are
    * loaded and before the schema block — use it to inject dynamic SQL

@@ -38,10 +38,11 @@ function warnA2AUnauthOnce(): void {
 }
 
 /**
- * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
- * Returns the caller's email (from `sub` claim) if valid, null otherwise.
+ * Result of verifying an inbound A2A JWT. `email` is the caller identity from
+ * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
+ * the verified `org_domain` claim when present.
  */
-interface A2ATokenPayload {
+export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
 }
@@ -80,9 +81,24 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
   return undefined;
 }
 
-async function verifyA2AToken(
+/**
+ * Verify an inbound A2A bearer token (HS256) exactly as the
+ * `/_agent-native/a2a` endpoint does: it peeks at the unverified `org_domain`
+ * claim to build an ordered candidate-secret set (`process.env.A2A_SECRET`
+ * plus any org-level secret for that domain), then verifies the JWT — checking
+ * `aud`/`iss` when the token carries them and `exp` always. Returns the
+ * caller's email (`sub`) and org domain on success, or `{ email: null,
+ * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
+ * secret configured), never throwing.
+ *
+ * Exported so workspaces can accept A2A callers on the HTTP action route with
+ * the same routine — including org-level fallback secrets — instead of
+ * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
+ * org-secret lookup and audience derivation; it is optional.
+ */
+export async function verifyA2AToken(
   token: string,
-  event: any | undefined,
+  event?: any,
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
