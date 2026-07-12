@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Clips",
+  "version": "0.1.1",
+  "identifier": "com.clips.tray",
+  "build": {
+    "beforeDevCommand": "pnpm vite:dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm vite:build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["dmg", "app", "msi"],
+    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "./Entitlements.plist",
+      "files": {
+        "Resources/Assets.car": "Assets.car"
+      },
+      "dmg": {
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 }
+      }
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+))"
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "endpoints": ["https://clips.agent-native.com/api/clips-updater.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg3MzRDMTE2MDhBMzQ5MzMKUldRelNhTUlGc0UwaDZqU3VPVEt4cGpZUGs2cEZVVHk5aGRTRnlFWmJTU3MxcGNwN2Era0F0b04K"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+# Files and folders Tauri's dev watcher should ignore.
+# Format matches .gitignore. See https://v2.tauri.app/develop/
+#
+# Without this, `tauri dev` watches every file under src-tauri/ which
+# includes the massive target/ build cache — every Rust rebuild touches
+# files in target/, which would re-trigger the watcher and ping-pong.
+#
+# We keep `src/`, `capabilities/`, `tauri.conf.json`, `Cargo.toml`, and
+# `build.rs` watched (these are the files that SHOULD restart the app).
+
+target/
+gen/schemas/
+*.log
+
+# OS cruft
+.DS_Store

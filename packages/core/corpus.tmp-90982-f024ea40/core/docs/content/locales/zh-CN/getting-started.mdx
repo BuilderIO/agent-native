@@ -1,0 +1,210 @@
+---
+title: "开始使用"
+description: "创建一个聊天优先的 agentic app，添加 action，内联渲染结构化结果，然后扩展为 agent 可以打开的持久页面。"
+---
+
+# 开始使用
+
+Agent-Native 用来构建 agentic applications：AI agent 和 UI 共享同一组
+[actions](/docs/actions)、SQL 数据和 application state。默认路径不是先做
+headless agent，而是先有一个用户可以马上对话的 Chat app，然后逐步增加应用界面。
+
+推荐流程：
+
+1. 创建 Chat app。
+2. 添加一个 action。
+3. 在聊天中以内联原生 UI 渲染 action 结果。
+4. 把数据持久化到 SQL。
+5. 添加一个页面，让 agent 在需要可视化检查时打开它。
+
+## 1. 创建 Chat app {#create-your-app}
+
+需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
+
+这个模板已经包含 durable chat threads、auth、live sync、`actions/` 目录、
+标准的 `view-screen` 和 `navigate` actions，以及可以继续扩展的 React app。
+
+如果想使用完整模板选择器，也可以运行：
+
+```bash
+npx @agent-native/core@latest create my-app
+```
+
+## 2. 添加 action {#add-an-action}
+
+Action 是 agent 和 UI 共同调用的一次 typed operation。可以把入门示例换成
+`actions/analyze-responses.ts`：它分析表单反馈，并返回自定义聊天图表的已验证数据形状。
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "回复图表" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
+```
+
+直接运行：
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+也可以在浏览器里问 agent：
+
+> 分析演示表单的最新回复。
+
+## 3. 内联渲染结果 {#render-inline}
+
+因为 action 声明了 `outputSchema` 和产品专属的 `chatUI.renderer`，聊天记录不需要把结构化数据压成一段文字。然后在 app 启动时为这个完全相同的 renderer id 注册 React 组件，例如从 `app/root.tsx` 导入一次 `app/chat-renderers.tsx`：
+
+<!-- prettier-ignore -->
+```tsx
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
+```
+
+对于可复用的通用输出，框架也提供内置 `data-chart` 和 `data-table` renderers，以及用于组合摘要/图表/表格卡片的 `data-insights`。更多模式见 [Native Chat UI](/docs/native-chat-ui)。
+
+<WireframeBlock id="doc-block-inline-result-wireframe-zh-cn">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>分析演示回复。</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>由 responses.response-chart 渲染。</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>回复图表</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周一</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周二</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周三</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>周四</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## 4. 持久化数据 {#persist-data}
+
+当结果需要回看、比较或更新时，把数据写入 SQL。为 回复洞察 添加 schema，并把读写都放在 actions 后面：
+
+用 framework 的可移植 helpers 定义表，不要从 `drizzle-orm/sqlite-core` 或 `drizzle-orm/pg-core` 直接导入：
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+这些 helpers 会选择当前配置的 SQL backend，所以同一份 schema 可以在本地 SQLite 上运行，也可以在生产环境的 Postgres、Turso/libSQL、D1 或其他受支持 SQL provider 上运行。
+
+- `create-response-insight` 写入新的 insight。
+- `list-response-insights` 为页面读取数据。
+- `update-response-insight` 在 agent 学到更多后更新记录。
+- `analyze-responses` 继续返回聊天里的原生 widget。
+
+不要为浏览器单独写一条重复的 REST route；UI 和 agent 应该共享 actions。
+
+## 5. 添加 agent 可以打开的页面 {#add-a-page}
+
+添加 `/response-insights` route，用 `useActionQuery("list-response-insights")`
+读取数据，用 `useActionMutation("create-response-insight")` 触发分析。这个页面只是 SQL state 的投影；数据仍由同一组 actions 写入。
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-zh-cn">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>回复洞察</h2><p class='wf-muted' style='margin:0'>Agent 从表单回复创建的洞察。</p></header><button class='primary' data-rough style='align-self:flex-start'>分析演示表单</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>定价主题</strong><p class='wf-muted' style='margin:8px 0 0'>用户想要团队计划。</p></article><article class='wf-box' data-rough style='padding:12px'><strong>入门流程流失</strong><p class='wf-muted' style='margin:8px 0 0'>三个步骤需要更清晰的文案。</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>演示表单</strong><span class='wf-muted'>已分析 42 条回复</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>下一步</strong><span class='wf-muted'>查看两个洞察草稿</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>聊天</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>你</span><p style='margin:4px 0 0'>打开回复洞察。</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>已打开回复洞察。</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+## 6. 让 agent 导航 {#agent-navigation}
+
+Chat 模板包含 `view-screen` 和 `navigate` action。随着应用的成长扩展它们：
+
+- `view-screen` 应读取 application state，返回当前 route、选中的 insight、生效的筛选条件，以及 agent 需要的任何精简页面上下文。
+- 当 agent 判断用户需要直观查看结果时，`navigate` 应写入 `/response-insights` 这样的同源 path。
+- action 结果可以包含 `href: “/response-insights”` 这样的链接，让聊天提供明确的”打开回复洞察”按钮。
+
+当完整聊天页打开 app 页面时，使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 里的 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`，让聊天滑到侧边栏并保留同一个 thread。
+
+## 项目结构 {#project-structure}
+
+```text
+my-app/
+  actions/         # Agent 和界面都可调用的操作
+  app/             # React 路由、页面和聊天界面
+  server/          # Nitro 服务器和 SQL 架构
+  AGENTS.md        # 应用 Agent 的常驻指令
+  .agents/         # Agent 在相关场景加载的技能
+  data/app.db      # 未设置 DATABASE_URL 时的本地 SQLite 状态
+```
+
+## 想要完整的 Analytics 起点？ {#analytics-starting-point}
+
+上面的 回复洞察 示例故意保持很小，方便你看清框架部件。如果你要构建真正的 analytics 产品，请从 [Analytics](/docs/template-analytics) 开始。它是更强健的起点：连接 providers，使用现有 dashboards 和 agent actions，然后继续自定义。
+
+## 下一步 {#next}
+
+- **[Actions](/docs/actions)** — schemas、auth、approvals、hooks 和 transport。
+- **[Native Chat UI](/docs/native-chat-ui)** — 把 action 结果渲染为表格、图表和 typed cards。
+- **[Chat Template](/docs/template-chat)** — 最小聊天优先 app。
+- **[Analytics Template](/docs/template-analytics)** — 强健的 analytics app 起点；连接 providers 后继续自定义。
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`、`navigate`、route state 和选中对象。
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat、inline UI、app pages、embedded sidecars、automation 和外部 agent。

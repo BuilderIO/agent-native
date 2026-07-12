@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "displayName": "Assets",
+  "description": "Create, search, select, and export brand image and video assets from the Assets app.",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": {
+    "serverName": "agent-native-assets"
+  },
+  "local": {
+    "template": "assets",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8100",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Authenticate with the Assets MCP connector in the host app or use agent-native app-skill ensure to register the URL-only connector."
+  },
+  "surfaces": [
+    {
+      "id": "asset-picker",
+      "action": "open-asset-picker",
+      "path": "/picker",
+      "mediaTypes": ["image", "video"],
+      "defaultMediaType": "image"
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    },
+    {
+      "path": ".agents/skills/image-generation",
+      "visibility": "internal"
+    },
+    {
+      "path": ".agents/skills/a2a-assets",
+      "visibility": "internal"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

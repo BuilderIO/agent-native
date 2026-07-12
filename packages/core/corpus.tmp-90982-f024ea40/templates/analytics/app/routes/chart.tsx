@@ -1,0 +1,119 @@
+import { useT } from "@agent-native/core/client";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router";
+
+import { SqlChart } from "@/components/dashboard/SqlChart";
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+
+export function meta() {
+  return [{ title: "Chart" }];
+}
+
+const VALID_CHART_TYPES = new Set([
+  "line",
+  "area",
+  "bar",
+  "metric",
+  "table",
+  "pie",
+]);
+// Embed URLs accept external sources plus the restricted first-party analytics
+// source. They intentionally do not expose arbitrary app database querying.
+const VALID_SOURCES = new Set([
+  "bigquery",
+  "ga4",
+  "amplitude",
+  "first-party",
+  "demo",
+  "prometheus",
+]);
+
+function decodePanel(raw: string): SqlPanel | { error: string } {
+  try {
+    const normalized = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const json = atob(padded);
+    const parsed = JSON.parse(json) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return { error: "Invalid panel payload" };
+    }
+    const p = parsed as Record<string, unknown>;
+    if (typeof p.sql !== "string" || !p.sql.trim()) {
+      return { error: "Panel is missing sql" };
+    }
+    if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
+      return {
+        error:
+          "Panel source must be bigquery, ga4, amplitude, first-party, demo, or prometheus.",
+      };
+    }
+    if (
+      typeof p.chartType !== "string" ||
+      !VALID_CHART_TYPES.has(p.chartType)
+    ) {
+      return { error: "Panel chartType is not recognized" };
+    }
+    return {
+      id: typeof p.id === "string" ? p.id : "embed",
+      title: typeof p.title === "string" ? p.title : "",
+      sql: p.sql,
+      source: p.source as SqlPanel["source"],
+      chartType: p.chartType as SqlPanel["chartType"],
+      width:
+        typeof p.width === "number" && Number.isFinite(p.width) && p.width >= 1
+          ? Math.floor(p.width)
+          : 1,
+      config: (p.config && typeof p.config === "object"
+        ? p.config
+        : undefined) as SqlPanel["config"],
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "failedToDecodePanel" };
+  }
+}
+
+function ChartError({ message }: { message: string }) {
+  const t = useT();
+  const displayMessage =
+    message === "failedToDecodePanel"
+      ? t("common.failedToDecodePanel")
+      : message;
+
+  return (
+    <div className="flex h-full w-full items-center justify-center p-4">
+      <div className="text-xs text-muted-foreground text-center max-w-md">
+        <div className="font-medium text-foreground">
+          {t("common.chartUnavailable")}
+        </div>
+        <div className="mt-1">{displayMessage}</div>
+      </div>
+    </div>
+  );
+}
+
+export default function ChartRoute() {
+  const [params] = useSearchParams();
+  const raw = params.get("panel");
+
+  const result = useMemo(() => {
+    if (!raw) return { error: "Missing panel parameter" };
+    return decodePanel(raw);
+  }, [raw]);
+
+  if ("error" in result) {
+    return <ChartError message={result.error} />;
+  }
+
+  return (
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-transparent p-2">
+      {result.title && (
+        <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">
+          {result.title}
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <SqlChart panel={result} />
+      </div>
+    </div>
+  );
+}

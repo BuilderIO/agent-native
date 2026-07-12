@@ -1,0 +1,17 @@
+[build]
+ignore = "node ./scripts/netlify-ignore-build.mjs slides"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter slides build"
+publish = "templates/slides/dist"
+functions = "templates/slides/.netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
+
+# Function wall for the non-agent long-request paths (deck import/export,
+# image generation). Agent chat opts into the separate Netlify background
+# function so hosted creative turns can use the longer background budget.
+[functions."*"]
+timeout = 300

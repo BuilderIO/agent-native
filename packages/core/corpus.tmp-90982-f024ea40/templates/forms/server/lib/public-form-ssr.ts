@@ -1,0 +1,776 @@
+import { getAppBasePath } from "@agent-native/core/server";
+import { DEFAULT_SSR_CACHE_HEADERS } from "@agent-native/core/server/ssr-handler";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
+} from "@agent-native/core/shared";
+import { eq } from "drizzle-orm";
+import { getMethod, getRequestURL, type H3Event } from "h3";
+
+import {
+  toPublicFormSettings,
+  type FormField,
+  type FormSettings,
+  type PublicFormSettings,
+} from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
+
+// In-memory cache
+const cache = new Map<string, { data: any; ts: number }>();
+const TTL = 60_000;
+
+function getCached(key: string) {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < TTL) return entry.data;
+  return null;
+}
+
+export async function getPublicFormBySlugOrId(slugOrId: string) {
+  const cached = getCached(slugOrId);
+  if (cached) return cached;
+
+  const db = getDb();
+
+  // Try matching by slug first, then fall back to ID
+  let row = await db
+    .select()
+    .from(schema.forms)
+    .where(eq(schema.forms.slug, slugOrId))
+    .then((rows) => rows[0]);
+
+  if (!row) {
+    row = await db
+      .select()
+      .from(schema.forms)
+      .where(eq(schema.forms.id, slugOrId))
+      .then((rows) => rows[0]);
+  }
+
+  if (!row || row.status !== "published" || row.deletedAt) return null;
+
+  // Project settings through the public allowlist before caching/rendering so
+  // owner-private integration webhook URLs and allowed-origins never reach the
+  // anonymous SSR payload.
+  const settings = JSON.parse(row.settings) as FormSettings;
+  const result = {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    fields: JSON.parse(row.fields) as FormField[],
+    settings: toPublicFormSettings(settings),
+  };
+
+  cache.set(slugOrId, { data: result, ts: Date.now() });
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Field rendering helpers
+// ---------------------------------------------------------------------------
+
+// Canonical type is string, but the agent occasionally writes objects like
+// `{ label, value }` or numbers. Coerce everything to a string here so the
+// renderer never crashes on bad data.
+function toSafeString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") {
+    const v = value as { label?: unknown; value?: unknown };
+    if (typeof v.label === "string") return v.label;
+    if (typeof v.value === "string") return v.value;
+    return "";
+  }
+  return String(value);
+}
+
+function escapeHtml(value: unknown): string {
+  return toSafeString(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const FALLBACK_PUBLIC_FORM_ORIGIN = "http://agent-native.local";
+
+function parsePublicFormUrl(url: string): {
+  pathname: string;
+  origin?: string;
+} {
+  try {
+    const parsed = new URL(url, FALLBACK_PUBLIC_FORM_ORIGIN);
+    const isAbsolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(url);
+    return {
+      pathname: parsed.pathname,
+      origin: isAbsolute ? parsed.origin : undefined,
+    };
+  } catch {
+    return { pathname: url.split("?")[0] || "/" };
+  }
+}
+
+// Mirror app/components/builder/FieldRenderer.tsx#dedupeRenderableOptions.
+function normalizeOptions(options: unknown): string[] {
+  if (!Array.isArray(options)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of options) {
+    const trimmed = toSafeString(raw).trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * Validate a form-author-supplied post-submit redirect URL. Returns the
+ * value verbatim only if it parses as `http:` or `https:` — falls back to
+ * an empty string otherwise (caller treats empty as "no redirect").
+ *
+ * Form publishers control `settings.redirectUrl` and the rendered page
+ * assigns it to `window.location.href`. Without scheme validation a
+ * `javascript:fetch(...)` redirectUrl would execute attacker JS in the
+ * form-publisher origin against any anonymous submitter.
+ */
+export function safeRedirectUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Reject control characters and protocol-relative URLs outright.
+  if (/[\x00-\x1f]/.test(trimmed)) return "";
+  if (trimmed.startsWith("//")) return "";
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? trimmed
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function renderField(field: FormField): string {
+  // field.id is also gated to /^[A-Za-z0-9_-]+$/ at write time by
+  // assertValidFields (server/lib/validate-fields.ts), so escapeHtml here is
+  // defense-in-depth — if a malformed row ever slips into the DB through
+  // another path, the renderer still won't break out of the attribute.
+  const id = escapeHtml(field.id);
+  const req = field.required ? " required" : "";
+  const ph = field.placeholder
+    ? ` placeholder="${escapeHtml(field.placeholder)}"`
+    : "";
+  const desc = field.description
+    ? `<p class="field-desc">${escapeHtml(field.description)}</p>`
+    : "";
+  const cond = field.conditional
+    ? ` data-cond-field="${escapeHtml(field.conditional.fieldId)}" data-cond-op="${escapeHtml(field.conditional.operator)}" data-cond-val="${escapeHtml(field.conditional.value)}"`
+    : "";
+  const widthClass = field.width === "half" ? " field-half" : "";
+
+  let input = "";
+
+  switch (field.type) {
+    case "text":
+      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
+      break;
+    case "email":
+      input = `<input type="email" name="${id}" class="fi"${ph || ' placeholder="you@example.com"'}${req}>`;
+      break;
+    case "number":
+      input = `<input type="number" name="${id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${Number(field.validation.min)}"` : ""}${field.validation?.max != null ? ` max="${Number(field.validation.max)}"` : ""}>`;
+      break;
+    case "textarea":
+      input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
+      break;
+    case "date":
+      input = `<input type="date" name="${id}" class="fi"${req}>`;
+      break;
+    case "select":
+      input = `<select name="${id}" class="fi"${req}><option value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
+        field.options,
+      )
+        .map(
+          (o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`,
+        )
+        .join("")}</select>`;
+      break;
+    case "multiselect":
+      input = `<div class="ms-group">${normalizeOptions(field.options)
+        .map(
+          (o) =>
+            `<label class="cb-label"><input type="checkbox" name="${id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`,
+        )
+        .join("")}</div>`;
+      break;
+    case "checkbox":
+      input = `<label class="cb-label"><input type="checkbox" name="${id}" class="cb"><span>${escapeHtml(field.placeholder || field.label)}</span></label>`;
+      break;
+    case "radio":
+      input = `<div class="radio-group">${normalizeOptions(field.options)
+        .map(
+          (o) =>
+            `<label class="cb-label"><input type="radio" name="${id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`,
+        )
+        .join("")}</div>`;
+      break;
+    case "rating":
+      input = `<div class="rating-group" data-name="${id}">${[1, 2, 3, 4, 5].map((s) => `<button type="button" class="star-btn" data-value="${s}" aria-label="${s} star${s > 1 ? "s" : ""}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>`).join("")}</div><input type="hidden" name="${id}">`;
+      break;
+    case "scale": {
+      const min = Number(field.validation?.min ?? 1);
+      const max = Number(field.validation?.max ?? 10);
+      input = `<div class="scale-group"><input type="range" name="${id}" class="slider" min="${min}" max="${max}" value="${min}" step="1"><div class="scale-labels"><span>${min}</span><span class="scale-val">${min}</span><span>${max}</span></div></div>`;
+      break;
+    }
+    default:
+      // Mirror the builder's normalizeFields fallback: an unrecognized stored
+      // type (e.g. agent wrote "dropdown" instead of "select", or stored an
+      // object) renders a plain text input rather than nothing — without this
+      // a required field would have no <input>, leaving the form unsubmittable.
+      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
+      break;
+  }
+
+  return `<div class="field${widthClass}" data-field-id="${id}"${cond}>
+    <label class="field-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ""}</label>
+    ${desc}${input}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Pure render function — takes a URL, returns { html, status }
+// Used by both the H3 handler and the Vite dev plugin.
+// ---------------------------------------------------------------------------
+
+export async function renderPublicFormHtml(
+  url: string,
+): Promise<{ html: string; status: number }> {
+  // Extract everything after /f/ as the slug (may contain slashes for legacy URLs)
+  const basePath = getAppBasePath();
+  const parsedUrl = parsePublicFormUrl(url);
+  const pathname = parsedUrl.pathname;
+  const pathWithoutBase =
+    basePath && pathname.startsWith(`${basePath}/`)
+      ? pathname.slice(basePath.length)
+      : pathname;
+  const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
+  const form = slugOrId ? await getPublicFormBySlugOrId(slugOrId) : null;
+
+  if (!form) {
+    return { html: notFoundPage(parsedUrl.origin), status: 404 };
+  }
+
+  return { html: renderFormPage(form, parsedUrl.origin), status: 200 };
+}
+
+// ---------------------------------------------------------------------------
+// H3 handler wrapper — used in production (Nitro plugins / routes)
+// ---------------------------------------------------------------------------
+
+export async function renderPublicForm(event: H3Event) {
+  const reqUrl = getRequestURL(event);
+  const url = reqUrl.toString();
+  const { html, status } = await renderPublicFormHtml(url);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "text/html; charset=utf-8",
+  };
+  if (status === 200) {
+    // Public form SSR is anonymous HTML and follows the same framework-level
+    // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
+    // here; relying on provider config would make templates perform differently.
+    Object.assign(headers, DEFAULT_SSR_CACHE_HEADERS);
+  }
+  return new Response(getMethod(event) === "HEAD" ? null : html, {
+    status,
+    headers,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HTML generation
+// ---------------------------------------------------------------------------
+
+function renderFormPage(
+  form: {
+    id: string;
+    slug: string;
+    title: string;
+    description?: string | null;
+    fields: FormField[];
+    settings: PublicFormSettings;
+  },
+  origin?: string,
+): string {
+  const settings: PublicFormSettings = form.settings || {};
+  const fields: FormField[] = form.fields || [];
+  const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
+  const appBasePath = getAppBasePath();
+  const submitPath = `${appBasePath}/api/submit/`;
+  const faviconPath = `${appBasePath}/favicon.svg`;
+  const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
+    form.slug || form.id,
+  )}/og.png`;
+  const ogImageUrl = origin
+    ? new URL(ogImagePath, origin).toString()
+    : ogImagePath;
+  const metaDescription =
+    form.description || "Submit this Agent-Native Forms form.";
+
+  const fieldsHtml = fields.map(renderField).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>${escapeHtml(form.title)}</title>
+<meta name="description" content="${escapeHtml(metaDescription)}">
+<meta property="og:title" content="${escapeHtml(form.title)}">
+<meta property="og:description" content="${escapeHtml(metaDescription)}">
+<meta property="og:type" content="website">
+<meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<link rel="icon" type="image/svg+xml" href="${faviconPath}">
+<!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet">
+<style>${CSS()}</style>
+<script>
+  try {
+    var embedded = window.self !== window.top || new URLSearchParams(location.search).has("embed");
+    if (embedded) document.documentElement.classList.add("embedded");
+  } catch (e) { document.documentElement.classList.add("embedded"); }
+</script>
+</head>
+<body>
+<div class="page">
+  <div class="container">
+    <div class="form-toolbar">
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+    <div class="header">
+      <h1>${escapeHtml(form.title)}</h1>
+      ${form.description ? `<p class="desc">${escapeHtml(form.description)}</p>` : ""}
+    </div>
+
+    <form id="mainForm" novalidate>
+      <input type="text" id="_hp" name="website" tabindex="-1" aria-hidden="true" autocomplete="off" style="position:absolute;left:-9999px;opacity:0;pointer-events:none">
+      <div class="fields-card">
+        ${fieldsHtml || '<p class="empty">This form has no fields yet.</p>'}
+      </div>
+      ${turnstileSiteKey ? `<div id="turnstile" class="turnstile-wrap"></div>` : ""}
+      <button type="submit" class="submit-btn" id="submitBtn">${escapeHtml(settings.submitText || "Submit")}</button>
+    </form>
+  </div>
+
+  <div id="successView" class="success-view" style="display:none">
+    <div class="success-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    </div>
+    <h1>Response submitted</h1>
+    <p class="desc">${escapeHtml(settings.successMessage || "Thank you! Your response has been recorded.")}</p>
+  </div>
+
+  <a href="https://agent-native.com" target="_blank" rel="noopener noreferrer" class="powered-badge">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    Built with Agent Native
+  </a>
+</div>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script>
+(function(){
+  var FORM_ID = ${JSON.stringify(form.id)};
+  var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
+  var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
+  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+
+  // Theme toggle
+  var html = document.documentElement;
+  var saved = localStorage.getItem("theme");
+  if (saved === "light") html.classList.remove("dark");
+  document.getElementById("themeToggle").onclick = function() {
+    var dark = html.classList.toggle("dark");
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  };
+
+  // When embedded in an iframe, let the parent close the popover on Escape
+  if (html.classList.contains("embedded") && window.parent !== window) {
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        try { window.parent.postMessage({ type: "agent-native-feedback-close" }, "*"); } catch (_) {}
+      }
+    });
+  }
+
+  // Toast
+  var toastEl = document.getElementById("toast");
+  var toastTimer;
+  function showToast(msg, type) {
+    clearTimeout(toastTimer);
+    toastEl.textContent = msg;
+    toastEl.className = "toast toast-" + (type || "error");
+    toastEl.style.display = "block";
+    toastTimer = setTimeout(function() { toastEl.style.display = "none"; }, 4000);
+  }
+
+  // Rating stars
+  document.querySelectorAll(".rating-group").forEach(function(group) {
+    var name = group.dataset.name;
+    var hidden = group.nextElementSibling;
+    var buttons = group.querySelectorAll(".star-btn");
+    buttons.forEach(function(btn) {
+      btn.onclick = function() {
+        var val = parseInt(btn.dataset.value);
+        hidden.value = val;
+        buttons.forEach(function(b) {
+          var v = parseInt(b.dataset.value);
+          b.classList.toggle("active", v <= val);
+        });
+      };
+    });
+  });
+
+  // Scale sliders
+  document.querySelectorAll(".scale-group").forEach(function(group) {
+    var slider = group.querySelector(".slider");
+    var valLabel = group.querySelector(".scale-val");
+    slider.oninput = function() { valLabel.textContent = slider.value; };
+  });
+
+  // Conditional visibility
+  function updateVisibility() {
+    document.querySelectorAll("[data-cond-field]").forEach(function(el) {
+      var depId = el.dataset.condField;
+      var op = el.dataset.condOp;
+      var condVal = el.dataset.condVal;
+      var depVal = getFieldValue(depId);
+      var show = true;
+      if (op === "equals") show = depVal === condVal;
+      else if (op === "not_equals") show = depVal !== condVal;
+      else if (op === "contains") show = depVal.indexOf(condVal) >= 0;
+      el.style.display = show ? "" : "none";
+      el.dataset.hidden = show ? "" : "1";
+    });
+  }
+
+  function getFieldValue(id) {
+    var el = document.querySelector('[name="' + id + '"]');
+    if (!el) return "";
+    if (el.type === "checkbox" && !el.closest(".ms-group")) return el.checked ? "true" : "";
+    return el.value || "";
+  }
+
+  document.getElementById("mainForm").addEventListener("input", updateVisibility);
+  document.getElementById("mainForm").addEventListener("change", updateVisibility);
+  updateVisibility();
+
+  // Collect form data
+  function collectData() {
+    var data = {};
+    FIELDS.forEach(function(f) {
+      var el = document.querySelector('[data-field-id="' + f.id + '"]');
+      if (!el || el.dataset.hidden === "1") return;
+      if (f.type === "multiselect") {
+        var checked = [];
+        el.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb) { checked.push(cb.value); });
+        data[f.id] = checked;
+      } else if (f.type === "checkbox") {
+        data[f.id] = el.querySelector('input[type="checkbox"]').checked;
+      } else if (f.type === "rating") {
+        var v = el.querySelector('input[type="hidden"]').value;
+        if (v) data[f.id] = parseInt(v);
+      } else if (f.type === "scale") {
+        data[f.id] = parseInt(el.querySelector(".slider").value);
+      } else {
+        var input = el.querySelector("input, textarea, select");
+        if (input && input.value) data[f.id] = input.value;
+      }
+    });
+    return data;
+  }
+
+  // Validation
+  function validate(data) {
+    for (var i = 0; i < FIELDS.length; i++) {
+      var f = FIELDS[i];
+      var el = document.querySelector('[data-field-id="' + f.id + '"]');
+      if (!el || el.dataset.hidden === "1") continue;
+      if (f.required) {
+        var val = data[f.id];
+        if (val === undefined || val === null || val === "" || (Array.isArray(val) && val.length === 0)) {
+          return f.label + " is required";
+        }
+      }
+      if (f.validation) {
+        var v = data[f.id];
+        if (f.validation.min != null && Number(v) < f.validation.min)
+          return (f.validation.message || f.label + " must be at least " + f.validation.min);
+        if (f.validation.max != null && Number(v) > f.validation.max)
+          return (f.validation.message || f.label + " must be at most " + f.validation.max);
+        if (f.validation.pattern && typeof v === "string" && !new RegExp(f.validation.pattern).test(v))
+          return (f.validation.message || f.label + " is invalid");
+      }
+    }
+    return null;
+  }
+
+  // Turnstile
+  var captchaToken = null;
+  if (TURNSTILE_KEY) {
+    window.__turnstileOnLoad = function() {
+      window.turnstile.render(document.getElementById("turnstile"), {
+        sitekey: TURNSTILE_KEY,
+        appearance: "managed",
+        callback: function(token) { captchaToken = token; },
+      });
+    };
+    var s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__turnstileOnLoad";
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }
+
+  // Submit
+  var PAGE_LOAD_T = Date.now();
+  var submitting = false;
+  document.getElementById("mainForm").onsubmit = function(e) {
+    e.preventDefault();
+    if (submitting) return;
+    var data = collectData();
+    var err = validate(data);
+    if (err) { showToast(err); return; }
+    submitting = true;
+    var btn = document.getElementById("submitBtn");
+    btn.textContent = "Submitting...";
+    btn.disabled = true;
+    var hp = (document.getElementById("_hp") || {}).value || "";
+
+    fetch(${JSON.stringify(submitPath)} + FORM_ID, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T }),
+    })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(res) {
+      if (!res.ok) { throw new Error(res.data.error || "Failed to submit"); }
+      if (REDIRECT) { window.location.href = REDIRECT; return; }
+      document.querySelector(".container").style.display = "none";
+      document.getElementById("successView").style.display = "flex";
+      if (html.classList.contains("embedded") && window.parent !== window) {
+        try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
+      }
+    })
+    .catch(function(err) {
+      showToast(err.message || "Failed to submit form");
+      submitting = false;
+      btn.textContent = ${JSON.stringify(settings.submitText || "Submit")};
+      btn.disabled = false;
+    });
+  };
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// 404 page
+// ---------------------------------------------------------------------------
+
+function notFoundPage(origin?: string) {
+  const appBasePath = getAppBasePath();
+  const ogImagePath = `${appBasePath}/_agent-native/og-image.png`;
+  const ogImageUrl = withAgentNativeSocialImageCacheBuster(
+    origin ? new URL(ogImagePath, origin).toString() : ogImagePath,
+  );
+  return `<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Form not found</title>
+<meta name="description" content="This Agent-Native Forms link is no longer available.">
+<meta property="og:title" content="Form not found">
+<meta property="og:description" content="This Agent-Native Forms link is no longer available.">
+<meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:secure_url" content="${escapeHtml(ogImageUrl)}">
+<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
+<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
+<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
+<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=inter:400,500,600&display=swap" rel="stylesheet">
+<style>${CSS()}</style>
+</head>
+<body>
+<div class="page">
+  <div class="not-found">
+    <h1>Form not found</h1>
+    <p class="desc">This form may have been removed or is no longer accepting responses.</p>
+    <button class="submit-btn" style="width:auto;padding:8px 20px;font-size:13px" onclick="location.reload()">Try Again</button>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// CSS
+// ---------------------------------------------------------------------------
+
+function CSS() {
+  return `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:0 0% 100%;--fg:220 10% 10%;
+  --card:0 0% 100%;--card-fg:220 10% 10%;
+  --muted:220 10% 95%;--muted-fg:220 5% 45%;
+  --border:220 10% 90%;--input:220 10% 90%;
+  --ring:220 10% 40%;
+  --radius:0.5rem;
+}
+.dark{
+  --bg:220 6% 4%;--fg:0 0% 90%;
+  --card:220 5% 6%;--card-fg:0 0% 90%;
+  --muted:220 4% 8%;--muted-fg:220 4% 55%;
+  --border:220 4% 12%;--input:220 4% 12%;
+  --ring:0 0% 60%;
+}
+
+html{font-family:"Inter",system-ui,-apple-system,sans-serif;font-feature-settings:"cv02","cv03","cv04","cv11"}
+body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-font-smoothing:antialiased}
+
+.page{min-height:100vh;padding:48px 16px 80px;position:relative}
+.container{max-width:640px;margin:0 auto}
+.form-toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+
+.header{margin-bottom:32px}
+.header h1{font-size:1.5rem;font-weight:600;line-height:1.3;letter-spacing:-0.01em}
+.desc{margin-top:6px;font-size:0.875rem;color:hsl(var(--muted-fg));line-height:1.5}
+
+.fields-card{display:flex;flex-direction:column;gap:24px}
+
+.field{display:flex;flex-direction:column;gap:6px}
+.field-half{width:50%}
+.field-label{font-size:0.875rem;font-weight:500;color:hsl(var(--card-fg))}
+.field-desc{font-size:0.75rem;color:hsl(var(--muted-fg))}
+.req{color:#ef4444;margin-left:2px}
+
+.fi{width:100%;padding:8px 12px;font-size:0.875rem;font-family:inherit;background:transparent;border:1px solid hsl(var(--input));border-radius:var(--radius);color:hsl(var(--fg));outline:none}
+.fi:focus{border-color:hsl(var(--ring));box-shadow:0 0 0 2px hsl(var(--ring)/0.15)}
+.fi-ta{resize:vertical;min-height:80px}
+select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:30px}
+select.fi option{background:hsl(var(--card));color:hsl(var(--fg))}
+
+.cb-label{display:flex;align-items:center;gap:8px;font-size:0.875rem;cursor:pointer}
+.cb,.radio{width:16px;height:16px;accent-color:hsl(var(--fg));cursor:pointer}
+.ms-group,.radio-group{display:flex;flex-direction:column;gap:8px}
+
+.rating-group{display:flex;gap:4px}
+.star-btn{background:none;border:none;cursor:pointer;padding:2px;color:hsl(var(--muted-fg)/0.3)}
+.star-btn.active{color:#fbbf24;fill:#fbbf24}
+.star-btn.active svg{fill:#fbbf24}
+
+.scale-group{padding-top:8px}
+.slider{width:100%;accent-color:hsl(var(--fg));cursor:pointer}
+.scale-labels{display:flex;justify-content:space-between;font-size:0.75rem;color:hsl(var(--muted-fg));margin-top:4px}
+.scale-val{font-weight:500;color:hsl(var(--fg))}
+
+.turnstile-wrap{margin-top:16px}
+
+.submit-btn{
+  margin-top:16px;padding:10px 24px;
+  font-size:0.875rem;font-weight:500;font-family:inherit;
+  background:hsl(var(--fg));color:hsl(var(--bg));
+  border:none;border-radius:var(--radius);cursor:pointer;
+}
+.submit-btn:hover{opacity:0.9}
+.submit-btn:disabled{opacity:0.6;cursor:not-allowed}
+
+.theme-toggle{
+  background:none;border:1px solid hsl(var(--border));border-radius:var(--radius);
+  width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:hsl(var(--muted-fg));
+}
+.theme-toggle:hover{background:hsl(var(--muted));color:hsl(var(--fg))}
+.dark .icon-sun{display:none}
+.dark .icon-moon{display:block}
+html:not(.dark) .icon-sun{display:block}
+html:not(.dark) .icon-moon{display:none}
+
+.success-view{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;max-width:400px;margin:120px auto 0;
+}
+.success-icon{
+  width:56px;height:56px;border-radius:50%;
+  background:rgba(16,185,129,0.1);
+  display:flex;align-items:center;justify-content:center;
+  color:#10b981;margin-bottom:16px;
+}
+
+.not-found{text-align:center;margin-top:120px}
+.not-found h1{font-size:1.5rem;font-weight:600;margin-bottom:8px}
+.not-found .submit-btn{margin-top:16px;display:inline-block}
+
+.powered-badge{
+  position:fixed;bottom:16px;right:16px;z-index:50;
+  display:flex;align-items:center;gap:6px;
+  padding:6px 12px;border-radius:8px;
+  font-size:12px;font-weight:500;line-height:1;
+  color:rgba(150,150,150,0.9);
+  background:rgba(0,0,0,0.05);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  border:1px solid rgba(0,0,0,0.06);
+  text-decoration:none;opacity:0.7;
+}
+.dark .powered-badge{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.08);color:rgba(180,180,180,0.9)}
+.powered-badge:hover{opacity:1}
+
+.embedded .theme-toggle,.embedded .powered-badge{display:none}
+.embedded .page{padding:20px 16px 32px}
+.embedded .header{margin-bottom:20px}
+.embedded .header h1{font-size:1.125rem}
+.embedded .desc{font-size:0.8125rem}
+.embedded .success-view{margin-top:32px}
+.embedded .success-view h1{font-size:1.125rem}
+
+.toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  padding:10px 20px;border-radius:var(--radius);
+  font-size:0.875rem;font-weight:500;z-index:100;
+  background:#1f2937;color:#f9fafb;
+  box-shadow:0 4px 12px rgba(0,0,0,0.3);
+}
+.toast-error{background:#991b1b}
+
+.empty{text-align:center;color:hsl(var(--muted-fg));padding:32px 0}
+
+@media(max-width:640px){
+  .page{padding:32px 12px 80px}  .field-half{width:100%}
+}
+`;
+}

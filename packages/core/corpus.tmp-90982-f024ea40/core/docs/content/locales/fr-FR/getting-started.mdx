@@ -1,0 +1,199 @@
+---
+title: "Démarrage"
+description: "Créez une app agentic centrée sur le chat, ajoutez une action, rendez des résultats structurés en ligne, puis ajoutez une page persistante que l'agent peut ouvrir."
+---
+
+# Démarrage
+
+Agent-Native sert à créer des agentic applications : l'AI agent et l'UI partagent les mêmes [actions](/docs/actions), les mêmes données SQL et le même application state. Le chemin principal commence par Chat, afin que les utilisateurs puissent parler à l'agent immédiatement, puis ajoute les surfaces produit nécessaires.
+
+Le parcours utile :
+
+1. Créer une Chat app.
+2. Ajouter une action.
+3. Rendre le résultat de l'action directement dans le chat.
+4. Persister les données dans SQL.
+5. Ajouter une page que l'agent peut ouvrir lorsqu'une inspection visuelle est préférable.
+
+## 1. Créer une Chat app {#create-your-app}
+
+Vous avez besoin de [Node.js 22+](https://nodejs.org) et de [pnpm](https://pnpm.io).
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
+
+Le template inclut durable chat threads, auth, live sync, un dossier `actions/`, les actions standard `view-screen` et `navigate`, et une app React prête à évoluer.
+
+## 2. Ajouter une action {#add-an-action}
+
+Une action est une opération typée appelée par l'agent et par l'UI. Pour ce guide, créez `actions/analyze-responses.ts` : elle analyse des réponses de formulaire et renvoie une forme validée pour un graphique de chat personnalisé.
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "Graphique des réponses" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
+```
+
+Exécutez-la directement :
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+Ou demandez à l'agent dans le navigateur :
+
+> Analyse les réponses récentes du formulaire de démonstration.
+
+## 3. Rendre le résultat dans le chat {#render-inline}
+
+Comme l'action déclare `outputSchema` et un `chatUI.renderer` propre au produit, le transcript ne transforme pas les données structurées en simple texte. Enregistrez un composant React pour cet id exact au démarrage de l'app, par exemple en important `app/chat-renderers.tsx` une fois depuis `app/root.tsx` :
+
+<!-- prettier-ignore -->
+```tsx
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
+```
+
+Pour les sorties génériques réutilisables, le framework fournit aussi les renderers intégrés `data-chart` et `data-table`, ainsi que `data-insights` pour les cartes combinant résumé, graphique et tableau. Voir [Native Chat UI](/docs/native-chat-ui).
+
+<WireframeBlock id="doc-block-inline-result-wireframe-fr">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Analyse les réponses de démo.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Rendu avec responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Graphique des réponses</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Lun</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mar</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mer</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Jeu</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## 4. Persister les données dans SQL {#persist-data}
+
+Quand le résultat doit être revu, comparé ou mis à jour, stockez-le dans SQL et gardez les lectures/écritures derrière des actions :
+
+Définissez la table avec les helpers portables du framework, pas avec des imports de `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core` :
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+Ces helpers choisissent le backend SQL configuré, donc le même schéma peut fonctionner avec SQLite en local et avec Postgres, Turso/libSQL, D1 ou un autre fournisseur SQL pris en charge en production.
+
+- `create-response-insight` écrit un nouvel insight.
+- `list-response-insights` lit les données de la page.
+- `update-response-insight` met à jour un enregistrement.
+- `analyze-responses` continue de renvoyer le widget natif du chat.
+
+N'ajoutez pas de REST route en double pour le navigateur ; l'UI et l'agent doivent partager les actions.
+
+## 5. Ajouter une page que l'agent peut ouvrir {#add-a-page}
+
+Ajoutez une route `/response-insights` avec `useActionQuery("list-response-insights")` et `useActionMutation("create-response-insight")`. La page est une projection du SQL state ; les données restent écrites par les mêmes actions.
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-fr">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>Insights de réponses</h2><p class='wf-muted' style='margin:0'>Insights créés par l'agent à partir des réponses du formulaire.</p></header><button class='primary' data-rough style='align-self:flex-start'>Analyser le formulaire de démonstration</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>Thème de tarification</strong><p class='wf-muted' style='margin:8px 0 0'>Les utilisateurs demandent un forfait équipe.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>Abandon d'onboarding</strong><p class='wf-muted' style='margin:8px 0 0'>Trois étapes demandent un texte plus clair.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Formulaire de démonstration</strong><span class='wf-muted'>42 réponses analysées</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Étape suivante</strong><span class='wf-muted'>Relire deux brouillons d'insights</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>Chat</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>Vous</span><p style='margin:4px 0 0'>Ouvrez les insights de réponses.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>Insights de réponses ouverts.</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+## 6. Laisser l'agent naviguer {#agent-navigation}
+
+Le modèle Chat inclut les actions `view-screen` et `navigate`. Étendez-les à mesure que votre app grandit :
+
+- `view-screen` doit lire le application state et renvoyer la route active, l'insight sélectionné, les filtres actifs et tout contexte de page compact dont l'agent a besoin.
+- `navigate` doit écrire un chemin same-origin comme `/response-insights` quand l'agent décide que l'utilisateur doit inspecter le résultat visuellement.
+- Les résultats d'une action peuvent inclure des liens comme `href: "/response-insights"` pour que le chat propose un bouton explicite « Ouvrir les insights de réponses ».
+
+Quand le chat pleine page ouvre une page d'app, utilisez `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` et `chatViewTransition` depuis [Agent Surfaces](/docs/agent-surfaces#rich-chat) pour glisser le chat dans le panneau latéral sans perdre le thread.
+
+## Structure du projet {#project-structure}
+
+```text
+my-app/
+  actions/         # Opérations appelables par l'agent et l'interface
+  app/             # Routes, pages et surfaces de chat React
+  server/          # Serveur Nitro et schéma SQL
+  AGENTS.md        # Instructions permanentes pour l'agent de l'app
+  .agents/         # Skills que l'agent charge quand c'est pertinent
+  data/app.db      # État SQLite local quand DATABASE_URL n'est pas défini
+```
+
+## Vous voulez un vrai point de départ analytics ? {#analytics-starting-point}
+
+L'exemple Insights de réponses ci-dessus est volontairement petit pour montrer les pièces du framework. Si vous construisez un vrai produit analytics, commencez plutôt avec [Analytics](/docs/template-analytics). C'est le point de départ robuste : connectez vos providers, utilisez les dashboards et agent actions existants, puis personnalisez à partir de là.
+
+## Suite {#next}
+
+- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks et transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — tableaux, graphiques et typed cards pour les résultats d'actions.
+- **[Chat Template](/docs/template-chat)** — l'app minimale chat-first.
+- **[Analytics Template](/docs/template-analytics)** — une base analytics robuste ; connectez vos providers puis personnalisez.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state et objets sélectionnés.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation et agents externes.

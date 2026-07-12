@@ -1,0 +1,29 @@
+{
+  "name": "{{APP_NAME}}",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "agent-native dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
+    "skills:update": "agent-native skills update scaffold --project",
+    "upgrade:agent-native": "agent-native upgrade",
+    "fmt:check": "oxfmt --check .",
+    "lint": "pnpm fmt:check"
+  },
+  "dependencies": {
+    "@agent-native/core": "latest",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "oxfmt": "catalog:",
+    "tsx": "catalog:",
+    "typescript-7": "catalog:"
+  },
+  "packageManager": "pnpm@10.14.0",
+  "agent-native": {
+    "workspaceCore": "@{{APP_NAME}}/shared"
+  }
+}

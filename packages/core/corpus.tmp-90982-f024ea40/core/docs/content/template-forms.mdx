@@ -1,0 +1,329 @@
+---
+title: "Forms"
+description: "Agent-native form builder — create, edit, publish, and route form submissions through natural language plus a visual editor."
+---
+
+# Forms
+
+Forms is an agent-native form builder. Describe the form you want, refine it in the editor, and publish a public form that stores submissions in your own SQL database.
+
+<WireframeBlock id="doc-block-1x3o6t4">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta signup</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Share</button><button class='primary'>Unpublish</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Edit</span><span class='wf-pill'>Results 187</span><span class='wf-pill'>Settings</span><span class='wf-pill'>Integrations</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta signup</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>Full name</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Work email</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Your role</strong><input value='Select...'/></div><div class='wf-card'><strong>Team size</strong><input value='Select...'/></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+When you open the app, you see your forms, the current editor, and a live preview. The agent can create a form from a prompt, update field labels and options, change validation, and connect submission destinations using the same actions the UI uses.
+
+<Diagram id="doc-block-1g89hqk" title="Build, publish, collect" summary={"The agent and the visual editor edit one SQL-backed form definition. The public fill page is unauthenticated, and submissions route server-side to your destinations."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Agent prompt<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Visual editor<br /><small class="diagram-muted"
+        >labels, validation, order</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">fields JSON, settings JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL via Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Public fill page<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## What you can do with it
+
+- **Build forms conversationally.** "Create a contact form," "add an NPS score question," "make the email field required." The agent updates the form schema and the preview updates from SQL-backed state.
+- **Fine-tune visually.** Edit labels, placeholders, required state, options, and field order from the builder UI when you want direct control.
+- **Use the shipped field types.** Text, email, number, long text, select, multi-select, checkbox, radio, date, rating, and scale fields are supported out of the box.
+- **Collect responses.** Each submission is stored in SQL with a per-response detail view and a dashboard for reviewing entries.
+- **Route submissions.** Send submission payloads to webhooks, Slack, Discord, or Google Sheets using the built-in integrations.
+- **Publish public forms.** Share a public form URL and show a thank-you message after submission.
+
+## Getting started
+
+Live demo: [forms.agent-native.com](https://forms.agent-native.com).
+
+1. **Create a form from a prompt.** Ask for the form you want, including the
+   audience and what should happen after submission.
+2. **Refine in the editor.** Adjust labels, validation, choices, and order in
+   the visual builder when direct editing is faster.
+3. **Publish and share.** Use the public form URL for respondents, then watch
+   results arrive in the Responses view.
+4. **Connect destinations.** Route new submissions to Slack, Discord, Google
+   Sheets, webhooks, or your own extension point.
+
+### Useful prompts
+
+- "Create a beta signup form with role, team size, and priority use case."
+- "Add a required NPS question and a free-text follow-up."
+- "Post every new response to the product Slack channel."
+- "Summarize this week's submissions and group them by customer segment."
+- "Make this form shorter without losing the fields we need for routing."
+
+## For developers
+
+The rest of this doc is for anyone forking the Forms template or extending it.
+
+### Quick start
+
+```bash
+npx @agent-native/core@latest create my-forms --standalone --template forms
+cd my-forms
+pnpm install
+pnpm dev
+```
+
+For a workspace with Forms alongside other apps:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+Pick Forms and any other templates you want during the workspace setup.
+
+### Key features {#key-features}
+
+**JSON form definitions.** Fields live in one `fields` JSON column, so the agent can make surgical edits without schema changes for every field type.
+
+**Public fill pages.** Respondents can submit unauthenticated forms, while private settings are stripped before data reaches the browser.
+
+**Server-side destinations.** Slack, Discord, Google Sheets, and webhook integrations live in form settings and run after submission.
+
+### Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema.ts`. Forms carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+| Table         | What it holds                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forms`       | A form definition — `title`, `description`, unique `slug`, `fields` (JSON array of `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`), and a soft-delete `deleted_at` |
+| `responses`   | One submission per row — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip` and `submitter_email`                                                                                    |
+| `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
+
+The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Owner-private settings such as integration webhook URLs and allowed origins are stripped before any data reaches the public fill page via `toPublicFormSettings`.
+
+<DataModel
+  id="doc-block-nhh66t"
+  title="Forms data model"
+  summary={
+    "Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+  }
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[] — all field types",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings — integrations, etc.",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "draft | published | closed",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "One submission per row",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "Framework shares table — principals to roles per form",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "viewer | editor | admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+### Key actions
+
+Every operation is a TypeScript file in `templates/forms/actions/`, auto-mounted at `POST /_agent-native/actions/:name`:
+
+- `create-form` — create a new form (title, description, fields, settings)
+- `update-form` — update fields, settings, or status
+- `get-form` — retrieve a form by id or slug
+- `list-forms` — list accessible forms
+- `delete-form` — soft-delete (sets `deleted_at`)
+- `restore-form` — restore a soft-deleted form
+- `list-responses` — list submissions for a form with optional filters
+- `export-responses` — export responses as CSV or JSON
+
+### Customizing it
+
+Ask the agent for shipped behavior first:
+
+- "Add a required radio field for preferred contact method."
+- "Post every new submission to Slack." Connect Slack first via [Messaging](/docs/messaging).
+- "Add a webhook destination for our CRM."
+- "Create a customer feedback form with a 1-10 scale and a long-text follow-up."
+- "Make some forms public and others login-only."
+
+If you need new capabilities such as file uploads, signatures, or custom field widgets, treat them as template extensions: add the SQL shape, actions, UI editor controls, public renderer support, and agent instructions together. See [Creating Templates](/docs/creating-templates) for the current build pattern.
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model
+- [**Actions**](/docs/actions) — the action system powering the builder
+- [**Messaging**](/docs/messaging) — Slack and other submission destinations

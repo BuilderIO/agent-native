@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="36" viewBox="0 0 160 36">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@700');
+  </style>
+  <text x="4" y="28" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="28" font-weight="700" fill="white" letter-spacing="0.5">Walmart</text>
+</svg>

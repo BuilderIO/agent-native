@@ -1,0 +1,44 @@
+<DesignBoard title={"Today View — Mobile Wireframe"} version={1}>
+<Section id="main" title={"Today View — Mobile Wireframe"}>
+<Artboard id="frame-today" label="Today View" surface="mobile" x={0} y={0} width={320} height={580}>
+<Screen surface="mobile">
+  <StatusBar />
+  <Col full>
+    <Row>
+      <Title text="Today" />
+      <Btn label="+ Add Habit" />
+    </Row>
+    <Card>
+      <Text value="Friday, June 6" tone="muted" />
+      <Text value="5 of 7 done" weight="bold" />
+      <Chips items={[
+  {
+    "label": "71%",
+    "active": true
+  },
+  {
+    "label": "🔥 4-day streak"
+  }
+]} />
+    </Card>
+    <SectionLabel label="HABITS" />
+    <TaskRow title="Morning run" done note="7:00 AM" />
+    <TaskRow title="Read 20 pages" done note="Any time" />
+    <TaskRow title="Meditate" done={false} note="10 min" />
+    <TaskRow title="No sugar" done={false} note="All day" />
+    <TaskRow title="Drink 2L water" done note="Goal" />
+    <Divider />
+    <SectionLabel label="COMPLETED" />
+    <TaskRow title="Journaling" done />
+    <TaskRow title="Cold shower" done />
+  </Col>
+</Screen>
+</Artboard>
+</Section>
+
+<Annotation id="note-today" title="Today View" x={360} y={40}>
+
+Primary daily driver. Progress card at top shows streak + completion %. Tap any row to open Habit Detail. Checkmark toggles completion inline.
+
+</Annotation>
+</DesignBoard>

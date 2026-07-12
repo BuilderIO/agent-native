@@ -1,0 +1,244 @@
+import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { desc, eq } from "drizzle-orm";
+import {
+  createError,
+  defineEventHandler,
+  getQuery,
+  getRouterParam,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+import { nanoid } from "nanoid";
+
+import { getDb, schema } from "../db/index.js";
+import { normalizeBookingDurationInput } from "../lib/booking-durations.js";
+import {
+  rowToBookingLink,
+  serializeBookingHosts,
+} from "../lib/booking-link-utils.js";
+import { ensureBookingUsername } from "./booking-usernames.js";
+
+async function requireRequestContext<T>(
+  event: H3Event,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    fn,
+  );
+}
+
+export const listBookingLinks = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
+    try {
+      const rows = await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
+        .orderBy(desc(schema.bookingLinks.updatedAt));
+      return rows.map(rowToBookingLink);
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
+});
+
+export const createBookingLink = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
+    try {
+      const body = await readBody(event);
+
+      if (!body.title || !body.slug || !body.duration) {
+        setResponseStatus(event, 400);
+        return { error: "title, slug, and duration are required" };
+      }
+      const durationInput = normalizeBookingDurationInput({
+        duration: body.duration,
+        durations: body.durations,
+      });
+      if ("error" in durationInput) {
+        setResponseStatus(event, 400);
+        return { error: durationInput.error };
+      }
+
+      const slug = String(body.slug).trim().toLowerCase();
+      const [existingLink, existingRedirect] = await Promise.all([
+        getDb()
+          .select({ id: schema.bookingLinks.id })
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, slug)),
+        getDb()
+          .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })
+          .from(schema.bookingSlugRedirects)
+          .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),
+      ]);
+
+      if (existingLink.length > 0 || existingRedirect.length > 0) {
+        setResponseStatus(event, 409);
+        return { error: "A booking link with this slug already exists" };
+      }
+
+      const now = new Date().toISOString();
+      const id = nanoid();
+      const ownerEmail = (() => {
+        const e = getRequestUserEmail();
+        if (!e) throw new Error("no authenticated user");
+        return e;
+      })();
+      await getDb()
+        .insert(schema.bookingLinks)
+        .values({
+          id,
+          slug,
+          title: String(body.title).trim(),
+          description: body.description
+            ? String(body.description).trim()
+            : null,
+          duration: durationInput.duration,
+          durations: durationInput.durations
+            ? JSON.stringify(durationInput.durations)
+            : null,
+          hosts: serializeBookingHosts(body.hosts, ownerEmail),
+          customFields: body.customFields
+            ? JSON.stringify(body.customFields)
+            : null,
+          conferencing: body.conferencing
+            ? JSON.stringify(body.conferencing)
+            : null,
+          color: body.color ? String(body.color).trim() : null,
+          isActive: body.isActive ?? true,
+          ownerEmail,
+          orgId: getRequestOrgId(),
+          createdAt: now,
+          updatedAt: now,
+        });
+
+      const created = await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.id, id));
+      return rowToBookingLink(created[0]);
+    } catch (error: any) {
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return { error: error.message };
+    }
+  });
+});
+
+export const deleteBookingLink = defineEventHandler(async (event: H3Event) => {
+  return requireRequestContext(event, async () => {
+    try {
+      const id = getRouterParam(event, "id");
+      if (!id) {
+        setResponseStatus(event, 400);
+        return { error: "id is required" };
+      }
+
+      // Sharing: only owner / admin grantees can delete.
+      await assertAccess("booking-link", id, "admin");
+
+      // Get the slug before deleting so we can clean up redirects
+      const toDelete = await getDb()
+        .select({ slug: schema.bookingLinks.slug })
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.id, id));
+
+      await getDb()
+        .delete(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.id, id));
+
+      // Clean up redirects that point to the deleted link's slug
+      if (toDelete.length > 0) {
+        await getDb()
+          .delete(schema.bookingSlugRedirects)
+          .where(eq(schema.bookingSlugRedirects.newSlug, toDelete[0].slug));
+      }
+
+      return { ok: true };
+    } catch (error: any) {
+      const status = error?.statusCode ?? 500;
+      setResponseStatus(event, status);
+      return { error: error.message };
+    }
+  });
+});
+
+// PUBLIC booking page — unauthenticated visitors fetch a link by slug to book.
+// This is the anonymous-booking axis and MUST NOT apply the sharing filter.
+// Sharing controls who can MANAGE the link; the public slug controls who can
+// BOOK via the link (gated only by `isActive` + explicit publish).
+export const getPublicBookingLink = defineEventHandler(
+  async (event: H3Event) => {
+    try {
+      const slug = getRouterParam(event, "slug");
+      const query = getQuery(event);
+      const routeUsername =
+        typeof query.username === "string" ? query.username : "";
+      if (!slug) {
+        setResponseStatus(event, 400);
+        return { error: "slug is required" };
+      }
+
+      // guard:allow-unscoped — public booking URL — anonymous booking by design, gated by isActive
+      const rows = await getDb()
+        .select()
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.slug, slug));
+
+      if (rows.length === 0 || !rows[0].isActive) {
+        // Check if there's a redirect for this slug
+        const redirect = await getDb()
+          .select({ newSlug: schema.bookingSlugRedirects.newSlug })
+          .from(schema.bookingSlugRedirects)
+          .where(eq(schema.bookingSlugRedirects.oldSlug, slug));
+
+        if (redirect.length > 0) {
+          const newSlug = redirect[0].newSlug;
+          const redirectedRows = await getDb()
+            .select()
+            .from(schema.bookingLinks)
+            .where(eq(schema.bookingLinks.slug, newSlug));
+          const ownerEmail = redirectedRows[0]?.ownerEmail;
+          const username = ownerEmail
+            ? await ensureBookingUsername(ownerEmail)
+            : "";
+          return {
+            redirect: newSlug,
+            redirectPath: username
+              ? `/book/${username}/${newSlug}`
+              : `/book/${newSlug}`,
+          };
+        }
+
+        setResponseStatus(event, 404);
+        return { error: "Booking link not found" };
+      }
+
+      const canonicalUsername = await ensureBookingUsername(rows[0].ownerEmail);
+      if (canonicalUsername && routeUsername !== canonicalUsername) {
+        return {
+          redirectPath: `/book/${canonicalUsername}/${rows[0].slug}`,
+        };
+      }
+
+      return rowToBookingLink(rows[0]);
+    } catch (error: any) {
+      setResponseStatus(event, 500);
+      return { error: error.message };
+    }
+  },
+);

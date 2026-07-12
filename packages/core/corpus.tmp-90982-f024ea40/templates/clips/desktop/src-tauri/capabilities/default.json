@@ -1,0 +1,42 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions the Clips tray app needs.",
+  "windows": [
+    "popover",
+    "countdown",
+    "toolbar",
+    "bubble",
+    "signin",
+    "finalizing",
+    "onboarding",
+    "meeting-notif",
+    "meeting-nub",
+    "flow-bar",
+    "recording-pill",
+    "region-guides",
+    "region-guide-editor",
+    "region-record-border"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "updater:default",
+    "process:default",
+    "autostart:default",
+    "process:allow-restart",
+    "notification:default",
+    "fs:allow-video-write-recursive",
+    "fs:allow-video-read-recursive"
+  ]
+}

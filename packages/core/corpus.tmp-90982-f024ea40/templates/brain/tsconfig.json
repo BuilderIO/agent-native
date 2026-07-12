@@ -1,0 +1,24 @@
+{
+  "extends": "@agent-native/core/tsconfig.base.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "rootDirs": [".", "./.react-router/types"],
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./app/*"],
+      "@shared/*": ["./shared/*"]
+    }
+  },
+  "include": [
+    "app/**/*",
+    "actions/**/*",
+    "server/**/*",
+    "shared/**/*",
+    "jobs/**/*",
+    "vite.config.ts",
+    "react-router.config.ts",
+    ".react-router/types/**/*",
+    ".generated/**/*"
+  ],
+  "exclude": ["node_modules", "dist", "build", ".output"]
+}

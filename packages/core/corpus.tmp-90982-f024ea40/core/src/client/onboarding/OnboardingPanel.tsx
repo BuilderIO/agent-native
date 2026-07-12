@@ -1,0 +1,1036 @@
+import {
+  IconCheck,
+  IconChecklist,
+  IconChevronDown,
+  IconChevronRight,
+  IconChevronUp,
+  IconExternalLink,
+  IconKey,
+  IconLoader2,
+} from "@tabler/icons-react";
+/**
+ * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
+ *
+ * The active step is expanded; completed steps collapse with a green check;
+ * remaining steps sit dimmed below. Each method renders differently based on
+ * its `kind` (link / form / builder-cli-auth / agent-task).
+ */
+import React, { useState, useEffect } from "react";
+
+import type {
+  OnboardingMethod,
+  OnboardingStepStatus,
+} from "../../onboarding/types.js";
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { useDevMode } from "../use-dev-mode.js";
+import { useOnboarding } from "./use-onboarding.js";
+import { useOnboardingPreviewMode } from "./use-preview-mode.js";
+
+type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
+
+interface OnboardingPanelProps {
+  /** Optional extra styles / classes for the wrapper. */
+  className?: string;
+  /** Override the built-in title. */
+  title?: string;
+}
+
+export function OnboardingPanel({
+  className,
+  title = "Setup",
+}: OnboardingPanelProps) {
+  const previewMode = useOnboardingPreviewMode();
+  const onboarding = useOnboarding({ preview: previewMode });
+  const { isDevMode } = useDevMode();
+  const {
+    steps: rawSteps,
+    currentStepId: rawCurrentStepId,
+    dismissed,
+    loading,
+    refresh,
+    complete,
+    dismiss,
+  } = onboarding;
+  // `database` and `auth` steps only apply to local dev (SQLite default,
+  // local-mode auth bypass). In production those are configured via env
+  // vars / deployment config, so don't nag the user about them.
+  const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
+  const steps = isDevMode
+    ? rawSteps
+    : rawSteps.filter((s) => !DEV_ONLY_STEP_IDS.has(s.id));
+  const totalCount = steps.length;
+  const completeCount = steps.filter((s) => s.complete).length;
+  const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
+  const currentStepId = steps.some((s) => s.id === rawCurrentStepId)
+    ? rawCurrentStepId
+    : (steps.find((s) => s.required && !s.complete)?.id ??
+      steps.find((s) => !s.complete)?.id ??
+      null);
+  // Default expanded. (Older code used `useState(!allComplete)`, but the first
+  // render fires with `steps === []` — `[].every()` is vacuously true, so
+  // `allComplete` was true and `expanded` got locked to false even after the
+  // real incomplete steps loaded.)
+  const [expanded, setExpanded] = useState(true);
+
+  if (loading || totalCount === 0) return null;
+  // Preview mode (dev overlay) bypasses the auto-hide so template authors
+  // can render the new-user flow even when their own setup is done.
+  if (!previewMode) {
+    if (dismissed) return null;
+    // Auto-hide once every required step is done — no need to take up sidebar
+    // space when there's nothing left to do.
+    if (allComplete) return null;
+  }
+
+  if (!expanded) {
+    return (
+      <div className={className} style={styles.compactBanner}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              style={styles.compactBannerBtn}
+              aria-label="Expand setup"
+            >
+              <span style={allComplete ? styles.checkDone : styles.checkTodo}>
+                {allComplete ? <IconCheck size={12} strokeWidth={3} /> : null}
+              </span>
+              <span style={styles.headerTitle}>{title}</span>
+              <span style={styles.headerCounter}>
+                {completeCount} of {totalCount}
+              </span>
+              <span
+                style={{
+                  marginInlineStart: "auto",
+                  opacity: 0.5,
+                  display: "flex",
+                }}
+              >
+                <IconChevronDown size={14} />
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Expand setup</TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+
+  return (
+    <div className={className} style={styles.root}>
+      <div style={styles.header}>
+        <div style={styles.headerLeft}>
+          {allComplete ? (
+            <span style={styles.checkDone}>
+              <IconCheck size={12} strokeWidth={3} />
+            </span>
+          ) : (
+            <IconChecklist size={14} style={styles.headerIcon} aria-hidden />
+          )}
+          <span style={styles.headerTitle}>{title}</span>
+          <span style={styles.headerCounter}>
+            {completeCount} of {totalCount}
+          </span>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              aria-label="Collapse onboarding"
+              style={styles.dismissBtn}
+            >
+              <IconChevronUp size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Collapse</TooltipContent>
+        </Tooltip>
+      </div>
+
+      <div style={styles.list}>
+        {steps.map((step) => (
+          <StepCard
+            key={step.id}
+            step={step}
+            expanded={step.id === currentStepId}
+            onMarkComplete={() => complete(step.id)}
+            onRefresh={refresh}
+          />
+        ))}
+      </div>
+
+      <div style={styles.footer}>
+        <button type="button" onClick={dismiss} style={styles.hideLink}>
+          Hide setup
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── StepCard ──────────────────────────────────────────────────────────────
+
+function StepCard({
+  step,
+  expanded: expandedProp,
+  onMarkComplete,
+  onRefresh,
+}: {
+  step: OnboardingStepStatus;
+  expanded: boolean;
+  onMarkComplete: () => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(expandedProp);
+  useEffect(() => setExpanded(expandedProp), [expandedProp]);
+
+  const isDone = step.complete;
+  const sortedMethods = [...step.methods].sort((a, b) => {
+    if (!!a.primary === !!b.primary) return 0;
+    return a.primary ? -1 : 1;
+  });
+
+  const handleCompleted = async () => {
+    await onRefresh();
+  };
+
+  return (
+    <div
+      style={{
+        ...styles.card,
+        ...(isDone ? styles.cardDone : null),
+      }}
+    >
+      <button
+        type="button"
+        style={styles.cardHeader}
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+      >
+        <span style={styles.cardHeaderLeft}>
+          <span style={isDone ? styles.checkDone : styles.checkTodo}>
+            {isDone ? <IconCheck size={12} strokeWidth={3} /> : null}
+          </span>
+          <span style={styles.cardTitle}>
+            {step.title}
+            {step.required && !isDone && (
+              <span style={styles.requiredPill}>required</span>
+            )}
+          </span>
+        </span>
+        <span style={styles.chevron}>
+          {expanded ? (
+            <IconChevronDown size={14} />
+          ) : (
+            <IconChevronRight size={14} className="rtl:-scale-x-100" />
+          )}
+        </span>
+      </button>
+
+      {expanded && (
+        <div style={styles.cardBody}>
+          <p style={styles.cardDesc}>{step.description}</p>
+          <StepMethods
+            step={step}
+            methods={sortedMethods}
+            onCompleted={handleCompleted}
+            onMarkManualComplete={onMarkComplete}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isFormMethod(
+  method: OnboardingMethod,
+): method is FormOnboardingMethod {
+  return method.kind === "form";
+}
+
+function StepMethods({
+  step,
+  methods,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  step: OnboardingStepStatus;
+  methods: OnboardingMethod[];
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  const formMethods = methods.filter(isFormMethod);
+
+  if (step.id === "llm" || step.id === "image-generation") {
+    return (
+      <ManagedProviderMethodGroup
+        methods={methods}
+        formMethods={formMethods}
+        stepId={step.id}
+        secondaryLabel={
+          step.id === "image-generation"
+            ? "Add image/video keys"
+            : "Add your own provider key"
+        }
+        onCompleted={onCompleted}
+        onMarkManualComplete={onMarkManualComplete}
+      />
+    );
+  }
+
+  if (methods.length > 1 && formMethods.length === methods.length) {
+    const pickerLabel = step.id === "auth" ? "Sign-in path" : "Provider";
+    return (
+      <div style={styles.methods}>
+        <FormMethodPicker
+          methods={formMethods}
+          label={pickerLabel}
+          onCompleted={onCompleted}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.methods}>
+      {methods.map((method) => (
+        <MethodBlock
+          key={method.id}
+          method={method}
+          stepId={step.id}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ManagedProviderMethodGroup({
+  methods,
+  formMethods,
+  stepId,
+  secondaryLabel,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  methods: OnboardingMethod[];
+  formMethods: FormOnboardingMethod[];
+  stepId: string;
+  secondaryLabel: string;
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const primaryMethod =
+    methods.find((method) => method.kind === "builder-cli-auth") ??
+    methods.find((method) => method.primary);
+  const otherMethods = methods.filter(
+    (method) => method !== primaryMethod && !isFormMethod(method),
+  );
+
+  return (
+    <div style={styles.methods}>
+      {primaryMethod && (
+        <MethodBlock
+          method={primaryMethod}
+          stepId={stepId}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      )}
+
+      {formMethods.length > 0 && (
+        <div style={styles.secondaryPanel}>
+          <button
+            type="button"
+            onClick={() => setShowKeyForm((value) => !value)}
+            style={styles.secondaryToggle}
+            aria-expanded={showKeyForm}
+          >
+            <span style={styles.secondaryToggleLeft}>
+              <IconKey size={13} aria-hidden />
+              <span>{secondaryLabel}</span>
+            </span>
+            <span style={styles.chevron}>
+              {showKeyForm ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} className="rtl:-scale-x-100" />
+              )}
+            </span>
+          </button>
+          {showKeyForm && (
+            <FormMethodPicker
+              methods={formMethods}
+              label="Provider"
+              onCompleted={onCompleted}
+              embedded
+            />
+          )}
+        </div>
+      )}
+
+      {otherMethods.map((method) => (
+        <MethodBlock
+          key={method.id}
+          method={method}
+          stepId={stepId}
+          onCompleted={onCompleted}
+          onMarkManualComplete={onMarkManualComplete}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FormMethodPicker({
+  methods,
+  label,
+  onCompleted,
+  embedded,
+}: {
+  methods: FormOnboardingMethod[];
+  label: string;
+  onCompleted: () => Promise<void>;
+  embedded?: boolean;
+}) {
+  const [selectedId, setSelectedId] = useState(methods[0]?.id ?? "");
+
+  useEffect(() => {
+    if (!methods.some((method) => method.id === selectedId)) {
+      setSelectedId(methods[0]?.id ?? "");
+    }
+  }, [methods, selectedId]);
+
+  const selectedMethod =
+    methods.find((method) => method.id === selectedId) ?? methods[0];
+
+  if (!selectedMethod) return null;
+
+  return (
+    <div style={embedded ? styles.methodPickerEmbedded : styles.method}>
+      <label style={styles.pickerLabel}>
+        <span style={styles.formLabelText}>{label}</span>
+        <select
+          value={selectedMethod.id}
+          onChange={(event) => setSelectedId(event.target.value)}
+          style={styles.select}
+        >
+          {methods.map((method) => (
+            <option key={method.id} value={method.id}>
+              {method.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedMethod.description && (
+        <p style={styles.methodDesc}>{selectedMethod.description}</p>
+      )}
+      <FormMethod
+        key={selectedMethod.id}
+        method={selectedMethod}
+        onCompleted={onCompleted}
+      />
+    </div>
+  );
+}
+
+// ─── MethodBlock ───────────────────────────────────────────────────────────
+
+function MethodBlock({
+  method,
+  stepId,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  method: OnboardingMethod;
+  stepId: string;
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  return (
+    <div style={method.primary ? styles.methodPrimary : styles.method}>
+      <div style={styles.methodHeader}>
+        <span style={styles.methodLabel}>
+          {method.label}
+          {method.badge && (
+            <span style={badgeStyle(method.badge)}>{method.badge}</span>
+          )}
+        </span>
+      </div>
+      {method.description && (
+        <p style={styles.methodDesc}>{method.description}</p>
+      )}
+      <MethodBody
+        method={method}
+        stepId={stepId}
+        onCompleted={onCompleted}
+        onMarkManualComplete={onMarkManualComplete}
+      />
+    </div>
+  );
+}
+
+function MethodBody({
+  method,
+  stepId,
+  onCompleted,
+  onMarkManualComplete,
+}: {
+  method: OnboardingMethod;
+  stepId: string;
+  onCompleted: () => Promise<void>;
+  onMarkManualComplete: () => void;
+}) {
+  if (method.disabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        style={buttonDisabled(method.primary)}
+        aria-disabled="true"
+      >
+        {method.disabledLabel ?? "Coming soon"}
+      </button>
+    );
+  }
+
+  switch (method.kind) {
+    case "link":
+      return (
+        <LinkMethod method={method} onMarkComplete={onMarkManualComplete} />
+      );
+    case "form":
+      return <FormMethod method={method} onCompleted={onCompleted} />;
+    case "builder-cli-auth":
+      return (
+        <BuilderCliAuthMethod
+          onCompleted={onCompleted}
+          primary={method.primary}
+        />
+      );
+    case "agent-task":
+      return <AgentTaskMethod method={method} stepId={stepId} />;
+  }
+}
+
+// ─── link ──────────────────────────────────────────────────────────────────
+
+function LinkMethod({
+  method,
+  onMarkComplete,
+}: {
+  method: Extract<OnboardingMethod, { kind: "link" }>;
+  onMarkComplete: () => void;
+}) {
+  const { url, external } = method.payload;
+  const isNoop = !url || url === "#";
+  if (isNoop) {
+    // Sentinel URL — treat as "mark this method as the chosen one".
+    return (
+      <button
+        type="button"
+        style={buttonPrimary(method.primary)}
+        onClick={onMarkComplete}
+      >
+        Use this option
+      </button>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target={external ? "_blank" : undefined}
+      rel={external ? "noopener noreferrer" : undefined}
+      style={{ ...buttonPrimary(method.primary), textDecoration: "none" }}
+    >
+      Continue
+      {external && (
+        <IconExternalLink size={12} style={{ marginInlineStart: 4 }} />
+      )}
+    </a>
+  );
+}
+
+// ─── form ──────────────────────────────────────────────────────────────────
+
+function FormMethod({
+  method,
+  onCompleted,
+}: {
+  method: Extract<OnboardingMethod, { kind: "form" }>;
+  onCompleted: () => Promise<void>;
+}) {
+  const { fields, writeScope, saveTo, secretDescription } = method.payload;
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErr(null);
+    try {
+      const vars = fields
+        .map((f) => ({ key: f.key, value: (values[f.key] ?? "").trim() }))
+        .filter((v) => v.value !== "");
+      if (vars.length === 0) {
+        setErr("Enter a value first.");
+        return;
+      }
+      if (saveTo === "scoped-secrets") {
+        const secretScope =
+          writeScope === "workspace" || writeScope === "app"
+            ? "workspace"
+            : "user";
+        for (const entry of vars) {
+          const res = await fetch(
+            agentNativePath("/_agent-native/secrets/adhoc"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: entry.key,
+                value: entry.value,
+                scope: secretScope,
+                description:
+                  secretDescription ?? method.description ?? "Setup key",
+              }),
+            },
+          );
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(
+              (data as { error?: string }).error ??
+                `Save failed: ${res.status}`,
+            );
+          }
+        }
+        setValues({});
+        await onCompleted();
+        return;
+      }
+      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vars, scope: writeScope ?? "workspace" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(
+          (data as { error?: string }).error ?? `Save failed: ${res.status}`,
+        );
+      }
+      setValues({});
+      await onCompleted();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} style={styles.form}>
+      {fields.map((f) => (
+        <label key={f.key} style={styles.formLabel}>
+          <span style={styles.formLabelText}>{f.label}</span>
+          <input
+            type={f.secret ? "password" : "text"}
+            value={values[f.key] ?? ""}
+            placeholder={f.placeholder}
+            onChange={(e) =>
+              setValues((v) => ({ ...v, [f.key]: e.target.value }))
+            }
+            style={styles.input}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+      ))}
+      {err && <p style={styles.errText}>{err}</p>}
+      <button
+        type="submit"
+        disabled={saving}
+        style={{ ...buttonPrimary(method.primary), opacity: saving ? 0.6 : 1 }}
+      >
+        {saving ? "Saving..." : "Save"}
+      </button>
+    </form>
+  );
+}
+
+// ─── builder-cli-auth ──────────────────────────────────────────────────────
+
+function BuilderCliAuthMethod({
+  onCompleted,
+  primary,
+}: {
+  onCompleted: () => Promise<void>;
+  primary?: boolean;
+}) {
+  const { connecting, error, start } = useBuilderConnectFlow({
+    trackingSource: "onboarding_builder_cli_auth",
+    onConnected: onCompleted,
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => start()}
+        disabled={connecting}
+        style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
+      >
+        {connecting ? (
+          <>
+            <IconLoader2
+              size={12}
+              style={{ marginInlineEnd: 4 }}
+              className="animate-spin"
+            />
+            Waiting for Builder...
+          </>
+        ) : (
+          "Connect Builder"
+        )}
+      </button>
+      {connecting && (
+        <p style={styles.methodHint}>
+          A Builder tab opened. Choose your team or app space there; setup will
+          continue here automatically.
+        </p>
+      )}
+      {error && <p style={styles.errText}>{error}</p>}
+    </>
+  );
+}
+
+// ─── agent-task ────────────────────────────────────────────────────────────
+
+function AgentTaskMethod({
+  method,
+  stepId: _stepId,
+}: {
+  method: Extract<OnboardingMethod, { kind: "agent-task" }>;
+  stepId: string;
+}) {
+  const handleClick = () => {
+    sendToAgentChat({ message: method.payload.prompt, submit: true });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      style={buttonPrimary(method.primary)}
+    >
+      Ask the agent
+    </button>
+  );
+}
+
+// ─── styles ────────────────────────────────────────────────────────────────
+
+function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "6px 12px",
+    borderRadius: 6,
+    border: primary
+      ? "1px solid transparent"
+      : "1px solid hsl(var(--border) / 0.8)",
+    background: primary ? "hsl(var(--primary))" : "hsl(var(--muted) / 0.4)",
+    color: primary ? "hsl(var(--primary-foreground))" : "inherit",
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+  };
+}
+
+function buttonDisabled(primary: boolean | undefined): React.CSSProperties {
+  return {
+    ...buttonPrimary(primary),
+    border: "1px solid hsl(var(--border) / 0.6)",
+    background: "hsl(var(--muted) / 0.35)",
+    color: "hsl(var(--muted-foreground))",
+    cursor: "not-allowed",
+  };
+}
+
+function badgeStyle(
+  kind: "recommended" | "beta" | "free" | "soon",
+): React.CSSProperties {
+  const palette = {
+    recommended: { bg: "rgba(59,130,246,0.15)", fg: "#60a5fa" },
+    beta: { bg: "rgba(6,182,212,0.15)", fg: "#22d3ee" },
+    free: { bg: "rgba(34,197,94,0.15)", fg: "#4ade80" },
+    soon: { bg: "rgba(148,163,184,0.15)", fg: "#cbd5e1" },
+  }[kind];
+  return {
+    marginInlineStart: 6,
+    fontSize: 10,
+    padding: "1px 6px",
+    borderRadius: 4,
+    background: palette.bg,
+    color: palette.fg,
+    fontWeight: 500,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.3,
+  };
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  root: {
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--muted) / 0.25)",
+    fontSize: 12,
+    display: "flex",
+    flexDirection: "column",
+    maxHeight: "60vh",
+    minHeight: 0,
+  },
+  compactBanner: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
+    background: "rgba(34,197,94,0.04)",
+    fontSize: 12,
+  },
+  compactBannerBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    cursor: "pointer",
+    padding: "6px 12px",
+    flex: 1,
+    minWidth: 0,
+  },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 12px",
+  },
+  headerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  headerIcon: { color: "#60a5fa" },
+  headerTitle: { fontWeight: 600, fontSize: 12 },
+  headerCounter: {
+    opacity: 0.5,
+    fontSize: 11,
+    marginInlineStart: 4,
+  },
+  dismissBtn: {
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    opacity: 0.5,
+    cursor: "pointer",
+    padding: 2,
+    display: "flex",
+  },
+  list: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    padding: "4px 8px 10px",
+    overflowY: "auto",
+    minHeight: 0,
+    flex: "1 1 auto",
+  },
+  card: {
+    border: "1px solid hsl(var(--border, 0 0% 100%) / 0.06)",
+    borderRadius: 6,
+    background: "hsl(var(--muted, 0 0% 0%) / 0.12)",
+  },
+  cardDone: {
+    borderColor: "rgba(34,197,94,0.12)",
+    background: "rgba(34,197,94,0.025)",
+  },
+  cardHeader: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    padding: "7px 9px",
+    cursor: "pointer",
+    textAlign: "start" as const,
+  },
+  cardHeaderLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  cardTitle: {
+    fontSize: 12,
+    fontWeight: 500,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+    flexWrap: "wrap" as const,
+  },
+  requiredPill: {
+    fontSize: 10,
+    padding: "1px 5px",
+    borderRadius: 4,
+    background: "rgba(239,68,68,0.12)",
+    color: "#f87171",
+    fontWeight: 500,
+  },
+  chevron: { opacity: 0.5 },
+  checkDone: {
+    width: 16,
+    height: 16,
+    borderRadius: "50%",
+    background: "#22c55e",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkTodo: {
+    width: 16,
+    height: 16,
+    borderRadius: "50%",
+    border: "1px solid hsl(var(--border))",
+  },
+  cardBody: {
+    paddingBlock: "0 10px",
+    paddingInline: "34px 10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  cardDesc: {
+    margin: 0,
+    opacity: 0.65,
+    fontSize: 12,
+    lineHeight: 1.4,
+  },
+  methods: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  method: {
+    padding: "8px 10px",
+    border: "1px solid hsl(var(--border) / 0.65)",
+    borderRadius: 6,
+    background: "hsl(var(--card) / 0.55)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  methodPrimary: {
+    padding: "10px",
+    border: "1px solid rgba(59,130,246,0.25)",
+    borderRadius: 6,
+    background: "rgba(59,130,246,0.06)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  methodHeader: { display: "flex", alignItems: "center" },
+  methodLabel: { fontSize: 12, fontWeight: 500 },
+  methodDesc: { margin: 0, opacity: 0.6, fontSize: 11, lineHeight: 1.4 },
+  secondaryPanel: {
+    paddingTop: 2,
+  },
+  secondaryToggle: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "7px 8px",
+    borderRadius: 6,
+    border: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--muted) / 0.35)",
+    color: "inherit",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 500,
+    textAlign: "start" as const,
+  },
+  secondaryToggleLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  methodPickerEmbedded: {
+    paddingTop: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  pickerLabel: { display: "flex", flexDirection: "column", gap: 3 },
+  form: { display: "flex", flexDirection: "column", gap: 6 },
+  formLabel: { display: "flex", flexDirection: "column", gap: 2 },
+  formLabelText: { fontSize: 11, opacity: 0.6 },
+  select: {
+    width: "100%",
+    padding: "6px 8px",
+    fontSize: 12,
+    borderRadius: 5,
+    border: "1px solid hsl(var(--input))",
+    background: "hsl(var(--background))",
+    color: "inherit",
+    outline: "none",
+    boxSizing: "border-box" as const,
+  },
+  input: {
+    width: "100%",
+    padding: "6px 8px",
+    fontSize: 12,
+    borderRadius: 5,
+    border: "1px solid hsl(var(--input))",
+    background: "hsl(var(--background))",
+    color: "inherit",
+    outline: "none",
+    boxSizing: "border-box" as const,
+  },
+  methodHint: {
+    margin: 0,
+    fontSize: 11,
+    color: "hsl(var(--muted-foreground))",
+  },
+  errText: { margin: 0, fontSize: 11, color: "#f87171" },
+  footer: {
+    padding: "0 12px 10px",
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  hideLink: {
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    opacity: 0.5,
+    cursor: "pointer",
+    fontSize: 11,
+    padding: "2px 4px",
+  },
+};

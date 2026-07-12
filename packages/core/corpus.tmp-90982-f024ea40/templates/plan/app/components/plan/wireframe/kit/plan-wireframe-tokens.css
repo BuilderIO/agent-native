@@ -1,0 +1,142 @@
+/*
+ * Plan wireframe design tokens.
+ *
+ * The MODEL emits a lean kit tree (no geometry, no CSS). This stylesheet owns
+ * ALL visual quality for the wireframe primitives: ink/paper/accent palette,
+ * density-driven spacing/type, and the hand-drawn fonts. Every kit component in
+ * ./* reads these CSS vars, so density / accent / theme are switchable by
+ * toggling a single attribute on a `.plan-wf` scope — never by changing nodes.
+ *
+ * Scope: `.plan-wf` (set on the Screen wrapper). Tokens are scoped, not global,
+ * so wireframes can sit alongside the normal app chrome without leaking fonts
+ * or colors.
+ */
+
+/* Hand-drawn fonts. Excalifont is served by the app; no remote font dependency. */
+
+.plan-wf {
+  /* ---- Theme palette ----------------------------------------------------- */
+  --ink: var(--plan-text, hsl(var(--foreground)));
+  --ink-soft: var(--plan-muted, hsl(var(--muted-foreground)));
+  --line: var(--plan-line, hsl(var(--border)));
+  /* Sketch stroke = a soft gray a step more pronounced than --line so rough
+     strokes read clearly; matches the HTML artboard. Text stays the dark --ink. */
+  --wf-sketch: var(--plan-muted-line, hsl(var(--border)));
+  --paper: var(--plan-document, hsl(var(--background)));
+  --card: var(--plan-block, hsl(var(--card)));
+  --accent: hsl(var(--ring));
+  --accent-soft: color-mix(in srgb, var(--accent) 15%, transparent);
+  --warn: hsl(var(--destructive));
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  --ok: var(--accent);
+  --ok-soft: color-mix(in srgb, var(--ok) 15%, transparent);
+
+  /* Page backdrop behind artboards (board surface, not the screen paper). */
+  --plan-wf-page-bg: var(--plan-canvas, hsl(var(--background)));
+
+  /* ---- Fonts ------------------------------------------------------------- */
+  --font-hand:
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-script:
+    "Excalifont", "Comic Sans MS", "Bradley Hand", "Marker Felt", cursive;
+  --font-clean:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+
+  /* ---- Density (regular default) ----------------------------------------- */
+  /* Density is selected via [data-density]; individual tokens below. */
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+
+  /* ---- Sketch wobble ----------------------------------------------------- */
+  /* Default crisp (low sketch). setSketch() helper overrides these inline. */
+  --wobble: none;
+}
+
+/* Density variants. Match the reference DENSITY map exactly. */
+.plan-wf[data-density="compact"] {
+  --gap: 7px;
+  --pad: 9px;
+  --fs: 13px;
+  --radius: 6px;
+  --stroke: 1.3px;
+}
+
+.plan-wf[data-density="regular"] {
+  --gap: 11px;
+  --pad: 12px;
+  --fs: 14px;
+  --radius: 7px;
+  --stroke: 1.4px;
+}
+
+.plan-wf[data-density="roomy"] {
+  --gap: 15px;
+  --pad: 17px;
+  --fs: 15px;
+  --radius: 9px;
+  --stroke: 1.6px;
+}
+
+/* ---- Clean style: drop the hand-drawn font for a normal sans ------------- */
+/* In clean mode the rough overlay is off and frames get crisp CSS borders, so
+   the handwriting font reads as out of place — switch to the sans stack. */
+.plan-wf[data-style="clean"] {
+  --font-hand: var(--font-clean);
+  --font-script: var(--font-clean);
+}
+
+/* ---- Rough sketch layer -------------------------------------------------- */
+/* The hand-drawn outlines are drawn by the rough.js overlay (kit/rough.tsx).
+   Once it has measured + drawn, hide the crisp CSS borders so there is never a
+   doubled border — fills and text stay, only the outline is replaced. */
+.plan-wf[data-rough-ready] [data-rough] {
+  border-color: transparent !important;
+}
+
+/* ---- Skeleton / neutral loading register --------------------------------- */
+/* One block flips the WHOLE kit to a textless skeleton: no ink, no rough, no
+   color — every primitive already reads these vars, so nothing else changes.
+   A skeleton is boxes + bars only; real labels collapse to transparent so the
+   silhouette is preserved without readable copy. */
+.plan-wf[data-skeleton="true"] {
+  --ink: var(--skeleton-fill);
+  --ink-soft: var(--skeleton-fill);
+  --line: var(--skeleton-fill);
+  --card: var(--skeleton-block);
+  --accent: var(--skeleton-fill);
+  --accent-soft: var(--skeleton-block);
+  --warn: var(--skeleton-fill);
+  --warn-soft: var(--skeleton-block);
+  --ok: var(--skeleton-fill);
+  --ok-soft: var(--skeleton-block);
+  --stroke: 0px;
+  --skeleton-fill: var(--plan-muted-line, hsl(var(--border)));
+  --skeleton-block: var(--plan-block, hsl(var(--card)));
+}
+/* Textless: hide real labels but keep their layout footprint. */
+.plan-wf[data-skeleton="true"] * {
+  color: transparent !important;
+  border-color: transparent !important;
+}
+/* Soft rounded placeholder bars in skeleton mode. */
+.plan-wf[data-skeleton="true"] {
+  --radius: 7px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .plan-wf[data-skeleton="true"] {
+    animation: plan-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+}
+@keyframes plan-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

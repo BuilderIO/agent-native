@@ -1,0 +1,55 @@
+# React Router generated types
+.react-router/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.config/
+.env
+.output/
+
+# Auth sessions (sensitive, never commit)
+data/.sessions.json
+
+# Generated chart images (ephemeral)
+media/*.png
+media/theme.json
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md
+
+build
+
+.generated/
+
+# Migration scratchpad (not for commit)
+.migration/
+
+# Stray SQLite files at the template root (real DB lives under data/)
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
+
+.vercel/

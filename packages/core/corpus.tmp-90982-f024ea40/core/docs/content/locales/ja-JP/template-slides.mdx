@@ -1,0 +1,455 @@
+---
+title: "スライド"
+description: "プロンプトからデッキを生成し、視覚的に編集し、全画面で表示します。 Google Slides、Pitch、PowerPointのオープンソースの代替品。"
+---
+
+# スライド
+
+プロンプトから完全なプレゼンテーション デッキを生成し、スライドを視覚的に編集し、全画面で表示します。エージェントに「コーヒーのサブスクリプション サービス用の 10 枚のスライドの提案資料」を依頼し、それがスライドごとに数秒でエディターにストリーミングされるのを確認します。 Google Slides、Pitch、PowerPointのオープンソースの代替品。
+
+<WireframeBlock id="doc-block-4t9ejf">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 取締役会アップデート</h1><span class='wf-pill accent'>タイトルスライド</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>共有</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 取締役会アップデート</strong><br/><small>Maya Chen · 最高経営責任者</small><div style='height:46px'></div><span class='wf-pill'>プロダクトの勢い</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>スライドのアウトライン</strong><div class='wf-box'>1 タイトル</div><div class='wf-box'>2 アジェンダ</div><div class='wf-box'>3 指標</div><div class='wf-box'>4 出荷済み</div></div><div class='wf-card' style='flex:1'><strong>スピーカーノート</strong><p class='wf-muted' style='margin:8px 0 0'>ローンチ進捗とリテンションのストーリーで始める。</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 タイトル</div><div class='wf-box'>2 アジェンダ</div><div class='wf-box'>3 指標</div><div class='wf-box'>4 出荷済み</div><div class='wf-box'>5 リスク</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+デッキを開くと、スライド キャンバス、アウトライン、メモ、フィルムストリップは 1 つのエディター画面に留まり、エージェントは引き続き actions でスライドを作成、修正、移動できます。
+
+<Diagram id="doc-block-1lrfamx" title={"デッキへのプロンプト"} summary={"デッキを要求すると、エージェントは CLI から呼び出すことができるのと同じアクションを通じて、スライドを一度に 1 つずつストリーミングします。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    プロンプト<br /><small class="diagram-muted">"10-slide pitch deck"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">レイアウトを選択</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">create-deck</div>
+    <div class="diagram-pill">add-slide &#215; n</div>
+    <small class="diagram-muted">並列、ストリーミング</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>decks (SQL)</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">エディターがライブでレンダリング</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## それを使って何ができるか
+
+- **プロンプトからデッキを生成します。** 「コーヒーのサブスクリプション サービス用の 10 スライドのピッチデッキを生成します。聴衆は投資家です。」
+- **スライドを視覚的に編集** — テキストをダブルクリックして編集し、バブル メニューのブロックをクリックし、スラッシュ メニューの `/` を使用してブロックを挿入します。
+- **AI を使用して画像を生成します。** ヒーロー画像、製品モックアップ、イラスト - できればアセットに委任し、Builder で管理された画像生成を使用して、展開後すぐに有効にし、今日のフォールバックとしてプロバイダー キーを直接生成します。
+- **ストック写真と会社のロゴを検索します。** 「stripe.com のロゴを見つけて、スライド 2 に追加します。」
+- **キーボード ナビゲーション、自動非表示コントロール、スピーカー ノートを備えた全画面表示**。
+- **コメント、共同作業、共有。** 複数の人が同じデッキをリアルタイムで編集できます。公開読み取り専用 URL を生成するか、特定のチームメイトと共有します。
+- **PDF からインポートします。** PDF をスターター デッキに変えます。エージェントはそれを解析し、コンテンツをレイアウトします。
+- **他の形式からインポートします。** 出発点として、PPTX、DOCX、Google ドキュメント、GitHub リポジトリ、または任意の URL をインポートします。 PPTX、Google スライド、または HTML にエクスポートします。
+- **デザイン システムを適用します。** ブランド トークン、カスタム指示、およびデフォルトのパレットはデザイン システムとして保存され、新しいデッキに適用されます。
+- **以前のバージョンを復元します。** 各デッキの変更はスナップショットに記録されます。以前のバージョンをリストまたは復元します。
+
+## はじめに
+
+ライブデモ: [slides.agent-native.com](https://slides.agent-native.com)。
+
+アプリを開いたとき:
+
+1. [**新しいデッキ**] をクリックします。
+2. エージェントに次のように尋ねます。「コーヒーのサブスクリプション サービスについて 10 枚のスライドを作成してください。聴衆は投資家です。」
+3. スライドがストリーミングされるのを確認します。スライドをクリックして編集するか、エージェントに調整を依頼し続けます。
+
+### 便利なプロンプト
+
+- 「コーヒーのサブスクリプション サービス用に 10 枚のスライドからなるピッチデッキを作成します。聴衆は投資家です。」
+- 「スライド 3 の後に価格スライドを追加します。」
+- 「このスライドのタイトルを大きくし、アクセントカラーを緑に変更します。」
+- 「現在のスライドのヒーロー画像を生成します — ダーク、ミニマル、映画のような。」
+- 「stripe.com のロゴを見つけて、スライド 2 に追加します。」
+- 「このデッキ内のすべての場所で、「顧客」という単語を「メンバー」に置き換えてください。」
+- 「この PDF を 6 スライドのデッキとして要約してください。」 (PDFを取り付けてください)
+
+スライド上のテキストを選択し、Cmd+I を押すと、その選択内容がエージェントに焦点を当てます。エージェントは選択した内容にのみ作用します。
+
+## 開発者向け
+
+このドキュメントの残りの部分は、スライド テンプレートをフォークしたり拡張したりする人を対象としています。
+
+### クイックスタート
+
+CLI から新しいスライド アプリを作成します:
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+cd my-slides
+pnpm install
+pnpm dev
+```
+
+### 主な機能 {#key-features}
+
+**プロンプトからデッキへの生成。** デッキを要求すると、エージェントは自分で実行できるのと同じ作成および編集 actions を使用して、スライドをエディターにストリーミングします。
+
+**編集可能なスライド キャンバス。** インライン テキスト編集、スラッシュ挿入、コード編集、ドラッグ アンド ドロップ順序、元に戻す/やり直し、コメント、プレゼンテーション モードはすべてデッキ表面にあります。
+
+**インポートとエクスポート。** PPTX、DOCX、Google ドキュメント、PDF、URL、GitHub リポジトリを取り込みます。 PPTX、Google スライド、HTML、または共有リンクにエクスポートします。
+
+**デザイン システムとメディア。** 保存されたブランド システム、画像生成、ストック検索、ロゴ検索により、デッキは意図した視覚的方向に近づけられます。
+
+**コラボレーションと履歴。** リアルタイム YJS 編集、スレッド化されたコメント、役割の共有、デッキ バージョンのスナップショットが組み込まれています。
+
+### エージェントとの連携
+
+エージェント チャットはサイドバーにあります。デッキの作成、個々のスライドの編集、画像の生成、ロゴの検索、UI の操作が可能です。これらはすべて、CLI から実行するのと同じ actions を使用します。
+
+#### エージェントに表示されるもの
+
+デッキが開いていると、エージェントは自動的に次の情報を確認します。
+
+- 現在の `deckId` および `slideIndex`。
+- オープンデッキのスライドの完全なリスト。
+- 現在選択されているスライドの HTML コンテンツ。
+
+これは `current-screen` ブロックとしてすべてのメッセージに挿入されるため、エージェントは「このスライド」が何を意味するかを推測する必要はありません。データは、UI がすべてのナビゲーションに書き込む `navigation` アプリケーション状態キーから取得されます。 `templates/slides/actions/view-screen.ts` を参照してください。
+
+#### 集中編集のためのテキストの選択
+
+スライド上のテキストを選択し、Cmd+I を押して、その選択内容が事前にロードされた状態でエージェントにフォーカスします。エージェントは、選択した内容にのみ基づいて動作します。
+
+#### チャットでのインライン スライド プレビュー
+
+エージェントは、フレームワークの埋め込みフェンスを使用して、ライブ スライド プレビューをチャット返信に直接埋め込むことができます。 `app/routes/slide.tsx` 経由でクロムレス iframe をレンダリングするので、会話を離れることなく結果を確認できます。
+
+### データモデル
+
+すべてのデッキ データは、Drizzle ORM を介して SQL に存在します。スキーマ: `templates/slides/server/db/schema.ts`。
+
+<DataModel
+  id="doc-block-1rewyef"
+  title={"スライドデータモデル"}
+  summary={
+    "A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
+  }
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "Slides live as JSON in data; carries ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "e.g. deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "コメントをスライドさせたままにする",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "ねじ切り",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "復元のためのポイントインタイムのスナップショット",
+      fields: [
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "フルデッキ JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "永続化されたパブリック共有リンクのスナップショット",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON スライドのスナップショット",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "comments",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "snapshots",
+    },
+  ]}
+/>
+
+フレームワーク共有テーブル (`deck_shares`、`design_system_shares`) は、リソースごとにプリンシパルを閲覧者/編集者/管理者の役割にマップします。
+
+#### デッキ
+
+| 列           | タイプ   | メモ                                                        |
+| ------------ | -------- | ----------------------------------------------------------- |
+| `id`         | テキスト | 主キー、例: `deck-1712345-abc`                              |
+| `title`      | テキスト | デッキタイトル                                              |
+| `data`       | テキスト | JSON ブロブ: `{ title, slides: [{ id, content, layout }] }` |
+| `created_at` | テキスト | タイムスタンプ                                              |
+| `updated_at` | テキスト | タイムスタンプ                                              |
+
+各デッキには標準の `ownableColumns` (所有者、可視性、共有トークン) も含まれているため、フレームワークの共有モデルに組み込まれます。
+
+#### スライドコメント
+
+| 列                            | メモ                                     |
+| ----------------------------- | ---------------------------------------- |
+| `id`                          | 主キー                                   |
+| `deck_id`                     | 親デッキ                                 |
+| `slide_id`                    | スライドのコメントは残ります             |
+| `thread_id`, `parent_id`      | スレッド                                 |
+| `content`, `quoted_text`      | コメント本文とオプションのテキストの抜粋 |
+| `author_email`, `author_name` | 著者                                     |
+| `resolved`                    | ブールフラグ                             |
+
+#### デッキシェア
+
+デッキごとにプリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングする、フレームワークが提供する共有テーブル (`createSharesTable` によって作成)。
+
+#### デッキバージョン
+
+デッキの特定時点のスナップショット — `deck_id`、`title`、`data` (フルデッキ JSON)、およびオプションの `change_label`。 `list-deck-versions` / `restore-deck-version` によって使用されます。
+
+#### デザインシステム
+
+再利用可能なブランド トークン — `data` (色/タイポグラフィ/間隔)、`assets`、`custom_instructions`、および `is_default` フラグ。 `ownableColumns` を使用するため、設計システムをユーザーごとまたは組織ごとに共有できます。
+
+#### design_system_shares
+
+フレームワークは設計システムのテーブルを共有し、プリンシパルをロール (閲覧者、編集者、管理者) にマッピングします。
+
+#### deck_share_links
+
+`token` をキーとする永続的なパブリック共有リンク スナップショット。各行には、`title`、JSON `slides` アレイ スナップショット、オプションの `aspect_ratio`、および `created_at` が格納されます。ここで共有リンクを維持するということは、サーバーの再起動後も共有リンクが存続し、サーバーレス インスタンス全体で機能することを意味します。
+
+#### スライド構造
+
+`decks.data` 内の各スライドは次のとおりです:
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` は生の HTML です。レンダラ (`app/components/deck/SlideRenderer.tsx`) は黒の背景と固定アスペクト比を提供し、HTML は内部のすべてを提供します。豊富な埋め込みもサポートされています: `ExcalidrawSlide.tsx` 経由の Excalidraw ダイアグラムと `MermaidRenderer.tsx` 経由の Mermaid チャート。
+
+### カスタマイズ {#customizing}
+
+スライド テンプレートは完全にフォーク可能です。拡張するときに確認すべき重要な場所:
+
+#### Actions — `templates/slides/actions/`
+
+エージェントが呼び出し可能なすべての操作は、TypeScript ファイルとしてここに存在します。よく触れるもの:
+
+- `create-deck.ts` — 最初から新しいデッキ、または一括交換。
+- `add-slide.ts` — 1 つのスライドを追加します。ストリーミング生成にはこれを推奨します。
+- `update-slide.ts` — 外科的検索/置換または完全なコンテンツ交換。
+- `view-screen.ts` — ユーザーに表示されるもののスナップショット。
+- `generate-image.ts`、`edit-image.ts`、`image-search.ts`、`logo-lookup.ts` — 画像ツール。
+- `extract-pdf.ts` — PDF の取り込み。
+
+すべてのアクションは `POST /_agent-native/actions/:name` に自動マウントされ、CLI から `pnpm action <name>` として呼び出すことができます。ここに新しいファイルを追加して、エージェントに新しい機能を与えます。
+
+#### ルート — `templates/slides/app/routes/`
+
+- `_index.tsx` — デッキリスト。
+- `deck.$id.tsx` — 編集者。
+- `deck.$id_.present.tsx` — プレゼンテーション モード。
+- `share.$token.tsx` — 公開読み取り専用共有ページ。
+- `slide.tsx` — チャット プレビューで使用されるシングル スライドの埋め込み。
+- `settings.tsx` — テンプレート設定。
+- `team.tsx` — 組織およびチームの管理。
+
+#### エディタ コンポーネント — `templates/slides/app/components/editor/`
+
+ほとんどの UI カスタマイズはここで行われます: `SlideEditor.tsx`、`EditorToolbar.tsx`、`EditorSidebar.tsx`、バブル メニュー、スラッシュ メニュー、画像生成、検索、履歴のパネル。
+
+#### Skills — `templates/slides/.agents/skills/`
+
+エージェントがコードを変更する必要がある場合のパターンを説明するエージェント skills:
+
+- `create-deck/` — スライドを含む新しいデッキを作成する方法。
+- `slide-editing/` — 個々のスライドを編集する方法。
+- `deck-management/` — デッキの保存方法とアクセス方法。
+- `slide-images/` — 画像の生成と検索のワークフロー。
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` は、エージェントがすべての会話で読み取る短いルーターです。これは、`.agents/skills/` の下の skills を指し、コア ルール、アプリケーション状態コントラクト、およびスキル インデックスをレイアウトします。すべてのレイアウトの正確なスライド HTML テンプレートは `.agents/skills/create-deck/SKILL.md` にあります。スライド レイアウト パターンを追加または変更するたびに、そのスキルを更新します。
+
+#### API ルート
+
+actions が適切ではない場合 (ファイルのアップロード、ストリーミング)、テンプレートは REST エンドポイントの小さなセット (`GET/POST /api/decks`、`GET/PUT/DELETE /api/decks/:id`) を公開します。 `templates/slides/server/routes/api/` を参照してください。

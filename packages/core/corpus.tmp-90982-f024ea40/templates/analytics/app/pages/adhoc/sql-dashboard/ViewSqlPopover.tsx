@@ -1,0 +1,300 @@
+import { useReconciledState, useT } from "@agent-native/core/client";
+import {
+  IconAlertTriangle,
+  IconAlignLeft,
+  IconCheck,
+  IconCopy,
+  IconLoader2,
+  IconRotate,
+} from "@tabler/icons-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
+import { SqlHighlight } from "@/components/SqlHighlight";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+
+import type { DataSourceType, SqlPanel } from "./types";
+
+const SOURCE_LABELS: Record<DataSourceType, string> = {
+  bigquery: "BigQuery",
+  ga4: "Google Analytics",
+  amplitude: "Amplitude",
+  "first-party": "First-party",
+  demo: "Demo Prometheus",
+  prometheus: "Prometheus",
+  program: "Data program",
+};
+
+interface ViewSqlPopoverProps {
+  panel: SqlPanel;
+  resolvedSql?: string;
+  /** Persist a SQL-only edit. Should throw on validation failure so the
+   *  popover can keep open and surface the error inline. */
+  onSaveSql?: (sql: string) => Promise<void>;
+  editable?: boolean;
+  children: ReactNode;
+}
+
+export function ViewSqlPopover({
+  panel,
+  resolvedSql,
+  onSaveSql,
+  editable = true,
+  children,
+}: ViewSqlPopoverProps) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showResolved, setShowResolved] = useState(false);
+
+  // Track whether the user has diverged from the server SQL ("dirty"). While
+  // dirty we hold the draft so we don't clobber in-progress edits; otherwise we
+  // re-adopt `panel.sql` so an agent edit shows up live even with the popover
+  // open. We can't reference `dirty` before `draft` exists, so derive the
+  // active flag from a ref that mirrors the dirty comparison below.
+  const dirtyRef = useRef(false);
+  const [draft, setDraft] = useReconciledState(panel.sql, {
+    active: dirtyRef.current,
+  });
+  const dirty = draft !== panel.sql;
+  dirtyRef.current = dirty;
+
+  useEffect(() => {
+    if (open) {
+      setDraft(panel.sql);
+      setError(null);
+      setShowResolved(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const canEditSql = editable && !!onSaveSql;
+  const hasResolvedDifference =
+    resolvedSql !== undefined && resolvedSql !== panel.sql;
+  const canFormat = canEditSql && canFormatPanelSql(panel.source);
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+  const handleSave = async () => {
+    if (!canEditSql || !dirty || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSaveSql(draft);
+      setOpen(false);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : t("sqlDashboard.failedToSave"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    const text = showResolved && resolvedSql ? resolvedSql : draft;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error(t("sqlDashboard.couldNotCopySql"));
+    }
+  };
+
+  const handleReset = () => {
+    setDraft(panel.sql);
+    setError(null);
+  };
+
+  const handleFormat = () => {
+    if (!canFormat) return;
+    try {
+      setDraft(formatPanelSql(draft, panel.source));
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("sqlDashboard.failedToFormatSql"),
+      );
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        aria-label={t("sqlDashboard.viewSql")}
+        className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-4"
+        onKeyDown={(e) => {
+          if (canEditSql && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            handleSave();
+          }
+        }}
+      >
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="text-sm font-semibold leading-none">SQL</h3>
+            <Badge variant="secondary" className="text-[10px] font-normal">
+              {SOURCE_LABELS[panel.source]}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-1">
+            {canEditSql && dirty && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleReset}
+                    disabled={saving}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconRotate className="h-3.5 w-3.5 mr-1" />
+                    Reset
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sqlDashboard.discardChanges")}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {canFormat && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleFormat}
+                    disabled={saving || !draft.trim()}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
+                    Format
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("sqlDashboard.formatSql")}</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCopy}
+                  className="h-7 px-2 text-xs"
+                >
+                  {copied ? (
+                    <IconCheck className="h-3.5 w-3.5 mr-1" />
+                  ) : (
+                    <IconCopy className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {copied ? t("sqlDashboard.copied") : t("sqlDashboard.copy")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {showResolved && resolvedSql
+                  ? t("sqlDashboard.copyResolvedSql")
+                  : t("sqlDashboard.copySql")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        <SqlEditor
+          aria-label="SQL"
+          value={draft}
+          onChange={(e) => {
+            if (canEditSql) setDraft(e.target.value);
+          }}
+          rows={12}
+          className="min-h-[240px]"
+          placeholder="SELECT ..."
+          readOnly={!canEditSql}
+        />
+        {canEditSql ? (
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            {t("sqlDashboard.filterInterpolationHelp", {
+              example: "{{varName}}",
+              shortcut: `${isMac ? "⌘" : "Ctrl"}+Enter`,
+            })}
+          </p>
+        ) : null}
+
+        {hasResolvedDifference && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline cursor-pointer"
+              onClick={() => setShowResolved((v) => !v)}
+            >
+              {showResolved
+                ? t("sqlDashboard.hideResolvedSql")
+                : t("sqlDashboard.showResolvedSql")}
+            </button>
+            {showResolved && (
+              <SqlHighlight
+                sql={resolvedSql ?? ""}
+                preClassName="mt-2 p-2.5 rounded bg-muted max-h-48 overflow-y-auto"
+              />
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-3 flex gap-2 items-start rounded-md border border-destructive/50 bg-destructive/10 p-2.5 text-xs text-destructive"
+          >
+            <IconAlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="whitespace-pre-wrap break-words font-mono">
+              {error}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={saving}
+          >
+            {t("sqlDashboard.close")}
+          </Button>
+          {canEditSql ? (
+            <Button size="sm" onClick={handleSave} disabled={!dirty || saving}>
+              {saving ? (
+                <>
+                  <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  {t("sqlDashboard.saving")}
+                </>
+              ) : (
+                t("sqlDashboard.save")
+              )}
+            </Button>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}

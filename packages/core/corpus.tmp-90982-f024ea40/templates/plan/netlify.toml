@@ -1,0 +1,18 @@
+[build]
+ignore = "node ./scripts/netlify-ignore-build.mjs plan"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build"
+publish = "templates/plan/dist"
+functions = "templates/plan/.netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
+
+# A2A/MCP calls may include plan generation, artifact serialization, and
+# feedback polling. Keep this aligned with other agent-heavy hosted templates.
+# Agent chat runs are dispatched to the emitted Netlify background function;
+# the normal server timeout still protects non-background HTTP handlers.
+[functions."*"]
+timeout = 75

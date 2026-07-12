@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "plans",
+  "displayName": "Agent-Native Plan",
+  "description": "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, share links, feedback, and HTML export.",
+  "hosted": {
+    "url": "https://plan.agent-native.com",
+    "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": {
+    "serverName": "plan",
+    "aliases": ["agent-native-plans"]
+  },
+  "local": {
+    "template": "plan",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8105",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Install with the Agent-Native CLI to add the /visual-plan and /visual-recap skills plus the Plan MCP connector. Plans use the app session for scoped storage and review; Google sign-in is available when OAuth env vars are configured."
+  },
+  "surfaces": [
+    {
+      "id": "visual-plan",
+      "action": "create-visual-plan",
+      "path": "/plans",
+      "description": "Create or open an Agent-Native visual plan for a coding-agent task."
+    },
+    {
+      "id": "visual-recap",
+      "action": "create-visual-recap",
+      "path": "/plans",
+      "description": "Create a visual recap plan from a PR, commit, branch, or git diff for high-altitude review."
+    },
+    {
+      "id": "visualize-repo",
+      "path": "/local-plans",
+      "description": "Open a local, repo-backed visual documentation workspace for APIs, components, models, flows, comments, and coding-agent handoff."
+    }
+  ],
+  "skills": [
+    {
+      "path": ".agents/skills/visual-plan",
+      "visibility": "both",
+      "exportAs": "visual-plan"
+    },
+    {
+      "path": ".agents/skills/visual-recap",
+      "visibility": "both",
+      "exportAs": "visual-recap"
+    },
+    {
+      "path": ".agents/skills/visualize-repo",
+      "visibility": "both",
+      "exportAs": "visualize-repo"
+    }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}

@@ -1,0 +1,241 @@
+---
+title: "Menções de agente"
+description: "Etiquete agentes personalizados, agentes conectados e arquivos no bate-papo com @menções."
+---
+
+# Menções de agente
+
+Digite `@` no compositor do chat para mencionar agentes personalizados, agentes conectados, arquivos e recursos.
+
+## Visão geral {#overview}
+
+O sistema de menção `@` conecta o compositor de bate-papo ao ecossistema mais amplo de agentes. Quando você digita `@`, um popover aparece listando agentes personalizados, agentes conectados, arquivos de base de código e recursos disponíveis.
+
+É assim que você orquestra fluxos de trabalho multiagentes a partir de um único chat. Peça ao seu agente `@design` local para avaliar um layout, ao `@analytics` para obter os números mais recentes de outro aplicativo, e o agente principal pode incorporar ambos em uma conversa.
+
+## Mencionando agentes {#mentioning-agents}
+
+Para mencionar um agente no compositor do chat:
+
+1. Digite `@` para abrir o popover de menção
+2. Navegue ou pesquise a lista de agentes disponíveis
+3. Selecione um agente — ele aparece como uma tag na sua mensagem
+4. Envie a mensagem — o servidor resolve a menção e inclui a resposta do agente no contexto da conversa
+
+Existem dois caminhos de agente:
+
+- **Agentes personalizados** — perfis de agente do espaço de trabalho local em `agents/*.md`. Eles são executados dentro do aplicativo/tempo de execução atual usando as instruções do perfil do agente e a substituição opcional do modelo.
+- **Agentes conectados** — pares A2A remotos. Eles são chamados pelo [A2A protocol](/docs/a2a-protocol).
+
+Em ambos os casos, seu agente principal vê a resposta e pode referenciá-la ou aproveitá-la.
+
+<Diagram id="doc-block-ta9yf8" title={"Onde uma @-menção direciona"} summary={"O servidor divide cada menção por tipo: agentes personalizados são executados localmente, agentes conectados passam por A2A — ambas as respostas voltam ao contexto do agente principal."}>
+
+```html
+<div class="diagram-mention">
+  <div class="diagram-node">
+    @-mention<br /><small class="diagram-muted">in the composer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Servidor resolve</span
+    ><small class="diagram-muted">extract refs by type</small>
+  </div>
+  <div class="diagram-col">
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        Agente personalizado<br /><small class="diagram-muted"
+          >agents/*.md &middot; runs local</small
+        >
+      </div>
+    </div>
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        Agente conectado<br /><small class="diagram-muted"
+          >A2A peer &middot; remote call</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box diagram-accent">
+    &lt;agent-response&gt;<br /><small class="diagram-muted"
+      >injected into main agent</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mention {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mention .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-mention .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mention .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-mention .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Como funciona {#how-it-works}
+
+Quando uma mensagem contendo uma menção `@` é enviada, acontece o seguinte no servidor:
+
+1. O servidor extrai referências de menção da mensagem
+2. Para cada agente mencionado:
+   - agentes personalizados são executados localmente com instruções de perfil
+   - agentes conectados são chamados via A2A
+3. A resposta do agente é encapsulada em um bloco `<agent-response>` XML e injetada no contexto da conversa
+4. O agente principal processa a mensagem enriquecida, vendo tanto o texto do usuário quanto a resposta do agente mencionado
+
+O que o agente principal vê em seu contexto:
+
+```text
+User: Draft an email with the latest signup numbers. @analytics
+
+<agent-response agent="analytics">
+Last week's signups: 1,247 total
+  - Organic: 623
+  - Paid: 412
+  - Referral: 212
+</agent-response>
+```
+
+O agente principal pode então usar esses dados naturalmente em sua resposta – por exemplo, incorporando os números em um rascunho de e-mail.
+
+<Callout id="doc-block-r8svs3" tone="info">
+
+Mentioned-agent output arrives as an `<agent-response agent="…">` block in the **main agent's** context — not as separate chat bubbles. The main agent decides how to weave it into the reply.
+
+</Callout>
+
+## Adicionando agentes {#adding-agents}
+
+Os agentes ficam disponíveis para menção por meio de vários mecanismos:
+
+- **Agentes de espaço de trabalho personalizados** — crie perfis de agente na guia Espaço de trabalho como `agents/*.md`
+- **Descoberta automática** — a estrutura descobre automaticamente agentes conectados em execução em portas conhecidas ou URLs configurados
+- **Manifestos remotos** — adicione manifestos de agente conectado como `remote-agents/*.json`
+
+### Agentes de espaço de trabalho personalizados
+
+Agentes personalizados são arquivos Markdown armazenados no espaço de trabalho:
+
+```markdown
+---
+name: Design
+description: Reviews layouts, product UX, and visual direction.
+model: inherit
+---
+
+You are a focused design agent.
+```
+
+Consulte [Workspace — Custom Agents](/docs/workspace#custom-agents) para obter o formato completo (incluindo `tools`, `delegate-default` e substituições de modelo).
+
+Você pode criá-los na guia Espaço de trabalho usando:
+
+- `Create Agent` -> `Describe It`
+- `Create Agent` -> `Fill Form`
+
+### Manifestos do agente conectado
+
+Agentes A2A remotos ainda usam manifestos JSON:
+
+```json
+// remote-agents/analytics.json
+{
+  "name": "Analytics Agent",
+  "url": "https://analytics.example.com",
+  "apiKey": "env:ANALYTICS_A2A_KEY",
+  "description": "Runs analytics queries and returns data",
+  "skills": ["run-query", "generate-chart"]
+}
+```
+
+---
+
+## Para desenvolvedores: ampliando as menções {#extending-mentions}
+
+Os modelos podem registrar provedores de menções personalizadas para adicionar itens mencionáveis específicos do domínio, além de agentes e arquivos. Um provedor de menções implementa a interface `MentionProvider`:
+
+<AnnotatedCode
+  id="doc-block-jfl92k"
+  title="Um MentionProvider personalizado"
+  filename="server/mentions/contacts.ts"
+  language="ts"
+  code={
+    'import type { MentionProvider } from "@agent-native/core/server";\n\nconst contactsProvider: MentionProvider = {\n  id: "contacts",\n  label: "Contacts",\n\n  // Pesquisar for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: "contact",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: "context",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};'
+  }
+  annotations={[
+    {
+      lines: "4-5",
+      label: "Identidade",
+      note: "`id` namespaces the provider; `label` is the section heading shown in the `@` popover.",
+    },
+    {
+      lines: "8-9",
+      label: "search",
+      note: "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`.",
+    },
+    {
+      lines: "23-24",
+      label: "resolve",
+      note: 'Called when the message is sent. Turns a picked id into `{ type: "context", text }` that is injected into the agent\'s context.',
+    },
+  ]}
+/>
+
+Registre provedores na configuração do plugin Agent-Chat:
+
+```ts
+// server/plugins/agent-chat.ts
+import { createAgentChatPlugin } from "@agent-native/core/server";
+
+export default createAgentChatPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+  mentionProviders: { contacts: contactsProvider },
+});
+```
+
+Os provedores de menção personalizados aparecem junto com o agente integrado e os provedores de arquivo no popover de menção.
+
+## Referenciando arquivos {#referencing-files}
+
+O popover `@` não está limitado aos agentes. Você também pode consultar:
+
+- **Arquivos Codebase** — digite `@` e procure um nome de arquivo. O conteúdo do arquivo é incluído no contexto do agente para que ele possa ler, analisar ou modificar o arquivo.
+- **Recursos do espaço de trabalho** — arquivos de referência definidos na guia Espaço de trabalho. Podem ser arquivos de dados, configuração ou qualquer outro conteúdo estruturado.
+- **Skills** — digite `/` para referenciar uma habilidade. Skills fornece instruções estruturadas que orientam como o agente aborda uma tarefa.
+
+Todos os tipos de referência seguem o mesmo padrão: selecione no popover e o conteúdo referenciado é resolvido e injetado no contexto do agente quando a mensagem é enviada.
+
+## Seleção de subagente {#sub-agent-selection}
+
+O agente principal também pode usar agentes personalizados ao gerar subagentes com `agent-teams` (ação: "spawn").
+
+Passe o parâmetro `agent` para escolher um perfil de `agents/*.md`. As instruções desse perfil são adicionadas à execução delegada e seu frontmatter `model` pode substituir o modelo padrão para esse subagente.

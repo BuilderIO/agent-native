@@ -1,0 +1,1224 @@
+/* Self-hosted via @fontsource-variable/inter and @fontsource/poppins — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+/* Poppins has no variable-font Fontsource package; use static weights */
+@import "@fontsource/poppins/300.css";
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+@import "@fontsource/poppins/800.css";
+
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+/* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
+   toolbar serves this purpose instead, so we don't want a redundant bar. */
+button[title="Open agent sidebar"] {
+  display: none !important;
+}
+
+:root {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 93%;
+
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 93%;
+
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 93%;
+
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 93%;
+
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 55%;
+
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 93%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 50%;
+
+  --radius: 0.5rem;
+
+  --surface: 0 0% 10%;
+  --surface-hover: 0 0% 15%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 55%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 93%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 50%;
+}
+
+.light {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+
+  --primary: 0 0% 10%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 10%;
+
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 46%;
+
+  --accent: 0 0% 96%;
+  --accent-foreground: 0 0% 10%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 65%;
+
+  --surface: 0 0% 96%;
+  --surface-hover: 0 0% 92%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 46%;
+  --sidebar-primary: 0 0% 10%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 96%;
+  --sidebar-accent-foreground: 0 0% 10%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 65%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  button kbd {
+    flex-shrink: 0;
+    margin-left: 0.75rem;
+    overflow-wrap: normal;
+    white-space: nowrap;
+    word-break: normal;
+  }
+
+  pre,
+  code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+.deck-grid-container {
+  container-type: inline-size;
+}
+
+@container (max-width: 36rem) {
+  .deck-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Presentation mode styles */
+.presentation-mode {
+  cursor: none;
+}
+.presentation-mode:hover {
+  cursor: default;
+}
+
+/* Slide content styling */
+.slide-content {
+  font-family: "Poppins", sans-serif;
+}
+
+/* Per-element inline text editing — highlight the text leaf that is
+   currently being edited so the user can see which block is active. */
+.slide-content [data-editing-block="true"] {
+  outline: 2px solid #609ff8;
+  outline-offset: 4px;
+  border-radius: 2px;
+  cursor: text;
+}
+.slide-content [data-editing-block="true"]:focus {
+  outline: 2px solid #609ff8;
+}
+/* Subtle hover highlight on editable text leaves to hint clickability.
+   Scoped to `[data-editable]` so read-only decks don't show an outline that
+   makes text look editable when it isn't. */
+.slide-image-clickable[data-editable] .slide-content p:hover,
+.slide-image-clickable[data-editable] .slide-content h1:hover,
+.slide-image-clickable[data-editable] .slide-content h2:hover,
+.slide-image-clickable[data-editable] .slide-content h3:hover,
+.slide-image-clickable[data-editable] .slide-content h4:hover,
+.slide-image-clickable[data-editable] .slide-content span:hover {
+  outline: 1px dashed rgba(96, 159, 248, 0.4);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.slide-content h1 {
+  @apply text-5xl font-bold mb-6 leading-tight tracking-tight;
+  color: #ffffff;
+}
+.slide-content h2 {
+  @apply text-3xl font-semibold mb-4 leading-snug tracking-tight;
+  color: #ffffff;
+}
+.slide-content h3 {
+  @apply text-2xl font-medium mb-3;
+  color: #ffffff;
+}
+.slide-content p {
+  @apply text-xl leading-relaxed mb-4;
+  color: rgba(255, 255, 255, 0.75);
+}
+.slide-content ul {
+  @apply text-lg space-y-3 list-disc list-inside;
+  color: rgba(255, 255, 255, 0.75);
+}
+.slide-content ol {
+  @apply text-lg space-y-3 list-decimal list-inside;
+  color: rgba(255, 255, 255, 0.75);
+}
+.slide-content code {
+  @apply bg-white/10 px-2 py-0.5 rounded text-base font-mono;
+}
+.slide-content pre {
+  @apply bg-[#141414] p-4 rounded-lg text-base font-mono overflow-x-auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.slide-content pre code {
+  @apply bg-transparent p-0;
+}
+.slide-content blockquote {
+  @apply border-l-4 pl-4 italic text-xl opacity-80;
+  border-color: #609ff8;
+}
+.slide-content strong {
+  @apply font-bold;
+  color: #ffffff;
+}
+.slide-content em {
+  @apply italic;
+  color: #609ff8;
+}
+.slide-content a {
+  @apply underline;
+  color: #609ff8;
+}
+.slide-content img {
+  @apply max-w-full max-h-[60vh] mx-auto rounded-lg;
+}
+
+/* Builder brand table styling for slides */
+.slide-content table {
+  @apply w-full text-left;
+  border-collapse: collapse;
+}
+.slide-content th {
+  @apply text-xs font-medium uppercase tracking-widest pb-4;
+  color: #609ff8;
+}
+.slide-content td {
+  @apply py-3 text-base;
+  color: rgba(255, 255, 255, 0.75);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.slide-content td:first-child {
+  @apply font-semibold;
+  color: #ffffff;
+}
+
+/* Builder brand hr styling */
+.slide-content hr {
+  @apply my-4;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Slide Styles ─── */
+
+/* Full-bleed wrapper for blank-layout slides */
+.fmd-slide {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: "Poppins", sans-serif;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.fmd-autofit-scale {
+  transform: translate(var(--fmd-fit-x, 0px), var(--fmd-fit-y, 0px))
+    scale(var(--fmd-fit-scale, 1));
+  transform-origin: top left;
+}
+
+.fmd-slide > [data-fmd-autofit-content] {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: inherit;
+  align-items: inherit;
+  gap: inherit;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+/* Section label - cyan uppercase */
+.fmd-label {
+  color: #00e5ff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* Cyan accent color */
+.fmd-cyan {
+  color: #00e5ff !important;
+}
+
+/* Large stat numbers */
+.fmd-stat {
+  color: #00e5ff;
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  font-family: "Poppins", sans-serif;
+}
+
+.fmd-stat-sm {
+  color: #00e5ff;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  font-family: "Poppins", sans-serif;
+}
+
+/* Card component */
+.fmd-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.fmd-card-sm {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+
+/* Grid layouts */
+.fmd-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.fmd-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.fmd-grid-2x3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 14px;
+}
+
+/* Title slide heading */
+.fmd-title-heading {
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+  letter-spacing: -0.5px;
+}
+
+/* Large centered heading */
+.fmd-heading-lg {
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #ffffff;
+  text-align: center;
+  font-family: "Poppins", sans-serif;
+  letter-spacing: -0.5px;
+}
+
+/* Large heading - smaller variant for fitting on 2 lines */
+.fmd-heading-lg-sm {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #ffffff;
+  text-align: center;
+  font-family: "Poppins", sans-serif;
+  letter-spacing: -0.5px;
+}
+
+/* Medium heading */
+.fmd-heading-md {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+}
+
+/* Body text */
+.fmd-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Poppins", sans-serif;
+}
+
+.fmd-body-sm {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: "Poppins", sans-serif;
+}
+
+/* Small uppercase label */
+.fmd-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffffff;
+  line-height: 1.4;
+  font-family: "Poppins", sans-serif;
+}
+
+/* Row with border */
+.fmd-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fmd-row:last-child {
+  border-bottom: none;
+}
+
+/* Bullet list for slides */
+.fmd-bullets {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0;
+}
+
+.fmd-bullets li {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 6px;
+  font-family: "Poppins", sans-serif;
+}
+
+.fmd-bullets li strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Icon placeholder */
+.fmd-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* Workflow step chip */
+.fmd-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: "Poppins", sans-serif;
+  white-space: nowrap;
+}
+
+/* Staircase workflow layout */
+.fmd-staircase {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fmd-stair-row {
+  display: flex;
+  align-items: center;
+}
+
+/* Big centered text slides (DEMO, APPENDIX) */
+.fmd-big-text {
+  font-size: 80px;
+  font-weight: 900;
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+  letter-spacing: -1px;
+}
+
+/* Table styles for FMD */
+.fmd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fmd-table th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 12px 0;
+  text-align: left;
+}
+
+.fmd-table td {
+  padding: 16px 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-family: "Poppins", sans-serif;
+  vertical-align: top;
+}
+
+.fmd-table td:first-child {
+  font-weight: 700;
+  color: #ffffff;
+  font-size: 15px;
+}
+
+/* Builder logo text */
+.fmd-builder-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+  font-family: "Poppins", sans-serif;
+}
+
+.fmd-builder-logo svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Approval workflow */
+.fmd-approval-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  min-width: 340px;
+}
+
+/* Timeline line */
+.fmd-timeline {
+  position: relative;
+  padding-left: 24px;
+}
+
+.fmd-timeline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Customer logo strip */
+.fmd-logos {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.fmd-logo-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: "Poppins", sans-serif;
+  letter-spacing: 1px;
+}
+
+/* Value props row */
+.fmd-value-props {
+  display: flex;
+  gap: 16px;
+}
+
+.fmd-value-card {
+  flex: 1;
+  text-align: center;
+  padding: 20px 16px;
+}
+
+/* Integration flow */
+.fmd-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+.fmd-flow-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.fmd-flow-icon {
+  width: 48px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  font-family: "Poppins", sans-serif;
+}
+
+.fmd-flow-center {
+  width: 80px;
+  height: 80px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fmd-flow-arrow {
+  font-size: 20px;
+  color: rgba(0, 229, 255, 0.5);
+}
+
+/* Quadrant chart */
+.fmd-quadrant {
+  position: relative;
+  width: 400px;
+  height: 300px;
+  margin: 0 auto;
+}
+
+.fmd-quadrant-axis-v {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fmd-quadrant-axis-h {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fmd-quadrant-label {
+  position: absolute;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: "Poppins", sans-serif;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.fmd-quadrant-item {
+  position: absolute;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "Poppins", sans-serif;
+  text-align: center;
+}
+
+/* Slide 2 table layout */
+.fmd-table-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  flex: 1;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.fmd-table-row:last-child {
+  border-bottom: none;
+}
+
+.fmd-table-label {
+  width: 140px;
+  flex-shrink: 0;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.fmd-table-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 40px;
+}
+
+.fmd-table-cell {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.5;
+  font-family: "Poppins", sans-serif;
+}
+
+/* Image placeholder - dashed border box for images to be swapped in later */
+.fmd-img-placeholder {
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  font-family: "Poppins", sans-serif;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+/* Small inline icon placeholder */
+.fmd-icon-placeholder {
+  width: 28px;
+  height: 28px;
+  border: 1.5px dashed rgba(0, 229, 255, 0.4);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 229, 255, 0.4);
+  font-size: 8px;
+  flex-shrink: 0;
+  background: rgba(0, 229, 255, 0.03);
+}
+
+/* Logo placeholder */
+.fmd-logo-placeholder {
+  border: 1.5px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 4px 12px;
+}
+
+/* Force logos to pure white on dark backgrounds */
+.slide-content .fmd-slide img.fmd-logo-white,
+.slide-content .fmd-slide img[src*="brandfetch"] {
+  filter: brightness(0) invert(1) !important;
+}
+
+/* Prevent slide-content defaults from overriding FMD styles */
+.slide-content .fmd-slide p,
+.slide-content .fmd-slide li,
+.slide-content .fmd-slide ul,
+.slide-content .fmd-slide ol {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.slide-content .fmd-slide h1,
+.slide-content .fmd-slide h2,
+.slide-content .fmd-slide h3 {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+.slide-content .fmd-slide strong {
+  color: inherit;
+}
+
+.slide-content .fmd-slide em {
+  color: inherit;
+  font-style: normal;
+}
+
+.slide-content .fmd-slide img {
+  border-radius: 0;
+  max-height: none;
+  margin: 0;
+}
+
+.slide-content .fmd-slide img.fmd-img-uploaded {
+  cursor: pointer;
+}
+
+.slide-content .fmd-slide table {
+  border-collapse: collapse;
+}
+
+.slide-content .fmd-slide td,
+.slide-content .fmd-slide th {
+  padding: 0;
+  border: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ─── Image Overlay & Click-to-Replace ─── */
+
+/* Hover effect on clickable slide images. Scoped to `[data-editable]` so a
+   read-only deck doesn't show a pointer cursor or glow that implies the image
+   can be clicked to replace it. */
+.slide-image-clickable[data-editable] img,
+.slide-image-clickable[data-editable] .fmd-img-placeholder {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+
+.slide-image-clickable[data-editable] img:hover,
+.slide-image-clickable[data-editable] .fmd-img-placeholder:hover {
+  box-shadow: 0 0 0 2px rgba(96, 159, 248, 0.4);
+}
+
+/* Image overlay floating menu */
+.image-overlay-menu {
+  position: fixed;
+  z-index: 300;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: overlay-fade-in 0.12s ease-out;
+}
+
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.image-overlay-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--popover-foreground) / 0.8);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  white-space: nowrap;
+}
+
+.image-overlay-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+/* ─── Inline Slide Editor (TipTap) ─── */
+
+.slide-tiptap-editor {
+  font-family: "Poppins", sans-serif;
+  color: rgba(255, 255, 255, 0.9);
+  caret-color: #609ff8;
+  outline: none;
+  cursor: text;
+}
+
+.slide-tiptap-editor .tiptap {
+  outline: none;
+  min-height: 100%;
+  height: 100%;
+}
+
+/* Placeholder */
+.slide-tiptap-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* Headings */
+.slide-tiptap-editor .tiptap h1 {
+  font-size: 54px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  margin-bottom: 32px;
+}
+
+.slide-tiptap-editor .tiptap h2 {
+  font-size: 40px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.15;
+  letter-spacing: -0.5px;
+  margin-bottom: 24px;
+}
+
+.slide-tiptap-editor .tiptap h3 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+
+/* Paragraph */
+.slide-tiptap-editor .tiptap p {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* Lists */
+.slide-tiptap-editor .tiptap ul {
+  padding-left: 0;
+  margin-bottom: 16px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slide-tiptap-editor .tiptap ul li {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+}
+
+.slide-tiptap-editor .tiptap ul li::before {
+  content: "●";
+  color: #ffffff;
+  font-size: 8px;
+  position: relative;
+  top: -4px;
+  flex-shrink: 0;
+}
+
+/* TipTap wraps li content in <p> — remove its margin */
+.slide-tiptap-editor .tiptap ul li p {
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.slide-tiptap-editor .tiptap ol {
+  padding-left: 28px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slide-tiptap-editor .tiptap ol li {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+  list-style-type: decimal;
+}
+
+.slide-tiptap-editor .tiptap ol li p {
+  margin: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Blockquote */
+.slide-tiptap-editor .tiptap blockquote {
+  border-left: 4px solid #00e5ff;
+  padding-left: 24px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 24px;
+  font-style: italic;
+  margin-bottom: 16px;
+}
+
+/* Inline formatting */
+.slide-tiptap-editor .tiptap strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.slide-tiptap-editor .tiptap em {
+  color: rgba(255, 255, 255, 0.9);
+  font-style: italic;
+}
+
+.slide-tiptap-editor .tiptap s {
+  opacity: 0.6;
+}
+
+.slide-tiptap-editor .tiptap code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #00e5ff;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.slide-tiptap-editor .tiptap a {
+  color: #00e5ff;
+  text-decoration: underline;
+}
+
+/* Selection highlight */
+.slide-tiptap-editor .tiptap ::selection {
+  background: rgba(96, 159, 248, 0.35);
+}
+
+/* ─── Slide Transition Keyframes ─── */
+
+@keyframes slide-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes slide-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes slide-enter-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slide-exit-to-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes slide-enter-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes slide-exit-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes slide-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes slide-zoom-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+@keyframes step-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-anim-fade-enter {
+  animation: slide-fade-in 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+.slide-anim-slide-enter-right {
+  animation: slide-enter-from-right 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94)
+    both;
+}
+.slide-anim-slide-enter-left {
+  animation: slide-enter-from-left 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94)
+    both;
+}
+.slide-anim-zoom-enter {
+  animation: slide-zoom-in 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+.slide-anim-fade-exit {
+  animation: slide-fade-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
+}
+.slide-anim-slide-exit-left {
+  animation: slide-exit-to-left 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19)
+    both;
+}
+.slide-anim-slide-exit-right {
+  animation: slide-exit-to-right 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19)
+    both;
+}
+.slide-anim-zoom-exit {
+  animation: slide-zoom-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
+}
+
+/* ─── Element Animation Keyframes ─── */
+
+@keyframes elem-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes elem-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes elem-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

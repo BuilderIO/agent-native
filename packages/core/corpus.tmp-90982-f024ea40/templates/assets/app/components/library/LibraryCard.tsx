@@ -1,0 +1,213 @@
+import { useT } from "@agent-native/core/client";
+import {
+  IconCopy,
+  IconDots,
+  IconLibraryPhoto,
+  IconPencil,
+} from "@tabler/icons-react";
+import { Link } from "react-router";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { assetMediaUrl } from "@/lib/asset-urls";
+import {
+  getLibraryCustomInstructions,
+  type ImageLibrarySummary,
+} from "@/lib/libraries";
+import { cn } from "@/lib/utils";
+
+export function LibraryCard({
+  library,
+  to,
+  selected,
+  onClick,
+  onEdit,
+  onDuplicate,
+  duplicatePending = false,
+  compact = false,
+  showInstructions = !compact,
+}: {
+  library: ImageLibrarySummary;
+  to?: string;
+  selected?: boolean;
+  onClick?: () => void;
+  onEdit?: () => void;
+  onDuplicate?: () => void;
+  duplicatePending?: boolean;
+  compact?: boolean;
+  showInstructions?: boolean;
+}) {
+  const t = useT();
+  const instructions = getLibraryCustomInstructions(library);
+  const previewAssets = (
+    library.previewAssets?.length
+      ? library.previewAssets
+      : library.coverAsset
+        ? [library.coverAsset]
+        : []
+  )
+    .slice(0, 4)
+    .map((asset) => ({
+      ...asset,
+      src: assetMediaUrl(asset.thumbnailUrl ?? asset.previewUrl),
+    }))
+    .filter((asset) => Boolean(asset.src));
+  const className = cn(
+    "group flex h-full w-full min-w-0 flex-col overflow-hidden rounded-lg border bg-card text-left text-card-foreground transition hover:border-foreground/30",
+    compact ? "min-h-0" : "min-h-32",
+    selected && "border-foreground/40 ring-2 ring-ring/20",
+  );
+
+  const body = (
+    <>
+      <div
+        className={cn(
+          "relative flex items-center justify-center overflow-hidden bg-muted",
+          compact ? "aspect-[16/8]" : "aspect-[16/9]",
+        )}
+      >
+        {previewAssets.length ? (
+          <div
+            className={cn(
+              "absolute inset-0 grid gap-px bg-border",
+              previewAssets.length === 1 ? "grid-cols-1" : "grid-cols-2",
+              previewAssets.length <= 2 ? "grid-rows-1" : "grid-rows-2",
+            )}
+          >
+            {previewAssets.map((asset, index) => (
+              <div
+                key={asset.id}
+                className={cn(
+                  "min-h-0 min-w-0 overflow-hidden",
+                  previewAssets.length === 3 && index === 0 && "row-span-2",
+                )}
+              >
+                <img
+                  src={asset.src}
+                  alt={asset.altText ?? asset.title ?? ""}
+                  onError={(event) => {
+                    event.currentTarget.hidden = true;
+                  }}
+                  className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <IconLibraryPhoto className="h-8 w-8 text-muted-foreground" />
+        )}
+      </div>
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          compact ? "gap-2 p-3" : "gap-3 p-4",
+        )}
+      >
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-foreground">
+            {library.title}
+          </div>
+          {!compact ? (
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+              {library.description || t("brandKits.noDescriptionYet")}
+            </p>
+          ) : null}
+        </div>
+        {showInstructions && instructions ? (
+          <div className="rounded-md border bg-muted/30 px-3 py-2">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("brandKits.instructions")}
+            </div>
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+              {instructions}
+            </p>
+          </div>
+        ) : null}
+        <div className="mt-auto flex flex-wrap items-center gap-2">
+          <Badge variant="secondary">
+            {t("brandKits.refsCount", { count: library.referenceCount ?? 0 })}
+          </Badge>
+          <Badge variant="outline">
+            {t("brandKits.assetsCount", {
+              count: library.generatedCount ?? 0,
+            })}
+          </Badge>
+          {(library as any).videoCount ? (
+            <Badge variant="outline">
+              {t("brandKits.videosCount", {
+                count: (library as any).videoCount,
+              })}
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+    </>
+  );
+
+  const editAffordance =
+    onEdit || onDuplicate ? (
+      <div className="absolute right-2 top-2 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
+              aria-label={t("brandKitDetail.brandKitActions")}
+            >
+              <IconDots className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {onEdit ? (
+              <DropdownMenuItem onSelect={() => onEdit()}>
+                <IconPencil className="mr-2 h-4 w-4 shrink-0" />
+                {t("brandKitDetail.editBrandKit")}
+              </DropdownMenuItem>
+            ) : null}
+            {onDuplicate ? (
+              <DropdownMenuItem
+                disabled={duplicatePending}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onDuplicate();
+                }}
+              >
+                <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+                {duplicatePending
+                  ? t("brandKitDetail.duplicating")
+                  : t("brandKitDetail.duplicate")}
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    ) : null;
+
+  if (to) {
+    return (
+      <div className="relative h-full w-full min-w-0">
+        <Link to={to} className={className}>
+          {body}
+        </Link>
+        {editAffordance}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full min-w-0">
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+      {editAffordance}
+    </div>
+  );
+}

@@ -1,0 +1,87 @@
+---
+title: "Observability Kit"
+description: "Usage, spend, feedback, replay, errors, and run diagnostics for agent-native apps."
+---
+
+# Observability Kit
+
+The Observability Kit makes agent work measurable and debuggable. It covers
+usage, spend, feedback, replay, errors, traces, run diagnostics, and the app UI
+that operators use to understand what happened.
+
+<WireframeBlock id="doc-block-toolkit-observability">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 300px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>Observability</h2><div style='display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px'><div class='wf-box'><small class='wf-muted'>Runs</small><br/><strong style='font-size:20px'>482</strong></div><div class='wf-box'><small class='wf-muted'>Spend</small><br/><strong style='font-size:20px'>$42</strong></div><div class='wf-box'><small class='wf-muted'>Errors</small><br/><strong style='font-size:20px'>3</strong></div></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Runs per day</small><div style='display:flex;align-items:flex-end;gap:6px;height:150px'><div style='flex:1;height:40%;background:var(--wf-accent-soft);border-radius:3px'></div><div style='flex:1;height:60%;background:var(--wf-accent-soft);border-radius:3px'></div><div style='flex:1;height:50%;background:var(--wf-accent-soft);border-radius:3px'></div><div style='flex:1;height:75%;background:var(--wf-accent-soft);border-radius:3px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:3px'></div><div style='flex:1;height:90%;background:var(--wf-accent);border-radius:3px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:3px'></div></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Diagnostics</strong><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='x'></span><div style='flex:1'>Run failed: missing key</div></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='bell'></span><div style='flex:1'>Feedback: thumbs down</div></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='calendar'></span><div style='flex:1'>Slow tool: provider-api</div></div><div style='flex:1'></div><button class='primary'>Open run</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                      | Purpose                                                           |
+| -------------------------- | ----------------------------------------------------------------- |
+| `<ObservabilityDashboard>` | Standard operator dashboard.                                      |
+| Usage and spend            | Workspace/app-level model usage and cost views.                   |
+| Feedback                   | User thumbs, comments, and product feedback loops.                |
+| Replay                     | Inspectable agent run and UI/event timelines.                     |
+| Errors                     | Surfaced runtime, provider, and action failures.                  |
+| Run diagnostics            | Tool calls, model choice, context, approvals, and recovery state. |
+| Tracking                   | Server-side analytics events with pluggable providers.            |
+
+## Usage {#usage}
+
+Mount the dashboard on its own route, and drop `<ThumbsFeedback>` next to any
+assistant message you want feedback on — both write into the same
+usage/spend/feedback data the dashboard reads back:
+
+```tsx
+import {
+  ObservabilityDashboard,
+  ThumbsFeedback,
+} from "@agent-native/core/client";
+
+export default function ObservabilityPage() {
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <ObservabilityDashboard />
+    </div>
+  );
+}
+
+export function AssistantMessageFooter({
+  threadId,
+  runId,
+  messageSeq,
+}: {
+  threadId: string;
+  runId: string;
+  messageSeq: number;
+}) {
+  return (
+    <ThumbsFeedback threadId={threadId} runId={runId} messageSeq={messageSeq} />
+  );
+}
+```
+
+The dashboard has 5 tabs (overview, conversations, evals, experiments,
+feedback) and scopes all data to the signed-in user.
+
+## UX Standard {#ux-standard}
+
+- Every background or agent run should be traceable to a user-visible outcome.
+- Feedback should connect to the run, resource, or page that caused it.
+- Spend and usage should distinguish app, organization, user, and provider.
+- Error states should link back to setup when the fix is a missing connection.
+
+## What's next
+
+- [**Observability**](/docs/observability) — the full data model and routes
+  behind this dashboard.
+- [**Tracking**](/docs/tracking) — server-side analytics events with
+  pluggable providers.
+- [**Progress**](/docs/progress) — the run-progress surface `<RunsTray>` also
+  reads.
+- [**Agent UX Kit**](/docs/toolkit-agent-ux) — the composer and runs tray this
+  kit's diagnostics tie back to.

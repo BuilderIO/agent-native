@@ -1,0 +1,428 @@
+/**
+ * Default framework-level onboarding steps.
+ *
+ * Registered when `createOnboardingPlugin()` mounts (auto-mount or explicit).
+ * Templates can override any step by registering another step with the same
+ * `id` after these have been registered.
+ */
+
+import {
+  PROVIDER_ENV_META,
+  PROVIDER_ENV_VARS,
+} from "../agent/engine/provider-env-vars.js";
+import {
+  detectEngineFromUserSecrets,
+  isAgentEngineSettingConfigured,
+} from "../agent/engine/registry.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "../server/credential-provider.js";
+import { getSetting } from "../settings/store.js";
+import { registerOnboardingStep } from "./registry.js";
+import type { OnboardingStep } from "./types.js";
+
+type LlmKeyMethod = {
+  provider: keyof typeof PROVIDER_ENV_META;
+  id: string;
+  label: string;
+  description: string;
+  primary?: boolean;
+};
+
+const LLM_KEY_METHODS: LlmKeyMethod[] = [
+  {
+    provider: "anthropic",
+    id: "anthropic-key",
+    label: "Anthropic",
+    description: "Claude models with your own Anthropic key.",
+  },
+  {
+    provider: "openai",
+    id: "openai-key",
+    label: "OpenAI",
+    description: "GPT models with your own OpenAI key.",
+  },
+  {
+    provider: "google",
+    id: "google-key",
+    label: "Google Gemini",
+    description: "Gemini models with your own Google AI key.",
+  },
+  {
+    provider: "openrouter",
+    id: "openrouter-key",
+    label: "OpenRouter",
+    description: "OpenRouter models, including GLM 5.2, with your own key.",
+  },
+  {
+    provider: "groq",
+    id: "groq-key",
+    label: "Groq",
+    description: "Groq-hosted models with your own Groq key.",
+  },
+  {
+    provider: "mistral",
+    id: "mistral-key",
+    label: "Mistral",
+    description: "Mistral models with your own Mistral key.",
+  },
+  {
+    provider: "cohere",
+    id: "cohere-key",
+    label: "Cohere",
+    description: "Cohere models with your own Cohere key.",
+  },
+];
+
+const llmStep: OnboardingStep = {
+  id: "llm",
+  order: 10,
+  required: true,
+  title: "Connect an AI engine",
+  description: "Use Builder's managed gateway, or bring your own provider key.",
+  methods: [
+    {
+      id: "builder",
+      kind: "builder-cli-auth",
+      label: "Connect Builder",
+      description: "Builder.io's free tier includes AI credits.",
+      primary: true,
+      badge: "free",
+      payload: {
+        scope: "llm",
+      },
+    },
+    ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
+      const meta = PROVIDER_ENV_META[provider];
+      return {
+        id,
+        kind: "form" as const,
+        label,
+        description,
+        ...(primary ? { primary: true } : {}),
+        payload: {
+          writeScope: "workspace" as const,
+          fields: [
+            {
+              key: meta.envVar,
+              label: meta.envVar,
+              placeholder: meta.placeholder,
+              secret: true,
+            },
+          ],
+        },
+      };
+    }),
+  ],
+  isComplete: async () => {
+    try {
+      const { resolveHasCompleteBuilderConnection } =
+        await import("../server/credential-provider.js");
+      if (await resolveHasCompleteBuilderConnection()) return true;
+    } catch {
+      // Credential storage may be unavailable during early boot. Do not fall
+      // back to deployment-level Builder env here; the scoped resolver owns the
+      // policy for when that is safe.
+    }
+    try {
+      if (await detectEngineFromUserSecrets()) return true;
+    } catch {
+      // Fall through to legacy/env detection.
+    }
+    if (
+      PROVIDER_ENV_VARS.some(
+        (k) =>
+          canUseDeployCredentialFallbackForRequest(k) &&
+          !!readDeployCredentialEnv(k),
+      )
+    ) {
+      return true;
+    }
+    try {
+      return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
+    } catch {
+      return false;
+    }
+  },
+};
+
+/** Step 2 — where application data lives. The default DB is non-blocking. */
+const databaseStep: OnboardingStep = {
+  id: "database",
+  order: 20,
+  required: false,
+  title: "Database",
+  description:
+    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
+  methods: [
+    {
+      id: "database-url",
+      kind: "form",
+      label: "Set DATABASE_URL",
+      description: "Paste the SQL connection string this app should use.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "DATABASE_URL",
+            label: "DATABASE_URL",
+            placeholder:
+              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
+          },
+          {
+            key: "DATABASE_AUTH_TOKEN",
+            label: "DATABASE_AUTH_TOKEN (if needed)",
+            placeholder: "Token for providers such as Turso/libSQL",
+            secret: true,
+          },
+        ],
+      },
+    },
+  ],
+  // The default local database means this step is always satisfied.
+  isComplete: () => true,
+};
+
+/** Step 3 — how users sign in. Built-in account auth is non-blocking. */
+const authStep: OnboardingStep = {
+  id: "auth",
+  order: 30,
+  required: false,
+  title: "Authentication",
+  description:
+    "Built-in email/password accounts work by default. Add OAuth or access tokens only if you want another sign-in path.",
+  methods: [
+    {
+      id: "google-oauth",
+      kind: "form",
+      label: "Google OAuth",
+      description: "Add Google as an optional sign-in provider.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          { key: "GOOGLE_CLIENT_ID", label: "GOOGLE_CLIENT_ID" },
+          {
+            key: "GOOGLE_CLIENT_SECRET",
+            label: "GOOGLE_CLIENT_SECRET",
+            secret: true,
+          },
+        ],
+      },
+    },
+    {
+      id: "github-oauth",
+      kind: "form",
+      label: "GitHub OAuth",
+      description: "Add GitHub as an optional sign-in provider.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          { key: "GITHUB_CLIENT_ID", label: "GITHUB_CLIENT_ID" },
+          {
+            key: "GITHUB_CLIENT_SECRET",
+            label: "GITHUB_CLIENT_SECRET",
+            secret: true,
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: () => true,
+};
+
+/** Step 4 — transactional email (password resets, invitations). Optional. */
+const emailStep: OnboardingStep = {
+  id: "email",
+  order: 40,
+  required: false,
+  title: "Email delivery",
+  description:
+    "Optional for local work. Before deploying with password resets, invitations, or share notifications, connect an email provider.",
+  methods: [
+    {
+      id: "resend",
+      kind: "form",
+      label: "Resend",
+      description: "Use Resend for transactional email.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "RESEND_API_KEY",
+            label: "RESEND_API_KEY",
+            placeholder: "re_...",
+            secret: true,
+          },
+          {
+            key: "EMAIL_FROM",
+            label: "EMAIL_FROM (from address)",
+            placeholder: "Agent Native <noreply@yourdomain.com>",
+          },
+          {
+            key: "APP_NAME",
+            label: "APP_NAME (shown in invite emails)",
+            placeholder: "Acme Forms",
+          },
+        ],
+      },
+    },
+    {
+      id: "sendgrid",
+      kind: "form",
+      label: "SendGrid",
+      description: "Use SendGrid for transactional email.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "SENDGRID_API_KEY",
+            label: "SENDGRID_API_KEY",
+            placeholder: "SG....",
+            secret: true,
+          },
+          {
+            key: "EMAIL_FROM",
+            label: "EMAIL_FROM (from address)",
+            placeholder: "Agent Native <noreply@yourdomain.com>",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: async () => {
+    if (await resolveSecret("RESEND_API_KEY")) return true;
+    // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
+    // set — otherwise sendEmail() throws at runtime even though the API key
+    // is configured.
+    if (await resolveSecret("SENDGRID_API_KEY")) {
+      return !!(await resolveSecret("EMAIL_FROM"));
+    }
+    return false;
+  },
+};
+
+const githubRepositoryStep: OnboardingStep = {
+  id: "github-repository",
+  order: 50,
+  required: false,
+  title: "Connect a GitHub repository",
+  description:
+    "Optional for cloud/headless repo work. Grants connector-scoped file read and write access without cloning a repo or running code.",
+  methods: [
+    {
+      id: "settings",
+      kind: "link",
+      primary: true,
+      label: "Open GitHub token settings",
+      description:
+        "Save a fine-grained token scoped to the repositories this workspace may access.",
+      payload: {
+        url: "#secrets:GITHUB_TOKEN",
+        external: false,
+      },
+    },
+    {
+      id: "local-env",
+      kind: "form",
+      label: "Use local .env",
+      description:
+        "For local/single-tenant work, save a token and optional default owner/repo.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "GITHUB_TOKEN",
+            label: "GITHUB_TOKEN",
+            placeholder: "github_pat_...",
+            secret: true,
+          },
+          {
+            key: "GITHUB_REPOSITORY",
+            label: "GITHUB_REPOSITORY",
+            placeholder: "owner/repo",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: async (context) => {
+    const userEmail = context?.userEmail;
+    const orgId = context?.orgId ?? null;
+    if (userEmail) {
+      try {
+        const { resolveWorkspaceConnectionCredentialForApp } =
+          await import("../workspace-connections/index.js");
+        const result = await resolveWorkspaceConnectionCredentialForApp({
+          appId:
+            process.env.AGENT_NATIVE_APP_ID ||
+            process.env.APP_ID ||
+            process.env.npm_package_name ||
+            "app",
+          provider: "github",
+          key: "GITHUB_TOKEN",
+          userEmail,
+          orgId,
+        });
+        if (result.available) return true;
+      } catch {
+        // Fall through to local credential stores.
+      }
+
+      try {
+        const { resolveCredential } = await import("../credentials/index.js");
+        if (await resolveCredential("GITHUB_TOKEN", { userEmail, orgId })) {
+          return true;
+        }
+      } catch {
+        // Fall through to app_secrets.
+      }
+
+      try {
+        const { readAppSecretMeta } = await import("../secrets/storage.js");
+        const refs: Array<{
+          scope: "user" | "org" | "workspace";
+          scopeId: string;
+        }> = [{ scope: "user", scopeId: userEmail }];
+        if (orgId) {
+          refs.push(
+            { scope: "org", scopeId: orgId },
+            { scope: "workspace", scopeId: orgId },
+          );
+        } else {
+          refs.push({ scope: "workspace", scopeId: `solo:${userEmail}` });
+        }
+        for (const ref of refs) {
+          const meta = await readAppSecretMeta({
+            key: "GITHUB_TOKEN",
+            scope: ref.scope,
+            scopeId: ref.scopeId,
+          });
+          if (meta) return true;
+        }
+      } catch {
+        // Fall through to local/single-tenant env.
+      }
+    }
+
+    if (!canUseDeployCredentialFallbackForRequest()) return false;
+    return !!(
+      readDeployCredentialEnv("GITHUB_TOKEN") ||
+      readDeployCredentialEnv("GH_TOKEN")
+    );
+  },
+};
+
+let registered = false;
+
+/** Idempotent. Safe to call from every plugin-mount call. */
+export function registerDefaultOnboardingSteps(): void {
+  if (registered) return;
+  registered = true;
+  registerOnboardingStep(llmStep);
+  registerOnboardingStep(databaseStep);
+  registerOnboardingStep(authStep);
+  registerOnboardingStep(emailStep);
+  registerOnboardingStep(githubRepositoryStep);
+}

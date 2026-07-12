@@ -1,0 +1,70 @@
+# React Router generated types
+.react-router/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+.config/
+.env
+.output/
+
+# User uploads for prompt context (non-image reference files: PPTX, DOCX, PDF).
+# Images go through the framework's uploadFile() provider (Builder.io / S3 /
+# etc.) and never land on disk.
+data/uploads/
+
+# Defensive: nothing should write user-uploaded assets into public/, but an
+# older code path used to. Keep this so accidental regressions don't end up
+# in commits.
+public/uploads/
+public/__test-*.json
+
+# Firestore-synced data (synced at runtime, not checked in)
+data/decks/
+data/*.md
+
+# SQLite database files
+data/app.db
+data/app.db-wal
+data/app.db-shm
+
+# Stray SQLite files at the template root. The real DB lives under data/;
+# anything that creates app.db / local.db here is a misconfigured cwd or an
+# explicit `--db ./app.db` override.
+/app.db
+/app.db-shm
+/app.db-wal
+/local.db
+/local.db-shm
+/local.db-wal
+
+# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
+learnings.md
+
+build
+
+.generated/
+data/exports/
+
+.vercel/

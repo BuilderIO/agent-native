@@ -1,0 +1,34 @@
+import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { putUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
+
+import type { ExternalCalendar } from "../shared/api.js";
+
+export default defineAction({
+  description: "Replace the full list of external calendar subscriptions",
+  schema: z.object({
+    calendars: z
+      .array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          url: z.string(),
+          color: z.string(),
+        }),
+      )
+      .describe("Full replacement list of external calendar subscriptions"),
+  }),
+  http: { method: "PUT" },
+  run: async (args) => {
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
+    const calendars = args.calendars as ExternalCalendar[];
+    await putUserSetting(
+      email,
+      "external-calendars",
+      calendars as unknown as Record<string, unknown>,
+    );
+    return calendars;
+  },
+});

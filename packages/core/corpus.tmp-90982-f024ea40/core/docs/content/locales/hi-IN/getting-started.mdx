@@ -1,0 +1,199 @@
+---
+title: "शुरुआत"
+description: "Chat से शुरू होने वाली agentic app बनाएं, action जोड़ें, structured results inline render करें, और फिर agent के खोलने योग्य persistent page तक बढ़ाएं."
+---
+
+# शुरुआत
+
+Agent-Native agentic applications बनाने के लिए है: AI agent और UI वही [actions](/docs/actions), SQL data और application state साझा करते हैं. मुख्य रास्ता headless agent से नहीं, बल्कि Chat app से शुरू होता है ताकि उपयोगकर्ता agent से तुरंत बात कर सकें.
+
+काम का क्रम:
+
+1. Chat app बनाएं.
+2. एक action जोड़ें.
+3. action result को chat में native inline UI के रूप में render करें.
+4. data को SQL में persist करें.
+5. ऐसा page जोड़ें जिसे visual inspection ज़रूरी होने पर agent खोल सके.
+
+## 1. Chat app बनाएं {#create-your-app}
+
+[Node.js 22+](https://nodejs.org) और [pnpm](https://pnpm.io) चाहिए.
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+pnpm dev
+```
+
+इस template में durable chat threads, auth, live sync, `actions/` directory, standard `view-screen` और `navigate` actions, और extend करने योग्य React app शामिल है.
+
+## 2. action जोड़ें {#add-an-action}
+
+Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और custom chat chart के लिए validated shape लौटाता है.
+
+<!-- prettier-ignore -->
+```ts
+// actions/analyze-responses.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const responseChartResultSchema = z.object({
+  title: z.string(),
+  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+});
+
+export default defineAction({
+  description: "Analyze recent form responses and render a custom chart.",
+  schema: z.object({ 
+    formId: z.string().default("demo") 
+  }),
+  outputSchema: responseChartResultSchema,
+  chatUI: { 
+    renderer: "responses.response-chart", 
+    title: "प्रतिक्रिया चार्ट" 
+  },
+  readOnly: true,
+  run: async ({ formId }) => ({
+    title: `Responses for ${formId}`,
+    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  }),
+});
+```
+
+इसे सीधे चलाएं:
+
+```bash
+pnpm action analyze-responses --formId demo
+```
+
+या browser में agent से पूछें:
+
+> डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.
+
+## 3. result को chat में render करें {#render-inline}
+
+क्योंकि action `outputSchema` और product-specific `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
+
+<!-- prettier-ignore -->
+```tsx
+import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+
+type ResponseChartResult = {
+  title: string;
+  points: Array<{ day: string; responses: number }>;
+};
+
+function ResponseChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as ResponseChartResult;
+  const max = Math.max(...result.points.map((point) => point.responses), 1);
+  return (
+    <section className="rounded-lg border bg-card p-4">
+      <h3 className="text-sm font-medium">{result.title}</h3>
+      <div className="mt-4 flex h-32 items-end gap-2">
+        {result.points.map((point) => (
+          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
+            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
+            <span className="text-xs text-muted-foreground">{point.day}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+registerActionChatRenderer({
+  id: "responses.response-chart",
+  renderer: "responses.response-chart",
+  Component: ResponseChart,
+});
+```
+
+Reusable generic outputs के लिए framework built-in `data-chart` और `data-table` renderers भी देता है, साथ ही combined summary/chart/table cards के लिए `data-insights`. देखें [Native Chat UI](/docs/native-chat-ui).
+
+<WireframeBlock id="doc-block-inline-result-wireframe-hi">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>डेमो प्रतिक्रियाओं का विश्लेषण करें.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart से रेंडर किया गया.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>प्रतिक्रिया चार्ट</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>सोम</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>मंगल</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>बुध</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>गुरु</span></div></div></section></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## 4. SQL में data persist करें {#persist-data}
+
+जब result को दोबारा देखना, compare करना या update करना हो, उसे SQL में रखें और reads/writes को actions के पीछे रखें:
+
+Table को framework के portable helpers से define करें, `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` imports से नहीं:
+
+```ts
+// server/db/schema.ts
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const responseInsights = table("response_insights", {
+  id: text("id").primaryKey(),
+  formId: text("form_id").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  responseCount: integer("response_count").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+```
+
+ये helpers configured SQL backend चुनते हैं, इसलिए वही schema local SQLite और production में Postgres, Turso/libSQL, D1 या किसी supported SQL provider पर चल सकता है.
+
+- `create-response-insight` नया insight लिखता है.
+- `list-response-insights` page के लिए data पढ़ता है.
+- `update-response-insight` record update करता है.
+- `analyze-responses` chat का native widget लौटाता रहता है.
+
+Browser के लिए अलग duplicate REST route न बनाएं; UI और agent को actions साझा करने चाहिए.
+
+## 5. agent के खोलने योग्य page जोड़ें {#add-a-page}
+
+`/response-insights` route जोड़ें और `useActionQuery("list-response-insights")`, `useActionMutation("create-response-insight")` इस्तेमाल करें. यह page SQL state का projection है; data वही actions लिखते हैं.
+
+<WireframeBlock id="doc-block-response-insights-page-wireframe-hi">
+  <Screen
+    surface="desktop"
+    html={
+      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>प्रतिक्रिया insights</h2><p class='wf-muted' style='margin:0'>फ़ॉर्म प्रतिक्रियाओं से agent ने बनाए insights.</p></header><button class='primary' data-rough style='align-self:flex-start'>डेमो फ़ॉर्म विश्लेषित करें</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>मूल्य निर्धारण थीम</strong><p class='wf-muted' style='margin:8px 0 0'>यूज़र टीम प्लान मांगते हैं.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>ऑनबोर्डिंग ड्रॉप-ऑफ़</strong><p class='wf-muted' style='margin:8px 0 0'>तीन चरणों को ज्यादा स्पष्ट copy चाहिए.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>डेमो फ़ॉर्म</strong><span class='wf-muted'>42 प्रतिक्रियाओं का विश्लेषण हुआ</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>अगला चरण</strong><span class='wf-muted'>दो draft insights देखें</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>चैट</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>आप</span><p style='margin:4px 0 0'>प्रतिक्रिया insights खोलें.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>प्रतिक्रिया insights खोल दिए.</p></div></aside></section></main>"
+    }
+  />
+</WireframeBlock>
+
+## 6. agent को navigate करने दें {#agent-navigation}
+
+Chat template में `view-screen` और `navigate` actions शामिल हैं. आपकी app बढ़ने के साथ इन्हें extend करें:
+
+- `view-screen` को application state पढ़कर current route, selected insight, active filters, और agent को जरूरी किसी भी compact page context को return करना चाहिए.
+- `navigate` को `/response-insights` जैसा same-origin path तब लिखना चाहिए जब agent तय करे कि user को result visually देखना चाहिए.
+- action results में `href: "/response-insights"` जैसे links हो सकते हैं ताकि chat एक स्पष्ट "प्रतिक्रिया insights खोलें" button दिखा सके.
+
+जब full-page chat app page खोलता है, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) से `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` और `chatViewTransition` इस्तेमाल करें ताकि वही thread रखते हुए chat side panel में slide हो जाए.
+
+## Project structure {#project-structure}
+
+```text
+my-app/
+  actions/         # Agent और UI से कॉल किए जा सकने वाले operations
+  app/             # React routes, pages, और chat surfaces
+  server/          # Nitro server और SQL schema
+  AGENTS.md        # App agent के लिए हमेशा सक्रिय instructions
+  .agents/         # ज़रूरत पड़ने पर agent जिन skills को लोड करता है
+  data/app.db      # DATABASE_URL सेट न होने पर local SQLite state
+```
+
+## Analytics के लिए मजबूत starting point चाहिए? {#analytics-starting-point}
+
+ऊपर वाला प्रतिक्रिया insights example जानबूझकर छोटा है ताकि framework की pieces साफ दिखें. अगर आप वास्तविक analytics product बना रहे हैं, तो [Analytics](/docs/template-analytics) से शुरू करें. यह robust starting point है: अपने providers connect करें, existing dashboards और agent actions इस्तेमाल करें, फिर वहीं से customize करें.
+
+## आगे क्या {#next}
+
+- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks और transport.
+- **[Native Chat UI](/docs/native-chat-ui)** — action results को tables, charts और typed cards के रूप में render करें.
+- **[Chat Template](/docs/template-chat)** — न्यूनतम chat-first app.
+- **[Analytics Template](/docs/template-analytics)** — robust analytics app starting point; providers connect करें और customize करें.
+- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state और selected objects.
+- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation और external agents.

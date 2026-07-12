@@ -1,0 +1,64 @@
+import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
+import { z } from "zod";
+
+export default defineAction({
+  description:
+    "Search for images using Google Custom Search API (agent CLI tool).",
+  schema: z.object({
+    query: z.string().optional().describe("Search query (required)"),
+    count: z.coerce
+      .number()
+      .optional()
+      .describe("Number of results (default: 10)"),
+  }),
+  http: false,
+  run: async (args) => {
+    const query = args.query;
+    if (!query) {
+      throw new Error("--query is required");
+    }
+
+    const [apiKey, cx] = await Promise.all([
+      resolveSecret("GOOGLE_API_KEY"),
+      resolveSecret("GOOGLE_SEARCH_CX"),
+    ]);
+
+    if (!apiKey || !cx) {
+      throw new Error(
+        "GOOGLE_API_KEY and GOOGLE_SEARCH_CX must be saved in settings.",
+      );
+    }
+
+    const count = Math.min(args.count ?? 10, 10);
+
+    const params = new URLSearchParams({
+      key: apiKey,
+      cx,
+      q: query,
+      searchType: "image",
+      num: String(count),
+      safe: "active",
+    });
+
+    const response = await fetch(
+      `https://www.googleapis.com/customsearch/v1?${params}`,
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Google API error: ${text}`);
+    }
+
+    const data = await response.json();
+    const results = (data.items || []).map((item: any, i: number) => ({
+      index: i + 1,
+      url: item.link,
+      title: item.title,
+      width: item.image?.width,
+      height: item.image?.height,
+      thumbnail: item.image?.thumbnailLink,
+    }));
+
+    return JSON.stringify(results, null, 2);
+  },
+});

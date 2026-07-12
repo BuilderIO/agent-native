@@ -1,0 +1,215 @@
+---
+title: "Instrucciones del agente de escritura y Habilidades"
+description: "Cómo escribir excelentes instrucciones de agente para una aplicación o plantilla nativa de agente: AGENTS.md, skills y descripciones de herramientas."
+---
+
+# Instrucciones del agente de escritura y Habilidades
+
+El comportamiento del agente en una aplicación nativa del agente es tan bueno como las instrucciones que usted le dé. Tres superficies contienen esa guía: `AGENTS.md` (el mapa), skills (las inmersiones profundas) y descripciones de acciones/herramientas (cómo el agente elige la herramienta adecuada). Escribe cada uno para recuperarlo rápidamente, no para escribirlo en prosa.
+
+<Diagram id="doc-block-1mdys4x" title={"Tres superficies creadas + una superficie de tiempo de ejecución"} summary={"AGENTS.md y las descripciones de las herramientas se cargan en cada vuelta; carga de habilidades según demanda; application_state está escrito en vivo por su UI."}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Cada turno</span><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >el mapa: propósito, reglas base, claves de estado, índice de acciones +
+      skills</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Cada turno</span
+    ><strong>Descripciones de herramientas</strong
+    ><small class="diagram-muted"
+      >guía la selección de herramientas — una frase precisa cada una</small
+    >
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">Bajo demanda</span><strong>Habilidades</strong
+    ><small class="diagram-muted"
+      >guía profunda, cargada cuando coincide la descripción</small
+    >
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted"
+      >lo escribe tu UI: navegación, selección, foco</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## Mantenga AGENTS.md pequeño y fácil de leer {#small-agents-md}
+
+`AGENTS.md` se carga como orientación. Debería ser lo más pequeño que permita al agente actuar correctamente, con todo profundamente metido en skills. Apunta a estas secciones y poco más:
+
+- **Línea de propósito**: una oración sobre qué es la aplicación y el flujo de trabajo principal.
+- **Reglas básicas**: el puñado de invariantes que siempre deben cumplirse (los datos en SQL, las operaciones pasan por actions, la IA pasa por el chat del agente, los cambios de esquema son aditivos). Viñetas cortas e imperativas.
+- **Teclas de estado de la aplicación**: las teclas `navigation`/selección/enfoque que el agente lee para saber qué está mirando el usuario y su forma.
+- **Tabla de acciones**: una tabla compacta del nombre de la acción según su propósito.
+- **Índice Habilidades**: una lista de los skills que existen y cuándo leer cada uno.
+
+Si una sección crece más allá de una pantalla, pertenece a una habilidad. `AGENTS.md` responde "¿qué es esta aplicación y qué puedo hacer?", no "cómo hago exactamente lo difícil".
+
+```markdown
+# Aplicación de proyectos
+
+One workspace for projects, tasks, and notes. Agent and UI share the same SQL
+data and the same actions.
+
+## Reglas básicas
+
+- Data lives in SQL vía Drizzle. Use actions for all writes.
+- All AI work goes through the agent chat; never call an LLM inline.
+- Schema changes are additive only.
+
+## Estado de la aplicación
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## Acciones
+
+| Action           | Purpose                     |
+| ---------------- | --------------------------- |
+| `list-projects`  | List accessible projects    |
+| `create-project` | Create a project            |
+| `update-project` | Rename or archive a project |
+
+## Habilidades
+
+- `project-imports` — read before importing legacy CSV exports.
+- `sharing` — read before exposing a project to other users.
+```
+
+## AGENTS.md de fuente única {#single-source}
+
+Conserve un archivo de instrucciones canónico: `AGENTS.md`. Si un cliente espera `CLAUDE.md`, conviértalo en un enlace simbólico a `AGENTS.md` en lugar de una segunda copia. Dos archivos mantenidos manualmente se desvían y el agente termina con reglas contradictorias. Una fuente de verdad, vinculada donde sea necesario.
+
+## El frontmatter SKILL.md debe decir qué AND y cuándo {#skill-frontmatter}
+
+El `description` es lo único que ve el agente cuando decide si leer una habilidad. Debe responder dos preguntas: qué cubre la habilidad y cuándo activarla. Una descripción que solo describa el tema no se activará.
+
+```markdown
+---
+name: project-imports
+description: >-
+  How to import projects from the legacy CSV export. Use when the user uploads
+  a project CSV or asks to migrate projects from the old system.
+---
+```
+
+- Liderar con la capacidad, luego agregar una cláusula explícita **"Usar cuando..."**.
+- Sé un poco agresivo: activar demasiado es mejor que una habilidad que nunca se carga.
+- Mantenlo en menos de ~40 palabras; se carga en contexto en cada conversación.
+
+## Divulgación progresiva {#progressive-disclosure}
+
+Escriba el `SKILL.md` como la capa sencilla que debe conocer: la regla, cómo hacerlo, la lista de lo que se debe/no se debe hacer y sugerencias. Inserte ejemplos largos, referencias de campos exhaustivas, peculiaridades de API y tablas de casos extremos en archivos `references/` que el agente lee solo cuando los necesita.
+
+```text
+.agents/skills/project-imports/
+├── SKILL.md            # regla + camino feliz + do/don't
+└── references/
+    └── csv-format.md   # especificaciones de columna completa, codificaciones, casos extremos
+```
+
+Esto mantiene pequeña la superficie siempre cargada y permite escalar la profundidad sin un contexto abultado. Consulte [Habilidades Guide](/docs/skills-guide) para conocer el formato completo de las habilidades.
+
+## Escribir tablas orientadas a acciones {#action-tables}
+
+El agente escanea las tablas más rápido que la prosa. Prefiera una tabla de nombres y propósitos a párrafos que describan cada operación. Lo mismo se aplica a las claves de estado, los tipos de campos y cualquier conjunto enumerable. Las tablas se pueden leer, diferenciar y es fácil mantener sincronizadas cuando agregas una acción.
+
+## Escribir descripciones claras de las herramientas {#tool-descriptions}
+
+Las descripciones de acciones son descripciones de herramientas: impulsan la selección de herramientas. Haz de cada una una oración precisa y de un solo propósito:
+
+- Diga qué hace y qué devuelve, no cómo se implementa.
+- Describe cada parámetro en su `.describe()` para que el agente lo complete correctamente.
+- Una responsabilidad por acción. Si una descripción necesita "y también...", divídala.
+- Marque actions (`readOnly: true` o `http: { method: "GET" }`) como de solo lectura para que el agente sepa que es seguro llamar libremente.
+
+```ts
+defineAction({
+  description: "Create a project. Returns the new project id and title.",
+  schema: z.object({
+    title: z.string().min(1).describe("Project title shown in the sidebar"),
+  }),
+  // ...
+});
+```
+
+## Habilidades frente a actions {#skills-vs-actions}
+
+Habilidades y actions son complementarios. Una habilidad es una guía que el agente lee; un
+la acción es el código que el agente puede ejecutar.
+
+| Necesidad                                                                                        | Usar                                    |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| El agente debe seguir un flujo de trabajo, una política, una lista de verificación o una rúbrica | **Habilidad**                           |
+| El agente necesita ejemplos, material de referencia o reglas específicas del dominio             | **Habilidad**                           |
+| El agente necesita leer o escribir datos de la aplicación                                        | **Acción**                              |
+| El agente necesita llamar a un API externo o realizar una aprobación                             | **Acción**                              |
+| El agente llama a la operación correcta pero de forma incorrecta                                 | Mejorar la **habilidad**                |
+| El agente no puede invocar la operación de manera confiable                                      | Mejorar la **acción**                   |
+| El agente elige la herramienta equivocada                                                        | Mejorar la **descripción de la acción** |
+
+La mayoría de las funciones reales utilizan ambas: la habilidad explica cómo abordar la tarea y
+la acción proporciona la operación escrita. Por ejemplo, una habilidad `invoice-review`
+puede explicar la política de revisión y las reglas de escalamiento, mientras que `list-invoices`,
+`flag-invoice` y `approve-invoice` actions realizan las lecturas y escrituras reales.
+
+## Hornear en antifabricación y verificar antes de terminar {#anti-fabrication}
+
+Las instrucciones de la aplicación deben hacer que la honestidad y la verificación sean el comportamiento predeterminado:
+
+- **Nunca invente.** Si no se encuentran datos o una acción falla, dígalo y recupérelo; no invente resultados ni afirme haber sido exitoso. Lea el valor real a través de una acción o consulta antes de informarla.
+- **Verifique antes de declarar realizado.** Después de un cambio, confírmelo con una lectura posterior (vuelva a consultar la fila, vuelva a leer la pantalla a través de `view-screen`) en lugar de asumir que la escritura funcionó.
+- **Recupera, no te rindas.** En caso de un error recuperable (una consulta fallida, una recuperación transitoria), vuelve a intentar o corrige la entrada en lugar de abandonar la tarea. Mantenga esto separado de la regla contra la fabricación: no combine "no inventar cosas" con "deténgase en el primer error".
+
+Póngalas como reglas básicas en `AGENTS.md` para que se apliquen en todos los turnos.
+
+## Las cuatro superficies que ve el agente {#four-surfaces}
+
+Cada pieza de orientación que usted crea aterriza en una de las cuatro superficies. Saber qué superficie utilizar evita duplicaciones y detalles fuera de lugar:
+
+| Superficie                               | Quién lo escribe                      | Cuando está cargado                                             | Qué pertenece allí                                                                             |
+| ---------------------------------------- | ------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Instrucciones `AGENTS.md`                | Tú (desarrollador)                    | Cada giro, como orientación                                     | Propósito, reglas básicas, claves de estado, índice de acción, índice skills                   |
+| Habilidades (`SKILL.md`)                 | Tú (desarrollador)                    | A pedido, cuando el agente decide que la habilidad es relevante | Instrucciones paso a paso para un patrón específico, listas de lo que se debe/no se debe hacer |
+| Descripciones de acciones (herramientas) | Tú (desarrollador)                    | Cada turno, según la lista de herramientas                      | Qué hace la acción, qué devuelve, semántica de los parámetros                                  |
+| Contexto `application_state`             | Su código UI (en tiempo de ejecución) | Cada turno, como estado de la aplicación en vivo                | Navegación actual, selección, objeto enfocado, URL                                             |
+
+**Diagnóstico rápido:**
+
+- "El agente sigue preguntando en qué registro actuar incluso cuando hay uno abierto" → solución: escriba el ID del elemento actual en `application_state` (clave `navigation`) desde su UI. Esa es una brecha `application_state`, no una brecha de habilidades.
+- "El agente realiza una acción incorrecta o hace un mal uso de un parámetro" → solución: mejora `description` y `.describe()` de la acción en el parámetro. Esa es una corrección de descripción de herramienta, no una habilidad.
+
+## Qué va a dónde {#what-goes-where}
+
+- **AGENTS.md**: se aplica a toda la aplicación, en cada paso: propósito, reglas básicas, claves de estado, índice de acción, índice skills.
+- **Habilidades**: instrucciones reutilizables para un patrón específico, cargadas bajo demanda. Se aplica a todos los que trabajan en la aplicación.
+- **Memoria (`memory/MEMORY.md`)**: preferencias y correcciones por usuario, no orientación escrita.
+
+## ¿Qué sigue? {#whats-next}
+
+- [Habilidades Guide](/docs/skills-guide): el formato de archivo de habilidades, el marco skills y el skills respaldado por la aplicación.
+- [Creating Templates](/docs/creating-templates): cómo encajan `AGENTS.md` y skills en una plantilla que se puede enviar.
+- [The four-area checklist](/docs/key-concepts#four-area-checklist): el modelo de cuatro áreas que toda característica debe satisfacer.
