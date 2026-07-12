@@ -4879,6 +4879,94 @@ body[data-clips-route="recording-pill"] #root {
   margin-top: 1px;
 }
 
+.whisper-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.whisper-model-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.whisper-model-option input[type="radio"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.whisper-model-option-selected {
+  border-color: var(--accent, #6366f1);
+  background: color-mix(in srgb, var(--accent, #6366f1) 7%, transparent);
+}
+
+.whisper-model-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.whisper-model-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.whisper-model-tagline {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-model-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #16a34a 15%, transparent);
+  color: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-model-badge {
+    color: #4ade80;
+  }
+}
+
+.whisper-model-detail {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
+.whisper-model-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.whisper-model-remove:hover {
+  color: #dc2626;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+}
+
 .whisper-status-ready {
   color: #16a34a;
 }

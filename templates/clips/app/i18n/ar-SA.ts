@@ -638,9 +638,9 @@ const messages = {
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
     transcript: "النص",
-    transcriptCleanup: "تنظيف في الخلفية",
+    transcriptCleanup: "تنظيف النص بالذكاء الاصطناعي",
     transcriptCleanupDescription:
-      "اعرض النص الأصلي فورًا، ثم نظفه في الخلفية عند توفره.",
+      "معطّل افتراضيًا. عند التفعيل، يعيد الذكاء الاصطناعي كتابة النص بعد التفريغ لتحسين الترقيم وسهولة القراءة. قد تُعاد صياغة المصطلحات التقنية أحيانًا — يبقى النص الأصلي محفوظًا دائمًا فلا يضيع شيء.",
     notifications: "الإشعارات",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:

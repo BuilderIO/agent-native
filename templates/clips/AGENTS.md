@@ -35,7 +35,12 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 - Native transcript first. Cleanup and transcript-backed title/summary
   generation run in the durable post-finalize path; do not hide a usable native
   transcript behind failed metadata work, and keep heuristic titles replaceable
-  until the agent refinement lands.
+  until the agent refinement lands. AI transcript cleanup is **opt-in per user
+  (default off)** via Settings → Transcript (`clips-user-prefs`
+  `transcriptCleanupEnabled`); the raw transcript is always preserved either
+  way. The desktop tray's local Whisper model is user-selectable (base /
+  large-v3-turbo-q8_0 / large-v3-turbo) in desktop Settings — larger models
+  skip the startup RAM prewarm and load on first use.
 - Use `request-transcript --recordingId=<id> --force=true` to retry a failed
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready

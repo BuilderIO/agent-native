@@ -142,7 +142,10 @@ mod macos {
         buffer_start: Instant,
     }
 
-    /// Process-wide whisper context, loaded once and reused across meetings.
+    /// Process-wide whisper context, reused across meetings. Keyed by model
+    /// path: switching the model in settings drops the old context on the
+    /// next load (freeing its RAM once running streams finish) and loads the
+    /// newly chosen model instead.
     fn context(app: &AppHandle) -> Result<Arc<WhisperContext>, String> {
         // Route whisper.cpp + ggml's chatty stderr logs (model load dump,
         // system-info, per-inference timing) into whisper-rs's logging facade.
@@ -151,20 +154,28 @@ mod macos {
         // the first call takes effect.
         whisper_rs::install_logging_hooks();
 
-        static CTX: OnceLock<Mutex<Option<Arc<WhisperContext>>>> = OnceLock::new();
+        static CTX: OnceLock<Mutex<Option<(std::path::PathBuf, Arc<WhisperContext>)>>> =
+            OnceLock::new();
         let slot = CTX.get_or_init(|| Mutex::new(None));
         let mut guard = slot.lock().map_err(|e| e.to_string())?;
-        if let Some(ctx) = guard.as_ref() {
-            return Ok(ctx.clone());
-        }
         let path = model_file(app)?;
+        if let Some((loaded_path, ctx)) = guard.as_ref() {
+            if *loaded_path == path {
+                return Ok(ctx.clone());
+            }
+            eprintln!(
+                "[whisper] model changed ({} → {}) — reloading context",
+                loaded_path.display(),
+                path.display()
+            );
+        }
         let path_str = path
             .to_str()
             .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
         let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
             .map_err(|e| format!("whisper model load failed: {e}"))?;
         let ctx = Arc::new(ctx);
-        *guard = Some(ctx.clone());
+        *guard = Some((path, ctx.clone()));
         Ok(ctx)
     }
 

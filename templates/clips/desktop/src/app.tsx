@@ -3967,13 +3967,23 @@ function Setup({
   type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
   interface WhisperModelStatus {
     state: WhisperModelState;
+    model: string;
     path: string;
     downloadedMb: number;
     totalMb: number;
   }
+  interface WhisperModelEntry {
+    id: string;
+    sizeMb: number;
+    prewarm: boolean;
+    downloaded: boolean;
+    selected: boolean;
+  }
   const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
     null,
   );
+  const [whisperModels, setWhisperModels] = useState<WhisperModelEntry[]>([]);
+  const whisperModelChoice = featureConfig?.whisperModelChoice ?? "base";
   const [screenMemoryStatus, setScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
   const [screenMemoryMessage, setScreenMemoryMessage] = useState<{
@@ -4033,6 +4043,26 @@ function Setup({
     } else if (voiceProvider === "whisper") {
       onVoiceProviderChange(nativeVoiceProvider());
     }
+  }
+
+  function selectWhisperModel(id: string) {
+    if (!featureConfig || id === whisperModelChoice) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, whisperModelChoice: id },
+    })
+      .then(() => invoke("whisper_model_download"))
+      .then(() => refreshWhisperInfo())
+      .catch((err) =>
+        console.error("[settings] set whisper model failed", err),
+      );
+  }
+
+  function removeWhisperModel(id: string) {
+    invoke("whisper_model_delete", { id })
+      .then(() => refreshWhisperInfo())
+      .catch((err) =>
+        console.error("[settings] delete whisper model failed", err),
+      );
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -4288,15 +4318,22 @@ function Setup({
     };
   }, []);
 
+  const refreshWhisperInfo = useCallback(() => {
+    invoke<WhisperModelStatus>("whisper_model_status")
+      .then(setWhisperStatus)
+      .catch(() => {});
+    invoke<WhisperModelEntry[]>("whisper_model_list")
+      .then(setWhisperModels)
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load model status on mount and keep it current via events.
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      invoke<WhisperModelStatus>("whisper_model_status")
-        .then((s) => {
-          if (!cancelled) setWhisperStatus(s);
-        })
-        .catch(() => {});
+      if (cancelled) return;
+      refreshWhisperInfo();
     };
     refresh();
     const unlistens: Array<() => void> = [];
@@ -5023,6 +5060,15 @@ function Setup({
           enabled={whisperModelEnabled}
           onDownload={triggerWhisperDownload}
         />
+        {whisperModelEnabled ? (
+          <WhisperModelPicker
+            models={whisperModels}
+            choice={whisperModelChoice}
+            downloading={whisperStatus?.state === "downloading"}
+            onSelect={selectWhisperModel}
+            onRemove={removeWhisperModel}
+          />
+        ) : null}
       </div>
 
       <div className="setup-section-heading">Dictation</div>
@@ -5323,6 +5369,112 @@ function SettingLabel({
         <TooltipContent>{hint}</TooltipContent>
       </Tooltip>
     </label>
+  );
+}
+
+/**
+ * Plain-language education for the model choice. Sizes/memory figures are
+ * approximate but honest — the point is letting users make an informed
+ * accuracy-vs-memory trade-off, not selling the biggest model.
+ */
+const WHISPER_MODEL_INFO: Record<
+  string,
+  { name: string; tagline: string; detail: string }
+> = {
+  base: {
+    name: "Standard",
+    tagline: "141 MB · always ready",
+    detail:
+      "Loads at launch and stays in memory (~300 MB), so dictation and meetings start instantly. Fine for quick clips, but can mishear accents, names, and technical terms.",
+  },
+  "large-v3-turbo-q8_0": {
+    name: "High accuracy",
+    tagline: "874 MB · recommended for transcripts",
+    detail:
+      "Much better with accents, names, and technical vocabulary. Loads when a recording, meeting, or dictation starts (~1 GB of memory while in use) — the first use after launch waits a few seconds while it loads.",
+  },
+  "large-v3-turbo": {
+    name: "Maximum accuracy",
+    tagline: "1.6 GB · full precision",
+    detail:
+      "The uncompressed model. Marginally more accurate than High accuracy at roughly twice the memory (~2 GB while in use) and a longer first-use load. Choose this only if High accuracy still mishears you.",
+  },
+};
+
+function WhisperModelPicker({
+  models,
+  choice,
+  downloading,
+  onSelect,
+  onRemove,
+}: {
+  models: Array<{ id: string; sizeMb: number; downloaded: boolean }>;
+  choice: string;
+  downloading: boolean;
+  onSelect: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  if (models.length === 0) return null;
+  return (
+    <div className="whisper-model-picker">
+      <p className="setup-hint">
+        This model transcribes meetings, desktop recordings, and Whisper
+        dictation on this Mac — audio never leaves your machine. Larger models
+        hear better but use more memory while loaded.
+      </p>
+      {models.map((m) => {
+        const info = WHISPER_MODEL_INFO[m.id] ?? {
+          name: m.id,
+          tagline: `${m.sizeMb} MB`,
+          detail: "",
+        };
+        const selected = m.id === choice;
+        return (
+          <label
+            key={m.id}
+            className={
+              "whisper-model-option" +
+              (selected ? " whisper-model-option-selected" : "")
+            }
+          >
+            <input
+              type="radio"
+              name="whisper-model"
+              checked={selected}
+              disabled={downloading}
+              onChange={() => onSelect(m.id)}
+            />
+            <span className="whisper-model-copy">
+              <span className="whisper-model-name">
+                {info.name}
+                <span className="whisper-model-tagline">{info.tagline}</span>
+                {m.downloaded ? (
+                  <span className="whisper-model-badge">Downloaded</span>
+                ) : null}
+              </span>
+              <span className="whisper-model-detail">{info.detail}</span>
+            </span>
+            {!selected && m.downloaded ? (
+              <button
+                type="button"
+                className="whisper-model-remove"
+                title={`Delete the downloaded file (${m.sizeMb} MB)`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onRemove(m.id);
+                }}
+              >
+                <IconTrash size={13} stroke={1.9} />
+              </button>
+            ) : null}
+          </label>
+        );
+      })}
+      <p className="setup-hint">
+        Switching downloads the model once (verified) and applies from the next
+        recording, meeting, or dictation.
+      </p>
+    </div>
   );
 }
 

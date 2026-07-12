@@ -652,9 +652,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     playbackDescription:
       "Se aplica automáticamente cuando abres una grabación.",
     transcript: "Transcripción",
-    transcriptCleanup: "Limpieza en segundo plano",
+    transcriptCleanup: "Limpieza del transcript con IA",
     transcriptCleanupDescription:
-      "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
+      "Desactivado por defecto. Al activarlo, una pasada de IA reescribe la transcripción tras generarse para mejorar puntuación y legibilidad. A veces puede reformular términos técnicos — la transcripción original siempre se conserva, no se pierde nada.",
     notifications: "Notificaciones",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:

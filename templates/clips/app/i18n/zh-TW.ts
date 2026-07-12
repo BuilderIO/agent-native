@@ -607,8 +607,9 @@ const messages = {
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",
     transcript: "轉錄",
-    transcriptCleanup: "背景清理",
-    transcriptCleanupDescription: "先立即顯示原生轉錄，背景可用時再進行清理。",
+    transcriptCleanup: "AI 逐字稿清理",
+    transcriptCleanupDescription:
+      "預設關閉。開啟後，逐字稿完成後會由 AI 重寫文字以改善標點與可讀性。專業術語偶爾可能被改寫 — 原始逐字稿永遠保留，不會遺失任何內容。",
     notifications: "通知",
     emailNotifications: "郵件通知",
     emailNotificationsDescription:

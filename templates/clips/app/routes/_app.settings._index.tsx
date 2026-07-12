@@ -428,7 +428,7 @@ export default function SettingsIndexRoute() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
-    useState(true);
+    useState(false);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
   const [clearingS3, setClearingS3] = useState(false);
@@ -493,7 +493,7 @@ export default function SettingsIndexRoute() {
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
       setDisplayName(v.displayName ?? "");
-      setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
+      setTranscriptCleanupEnabled(v.transcriptCleanupEnabled === true);
       setLoading(false);
     });
     return () => {

@@ -614,8 +614,9 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
     transcript: "转录",
-    transcriptCleanup: "后台清理",
-    transcriptCleanupDescription: "先立即显示原生转录，后台可用时再进行清理。",
+    transcriptCleanup: "AI 转写清理",
+    transcriptCleanupDescription:
+      "默认关闭。开启后，转写完成会由 AI 重写文本以改善标点和可读性。专业术语偶尔可能被改写 — 原始转写始终保留，不会丢失任何内容。",
     notifications: "通知",
     emailNotifications: "邮件通知",
     emailNotificationsDescription:

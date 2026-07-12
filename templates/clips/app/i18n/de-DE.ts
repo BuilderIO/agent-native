@@ -657,9 +657,9 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     playbackDescription:
       "Wird automatisch angewendet, wenn du eine Aufnahme öffnest.",
     transcript: "Transkript",
-    transcriptCleanup: "Bereinigung im Hintergrund",
+    transcriptCleanup: "KI-Transkriptbereinigung",
     transcriptCleanupDescription:
-      "Zeige das native Transkript sofort an und bereinige es im Hintergrund, sobald es verfügbar ist.",
+      "Standardmäßig aus. Wenn aktiviert, überarbeitet ein KI-Durchlauf das Transkript nach der Transkription für Zeichensetzung und Lesbarkeit. Fachbegriffe können dabei gelegentlich umformuliert werden — das Original-Transkript bleibt immer erhalten, es geht nichts verloren.",
     notifications: "Benachrichtigungen",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:

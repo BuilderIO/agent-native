@@ -637,6 +637,10 @@ async function failAudioOnlyPreparation({
   throw new Error(reason);
 }
 
+// Opt-in: AI cleanup rewrites the transcript after transcription and has
+// botched real recordings before (a Gemini pass once rewrote a transcript
+// into unrelated text). The native/whisper transcript is the product; users
+// who want the extra polish enable cleanup explicitly in Settings.
 async function transcriptCleanupEnabled(): Promise<boolean> {
   const userEmail = getRequestUserEmail();
   if (userEmail) {
@@ -645,12 +649,12 @@ async function transcriptCleanupEnabled(): Promise<boolean> {
       CLIPS_USER_PREFS_KEY,
     ).catch(() => null);
     if (userSettings && "transcriptCleanupEnabled" in userSettings) {
-      return userSettings.transcriptCleanupEnabled !== false;
+      return userSettings.transcriptCleanupEnabled === true;
     }
   }
 
   const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
-  return settings?.transcriptCleanupEnabled !== false;
+  return settings?.transcriptCleanupEnabled === true;
 }
 
 /**

@@ -649,9 +649,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     playbackDescription:
       "Aplicada automaticamente quando você abre uma gravação.",
     transcript: "Transcrição",
-    transcriptCleanup: "Limpeza em segundo plano",
+    transcriptCleanup: "Limpeza da transcrição com IA",
     transcriptCleanupDescription:
-      "Mostre a transcrição nativa imediatamente e depois limpe em segundo plano quando disponível.",
+      "Desativado por padrão. Quando ativado, uma passada de IA reescreve a transcrição após a geração para melhorar pontuação e legibilidade. Termos técnicos podem ocasionalmente ser reformulados — a transcrição original é sempre preservada, nada se perde.",
     notifications: "Notificações",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:

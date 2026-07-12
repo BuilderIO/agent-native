@@ -94,6 +94,11 @@ pub struct FeatureConfig {
     pub onboarding_complete: bool,
     #[serde(default = "default_whisper_model_enabled")]
     pub whisper_model_enabled: bool,
+    /// Which pinned whisper model powers local transcription (meetings,
+    /// native-recording transcripts, whisper-mode dictation). See
+    /// `whisper_model::WHISPER_MODELS` for the selectable set.
+    #[serde(default = "default_whisper_model_choice")]
+    pub whisper_model_choice: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +134,10 @@ fn default_whisper_model_enabled() -> bool {
     true
 }
 
+fn default_whisper_model_choice() -> String {
+    crate::whisper_model::DEFAULT_WHISPER_MODEL_ID.to_string()
+}
+
 fn default_screen_memory_retention_hours() -> u32 {
     24
 }
@@ -161,6 +170,7 @@ impl Default for FeatureConfig {
             screen_memory: ScreenMemoryConfig::default(),
             onboarding_complete: false,
             whisper_model_enabled: default_whisper_model_enabled(),
+            whisper_model_choice: default_whisper_model_choice(),
         }
     }
 }

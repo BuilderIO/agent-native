@@ -645,9 +645,9 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
     transcript: "文字起こし",
-    transcriptCleanup: "バックグラウンド整形",
+    transcriptCleanup: "AIによる文字起こしクリーンアップ",
     transcriptCleanupDescription:
-      "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
+      "デフォルトはオフです。オンにすると、文字起こし後にAIが句読点や読みやすさのために書き直します。専門用語が言い換えられることがあります — 元の文字起こしは常に保持され、失われることはありません。",
     notifications: "通知",
     emailNotifications: "メール通知",
     emailNotificationsDescription:

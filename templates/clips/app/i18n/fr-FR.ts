@@ -652,9 +652,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     playbackDescription:
       "Appliquée automatiquement quand vous ouvrez un enregistrement.",
     transcript: "Transcription",
-    transcriptCleanup: "Nettoyage en arrière-plan",
+    transcriptCleanup: "Nettoyage IA de la transcription",
     transcriptCleanupDescription:
-      "Affichez immédiatement la transcription native, puis nettoyez-la en arrière-plan lorsqu’elle est disponible.",
+      "Désactivé par défaut. Une fois activé, une passe d'IA réécrit la transcription après sa génération pour la ponctuation et la lisibilité. Elle peut parfois reformuler des termes techniques — la transcription d'origine est toujours conservée, rien n'est perdu.",
     notifications: "Alertes",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:

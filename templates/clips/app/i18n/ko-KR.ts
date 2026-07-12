@@ -638,9 +638,9 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
     transcript: "대본",
-    transcriptCleanup: "백그라운드 정리",
+    transcriptCleanup: "AI 자막 정리",
     transcriptCleanupDescription:
-      "기본 대본을 즉시 표시하고, 사용 가능해지면 백그라운드에서 정리합니다.",
+      "기본값은 꺼짐입니다. 켜면 전사 후 AI가 구두점과 가독성을 위해 텍스트를 다듬습니다. 전문 용어가 다르게 바뀔 수 있습니다 — 원본 전사는 항상 보존되므로 손실되지 않습니다.",
     notifications: "알림",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:

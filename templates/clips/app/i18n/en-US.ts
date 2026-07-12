@@ -634,9 +634,9 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
     transcript: "Transcript",
-    transcriptCleanup: "Background cleanup",
+    transcriptCleanup: "AI transcript cleanup",
     transcriptCleanupDescription:
-      "Show the native transcript immediately, then clean it up in the background when available.",
+      "Off by default. When on, an AI pass rewrites the transcript for punctuation and readability after transcription. It can occasionally reword technical terms — the original transcript is always kept, so nothing is lost.",
     notifications: "Notifications",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:

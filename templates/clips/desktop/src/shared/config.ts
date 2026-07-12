@@ -114,6 +114,8 @@ export interface FeatureConfig {
   screenMemory: ScreenMemoryConfig;
   onboardingComplete: boolean;
   whisperModelEnabled: boolean;
+  /** Selected local whisper model id ("base" | "large-v3-turbo-q8_0" | "large-v3-turbo"). */
+  whisperModelChoice: string;
 }
 
 export function useFeatureConfig() {

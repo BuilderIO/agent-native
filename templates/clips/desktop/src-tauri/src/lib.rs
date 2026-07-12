@@ -200,6 +200,8 @@ pub fn run() {
             // whisper model management
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            whisper_model::whisper_model_list,
+            whisper_model::whisper_model_delete,
             // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
             // persistent log file (production debugging)
@@ -311,8 +313,16 @@ pub fn run() {
                                 // Warm the in-memory whisper context now, off
                                 // the recording-start path, so the first
                                 // recording doesn't block ~hundreds of ms
-                                // loading the model into memory. Blocking work
-                                // → spawn_blocking
+                                // loading the model into memory — but only for
+                                // small models. Large models (1-2 GB resident)
+                                // load on first use instead of occupying RAM
+                                // from launch. Blocking work → spawn_blocking
+                                if !whisper_model::current_spec(&app_handle).prewarm {
+                                    println!(
+                                        "[clips-tray] whisper prewarm skipped (large model loads on first use)"
+                                    );
+                                    return;
+                                }
                                 let warm_handle = app_handle.clone();
                                 let _ = tauri::async_runtime::spawn_blocking(move || {
                                     match whisper_speech::prewarm_context(&warm_handle) {
