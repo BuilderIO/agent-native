@@ -1393,10 +1393,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     desktopShortcutsDescriptionSuffix: ", en la app de escritorio.",
     holdFn: "Mantén pulsada Fn",
     browserDictationDescriptionDesktop:
-      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (Localizado)",
-    quickNoteTitle: "Quick dictation note (Localizado)",
+      "Usa el botón de abajo para capturar una nota aquí mismo, en esta página. No pega el texto en otras apps — para eso usa el atajo de escritorio de la derecha.",
+    quickNoteTitle: "Nota rápida por dictado",
     quickNoteHint:
-      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (Localizado)",
+      "Captura aquí sin salir de esta página — no pega en otras apps. Usa el botón para iniciar y detener.",
     browserUnavailable:
       "El reconocimiento de voz del navegador no está disponible aquí. Usa Chrome o la app de escritorio para el dictado global.",
     browserUnavailableShort:
@@ -1426,18 +1426,18 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Dictado de voz a texto con limpieza por IA. Consigue la app de escritorio para dictar desde cualquier lugar con un atajo global.",
     loadFailed: "No se pudieron cargar los dictados.",
     noFilterMatches: "No hay dictados que coincidan con este filtro.",
-    dictionaryTitle: "Dictionary (Localizado)",
+    dictionaryTitle: "Diccionario",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (Localizado)",
-    dictionaryTermPlaceholder: "Term (Localizado)",
-    dictionaryReplacementPlaceholder: "Replacement (optional) (Localizado)",
-    dictionaryAdd: "Add (Localizado)",
-    dictionaryLoading: "Loading dictionary... (Localizado)",
-    dictionaryEmpty: "No learned terms yet. (Localizado)",
-    dictionaryUsesCount: "Used {{count}}x (Localizado)",
-    dictionaryRemove: "Remove (Localizado)",
-    vocabularyAddFailed: "Couldn't add term (Localizado)",
-    vocabularyRemoveFailed: "Couldn't remove term (Localizado)",
+      "Estos términos orientan el reconocimiento de voz hacia tus grafías preferidas — se aprenden de tus correcciones o puedes añadir los tuyos.",
+    dictionaryTermPlaceholder: "Término",
+    dictionaryReplacementPlaceholder: "Sustitución (opcional)",
+    dictionaryAdd: "Añadir",
+    dictionaryLoading: "Cargando diccionario…",
+    dictionaryEmpty: "Aún no hay términos aprendidos.",
+    dictionaryUsesCount: "Usado {{count}} veces",
+    dictionaryRemove: "Eliminar",
+    vocabularyAddFailed: "No se pudo añadir el término",
+    vocabularyRemoveFailed: "No se pudo eliminar el término",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "Dividir en el cabezal (S)",
@@ -1534,10 +1534,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Es necesario volver a conectar Google Calendar para seguir mostrando tus próximas reuniones.",
     connectGoogleCalendar: "Conectar Google Calendar",
     desktopReminder:
-      "Recibe un recordatorio de escritorio cuando empiecen las reuniones para que las notas grabadas lleguen a este historial automáticamente.",
+      "Conecta Google Calendar, mantén Clips Desktop abierto y haz clic en Iniciar notas desde el recordatorio o la barra de menús cuando empiece tu reunión.",
     getDesktopApp: "Obtener la app de escritorio",
     requiredForReminders:
-      "Necesaria para los recordatorios de reuniones y la transcripción.",
+      "El escritorio captura micrófono + audio del sistema para transcribir reuniones.",
     calendarConnected: "Calendario conectado",
     calendarDisconnected: "Calendario desconectado",
     calendarSettings: "Ajustes del calendario",
@@ -1545,26 +1545,27 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Conecta Google Calendar para recibir recordatorios de reuniones.",
     disconnectGoogleCalendarTitle: "¿Desconectar Google Calendar?",
     title: "Reuniones",
-    intro: "Próximas reuniones del calendario y tus notas grabadas.",
+    intro:
+      "Próximas reuniones de calendario y tus notas grabadas. Inicia notas en vivo desde Clips Desktop a la hora de la reunión.",
     searchPlaceholder: "Buscar reuniones...",
     clearSearch: "Borrar búsqueda",
     noMeetingsYet: "Aún no hay reuniones",
     noMeetingsDescription:
-      "Las próximas reuniones del calendario aparecen aquí, y las grabaciones terminadas llegan aquí cuando tomas notas.",
+      "Conecta tu calendario y mantén Clips Desktop abierto. Cuando empiece una reunión, usa Iniciar notas desde el recordatorio o la barra de menús.",
     noMeetingsMatch: 'No hay reuniones que coincidan con "{{query}}"',
     refreshing: "Actualizando…",
-    howToTriggerTitle: "How to trigger meeting notes (Localizado)",
+    howToTriggerTitle: "Cómo activar las notas de reunión",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (Localizado)",
-    guideCalendarTitle: "Connect Google Calendar (Localizado)",
+      "Las notas de reunión son el flujo estilo Granola de Clips: los eventos del calendario aparecen aquí, la app de escritorio captura micrófono y audio del sistema, y la transcripción con notas de IA vuelve a este historial.",
+    guideCalendarTitle: "Conecta Google Calendar",
     guideCalendarDescription:
-      "Meetings are pulled from your calendar so Clips knows when to remind you. (Localizado)",
-    guideDesktopTitle: "Keep Clips Desktop open (Localizado)",
+      "Las reuniones vienen de tu calendario para que Clips sepa cuándo recordártelo.",
+    guideDesktopTitle: "Mantén Clips Desktop abierto",
     guideDesktopDescription:
-      "Desktop capture is required for mic plus system-audio transcription. (Localizado)",
-    guideStartTitle: "Click Start notes (Localizado)",
+      "La captura de escritorio es necesaria para transcribir micrófono más audio del sistema.",
+    guideStartTitle: "Haz clic en Iniciar notas",
     guideStartDescription:
-      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localizado)",
+      "Usa el recordatorio de escritorio o el elemento «Iniciar notas de reunión» de la barra de menús cuando empiece la llamada.",
   },
   videoProjects: {
     listPageTitle: "Proyectos de video · Clips",

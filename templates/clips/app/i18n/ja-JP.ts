@@ -1381,10 +1381,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     desktopShortcutsDescriptionSuffix: "、デスクトップアプリで利用できます。",
     holdFn: "Fn を長押し",
     browserDictationDescriptionDesktop:
-      "Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right. (ローカライズ済み)",
-    quickNoteTitle: "Quick dictation note (ローカライズ済み)",
+      "下のボタンで、このページ上にそのままメモを取り込めます。他のアプリには貼り付けられません — それには右のデスクトップショートカットを使ってください。",
+    quickNoteTitle: "クイック音声メモ",
     quickNoteHint:
-      "Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop. (ローカライズ済み)",
+      "このページを離れずにここに取り込みます — 他のアプリへの貼り付けは行いません。ボタンで開始・停止します。",
     browserUnavailable:
       "ここではブラウザーの音声認識を利用できません。グローバルディクテーションには Chrome またはデスクトップアプリを使用してください。",
     browserUnavailableShort: "ここではブラウザーの音声認識を利用できません",
@@ -1414,19 +1414,18 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "AI クリーンアップ付きの音声テキスト入力。デスクトップアプリを入手すると、グローバルショートカットでどこからでもディクテーションできます。",
     loadFailed: "ディクテーションを読み込めませんでした。",
     noFilterMatches: "このフィルターに一致するディクテーションはありません。",
-    dictionaryTitle: "Dictionary (ローカライズ済み)",
+    dictionaryTitle: "辞書",
     dictionaryDescription:
-      "Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own. (ローカライズ済み)",
-    dictionaryTermPlaceholder: "Term (ローカライズ済み)",
-    dictionaryReplacementPlaceholder:
-      "Replacement (optional) (ローカライズ済み)",
-    dictionaryAdd: "Add (ローカライズ済み)",
-    dictionaryLoading: "Loading dictionary... (ローカライズ済み)",
-    dictionaryEmpty: "No learned terms yet. (ローカライズ済み)",
-    dictionaryUsesCount: "Used {{count}}x (ローカライズ済み)",
-    dictionaryRemove: "Remove (ローカライズ済み)",
-    vocabularyAddFailed: "Couldn't add term (ローカライズ済み)",
-    vocabularyRemoveFailed: "Couldn't remove term (ローカライズ済み)",
+      "ここの用語は音声認識をあなたの好みの表記に寄せます — 修正から自動学習されるほか、自分で追加もできます。",
+    dictionaryTermPlaceholder: "用語",
+    dictionaryReplacementPlaceholder: "置き換え（任意）",
+    dictionaryAdd: "追加",
+    dictionaryLoading: "辞書を読み込み中…",
+    dictionaryEmpty: "学習した用語はまだありません。",
+    dictionaryUsesCount: "{{count}}回使用",
+    dictionaryRemove: "削除",
+    vocabularyAddFailed: "用語を追加できませんでした",
+    vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",
@@ -1521,9 +1520,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "今後の会議を表示し続けるには、Google Calendar を再接続する必要があります。",
     connectGoogleCalendar: "Google Calendar を接続",
     desktopReminder:
-      "会議の開始時にデスクトップリマインダーを受け取ると、録画したノートが自動的にこの履歴に保存されます。",
+      "Google Calendarを連携し、Clips Desktopを開いたままにして、会議が始まったらリマインダーまたはメニューバーから「ノートを開始」をクリックしてください。",
     getDesktopApp: "デスクトップアプリを入手",
-    requiredForReminders: "会議のリマインダーと文字起こしに必要です。",
+    requiredForReminders:
+      "デスクトップアプリが会議の文字起こし用にマイク＋システム音声を取り込みます。",
     calendarConnected: "カレンダーを接続しました",
     calendarDisconnected: "カレンダーの接続を解除しました",
     calendarSettings: "カレンダー設定",
@@ -1531,26 +1531,27 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "会議のリマインダーのために Google Calendar を接続してください。",
     disconnectGoogleCalendarTitle: "Google Calendar の接続を解除しますか？",
     title: "会議",
-    intro: "今後のカレンダーの会議と録画したノート。",
+    intro:
+      "カレンダーの今後の会議と録音済みノート。会議の時間になったらClips Desktopからライブノートを開始できます。",
     searchPlaceholder: "会議を検索...",
     clearSearch: "検索をクリア",
     noMeetingsYet: "会議はまだありません",
     noMeetingsDescription:
-      "今後のカレンダーの会議はここに表示され、ノートを取ると完了した録画もここに保存されます。",
+      "カレンダーを連携し、Clips Desktopを開いたままにしてください。会議が始まったら、リマインダーまたはメニューバーの「ノートを開始」を使います。",
     noMeetingsMatch: "「{{query}}」に一致する会議はありません",
     refreshing: "更新中…",
-    howToTriggerTitle: "How to trigger meeting notes (ローカライズ済み)",
+    howToTriggerTitle: "会議ノートの始め方",
     howToTriggerDescription:
-      "Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history. (ローカライズ済み)",
-    guideCalendarTitle: "Connect Google Calendar (ローカライズ済み)",
+      "会議ノートはClipsのGranola式フローです。カレンダーの予定がここに表示され、デスクトップアプリがマイクとシステム音声を取り込み、文字起こしとAIノートがこの履歴に戻ってきます。",
+    guideCalendarTitle: "Google Calendarを連携",
     guideCalendarDescription:
-      "Meetings are pulled from your calendar so Clips knows when to remind you. (ローカライズ済み)",
-    guideDesktopTitle: "Keep Clips Desktop open (ローカライズ済み)",
+      "会議はカレンダーから取得され、Clipsがリマインドのタイミングを把握します。",
+    guideDesktopTitle: "Clips Desktopを開いたままにする",
     guideDesktopDescription:
-      "Desktop capture is required for mic plus system-audio transcription. (ローカライズ済み)",
-    guideStartTitle: "Click Start notes (ローカライズ済み)",
+      "マイクとシステム音声の文字起こしにはデスクトップでのキャプチャが必要です。",
+    guideStartTitle: "「ノートを開始」をクリック",
     guideStartDescription:
-      "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (ローカライズ済み)",
+      "通話が始まったら、デスクトップのリマインダーかメニューバーの「会議ノートを開始」を使ってください。",
   },
   videoProjects: {
     listPageTitle: "動画プロジェクト · Clips",
