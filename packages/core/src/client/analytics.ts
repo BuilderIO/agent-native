@@ -908,7 +908,11 @@ export function setSentryUser(
     clearTrackingIdentity();
   }
   _trackingIdentityResolved = true;
-  if (shouldRetryReplay && _sessionReplayOptions?.requireSignedInUser) {
+  if (
+    shouldRetryReplay &&
+    _trackingContentCaptureEnabled &&
+    _sessionReplayOptions?.requireSignedInUser
+  ) {
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
   if (_sentryInitialized) {
@@ -1321,11 +1325,24 @@ async function startConfiguredSessionReplay(
 ): Promise<SessionReplayStartResult | null> {
   if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
   _sessionReplayStartPromise = (async () => {
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
     if (!(await waitForSessionReplayAuthIfRequired(options))) {
       return { started: false, reason: "missing-user-id" as const };
     }
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
     const mod = await import("./session-replay.js");
-    return mod.startSessionReplay(options);
+    if (!_trackingContentCaptureEnabled) {
+      return { started: false, reason: "disabled" as const };
+    }
+    return mod.startSessionReplay({
+      ...options,
+      shouldStart: () =>
+        _trackingContentCaptureEnabled && (options.shouldStart?.() ?? true),
+    });
   })()
     .catch(() => ({ started: false, reason: "import-failed" as const }))
     .finally(() => {
@@ -1337,23 +1354,37 @@ async function startConfiguredSessionReplay(
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (!_trackingContentCaptureEnabled) {
+    return { started: false, reason: "disabled" };
+  }
   const configured = configuredSessionReplayOptions(options) ?? options;
   if (!(await waitForSessionReplayAuthIfRequired(configured))) {
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
-  return mod.startSessionReplay(configured);
+  return mod.startSessionReplay({
+    ...configured,
+    shouldStart: () =>
+      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+  });
 }
 
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (!_trackingContentCaptureEnabled) {
+    return { started: false, reason: "disabled" };
+  }
   const configured = configuredSessionReplayOptions(options) ?? options;
   if (!(await waitForSessionReplayAuthIfRequired(configured))) {
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
-  return mod.maybeStartSessionReplay(configured);
+  return mod.maybeStartSessionReplay({
+    ...configured,
+    shouldStart: () =>
+      _trackingContentCaptureEnabled && (configured.shouldStart?.() ?? true),
+  });
 }
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {

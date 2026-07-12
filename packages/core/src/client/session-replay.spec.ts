@@ -326,6 +326,61 @@ describe("session replay", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
+  it("cancels deferred replay startup when navigation enters a private route", async () => {
+    const { history } = installBrowser("https://plan.agent-native.com/plans", {
+      error: "not authenticated",
+    });
+    const authResponse = deferred<Response>();
+    const fetchMock = vi.fn(async (input: unknown) => {
+      if (String(input).includes("/_agent-native/auth/session")) {
+        return authResponse.promise;
+      }
+      return new Response("{}");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
+      sessionReplay: { enabled: true, requireSignedInUser: true },
+    });
+    history.pushState({}, "", "/local-plans/local#bridge=private-token");
+    authResponse.resolve(
+      new Response(
+        JSON.stringify({ email: "dev@example.com", userId: "user-1" }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await tick();
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retry auth-required replay while content capture is disabled", async () => {
+    installBrowser("https://plan.agent-native.com/local-plans/local", {
+      error: "not authenticated",
+    });
+    vi.resetModules();
+    const { configureTracking, setSentryUser } = await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      contentCapture: false,
+      sessionReplay: { enabled: true, requireSignedInUser: true },
+    });
+    await tick();
+    setSentryUser({ email: "dev@example.com", id: "user-1" });
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
   it("starts auth-required replay after browser identity is provided", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
       error: "not authenticated",

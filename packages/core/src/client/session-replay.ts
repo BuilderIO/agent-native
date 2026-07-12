@@ -109,6 +109,8 @@ export interface SessionReplayNetworkOptions {
 
 export interface SessionReplayOptions {
   enabled?: boolean;
+  /** Rechecked immediately before rrweb starts to cancel deferred startup. */
+  shouldStart?: () => boolean;
   publicKey?: string;
   endpoint?: string;
   requireSignedInUser?: boolean;
@@ -208,6 +210,7 @@ interface NormalizedSessionReplayOptions {
   /** Null disables network capture entirely. */
   network: NormalizedCaptureOptions | null;
   extraProperties?: SessionReplayOptions["extraProperties"];
+  shouldStart?: SessionReplayOptions["shouldStart"];
 }
 
 interface NormalizedCaptureOptions {
@@ -656,6 +659,7 @@ function normalizeOptions(
       DEFAULT_MAX_NETWORK_EVENTS,
     ),
     extraProperties: options.extraProperties,
+    shouldStart: options.shouldStart,
   };
 }
 
@@ -1950,6 +1954,9 @@ export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
   if (options.enabled === false) return { started: false, reason: "disabled" };
+  if (options.shouldStart && !options.shouldStart()) {
+    return { started: false, reason: "disabled" };
+  }
   if (typeof window === "undefined" || typeof document === "undefined") {
     return { started: false, reason: "not-browser" };
   }
@@ -2031,6 +2038,9 @@ async function startSessionReplayRecorder(
     rrweb = (await import("@rrweb/record")) as RrwebRecordModule;
   } catch {
     return { started: false, reason: "import-failed", sessionId, sampled };
+  }
+  if (normalized.shouldStart && !normalized.shouldStart()) {
+    return { started: false, reason: "disabled", sessionId, sampled };
   }
 
   const replaySession = getOrCreateReplaySession(sessionId);
