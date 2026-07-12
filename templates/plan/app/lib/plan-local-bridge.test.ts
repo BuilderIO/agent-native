@@ -5,6 +5,7 @@ import {
   localNetworkAccessPermissionState,
   localPlanBridgeUrlFromLocation,
   LocalPlanBridgePermissionError,
+  planReturnPathFromLocation,
   shouldRetryLocalPlanBridgeBundle,
   shouldShowLocalPlanLoadError,
 } from "./plan-local-bridge";
@@ -17,17 +18,46 @@ describe("local plan bridge", () => {
 
   it("reads bridge credentials from the URL fragment without requiring a query parameter", () => {
     const bridgeUrl = "http://127.0.0.1:60166/local-plan.json?token=test-token";
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
 
     expect(
       localPlanBridgeUrlFromLocation(
         `#bridge=${encodeURIComponent(bridgeUrl)}`,
+        "local",
+        storage,
       ),
     ).toBe(bridgeUrl);
-    expect(localPlanBridgeUrlFromLocation("#overview")).toBeNull();
+    expect(localPlanBridgeUrlFromLocation("#overview", "local", storage)).toBe(
+      bridgeUrl,
+    );
+    expect(
+      localPlanBridgeUrlFromLocation("#overview", "other", storage),
+    ).toBeNull();
   });
 
   it("never reads bridge credentials from the request-visible query string", () => {
-    expect(localPlanBridgeUrlFromLocation("")).toBeNull();
+    expect(localPlanBridgeUrlFromLocation("", "local", null)).toBeNull();
+  });
+
+  it("omits bridge fragments from hosted auth return paths", () => {
+    expect(
+      planReturnPathFromLocation({
+        pathname: "/local-plans/local",
+        search: "?view=review",
+        hash: "#bridge=private-token",
+      }),
+    ).toBe("/local-plans/local?view=review");
+    expect(
+      planReturnPathFromLocation({
+        pathname: "/plans/plan-1",
+        search: "",
+        hash: "#overview",
+      }),
+    ).toBe("/plans/plan-1#overview");
   });
 
   it("keeps valid plan blocks visible when local MDX contains malformed blocks", async () => {

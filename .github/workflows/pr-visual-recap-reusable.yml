@@ -84,6 +84,11 @@ on:
         required: false
         type: string
         default: '"ubuntu-latest"'
+      gate-runs-on:
+        description: "Plain single runner label for the metadata-only gate job"
+        required: false
+        type: string
+        default: "ubuntu-latest"
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -113,9 +118,10 @@ concurrency:
 jobs:
   gate:
     name: Gate
-    # Parse custom runner configuration inside this trusted, GitHub-hosted gate
-    # so malformed JSON can be reported instead of preventing the job from starting.
-    runs-on: ubuntu-latest
+    # This plain single-label input intentionally avoids fromJSON at scheduling
+    # time. For a self-hosted-only repo, point it at a dedicated, preferably
+    # ephemeral gate runner. This job never checks out or executes PR code.
+    runs-on: ${{ inputs['gate-runs-on'] }}
     timeout-minutes: 10
     permissions:
       contents: read

@@ -279,6 +279,7 @@ import {
   localPlanRoutePath,
   localPlanRouteUrl,
   mergeLocalBridgeComments,
+  planReturnPathFromLocation,
   shouldRetryLocalPlanBridgeBundle,
   shouldShowLocalPlanLoadError,
   shouldShowPlanLoadError,
@@ -2025,19 +2026,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     () => new URLSearchParams(location.search),
     [location.search],
   );
-  const localPlanBridgeRef = useRef<{ slug: string; url: string } | null>(null);
-  const routeLocalPlanBridgeUrl = localPlanMode
-    ? localPlanBridgeUrlFromLocation(location.hash)
-    : null;
-  if (localPlanSlug && routeLocalPlanBridgeUrl) {
-    localPlanBridgeRef.current = {
-      slug: localPlanSlug,
-      url: routeLocalPlanBridgeUrl,
-    };
-  }
   const localPlanBridgeUrl =
-    localPlanMode && localPlanBridgeRef.current?.slug === localPlanSlug
-      ? localPlanBridgeRef.current.url
+    localPlanMode && localPlanSlug
+      ? localPlanBridgeUrlFromLocation(location.hash, localPlanSlug)
       : null;
   const localPlanRepoPath = localPlanMode
     ? routeSearchParams.get("path")
@@ -2149,8 +2140,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   // Redirect to sign-in, returning to wherever the guest currently is.
   const openSignIn = useCallback((returnOverride?: string) => {
     const returnPath =
-      returnOverride ??
-      window.location.pathname + window.location.search + window.location.hash;
+      returnOverride ?? planReturnPathFromLocation(window.location);
     window.location.href = `${agentNativePath(
       "/_agent-native/sign-in",
     )}?return=${encodeURIComponent(returnPath)}`;
@@ -2304,8 +2294,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
   }, [accessRequestSentPlanId, selectedId]);
   const startGoogleSignIn = useCallback(async () => {
-    const returnPath =
-      window.location.pathname + window.location.search + window.location.hash;
+    const returnPath = planReturnPathFromLocation(window.location);
     try {
       const res = await fetch(
         `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(returnPath)}`,
@@ -6838,8 +6827,7 @@ function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () =>
-    window.location.pathname + window.location.search + window.location.hash;
+  const returnPath = () => planReturnPathFromLocation(window.location);
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {

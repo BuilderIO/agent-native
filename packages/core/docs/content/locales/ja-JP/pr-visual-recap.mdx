@@ -132,12 +132,14 @@ npx @agent-native/core@latest recap doctor
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-JSON の引用符は必須です。軽量な `gate` ジョブと完全な `recap` ジョブの両方が、選択したランナーを使用します。ガイド付きセットアップ中に構成するには、同じ JSON 値を `--runs-on` に渡し、`doctor` でワークフローとランナーの可用性を検証します。
+JSON の引用符は必須です。この値は完全な `recap` ジョブのランナーを選択します。ガイド付きセットアップ中に構成するには、同じ JSON 値を `--runs-on` に渡し、`doctor` でワークフローとランナーの可用性を検証します。
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+軽量なゲートは別途 `ubuntu-latest` を使用します。GitHub ホスト型ランナーを無効にしたリポジトリでは、`VISUAL_RECAP_GATE_RUNS_ON` に JSON ではない単一のプレーンラベルを設定するか、`--gate-runs-on visual-recap-gate` を使用できます。専用で、できればエフェメラルなランナーを使用してください。ゲートはメタデータのみを評価し、PR コードをチェックアウトまたは実行しません。
 
 `recap doctor` は不正な形式または未対応の JSON を拒否し、構成されたすべてのラベルに一致するオンライン ランナーが GitHub にない場合に報告します。ランナーの登録、インストール、アップグレード、容量、保守は引き続き利用者の責任です。Agent Native はラベルを選択しますが、ランナーを提供または運用しません。
 
@@ -479,10 +481,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。コピー バリアントと同じ方法でリポジトリ設定に設定します。再利用可能な呼び出し元は `VISUAL_RECAP_RUNS_ON` を `runs-on` 入力として転送し、呼び出されたワークフローは JSON を解析して両方のジョブにその結果を使用します。入力を省略すると、`ubuntu-latest` のデフォルトが維持されます。
+[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。再利用可能な呼び出し元は、完全なジョブ向けに `VISUAL_RECAP_RUNS_ON` を `runs-on` として、ゲート向けに `VISUAL_RECAP_GATE_RUNS_ON` を単一ラベルの `gate-runs-on` として渡します。省略時はどちらも `ubuntu-latest` です。
 
 ### CLI 経由でのインストール
 

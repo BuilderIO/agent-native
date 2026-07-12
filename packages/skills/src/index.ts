@@ -1635,6 +1635,7 @@ jobs:
     with:
       skill-source: repo
       runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
     secrets:
       PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}

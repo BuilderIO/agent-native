@@ -132,12 +132,14 @@ npx @agent-native/core@latest recap doctor
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-علامات الاقتباس في JSON مطلوبة. تستخدم كل من مهمة `gate` الخفيفة ومهمة `recap` الكاملة المشغّل المحدد. لتكوينه أثناء الإعداد الموجّه، مرّر قيمة JSON نفسها إلى `--runs-on`، ثم تحقق من سير العمل وتوفر المشغّل باستخدام `doctor`:
+علامات الاقتباس في JSON مطلوبة. تحدد هذه القيمة مشغّل مهمة `recap` الكاملة. لتكوينه أثناء الإعداد الموجّه، مرّر قيمة JSON نفسها إلى `--runs-on`، ثم تحقق من سير العمل وتوفر المشغّل باستخدام `doctor`:
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+تستخدم بوابة الأمان الخفيفة `ubuntu-latest` بشكل منفصل. يمكن للمستودعات التي تعطل مشغّلات GitHub المستضافة ضبط `VISUAL_RECAP_GATE_RUNS_ON` على تسمية نصية واحدة بلا JSON، أو استخدام `--gate-runs-on visual-recap-gate`. استخدم مشغّلًا مخصصًا ويفضل أن يكون مؤقتًا؛ تفحص البوابة البيانات الوصفية فقط ولا تسحب شيفرة PR أو تنفذها.
 
 يرفض `recap doctor` بيانات JSON غير الصالحة أو غير المدعومة، ويبلغ عندما لا يعرض GitHub مشغّلًا متصلًا يطابق جميع التسميات المكوّنة. يظل تسجيل المشغّل وتثبيته وترقياته وسعته وصيانته من مسؤوليتك؛ يحدد Agent Native التسميات ولكنه لا يوفر المشغّل ولا يديره.
 
@@ -481,10 +483,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-تنطبق نفس الأسرار والمتغيرات الموضحة في [Secrets and variables](#secrets-and-variables) - قم بتعيينها في إعدادات الريبو الخاصة بك بنفس الطريقة كما في متغير النسخ. يقوم المتصل القابل لإعادة الاستخدام بتمرير `VISUAL_RECAP_RUNS_ON` عبر إدخال `runs-on`؛ يحلل سير العمل المستدعى JSON ويستخدم النتيجة لكلتا المهمتين. يؤدي حذف الإدخال إلى الإبقاء على الإعداد الافتراضي `ubuntu-latest`.
+تنطبق الأسرار والمتغيرات نفسها الموضحة في [Secrets and variables](#secrets-and-variables). يمرر المتصل القابل لإعادة الاستخدام `VISUAL_RECAP_RUNS_ON` كـ `runs-on` للمهمة الكاملة، و`VISUAL_RECAP_GATE_RUNS_ON` كتسمية مفردة `gate-runs-on` للبوابة. يستخدم كلاهما `ubuntu-latest` عند الحذف.
 
 ### التثبيت عبر CLI
 

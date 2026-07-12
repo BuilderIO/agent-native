@@ -24,9 +24,10 @@ env:
 jobs:
   gate:
     name: Gate
-    # Parse custom runner configuration inside this trusted, GitHub-hosted gate
-    # so malformed JSON can be reported instead of preventing the job from starting.
-    runs-on: ubuntu-latest
+    # This plain single-label setting intentionally avoids fromJSON at scheduling
+    # time. For a self-hosted-only repo, point it at a dedicated, preferably
+    # ephemeral gate runner. This job never checks out or executes PR code.
+    runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read

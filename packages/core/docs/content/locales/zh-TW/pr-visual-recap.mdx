@@ -132,12 +132,14 @@ npx @agent-native/core@latest recap doctor
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-JSON 引號不可省略。輕量級 `gate` 工作和完整的 `recap` 工作都會使用所選執行器。若要在引導設定期間進行設定，請將相同的 JSON 值傳給 `--runs-on`，然後使用 `doctor` 驗證工作流程和執行器可用性：
+JSON 引號不可省略。此值會選取完整 `recap` 工作的執行器。若要在引導設定期間進行設定，請將相同的 JSON 值傳給 `--runs-on`，然後使用 `doctor` 驗證工作流程和執行器可用性：
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+輕量級閘道會另外使用 `ubuntu-latest`。停用 GitHub 託管執行器的儲存庫可以將 `VISUAL_RECAP_GATE_RUNS_ON` 設為一個不含 JSON 的純文字標籤，或使用 `--gate-runs-on visual-recap-gate`。請使用專用且最好是暫時性的執行器；閘道只評估中繼資料，不會簽出或執行 PR 程式碼。
 
 `recap doctor` 會拒絕格式錯誤或不支援的 JSON，並在 GitHub 未提供符合所有已設定標籤的線上執行器時回報。執行器的註冊、安裝、升級、容量和維護仍由您負責；Agent Native 只選取標籤，不提供或營運執行器。
 
@@ -479,10 +481,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數 - 在儲存庫設定中以與複製變體相同的方式設定它們。可重複使用的呼叫端會透過 `runs-on` 輸入轉送 `VISUAL_RECAP_RUNS_ON`；被呼叫的工作流程會剖析 JSON，並將結果用於兩個工作。省略該輸入時會保留 `ubuntu-latest` 預設值。
+適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數。可重複使用的呼叫端會將完整工作的 `VISUAL_RECAP_RUNS_ON` 轉送為 `runs-on`，並將閘道的 `VISUAL_RECAP_GATE_RUNS_ON` 轉送為單一標籤 `gate-runs-on`。省略時兩者都使用 `ubuntu-latest`。
 
 ### 透過 CLI 安裝
 

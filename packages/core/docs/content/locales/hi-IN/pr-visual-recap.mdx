@@ -132,12 +132,14 @@ npx @agent-native/core@latest recap doctor
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-JSON उद्धरण चिह्न आवश्यक हैं। हल्का `gate` जॉब और पूरा `recap` जॉब दोनों चुने गए रनर का उपयोग करते हैं। निर्देशित सेटअप के दौरान इसे कॉन्फ़िगर करने के लिए, वही JSON मान `--runs-on` को दें और फिर `doctor` से वर्कफ़्लो और रनर की उपलब्धता सत्यापित करें:
+JSON उद्धरण चिह्न आवश्यक हैं। यह मान पूरे `recap` जॉब के रनर को चुनता है। निर्देशित सेटअप के दौरान इसे कॉन्फ़िगर करने के लिए, वही JSON मान `--runs-on` को दें और फिर `doctor` से वर्कफ़्लो और रनर की उपलब्धता सत्यापित करें:
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+हल्का गेट अलग से `ubuntu-latest` का उपयोग करता है। GitHub-होस्टेड रनर बंद करने वाली रिपॉजिटरी `VISUAL_RECAP_GATE_RUNS_ON` को JSON के बिना एक सादे लेबल पर सेट कर सकती हैं, या `--gate-runs-on visual-recap-gate` का उपयोग कर सकती हैं। समर्पित और संभव हो तो अस्थायी रनर उपयोग करें; गेट केवल मेटाडेटा जाँचता है और PR कोड को चेक आउट या निष्पादित नहीं करता।
 
 `recap doctor` गलत प्रारूप या असमर्थित JSON को अस्वीकार करता है और तब रिपोर्ट करता है जब GitHub सभी कॉन्फ़िगर किए गए लेबल से मेल खाने वाला कोई ऑनलाइन रनर उपलब्ध नहीं कराता। रनर का पंजीकरण, स्थापना, अपग्रेड, क्षमता और रखरखाव आपकी जिम्मेदारी बने रहते हैं; Agent Native लेबल चुनता है, लेकिन रनर प्रदान या संचालित नहीं करता।
 
@@ -482,10 +484,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables) में वर्णित समान रहस्य और चर लागू होते हैं - उन्हें कॉपी संस्करण के समान ही अपनी रेपो सेटिंग्स में सेट करें। पुन: प्रयोज्य कॉलर `VISUAL_RECAP_RUNS_ON` को अपने `runs-on` इनपुट के माध्यम से भेजता है; कॉल किया गया वर्कफ़्लो JSON को पार्स करता है और दोनों जॉब के लिए परिणाम का उपयोग करता है। इनपुट छोड़ने पर `ubuntu-latest` डिफ़ॉल्ट बना रहता है।
+[Secrets and variables](#secrets-and-variables) में वर्णित समान रहस्य और चर लागू होते हैं। पुन: प्रयोज्य कॉलर पूरे जॉब के लिए `VISUAL_RECAP_RUNS_ON` को `runs-on` और गेट के लिए `VISUAL_RECAP_GATE_RUNS_ON` को एकल-लेबल `gate-runs-on` के रूप में भेजता है। दोनों छोड़ने पर `ubuntu-latest` उपयोग करते हैं।
 
 ### CLI के माध्यम से स्थापित करना
 

@@ -132,12 +132,14 @@ Par défaut, le workflow s'exécute sur des runners `ubuntu-latest` hébergés p
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-Les guillemets JSON sont obligatoires. Le job léger `gate` et le job complet `recap` utilisent tous deux le runner sélectionné. Pour le configurer pendant l'installation guidée, transmettez la même valeur JSON à `--runs-on`, puis validez le workflow et la disponibilité du runner avec `doctor` :
+Les guillemets JSON sont obligatoires. Cette valeur sélectionne le runner du job complet `recap`. Pour le configurer pendant l'installation guidée, transmettez la même valeur JSON à `--runs-on`, puis validez le workflow et la disponibilité du runner avec `doctor` :
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+Le gate léger utilise séparément `ubuntu-latest`. Les dépôts sans runners hébergés par GitHub peuvent définir `VISUAL_RECAP_GATE_RUNS_ON` sur une seule étiquette en texte brut, sans JSON, ou utiliser `--gate-runs-on visual-recap-gate`. Utilisez un runner dédié et de préférence éphémère : le gate n'évalue que les métadonnées et n'extrait ni n'exécute le code de la PR.
 
 `recap doctor` rejette les données JSON mal formées ou non prises en charge et signale lorsque GitHub ne présente aucun runner en ligne correspondant à toutes les étiquettes configurées. L'enregistrement, l'installation, les mises à niveau, la capacité et la maintenance du runner restent sous votre responsabilité ; Agent Native sélectionne les étiquettes, mais ne fournit ni n'exploite le runner.
 
@@ -482,10 +484,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Les mêmes secrets et variables décrits dans [Secrets and variables](#secrets-and-variables) s'appliquent : définissez-les dans les paramètres de votre dépôt de la même manière que pour la variante de copie. L'appelant réutilisable transmet `VISUAL_RECAP_RUNS_ON` via son entrée `runs-on` ; le workflow appelé analyse le JSON et utilise le résultat pour les deux jobs. L'omission de l'entrée conserve la valeur par défaut `ubuntu-latest`.
+Les mêmes secrets et variables décrits dans [Secrets and variables](#secrets-and-variables) s'appliquent. L'appelant réutilisable transmet `VISUAL_RECAP_RUNS_ON` via `runs-on` pour le job complet et `VISUAL_RECAP_GATE_RUNS_ON` via l'étiquette simple `gate-runs-on` pour le gate. Les deux utilisent `ubuntu-latest` par défaut.
 
 ### Installation via le CLI
 

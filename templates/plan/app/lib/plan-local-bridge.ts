@@ -67,11 +67,45 @@ export class LocalPlanBridgePermissionError extends Error {
   }
 }
 
-export function localPlanBridgeUrlFromLocation(hash: string): string | null {
+type LocalPlanBridgeSessionStorage = Pick<Storage, "getItem" | "setItem">;
+
+function browserSessionStorage(): LocalPlanBridgeSessionStorage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function localPlanBridgeUrlFromLocation(
+  hash: string,
+  slug: string,
+  storage: LocalPlanBridgeSessionStorage | null = browserSessionStorage(),
+): string | null {
   const hashParams = hash.startsWith("#bridge=")
     ? new URLSearchParams(hash.slice(1))
     : null;
-  return hashParams?.get("bridge") ?? null;
+  const bridgeUrl = hashParams?.get("bridge") ?? null;
+  const storageKey = `agent-native.local-plan-bridge.${slug}`;
+  try {
+    if (bridgeUrl) {
+      storage?.setItem(storageKey, bridgeUrl);
+      return bridgeUrl;
+    }
+    return storage?.getItem(storageKey) ?? null;
+  } catch {
+    return bridgeUrl;
+  }
+}
+
+export function planReturnPathFromLocation(location: {
+  pathname: string;
+  search: string;
+  hash: string;
+}): string {
+  const safeHash = location.hash.startsWith("#bridge=") ? "" : location.hash;
+  return `${location.pathname}${location.search}${safeHash}`;
 }
 
 export async function localNetworkAccessPermissionState(): Promise<

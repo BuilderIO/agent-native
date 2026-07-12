@@ -104,6 +104,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  VISUAL_RECAP_MODEL (variable, required for openai-compatible) — provider model id; optional override for Claude/Codex",
   "  VISUAL_RECAP_REASONING (variable) — reasoning depth (none|minimal|low|medium|high|xhigh; Codex only)",
   '  VISUAL_RECAP_RUNS_ON (variable) — JSON hosted label or self-hosted label array; defaults to "ubuntu-latest"',
+  "  VISUAL_RECAP_GATE_RUNS_ON (variable) — plain single label for the metadata-only gate; defaults to ubuntu-latest",
   "  VISUAL_RECAP_SKILL_SOURCE=repo (variable) — pin CI to the repo-local visual-recap skill instead of latest bundled guidance",
   "  VISUAL_RECAP_SECRET_SCAN=off|high-confidence|strict (variable) — default high-confidence; strict restores generic TOKEN/SECRET assignment suppression",
   "  PLAN_RECAP_APP_URL (secret) — only when self-hosting the plan app (defaults to https://plan.agent-native.com)",
@@ -172,6 +173,7 @@ export function buildReusableCallerWorkflow(
     agent?: RecapAgentValue;
     model?: string;
     runsOn?: string;
+    gateRunsOn?: string;
   } = {},
 ): string {
   const ref = (options.ref ?? "main").replace(/^@/, "");
@@ -182,6 +184,10 @@ export function buildReusableCallerWorkflow(
     options.runsOn === undefined
       ? "${{ vars.VISUAL_RECAP_RUNS_ON || '\"ubuntu-latest\"' }}"
       : JSON.stringify(options.runsOn);
+  const gateRunsOnValue =
+    options.gateRunsOn === undefined
+      ? "${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}"
+      : JSON.stringify(options.gateRunsOn);
   return (
     `name: PR Visual Recap\n` +
     `\n` +
@@ -217,6 +223,7 @@ export function buildReusableCallerWorkflow(
     `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
     `      secret-scan: \${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}\n` +
     `      runs-on: ${runsOnValue}\n` +
+    `      gate-runs-on: ${gateRunsOnValue}\n` +
     `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
     ``
   );
@@ -234,6 +241,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     agent?: RecapAgentValue;
     model?: string;
     runsOn?: string;
+    gateRunsOn?: string;
   } = {},
 ): WriteWorkflowResult {
   const dir = path.resolve(baseDir, ".github", "workflows");
@@ -245,6 +253,7 @@ export function writePrVisualRecapReusableCallerWorkflow(
     agent: options.agent,
     model: options.model,
     runsOn: options.runsOn,
+    gateRunsOn: options.gateRunsOn,
   });
   if (fs.existsSync(file)) {
     const current = fs.readFileSync(file, "utf8");
@@ -554,7 +563,11 @@ export interface RecapSetupPlan {
 }
 
 export interface RecapVariableRequirement {
-  name: "VISUAL_RECAP_BASE_URL" | "VISUAL_RECAP_MODEL" | "VISUAL_RECAP_RUNS_ON";
+  name:
+    | "VISUAL_RECAP_BASE_URL"
+    | "VISUAL_RECAP_MODEL"
+    | "VISUAL_RECAP_RUNS_ON"
+    | "VISUAL_RECAP_GATE_RUNS_ON";
   example: string;
 }
 
@@ -574,6 +587,11 @@ const OPENAI_COMPATIBLE_VARIABLE_REQUIREMENTS = [
 const RECAP_RUNS_ON_REQUIREMENT = {
   name: "VISUAL_RECAP_RUNS_ON",
   example: '["self-hosted","linux","x64","visual-recap"]',
+} as const satisfies RecapVariableRequirement;
+
+const RECAP_GATE_RUNS_ON_REQUIREMENT = {
+  name: "VISUAL_RECAP_GATE_RUNS_ON",
+  example: "visual-recap-gate",
 } as const satisfies RecapVariableRequirement;
 
 export interface RecapRunsOnConfig {
@@ -638,6 +656,17 @@ export function parseRecapRunsOn(value: string): RecapRunsOnConfig {
   return { json: JSON.stringify(labels), labels, selfHosted: true };
 }
 
+/** Validate the plain label used directly by the gate job's `runs-on`. */
+export function parseRecapGateRunsOn(value: string): string {
+  const label = value.trim();
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(label)) {
+    throw new Error(
+      "VISUAL_RECAP_GATE_RUNS_ON must be one plain runner label (1-100 letters, numbers, dots, underscores, or hyphens)",
+    );
+  }
+  return label;
+}
+
 function recapRunsOnProblem(value: string): RecapVariableProblem | null {
   try {
     parseRecapRunsOn(value);
@@ -645,6 +674,18 @@ function recapRunsOnProblem(value: string): RecapVariableProblem | null {
   } catch (error) {
     return {
       requirement: RECAP_RUNS_ON_REQUIREMENT,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function recapGateRunsOnProblem(value: string): RecapVariableProblem | null {
+  try {
+    parseRecapGateRunsOn(value);
+    return null;
+  } catch (error) {
+    return {
+      requirement: RECAP_GATE_RUNS_ON_REQUIREMENT,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
@@ -697,6 +738,7 @@ export function buildRecapSetupPlan(input: {
   agent?: string;
   repo?: string;
   runsOn?: string;
+  gateRunsOn?: string;
   env?: NodeJS.ProcessEnv;
 }): RecapSetupPlan {
   const env = input.env ?? process.env;
@@ -744,6 +786,15 @@ export function buildRecapSetupPlan(input: {
     if (problem) variableProblems.push(problem);
     else variableValues.VISUAL_RECAP_RUNS_ON = parseRecapRunsOn(runsOn).json;
   }
+  const gateRunsOn =
+    input.gateRunsOn ?? envValue(env, "VISUAL_RECAP_GATE_RUNS_ON");
+  if (gateRunsOn) {
+    const problem = recapGateRunsOnProblem(gateRunsOn);
+    if (problem) variableProblems.push(problem);
+    else
+      variableValues.VISUAL_RECAP_GATE_RUNS_ON =
+        parseRecapGateRunsOn(gateRunsOn);
+  }
   return {
     agent,
     appUrl,
@@ -783,12 +834,15 @@ function runSetup(args: Record<string, string | boolean>): void {
     agent: optionalArg(args, "agent"),
     repo,
     runsOn: optionalArg(args, "runs-on"),
+    gateRunsOn: optionalArg(args, "gate-runs-on"),
   });
-  const runsOnProblem = plan.variableProblems.find(
-    (problem) => problem.requirement.name === "VISUAL_RECAP_RUNS_ON",
+  const runnerProblem = plan.variableProblems.find(
+    (problem) =>
+      problem.requirement.name === "VISUAL_RECAP_RUNS_ON" ||
+      problem.requirement.name === "VISUAL_RECAP_GATE_RUNS_ON",
   );
-  if (runsOnProblem) {
-    process.stderr.write(`recap setup: ${runsOnProblem.reason}.\n`);
+  if (runnerProblem) {
+    process.stderr.write(`recap setup: ${runnerProblem.reason}.\n`);
     process.exitCode = 1;
     return;
   }
@@ -812,6 +866,7 @@ function runSetup(args: Record<string, string | boolean>): void {
       ref: optionalArg(args, "ref") ?? "main",
       agent: plan.agent !== "claude" ? plan.agent : undefined,
       runsOn: plan.variableValues.VISUAL_RECAP_RUNS_ON,
+      gateRunsOn: plan.variableValues.VISUAL_RECAP_GATE_RUNS_ON,
     });
     if (result.status === "refused") {
       process.stderr.write(`recap setup: ${result.message}\n`);
@@ -1082,6 +1137,47 @@ function runDoctor(args: Record<string, string | boolean>): void {
                 `[ok] Matching online self-hosted runner: ${matches.map((runner) => runner.name).join(", ")}.`,
               );
             }
+          }
+        }
+      }
+    }
+
+    const configuredGateRunsOn =
+      variables.get("VISUAL_RECAP_GATE_RUNS_ON")?.trim() || "ubuntu-latest";
+    const gateProblem = recapGateRunsOnProblem(configuredGateRunsOn);
+    if (gateProblem) {
+      ok = false;
+      lines.push(`[invalid] ${gateProblem.reason}.`);
+      lines.push(
+        `  Set it with: ${commandForMissingVariable(
+          RECAP_GATE_RUNS_ON_REQUIREMENT.name,
+          RECAP_GATE_RUNS_ON_REQUIREMENT.example,
+          repo,
+        )}`,
+      );
+    } else {
+      const gateLabel = parseRecapGateRunsOn(configuredGateRunsOn);
+      lines.push(`[ok] Gate runner label: ${gateLabel}.`);
+      if (
+        !/^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(gateLabel) &&
+        repo
+      ) {
+        const runners = listGithubRunners(repo);
+        if (!runners) {
+          lines.push(
+            "[warn] Could not verify the gate runner with gh; repository Administration read access is required.",
+          );
+        } else {
+          const matches = matchingRecapRunners(runners, [gateLabel]);
+          if (matches.length === 0) {
+            ok = false;
+            lines.push(
+              `[missing] No online self-hosted gate runner matches: ${gateLabel}.`,
+            );
+          } else {
+            lines.push(
+              `[ok] Matching online gate runner: ${matches.map((runner) => runner.name).join(", ")}.`,
+            );
           }
         }
       }
@@ -4709,7 +4805,7 @@ function runAgentSummary(args: Record<string, string | boolean>): void {
 const HELP = `npx @agent-native/core@latest recap — PR visual recap helpers (used by the GitHub Action)
 
 Usage:
-  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--runs-on <json>] [--skip-secrets] [--dry-run] [--force]
+  npx @agent-native/core@latest recap setup [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>] [--runs-on <json>] [--gate-runs-on <label>] [--skip-secrets] [--dry-run] [--force]
   npx @agent-native/core@latest recap doctor [--repo owner/name] [--agent claude|codex|openai-compatible] [--app-url <url>]
   npx @agent-native/core@latest recap collect-diff --base <baseSha> --head <headSha> [--out recap.diff] [--stat recap.stat]
   npx @agent-native/core@latest recap block-reference [--app-url <url>] [--out recap-blocks.md]
@@ -4764,13 +4860,16 @@ Usage:
     the local Plans publish-token store. Missing values are printed as exact next
     commands; secret values are sent to gh through stdin, never argv. Pass
     --runs-on '["self-hosted","linux","x64","visual-recap"]' to opt into a
-    trusted self-hosted runner label set.
+    trusted self-hosted runner label set. In self-hosted-only repos, pass
+    --gate-runs-on visual-recap-gate for a dedicated, preferably ephemeral,
+    single-label gate runner; the gate never checks out or executes PR code.
   npx @agent-native/core@latest recap doctor
     Check workflow presence/drift, local Plans publish-token availability, gh
     repo access, and required GitHub Actions secrets and variables for the
     selected backend, including provider-variable validity.
-    Self-hosted runner JSON is validated and matching online runners are checked
-    when the GitHub token has repository Administration read access.
+    Self-hosted runner JSON and the plain gate runner label are validated, and
+    matching online runners are checked when the GitHub token has repository
+    Administration read access.
 `;
 
 export async function runRecap(argv: string[]): Promise<void> {

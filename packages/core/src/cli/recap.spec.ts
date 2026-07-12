@@ -31,6 +31,7 @@ import {
   matchingRecapRunners,
   normalizeRecapAgent,
   normalizeRecapSecretScanMode,
+  parseRecapGateRunsOn,
   parseRecapRunsOn,
   parseClaudeUsage,
   parseCodexUsage,
@@ -779,6 +780,16 @@ describe("recap setup planning", () => {
     expect(() => parseRecapRunsOn("[]")).toThrow(/array of 1-20/);
   });
 
+  it("accepts only a plain single gate runner label", () => {
+    expect(parseRecapGateRunsOn("visual-recap-gate")).toBe("visual-recap-gate");
+    expect(() => parseRecapGateRunsOn('["self-hosted"]')).toThrow(
+      /one plain runner label/,
+    );
+    expect(() => parseRecapGateRunsOn("bad label")).toThrow(
+      /one plain runner label/,
+    );
+  });
+
   it("matches only online runners with every configured label", () => {
     const runners = [
       {
@@ -828,6 +839,7 @@ describe("recap setup planning", () => {
           VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
           VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         } as NodeJS.ProcessEnv,
       });
 
@@ -843,6 +855,7 @@ describe("recap setup planning", () => {
           VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
           VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         },
       });
       expect(plan.secretValues).toMatchObject({
@@ -2669,7 +2682,9 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--head-sha "$HEAD_SHA"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("runs-on: ubuntu-latest");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
@@ -3028,6 +3043,9 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain(
       "runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '\"ubuntu-latest\"' }}",
     );
+    expect(yml).toContain(
+      "gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}",
+    );
   });
 
   it("respects a custom ref for version pinning", () => {
@@ -3066,6 +3084,13 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain(
       'runs-on: "[\\"self-hosted\\",\\"linux\\",\\"x64\\"]"',
     );
+  });
+
+  it("quotes an explicit plain gate runner label", () => {
+    const yml = buildReusableCallerWorkflow({
+      gateRunsOn: "visual-recap-gate",
+    });
+    expect(yml).toContain('gate-runs-on: "visual-recap-gate"');
   });
 });
 
@@ -3171,6 +3196,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("model:");
     expect(content).toContain("plan-url:");
     expect(content).toContain("runs-on:");
+    expect(content).toContain("gate-runs-on:");
     // Required secret is declared.
     expect(content).toContain("PLAN_RECAP_TOKEN:");
     // Optional secrets for both backends are declared.
@@ -3188,7 +3214,7 @@ describe("reusable workflow file structure", () => {
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
-    expect(content).toContain("runs-on: ubuntu-latest");
+    expect(content).toContain("runs-on: ${{ inputs['gate-runs-on'] }}");
     expect(content).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );

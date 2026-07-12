@@ -132,12 +132,14 @@ Por padrão, o fluxo de trabalho é executado em executores `ubuntu-latest` hosp
 ["self-hosted", "linux", "x64", "visual-recap"]
 ```
 
-As aspas JSON são obrigatórias. Tanto o trabalho leve `gate` quanto o trabalho completo `recap` usam o executor selecionado. Para configurá-lo durante a instalação guiada, passe o mesmo valor JSON para `--runs-on` e depois valide o fluxo de trabalho e a disponibilidade do executor com `doctor`:
+As aspas JSON são obrigatórias. Esse valor seleciona o executor do trabalho completo `recap`. Para configurá-lo durante a instalação guiada, passe o mesmo valor JSON para `--runs-on` e depois valide o fluxo de trabalho e a disponibilidade do executor com `doctor`:
 
 ```bash
 npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
 npx @agent-native/core@latest recap doctor
 ```
+
+O gate leve usa `ubuntu-latest` separadamente. Repositórios sem executores hospedados pelo GitHub podem definir `VISUAL_RECAP_GATE_RUNS_ON` como um único rótulo de texto simples, sem JSON, ou usar `--gate-runs-on visual-recap-gate`. Use um executor dedicado e, de preferência, efêmero: o gate avalia somente metadados e nunca baixa nem executa código do PR.
 
 `recap doctor` rejeita JSON malformado ou não compatível e informa quando o GitHub não apresenta nenhum executor on-line que corresponda a todos os rótulos configurados. O registro, a instalação, as atualizações, a capacidade e a manutenção do executor continuam sendo sua responsabilidade; o Agent Native seleciona os rótulos, mas não fornece nem opera o executor.
 
@@ -481,10 +483,11 @@ jobs:
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables) — defina-os nas configurações do seu repositório da mesma forma que para a variante de cópia. O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` por meio da entrada `runs-on`; o fluxo de trabalho chamado analisa o JSON e usa o resultado para ambos os trabalhos. Omitir a entrada preserva o padrão `ubuntu-latest`.
+Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables). O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` como `runs-on` para o trabalho completo e `VISUAL_RECAP_GATE_RUNS_ON` como o rótulo simples `gate-runs-on` para o gate. Ambos usam `ubuntu-latest` quando omitidos.
 
 ### Instalação via CLI
 
