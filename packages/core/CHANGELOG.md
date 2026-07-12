@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.98.6
+
+### Patch Changes
+
+- c4bb9ee: Add an opt-in authenticated-read MCP policy that automatically exposes explicitly safe GET actions while keeping external writes behind `ask_app`. Generic SQL stays out of that automatic surface.
+
+  The `authenticatedReads: "auto"` derivation now also applies a hard, name-based exclusion for generic database (`db-query`/`db-schema`/`db-exec`/`db-patch`), template `seed-*`, extension-management, browser-session, and Context X-Ray actions, so they can never be auto-exposed even if one is mis-annotated with the full authenticated-read flag set — only an explicit `connectorCatalog` entry can expose them.
+
+- c4bb9ee: Bound queued and processing A2A task lifetimes, preserve asynchronous dispatch semantics, and fail unrecoverable handoffs deterministically.
+- c4bb9ee: Slack identity lookups no longer cache a failed users.info result for the full 10-minute TTL. Transient Slack API failures now use a short 30-second negative cache, so a brief blip cannot fail-close a sender's identity (and their DMs) for 10 minutes.
+- c4bb9ee: Run verified Slack direct messages with the linked Agent Native user's organization-scoped identity while keeping shared-channel messages service-scoped and rejecting unverified, guest, external, or cross-organization identities.
+
 ## 0.98.5
 
 ### Patch Changes
