@@ -544,7 +544,14 @@ function localPlanBridgePageUrl(input: {
 }): string {
   // Keep the real local folder name out of the hosted request path. The bridge
   // payload supplies the actual slug after the browser connects on loopback.
-  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/local#bridge=${encodeURIComponent(
+  // The opaque id keeps simultaneous bridge sessions distinct without
+  // disclosing the folder name or access token to the hosted request.
+  const bridgeId = crypto
+    .createHash("sha256")
+    .update(input.bridgeUrl)
+    .digest("hex")
+    .slice(0, 16);
+  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/local-${bridgeId}#bridge=${encodeURIComponent(
     input.bridgeUrl,
   )}`;
 }

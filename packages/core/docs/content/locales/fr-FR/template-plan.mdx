@@ -290,7 +290,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 Le pont URL ressemble à
-`https://plan.agent-native.com/local-plans/local#bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 La page est la visionneuse de plan normale, mais le navigateur récupère `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` et éléments d'image locaux de
 le pont localhost. Le contenu du plan n'est pas écrit dans la base de données hébergée et est

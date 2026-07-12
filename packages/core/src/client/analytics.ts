@@ -1033,11 +1033,12 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     installTrackingAuthSessionRefresh();
     installPageviewTracking();
     maybeInstallSessionReplay(
-      _trackingContentCaptureEnabled ? options.sessionReplay : false,
+      options.sessionReplay,
       {
         endpoint: options.endpoint,
         publicKey,
       },
+      _trackingContentCaptureEnabled,
     );
     maybeInstallErrorCapture(options.errorCapture);
   }
@@ -1047,7 +1048,9 @@ export function setTrackingContentCaptureEnabled(enabled: boolean): void {
   if (_trackingContentCaptureEnabled === enabled) return;
   _trackingContentCaptureEnabled = enabled;
   if (enabled) {
-    void maybeStartSessionReplay();
+    if (_sessionReplayOptions) {
+      void startConfiguredSessionReplay(_sessionReplayOptions);
+    }
   } else {
     void stopSessionReplay("content-capture-disabled");
   }
@@ -1295,11 +1298,12 @@ function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
 function maybeInstallSessionReplay(
   config: boolean | SessionReplayOptions | undefined,
   tracking?: { endpoint?: string; publicKey?: string },
+  start = true,
 ): void {
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
-  if (!options) return;
   _sessionReplayOptions = options;
+  if (!options || !start) return;
   void startConfiguredSessionReplay(options);
 }
 

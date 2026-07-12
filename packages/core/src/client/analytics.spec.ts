@@ -385,7 +385,46 @@ describe("browser analytics pageviews", () => {
     expect(replayMock.stopSessionReplay).toHaveBeenCalledWith(
       "content-capture-disabled",
     );
-    expect(replayMock.maybeStartSessionReplay).toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).toHaveBeenCalled();
+  });
+
+  it("preserves replay options while initial route capture is disabled", async () => {
+    const { history } = installBrowser(
+      "https://plan.agent-native.com/local-plans/local#bridge=private-token",
+    );
+    installFetch({
+      session: { email: "dev@example.com", userId: "user-1" },
+    });
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
+      sessionReplay: {
+        enabled: true,
+        endpoint: "https://replay.example.test/ingest",
+        publicKey: "replay_public_key",
+        requireSignedInUser: true,
+        sampleRate: 0.25,
+      },
+    });
+    await tick();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+
+    history.pushState({}, "", "/plans");
+    await tick();
+
+    expect(replayMock.startSessionReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "https://replay.example.test/ingest",
+        publicKey: "replay_public_key",
+        requireSignedInUser: true,
+        sampleRate: 0.25,
+        shouldStart: expect.any(Function),
+      }),
+    );
   });
 
   it("normalizes AI SDK engine names into provider connection labels", async () => {

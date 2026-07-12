@@ -192,6 +192,10 @@ export {
   getChangeVersion,
   bumpChangeVersion,
 } from "./use-change-version.js";
+export {
+  useDemoModeStatus,
+  type DemoModeStatus,
+} from "./use-demo-mode-status.js";
 export { useReconciledState } from "./use-external-value.js";
 export {
   buildDynamicAgentSuggestions,

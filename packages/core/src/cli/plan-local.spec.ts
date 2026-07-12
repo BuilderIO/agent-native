@@ -421,10 +421,12 @@ describe("local plan CLI helpers", () => {
       expect(result.ok, label).toBe(true);
       expect(result.appUrl, label).toBe("https://plan.example.com");
       expect(result.bridgeUrl, label).toContain("http://127.0.0.1:");
-      expect(result.url, label).toBe(
-        `https://plan.example.com/local-plans/local#bridge=${encodeURIComponent(
-          result.bridgeUrl,
-        )}`,
+      const [pageUrl, encodedBridgeUrl] = result.url.split("#bridge=");
+      expect(pageUrl, label).toMatch(
+        /^https:\/\/plan\.example\.com\/local-plans\/local-[a-f0-9]{16}$/,
+      );
+      expect(decodeURIComponent(encodedBridgeUrl), label).toBe(
+        result.bridgeUrl,
       );
       expect(result.urlFile, label).toBe(urlFile);
       expect(fs.readFileSync(urlFile, "utf-8"), label).toBe(`${result.url}\n`);
@@ -741,10 +743,12 @@ describe("local plan CLI helpers", () => {
     });
 
     try {
-      expect(bridge.result.url).toBe(
-        `https://plan.example.com/local-plans/local#bridge=${encodeURIComponent(
-          bridge.result.bridgeUrl,
-        )}`,
+      const [pageUrl, encodedBridgeUrl] = bridge.result.url.split("#bridge=");
+      expect(pageUrl).toMatch(
+        /^https:\/\/plan\.example\.com\/local-plans\/local-[a-f0-9]{16}$/,
+      );
+      expect(decodeURIComponent(encodedBridgeUrl)).toBe(
+        bridge.result.bridgeUrl,
       );
       expect(bridge.result.bridgeUrl).toContain("127.0.0.1");
       expect(bridge.result.files).toContain("plan.mdx");
