@@ -2264,7 +2264,7 @@ export function replayViewportDimensionsAtTime(
     const timestamp = Number(event.timestamp ?? 0);
     if (
       !Number.isFinite(timestamp) ||
-      timestamp > cutoff ||
+      timestamp > cutoff || // i18n-ignore: boolean expression, not UI copy.
       timestamp < firstMetaTimestamp
     ) {
       continue;
