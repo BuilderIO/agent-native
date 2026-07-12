@@ -1,5 +1,15 @@
 # @agent-native/skills
 
+## 0.2.295
+
+### Patch Changes
+
+- dd6a05b: Allow PR Visual Recap workflows to select configurable self-hosted runners.
+- Updated dependencies [dd6a05b]
+- Updated dependencies [dd6a05b]
+- Updated dependencies [dd6a05b]
+  - @agent-native/core@0.98.2
+
 ## 0.2.294
 
 ### Patch Changes
