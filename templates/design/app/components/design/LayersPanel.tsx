@@ -2234,7 +2234,7 @@ const LayerRow = memo(function LayerRow({
             </button>
 
             {(lockable || hideable) && (
-              <div className="sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit pl-2 pr-1">
+              <div className="sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1  pl-2 pr-1">
                 {lockable ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
