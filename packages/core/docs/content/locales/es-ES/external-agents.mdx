@@ -382,7 +382,7 @@ Las aplicaciones que quieran que las herramientas de lectura directas funcionen 
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -391,6 +391,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+Este es un ejemplo genérico de la política. Analytics configura intencionadamente `authenticatedReads: "off"` y solo expone las actions revisadas de `connectorCatalog`.
 
 `authenticatedReads: "auto"` añade solo las actions que declaran explícitamente todo lo siguiente:
 
@@ -406,7 +408,9 @@ La política es autenticada, no anónima. La identidad de MCP OAuth/connect se c
 
 Se trata de una exclusión estricta basada en el nombre, no solo de una omisión de metadatos: las herramientas genéricas de base de datos, seed, sesión del navegador, extensiones y rayos X de contexto nunca se exponen automáticamente, aunque un cambio futuro anote alguna de ellas por error con el conjunto completo de indicadores de lectura autenticada — siempre requieren una entrada explícita en `connectorCatalog`.
 
-Antes de ejecutar el agente, un mensaje directo verificado de Slack se asocia a un miembro existente de la organización de Agent Native y se guarda el vínculo de identidad entre el espacio de trabajo y el usuario. El contexto resultante del usuario y la organización carga los recursos, las instrucciones y las habilidades de ese usuario. Los miembros del espacio de trabajo cuyo perfil se ha obtenido correctamente, pero que no tienen correo electrónico o aún no pertenecen a la organización, se ejecutan como un principal de servicio anónimo limitado a la organización: el mismo nivel de visibilidad para toda la organización que usan los canales compartidos. El agente recibe una nota visible y Slack muestra una sola vez cómo obtener acceso personal. Si falla la obtención del perfil, si se trata de invitados o miembros externos (Slack Connect), o si el espacio de trabajo no está conectado a una organización, se envía una respuesta cortés de rechazo en vez de descartar el mensaje en silencio. Los canales compartidos de Slack usan un principal de servicio y no heredan los permisos privados de ningún participante. OAuth administrado y el manifiesto generado de la aplicación de Slack solicitan el ámbito de bot `users:read.email`. Las instalaciones existentes deben volver a conectarse o instalarse para conceder un ámbito recién añadido; las instalaciones antiguas con token de bot deben añadirlo manualmente en Slack. Sin él, los mensajes directos se ejecutan en el nivel anónimo limitado a la organización, no con acceso personal.
+Una aplicación que proporciona `resolveExecutionContext` sustituye explícitamente esta secuencia de identidad predeterminada. Su resolver debe rechazar de forma independiente a los autores no verificados, invitados, miembros externos y espacios de trabajo no vinculados antes de devolver un principal.
+
+Antes de ejecutar el agente, un mensaje directo verificado de Slack se asocia a un miembro existente de la organización de Agent Native y se guarda el vínculo de identidad entre el espacio de trabajo y el usuario. El contexto resultante del usuario y la organización carga los recursos, las instrucciones y las habilidades de ese usuario. De forma predeterminada, se rechaza a los miembros del espacio de trabajo cuyo perfil se obtuvo correctamente pero que no tienen correo electrónico o aún no pertenecen a la organización. Las aplicaciones pueden configurar explícitamente `allowAnonymousOrgScopedSlackDm: true` para ejecutar a esos miembros como un principal de servicio anónimo limitado a la organización: el mismo nivel de visibilidad para toda la organización que usan los canales compartidos, pero nunca acceso privado del usuario. El agente recibe una nota visible y Slack muestra una sola vez cómo obtener acceso personal. Esta opción nunca admite fallos de obtención del perfil, autores no verificados, invitados, miembros externos (Slack Connect) ni espacios de trabajo no vinculados a una organización; esos casos reciben una respuesta cortés de rechazo. Los canales compartidos de Slack usan un principal de servicio y no heredan los permisos privados de ningún participante. OAuth administrado y el manifiesto generado de la aplicación de Slack solicitan el ámbito de bot `users:read.email`. Las instalaciones existentes deben volver a conectarse o instalarse para conceder un ámbito recién añadido; las instalaciones antiguas con token de bot deben añadirlo manualmente en Slack. Sin él, los mensajes directos se rechazan salvo que la aplicación habilite explícitamente `allowAnonymousOrgScopedSlackDm`.
 
 ### Nivel completo (solo suscripción explícita) {#full-tier}
 

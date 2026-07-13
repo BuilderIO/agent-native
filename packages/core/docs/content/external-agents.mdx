@@ -381,7 +381,7 @@ Apps that want direct tools to "just work" without maintaining a long allow-list
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -390,6 +390,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+This is a generic policy example. Analytics intentionally sets `authenticatedReads: "off"` and exposes only its reviewed `connectorCatalog` actions.
 
 `authenticatedReads: "auto"` adds only actions that explicitly declare all of the following:
 
@@ -415,23 +417,27 @@ record. Actions must still use the normal `accessFilter`, `resolveAccess`, or
 shared resources follow their share/org rules, and cross-organization reads are
 rejected.
 
+An app that supplies `resolveExecutionContext` explicitly replaces this default identity ladder. Its resolver must independently reject unverified callers, guests, external members, and unlinked workspaces before returning a principal.
+
 The default Slack integration follows the same rule. A verified Slack DM is
 matched to an existing Agent Native organization member and persisted as a
 workspace/user identity link before the agent runs, and the resulting user/org
-context loads that user's resources, instructions, and skills. Hydrated
-workspace members whose email is missing or not yet an organization member run
-as an anonymous org-scoped service principal instead — the same
-org-wide-visibility tier shared channels get — with an agent-visible note and
-a one-time Slack heads-up explaining how to gain personal access. Hydration
-failures, guests and external (Slack Connect) members, and workspaces not
-connected to an organization receive a polite decline reply instead of a
-silent drop. Shared Slack channels use a service principal instead of
+context loads that user's resources, instructions, and skills. By default, a
+hydrated workspace member whose email is missing or is not yet an organization
+member is declined. Apps may explicitly set
+`allowAnonymousOrgScopedSlackDm: true` to run those members as an anonymous
+org-scoped service principal instead — the same org-wide-visibility tier shared
+channels get, never user-private access — with an agent-visible note and a
+one-time Slack heads-up explaining how to gain personal access. This opt-in
+never admits hydration failures, unverified callers, guests or external (Slack
+Connect) members, or workspaces not connected to an organization; those receive
+a polite decline reply instead of a silent drop. Shared Slack channels use a service principal instead of
 borrowing one participant's private permissions. Managed Slack OAuth requests
 the `users:read.email` bot scope, and the generated Slack app manifest
 requests it too. Existing Slack installs must be reconnected/reinstalled to
 grant a newly added scope; legacy bot-token installs must add the scope in
-Slack manually. Without it, DMs run in the anonymous org-scoped tier rather
-than with personal access.
+Slack manually. Without it, DMs fail closed unless the app explicitly enables
+`allowAnonymousOrgScopedSlackDm`.
 
 ### Full tier (explicit opt-in only) {#full-tier}
 

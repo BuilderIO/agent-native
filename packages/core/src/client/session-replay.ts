@@ -74,6 +74,8 @@ interface SessionReplayState {
   queue: QueuedReplayEvent[];
   queuedBytes: number;
   retryBatches: QueuedReplayEvent[][];
+  /** Consecutive retryable 4xx responses for the current recording episode. */
+  transientClientErrorFailures: number;
   flushTimer: number | null;
   maxDurationTimer: number | null;
   flushing: boolean;
@@ -441,6 +443,7 @@ function getState(): SessionReplayState {
       queue: [],
       queuedBytes: 0,
       retryBatches: [],
+      transientClientErrorFailures: 0,
       flushTimer: null,
       maxDurationTimer: null,
       flushing: false,
@@ -463,6 +466,7 @@ function getState(): SessionReplayState {
   const state = g[SESSION_REPLAY_STATE_KEY]!;
   // Keep Vite HMR safe when an older recorder state survives a module reload.
   state.resourceNodes ??= new Map();
+  state.transientClientErrorFailures ??= 0;
   state.restoreIframeBridge ??= null;
   state.pendingFlushReason ??= null;
   state.pendingFlushWaiters ??= [];
@@ -1058,14 +1062,12 @@ const REPLAY_RESOURCE_TAGS = new Set([
   "audio",
   "track",
   "input",
-  "object",
   "link",
 ]);
 const NO_REPLAY_RESOURCE_ATTRIBUTES = new Set<string>();
 const REPLAY_SRC_ATTRIBUTES = new Set(["src"]);
 const REPLAY_SRCSET_ATTRIBUTES = new Set(["src", "srcset"]);
 const REPLAY_VIDEO_ATTRIBUTES = new Set(["src", "poster"]);
-const REPLAY_OBJECT_ATTRIBUTES = new Set(["data"]);
 const REPLAY_HREF_ATTRIBUTES = new Set(["href"]);
 
 function replayAttributeString(
@@ -1107,8 +1109,6 @@ function replayPreservedResourceAttributes(
     case "audio":
     case "track":
       return REPLAY_SRC_ATTRIBUTES;
-    case "object":
-      return REPLAY_OBJECT_ATTRIBUTES;
     case "input":
       return node.type === "image"
         ? REPLAY_SRC_ATTRIBUTES
@@ -1462,10 +1462,17 @@ class ReplayUploadHttpError extends Error {
 
 /** 4xx statuses where retrying the exact same batch can never succeed.
  * Keep this deliberately narrow: 401/403/404 can be temporary during auth or
- * deploy transitions, and stopping forever on one of those would silently
- * black out the rest of a long-lived SPA session. */
+ * deploy transitions, so they get a small retry budget before the rejected
+ * episode is stopped. The budget prevents a persistent configuration failure
+ * from pinning retryBatches while rrweb events grow without bound. */
 function isDefinitiveReplayUploadClientError(status: number): boolean {
   return status === 400 || status === 409 || status === 413 || status === 422;
+}
+
+const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
+
+function isTransientReplayUploadClientError(status: number): boolean {
+  return status === 401 || status === 403 || status === 404;
 }
 
 async function sendReplayUpload(
@@ -1741,6 +1748,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     });
     if (!reservedSequence) advanceReplaySequence(state, payload);
     state.automaticConflictRestartAttempted = false;
+    state.transientClientErrorFailures = 0;
     uploaded = true;
   } catch (error) {
     if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
@@ -1753,9 +1761,22 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     const splitBatch = rejectedStatus === 413 ? splitReplayBatch(events) : null;
     const isUnsplittableOversizedBatch =
       rejectedStatus === 413 && splitBatch === null;
+    const isTransientClientError =
+      rejectedStatus !== null &&
+      isTransientReplayUploadClientError(rejectedStatus);
+    if (isTransientClientError) {
+      state.transientClientErrorFailures += 1;
+    } else {
+      state.transientClientErrorFailures = 0;
+    }
+    const exhaustedTransientClientRetries =
+      isTransientClientError &&
+      state.transientClientErrorFailures >=
+        MAX_TRANSIENT_REPLAY_CLIENT_FAILURES;
     const isDefinitiveClientError =
       error instanceof ReplayUploadHttpError &&
-      isDefinitiveReplayUploadClientError(error.status) &&
+      (isDefinitiveReplayUploadClientError(error.status) ||
+        exhaustedTransientClientRetries) &&
       !splitBatch &&
       !isUnsplittableOversizedBatch;
     if (splitBatch) {
@@ -2916,6 +2937,7 @@ export async function startSessionReplay(
   // This is a new caller-initiated recording episode. A prior episode's
   // conflict-loop guard must not prevent this one from recovering once.
   state.automaticConflictRestartAttempted = false;
+  state.transientClientErrorFailures = 0;
   const startGeneration = ++state.startGeneration;
 
   let startPromise: Promise<SessionReplayStartResult>;

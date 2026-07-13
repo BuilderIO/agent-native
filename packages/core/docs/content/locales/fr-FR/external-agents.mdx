@@ -382,7 +382,7 @@ Les applications qui souhaitent que les outils de lecture directe fonctionnent s
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -391,6 +391,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+Il s'agit d'un exemple de politique générique. Analytics définit intentionnellement `authenticatedReads: "off"` et n'expose que les actions `connectorCatalog` qui ont été examinées.
 
 `authenticatedReads: "auto"` ajoute uniquement les actions qui déclarent explicitement tous les éléments suivants :
 
@@ -406,7 +408,9 @@ Les outils Core `db-schema` et `db-query` ne sont pas automatiquement exposés c
 
 Il s'agit d'une exclusion stricte basée sur le nom, et non d'une simple omission de métadonnées : les outils génériques de base de données, de seed, de session de navigateur, d'extensions et de radiographie contextuelle ne sont jamais exposés automatiquement, même si une modification future annote accidentellement l'un d'eux avec l'ensemble complet des indicateurs de lecture authentifiée — ils nécessitent toujours une entrée explicite dans `connectorCatalog`.
 
-Avant l'exécution de l'agent, un message direct Slack vérifié est associé à un membre existant de l'organisation Agent Native et le lien d'identité entre l'espace de travail et l'utilisateur est enregistré. Le contexte utilisateur/organisation qui en résulte charge les ressources, les instructions et les compétences de cet utilisateur. Les membres de l'espace de travail dont le profil a bien été chargé, mais dont l'adresse e-mail est absente ou qui ne sont pas encore membres de l'organisation, sont exécutés comme principal de service anonyme limité à l'organisation : le même niveau de visibilité à l'échelle de l'organisation que celui des canaux partagés. L'agent reçoit une note visible et Slack explique une fois comment obtenir un accès personnel. En cas d'échec du chargement du profil, pour les invités et membres externes (Slack Connect), ou pour les espaces de travail non connectés à une organisation, une réponse de refus polie est envoyée au lieu d'ignorer silencieusement le message. Les canaux Slack partagés utilisent un principal de service et n'empruntent pas les autorisations privées d'un participant. OAuth géré et le manifeste d'application Slack généré demandent la portée de bot `users:read.email`. Les installations existantes doivent être reconnectées ou réinstallées pour accorder une portée nouvellement ajoutée ; les anciennes installations par jeton de bot doivent l'ajouter manuellement dans Slack. Sans cette portée, les messages directs s'exécutent dans le niveau anonyme limité à l'organisation plutôt qu'avec un accès personnel.
+Une application qui fournit `resolveExecutionContext` remplace explicitement cette chaîne d'identité par défaut. Son résolveur doit refuser indépendamment les appelants non vérifiés, les invités, les membres externes et les espaces de travail non liés avant de renvoyer un principal.
+
+Avant l'exécution de l'agent, un message direct Slack vérifié est associé à un membre existant de l'organisation Agent Native et le lien d'identité entre l'espace de travail et l'utilisateur est enregistré. Le contexte utilisateur/organisation qui en résulte charge les ressources, les instructions et les compétences de cet utilisateur. Par défaut, les membres de l'espace de travail dont le profil a bien été chargé, mais dont l'adresse e-mail est absente ou qui ne sont pas encore membres de l'organisation, sont refusés. Les applications peuvent définir explicitement `allowAnonymousOrgScopedSlackDm: true` pour exécuter ces membres comme principal de service anonyme limité à l'organisation : le même niveau de visibilité à l'échelle de l'organisation que celui des canaux partagés, sans jamais accéder aux données privées de l'utilisateur. L'agent reçoit une note visible et Slack explique une fois comment obtenir un accès personnel. Cette option n'admet jamais les échecs de chargement du profil, les appelants non vérifiés, les invités, les membres externes (Slack Connect) ni les espaces de travail non liés à une organisation ; ces cas reçoivent une réponse de refus polie. Les canaux Slack partagés utilisent un principal de service et n'empruntent pas les autorisations privées d'un participant. OAuth géré et le manifeste d'application Slack généré demandent la portée de bot `users:read.email`. Les installations existantes doivent être reconnectées ou réinstallées pour accorder une portée nouvellement ajoutée ; les anciennes installations par jeton de bot doivent l'ajouter manuellement dans Slack. Sans cette portée, les messages directs sont refusés sauf si l'application active explicitement `allowAnonymousOrgScopedSlackDm`.
 
 ### Niveau complet (adhésion explicite uniquement) {#full-tier}
 

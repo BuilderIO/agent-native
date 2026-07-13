@@ -132,6 +132,35 @@ describe("slackAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("preserves a previously verified sender when later identity hydration fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("transient second-stage users.info failure");
+      }),
+    );
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+    const verifiedIncoming = {
+      platform: "slack" as const,
+      externalThreadId: "A778:T778:D778:1.2",
+      text: "hello",
+      senderId: "U778",
+      senderEmail: "verified@example.test",
+      senderVerified: true,
+      actorTrust: { memberType: "member" as const, verified: true },
+      tenantId: "T778",
+      conversationType: "dm" as const,
+      platformContext: { teamId: "T778" },
+      timestamp: Date.now(),
+    };
+
+    await expect(
+      adapter.hydrateIncomingIdentity?.(verifiedIncoming),
+    ).resolves.toEqual(verifiedIncoming);
+  });
+
   it("maps Slack Connect strangers to external member trust", async () => {
     const adapter = slackAdapter({
       resolveBotToken: async () => "xoxb-example-not-real",

@@ -1242,6 +1242,17 @@ async function hydrateSlackIdentity(
 ): Promise<IncomingMessage> {
   const identity = await resolveSlackUserIdentity(token, incoming);
   if (!identity) {
+    // Context hydration can call users.info again after the webhook identity
+    // pass. A transient failure on that second lookup is not evidence that a
+    // previously verified sender became unverified; preserve the stronger
+    // identity instead of replacing it with a negative-cache result.
+    if (
+      incoming.senderVerified === true &&
+      incoming.senderEmail?.trim() &&
+      incoming.actorTrust?.verified === true
+    ) {
+      return incoming;
+    }
     return {
       ...incoming,
       senderVerified: false,
