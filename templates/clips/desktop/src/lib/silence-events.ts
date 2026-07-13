@@ -23,6 +23,7 @@ export interface SilenceConfig {
   silenceThreshold?: number;
   silenceMs?: number;
   callEndedMs?: number;
+  scheduledEndMs?: number | null;
   watchSleep?: boolean;
   watchCallEnded?: boolean;
 }

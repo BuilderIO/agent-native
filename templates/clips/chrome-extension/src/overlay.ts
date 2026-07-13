@@ -1,4 +1,6 @@
 import "./overlay.css";
+import { SCREEN_CAPTURE_FRAME_RATE } from "@shared/recording-capture";
+
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
@@ -31,8 +33,12 @@ function isDeviceUnavailableError(error: unknown): boolean {
 
 function cameraConstraint(deviceId: string): MediaTrackConstraints {
   const video: MediaTrackConstraints = {
-    width: { ideal: 640 },
-    height: { ideal: 640 },
+    width: { ideal: 480 },
+    height: { ideal: 480 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) video.deviceId = { exact: deviceId };
   else video.facingMode = "user";

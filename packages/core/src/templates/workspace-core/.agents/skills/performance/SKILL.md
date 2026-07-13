@@ -121,7 +121,24 @@ index the growing tables first.
 - Data the UI doesn't display (export formats, alternate renderings) belongs in a
   separate on-demand action, not baked into the hot read.
 
-## 6. Big payloads and long lists
+## 6. SSR shell caching — load-bearing, do not undo
+
+Every SSR HTML page and React Router `.data` response is one impersonal,
+public shell, hard-cached at the CDN and served identically to every visitor —
+logged in or not. This is the single biggest lever on first-response latency:
+one shared cache entry serves the whole site instead of a per-user render on
+every request. Adding `private`, `no-store`, `Vary: Cookie`, a session read, or
+an auth branch to the SSR path defeats the cache for **every visitor**, not
+just one.
+
+If you're debugging a slow first response, check whether something
+re-personalized the shell before concluding the render itself is slow — the
+fix is client-side data loading after the shell paints, never per-user SSR.
+See the `authentication` skill for the full model and `guard:ssr-cache-shell`
+plus `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`) for the
+enforced contract.
+
+## 7. Big payloads and long lists
 
 - **Paginate or window** unbounded lists (messages, responses, events, activity).
   Don't load the entire history on open; load a recent window and fetch older on
@@ -144,3 +161,5 @@ index the growing tables first.
 - [ ] Client fires independent queries in parallel, not a waterfall.
 - [ ] No heavy recompute on every read; no aggressive polling of heavy endpoints.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
+- [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,
+      `no-store`, `Vary: Cookie`, or auth branch added to it.

@@ -3,7 +3,7 @@
  *
  * These routes let MCP hosts such as Claude Code and ChatGPT authenticate
  * through their native remote-MCP OAuth flow instead of pasting bearer tokens.
- * The issued access tokens are audience-bound to `/_agent-native/mcp`, carry
+ * The issued access tokens are audience-bound to `/mcp`, carry
  * the same user/org identity as the existing connect flow, and are mediated by
  * `verifyAuth` before any MCP tool/resource request runs.
  */
@@ -35,6 +35,7 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { MCP_PUBLIC_ROUTE_PREFIX, MCP_ROUTE_PREFIXES } from "./route-paths.js";
 
 export interface McpOAuthRouteOptions {
   appId?: string;
@@ -172,7 +173,16 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
 export function getMcpOAuthResource(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
-  return `${issuer}/_agent-native/mcp`;
+  return `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}`;
+}
+
+function mcpResourcesForIssuer(issuer: string): string[] {
+  return [
+    MCP_PUBLIC_ROUTE_PREFIX,
+    ...MCP_ROUTE_PREFIXES.filter(
+      (prefix) => prefix !== MCP_PUBLIC_ROUTE_PREFIX,
+    ),
+  ].map((prefix) => `${issuer}${prefix}`);
 }
 
 /**
@@ -185,18 +195,21 @@ export function getMcpOAuthResource(event: H3Event): string | undefined {
  * accepts either without issuing a 401.
  */
 export function getMcpOAuthAudiences(event: H3Event): string[] {
-  const derived = getMcpOAuthResource(event);
-  const configured = (() => {
+  const configuredIssuer = (() => {
     const base = configuredPublicBaseUrl();
     if (!base) return undefined;
     // Re-apply base path if present so the configured resource is also
     // base-path-aware, consistent with how getMcpOAuthResource computes it.
-    const withPath = appendConfiguredBasePath(base);
-    return `${withPath}/_agent-native/mcp`;
+    return appendConfiguredBasePath(base);
   })();
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const r of [derived, configured]) {
+  for (const r of [
+    ...(getMcpOAuthIssuer(event)
+      ? mcpResourcesForIssuer(getMcpOAuthIssuer(event) as string)
+      : []),
+    ...(configuredIssuer ? mcpResourcesForIssuer(configuredIssuer) : []),
+  ]) {
     const n = r?.replace(/\/+$/, "");
     if (n && !seen.has(n)) {
       seen.add(n);
@@ -224,17 +237,21 @@ export function buildMcpOAuthChallenge(event: H3Event): string {
 
 function authorizationEndpoint(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
-  return issuer ? `${issuer}/_agent-native/mcp/oauth/authorize` : undefined;
+  return issuer
+    ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize`
+    : undefined;
 }
 
 function tokenEndpoint(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
-  return issuer ? `${issuer}/_agent-native/mcp/oauth/token` : undefined;
+  return issuer ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/token` : undefined;
 }
 
 function registrationEndpoint(event: H3Event): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
-  return issuer ? `${issuer}/_agent-native/mcp/oauth/register` : undefined;
+  return issuer
+    ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/register`
+    : undefined;
 }
 
 export function handleMcpOAuthProtectedResourceMetadata(
@@ -707,8 +724,11 @@ async function handleAuthorize(
   const state = params.state;
   const clientId = params.client_id;
   const redirectUri = params.redirect_uri;
-  const resource = params.resource || getMcpOAuthResource(event);
-  const expectedResource = getMcpOAuthResource(event);
+  const resource = (params.resource || getMcpOAuthResource(event))?.replace(
+    /\/+$/,
+    "",
+  );
+  const expectedResources = getMcpOAuthAudiences(event);
 
   if (params.response_type !== "code") {
     return oauthError(
@@ -716,7 +736,12 @@ async function handleAuthorize(
       "response_type must be code",
     );
   }
-  if (!clientId || !redirectUri || !resource || resource !== expectedResource) {
+  if (
+    !clientId ||
+    !redirectUri ||
+    !resource ||
+    !expectedResources.includes(resource)
+  ) {
     return oauthError("invalid_request", "Invalid OAuth authorization request");
   }
   if (params.code_challenge_method !== "S256" || !params.code_challenge) {

@@ -260,6 +260,7 @@ export function useMeetingTranscription({
       try {
         const result = await callClipsAction<{
           meetingId?: string;
+          scheduledEnd?: string | null;
           recording?: { id?: string | null } | null;
         }>("start-meeting-recording", { meetingId });
         const resolvedMeetingId = result.meetingId ?? meetingId;
@@ -267,6 +268,13 @@ export function useMeetingTranscription({
         if (!recordingId) {
           throw new Error("Could not create a transcript session.");
         }
+
+        const parsedScheduledEndMs = result.scheduledEnd
+          ? Date.parse(result.scheduledEnd)
+          : Number.NaN;
+        const scheduledEndMs = Number.isFinite(parsedScheduledEndMs)
+          ? parsedScheduledEndMs
+          : null;
 
         const session: MeetingTranscriptionSession = {
           meetingId: resolvedMeetingId,
@@ -366,6 +374,7 @@ export function useMeetingTranscription({
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
           callEndedMs: 2 * 60 * 1000,
+          scheduledEndMs,
           watchSleep: true,
           watchCallEnded: true,
         };

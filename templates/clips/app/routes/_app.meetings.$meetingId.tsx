@@ -912,7 +912,7 @@ export default function MeetingDetailRoute() {
           </div>
         </div>
 
-        {/* Transcript pane — chat-bubble layout */}
+        {/* Transcript pane — plain agent-chat-style text layout */}
         <div className="rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 bg-background">
             <div className="flex items-center gap-1.5 text-xs font-medium">

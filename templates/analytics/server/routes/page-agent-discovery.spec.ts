@@ -55,7 +55,7 @@ describe("Analytics page agent discovery injection", () => {
     expect(html).not.toContain("agent_access=");
   });
 
-  it("marks tokenized dashboard pages private and no-store", async () => {
+  it("keeps tokenized dashboard pages on the public SSR cache policy", async () => {
     const event = {
       url: "https://analytics.example.com/dashboards/dashboard-1?agent_access=tok%2B1",
       query: { agent_access: "tok+1" },
@@ -63,14 +63,12 @@ describe("Analytics page agent discovery injection", () => {
 
     const response = (await (handler as any)(event)) as Response;
 
-    expect(response.headers.get("cache-control")).toBe(
-      "private, max-age=0, no-store",
-    );
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+    expect(mockSetResponseHeader).not.toHaveBeenCalledWith(
       event,
       "Cache-Control",
-      "private, max-age=0, no-store",
+      expect.anything(),
     );
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       event,

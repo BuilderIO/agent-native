@@ -110,7 +110,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 如果您使用的是直接接受 MCP 连接器 URL 的基于聊天的主机
 （而不是 CLI 配置的客户端），连接托管计划连接器
-`https://plan.agent-native.com/_agent-native/mcp` — 请参阅 [MCP Clients](/docs/mcp-clients) 以了解特定于客户端的设置。
+`https://plan.agent-native.com/mcp` — 请参阅 [MCP Clients](/docs/mcp-clients) 以了解特定于客户端的设置。
 
 身份验证是在设置时进行一次性浏览器登录 - 这是有意为之的
 是让代理持续存在并共享其生成的计划的原因。授权是什么
@@ -249,7 +249,7 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
   跨设备或团队审核）需要登录。Google 登录会在以下情况出现
   标准 Google OAuth 环境变量已配置。
 
-托管计划连接器位于 `https://plan.agent-native.com/_agent-native/mcp`。
+托管计划连接器位于 `https://plan.agent-native.com/mcp`。
 切勿将共享机密放入技能文件中。
 
 ## 本地文件隐私模式 {#local-files}
@@ -447,7 +447,7 @@ pnpm dev
 托管应用程序支持的技能使用：
 
 - 应用程序：`https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 当您开发计划本身、测试本地持久性或运行完全自托管的审核界面时，本地模板非常有用。
 

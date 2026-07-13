@@ -128,14 +128,77 @@ function drawCover(
   ctx.restore();
 }
 
+// Hard ceiling on the composite canvas regardless of source resolution — keeps
+// the per-frame drawImage + encode at 1080p-class cost even on a Retina/4K
+// display or if a browser ignores getDisplayMedia's `max` constraint.
+const MAX_CANVAS_DIMENSION_PX = 1920;
+
+export function clampToMaxDimension(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  if (longest <= MAX_CANVAS_DIMENSION_PX) {
+    return { width, height };
+  }
+  const scale = MAX_CANVAS_DIMENSION_PX / longest;
+  // Round to even numbers — odd canvas dimensions can trip up video encoders.
+  return {
+    width: Math.round((width * scale) / 2) * 2,
+    height: Math.round((height * scale) / 2) * 2,
+  };
+}
+
 function resizeCanvasToDisplay(
   canvas: HTMLCanvasElement,
   displayVideo: HTMLVideoElement,
   displayStream: MediaStream,
 ): void {
-  const { width, height } = videoDimensions(displayVideo, displayStream);
+  const source = videoDimensions(displayVideo, displayStream);
+  const { width, height } = clampToMaxDimension(source.width, source.height);
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
+}
+
+interface BubbleShadowSprite {
+  size: number;
+  canvas: HTMLCanvasElement;
+  pad: number;
+}
+
+// The drop shadow is a per-frame gaussian blur, which is expensive to redraw
+// every frame. Cache the rendered shadow in an offscreen sprite keyed by
+// bubble size — margin only shifts where the sprite is later placed, not its
+// bitmap — and only re-render when the size actually changes.
+let bubbleShadowSprite: BubbleShadowSprite | null = null;
+
+function getBubbleShadowSprite(size: number): BubbleShadowSprite {
+  if (bubbleShadowSprite && bubbleShadowSprite.size === size) {
+    return bubbleShadowSprite;
+  }
+  const blur = Math.max(16, size * 0.12);
+  const offsetY = Math.max(8, size * 0.05);
+  // Padding wide enough that the blurred, offset shadow never clips at the
+  // sprite's edge.
+  const pad = Math.ceil(blur * 2 + offsetY);
+  const spriteSize = size + pad * 2;
+  const sprite = document.createElement("canvas");
+  sprite.width = spriteSize;
+  sprite.height = spriteSize;
+  const sctx = sprite.getContext("2d");
+  if (sctx) {
+    const radius = size / 2;
+    const center = pad + radius;
+    sctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+    sctx.shadowBlur = blur;
+    sctx.shadowOffsetY = offsetY;
+    sctx.fillStyle = "#000";
+    sctx.beginPath();
+    sctx.arc(center, center, radius, 0, Math.PI * 2);
+    sctx.fill();
+  }
+  bubbleShadowSprite = { size, canvas: sprite, pad };
+  return bubbleShadowSprite;
 }
 
 function drawCameraBubble(
@@ -172,15 +235,12 @@ function drawCameraBubble(
   const centerX = x + radius;
   const centerY = y + radius;
 
-  ctx.save();
-  ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
-  ctx.shadowBlur = Math.max(16, size * 0.12);
-  ctx.shadowOffsetY = Math.max(8, size * 0.05);
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  const shadow = getBubbleShadowSprite(size);
+  ctx.drawImage(
+    shadow.canvas,
+    centerX - shadow.pad - radius,
+    centerY - shadow.pad - radius,
+  );
 
   ctx.save();
   ctx.beginPath();

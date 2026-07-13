@@ -219,7 +219,7 @@ A configuração dessas variáveis ​​nunca renderiza uma página de login de
 O endpoint MCP de cada aplicativo pode atuar como um recurso MCP protegido padrão. Clientes compatíveis com OAuth podem ser configurados apenas com o MCP remoto URL:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 Solicitações MCP não autenticadas retornam um desafio `WWW-Authenticate` apontando para `/.well-known/oauth-protected-resource`. O cliente então descobre os metadados OAuth do aplicativo, registra dinamicamente um cliente público, abre a página de autorização do aplicativo e troca um código de autorização com PKCE para tokens de acesso e atualização.

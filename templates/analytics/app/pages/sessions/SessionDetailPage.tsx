@@ -986,11 +986,14 @@ function ReplayPlayer({
                 />
                 <button
                   type="button"
-                  // IMPORTANT: Keep the viewer's real OS pointer visible while
-                  // the synthetic rrweb pointer replays underneath it. Hiding
-                  // this during playback makes the page feel broken whenever
-                  // the viewer moves their mouse over the full-stage control.
-                  className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+                  className={cn(
+                    "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
+                    // INTENTIONAL — DO NOT REMOVE `cursor-none` while playing.
+                    // The recorded cursor is the meaningful pointer here;
+                    // hiding the viewer's stationary pointer keeps the
+                    // Mac-style replay cursor easy to follow.
+                    playing ? "cursor-none" : "cursor-pointer",
+                  )}
                   disabled={disabled}
                   aria-label={
                     playing ? t("sessions.pause") : t("sessions.play")

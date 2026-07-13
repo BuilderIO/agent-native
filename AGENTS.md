@@ -148,6 +148,11 @@ instructions, and application state.
 - Background agents must use the core run-manager / agent-teams infrastructure
   unless working on the existing local Code exception.
 - Logged-in app pages can be CSR. Public/SEO pages must SSR real content.
+- Every SSR HTML and React Router `.data` response is one impersonal, public
+  shell, hard-cached at the CDN for every visitor. Never add `private`,
+  `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
+  path — personalization is client-side after load. Enforced by
+  `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.

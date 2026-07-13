@@ -12,7 +12,7 @@ O aplicativo Agent-Native **Plan** é enviado como um pacote instalável. Uma ú
 Uma instalação oferece:
 
 - **Três skills** — `/visual-plan` (o ponto de entrada canônico), `/visual-recap` e `/visualize-repo`.
-- **O conector do Plano MCP** — registrado no aplicativo hospedado em `https://plan.agent-native.com` (endpoint MCP `https://plan.agent-native.com/_agent-native/mcp`, nome do servidor `plan`).
+- **O conector do Plano MCP** — registrado no aplicativo hospedado em `https://plan.agent-native.com` (endpoint MCP `https://plan.agent-native.com/mcp`, nome do servidor `plan`).
 
 <Diagram id="doc-block-1uxomn4" title={"Três rotas, um pacote"} summary={"O CLI universal, o plug-in Claude Code e o plug-in Codex instalam as mesmas skills do Plan mais o conector do Plan hospedado."}>
 
@@ -43,7 +43,7 @@ Uma instalação oferece:
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
     Plan MCP connector<br /><small class="diagram-muted"
-      >plan.agent-native.com/_agent-native/mcp</small
+      >plan.agent-native.com/mcp</small
     >
   </div>
 </div>
@@ -251,7 +251,7 @@ codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth no navegador
 ```
 
-Após a instalação, **inicie um novo thread Codex** para que as ferramentas skills e MCP sejam carregadas na sessão. O plugin vem com um conector somente URL (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` executa o fluxo OAuth. A rota universal CLI acima também funciona para Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) se você preferir um comando que instale e autentique juntos ou quando desejar arquivos locais ou modo auto-hospedado.
+Após a instalação, **inicie um novo thread Codex** para que as ferramentas skills e MCP sejam carregadas na sessão. O plugin vem com um conector somente URL (`[mcp_servers.plan]` → `https://plan.agent-native.com/mcp`); `codex mcp login plan` executa o fluxo OAuth. A rota universal CLI acima também funciona para Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) se você preferir um comando que instale e autentique juntos ou quando desejar arquivos locais ou modo auto-hospedado.
 
 > **Instalações mais antigas:** se sua configuração ainda tiver uma entrada `agent-native-plans` apontando para o mesmo URL, executando `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` para Codex ou o mesmo comando com seu `--client` de destino, consolida-o no nome canônico `plan`.
 

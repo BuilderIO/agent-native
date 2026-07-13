@@ -47,6 +47,9 @@ jobs:
             rust-targets: ""
             args: "--bundles appimage,deb,rpm"
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
+      GGML_METAL_MACOSX_VERSION_MIN: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
     outputs:
       app-version: ${{ steps.resolve-version.outputs.version }}
     steps:
@@ -89,6 +92,15 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: ${{ matrix.rust-targets }}
+
+      - name: Link Apple compiler runtime for Rust
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # Xcode emits __isPlatformVersionAtLeast for whisper-rs-sys's
+          # availability checks. Rust's final link does not add compiler-rt.
+          CLANG_RUNTIME="$(xcrun --sdk macosx clang -print-libgcc-file-name)"
+          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
 
       - name: Rust cache
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2

@@ -5,7 +5,7 @@
   "description": "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, share links, feedback, and HTML export.",
   "hosted": {
     "url": "https://plan.agent-native.com",
-    "mcpUrl": "https://plan.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://plan.agent-native.com/mcp"
   },
   "mcp": {
     "serverName": "plan",

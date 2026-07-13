@@ -12,7 +12,7 @@ async function hasAssetsServer(orgId: string) {
   const apps = await fetchOrgApps({ selfId: "design" });
   const assets = apps.find((app) => app.id === "assets");
   if (!assets?.url) return false;
-  const currentUrl = `${assets.url.replace(/\/+$/, "")}/_agent-native/mcp`;
+  const currentUrl = `${assets.url.replace(/\/+$/, "")}/mcp`;
   const servers = await listRemoteServers("org", orgId);
   for (const server of servers) {
     if (server.name !== SERVER_NAME || server.firstParty !== true) continue;

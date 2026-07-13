@@ -170,6 +170,12 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
+/** Return whether a candidate is one of this deployment's configured origins. */
+export function isConfiguredAppOrigin(value: string | undefined): boolean {
+  const origin = normalizeOrigin(value);
+  return !!origin && getConfiguredOriginAllowlist().has(origin);
+}
+
 function getWorkspaceCallbackOrigin(): string | undefined {
   const publicAuthOrigin = firstOriginFromEnv(EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS, {
     allowLoopback: true,

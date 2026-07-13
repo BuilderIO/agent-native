@@ -63,6 +63,62 @@ function mockFetch(
 const noSleep = async () => {};
 
 describe("registerMcpServer", () => {
+  it("normalizes a legacy MCP URL without losing its app base path", async () => {
+    const { codexHome } = isolateHome();
+    const baseDir = tmpDir();
+    const requested: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      requested.push(String(url));
+      if (String(url).endsWith("/device/start")) {
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            device_code: "dev-legacy",
+            user_code: "ABCD-EFGH",
+            verification_uri: "https://example.com/mail/mcp/connect",
+            verification_uri_complete:
+              "https://example.com/mail/mcp/connect?code=ABCD-EFGH",
+            interval: 1,
+            expires_in: 600,
+          }),
+        } as Response;
+      }
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({
+          status: "approved",
+          token: "legacy-token",
+          mcpUrl: "https://example.com/mail/_agent-native/mcp",
+          serverName: "mail",
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await registerMcpServer({
+      descriptor: {
+        serverName: "mail",
+        mcpUrl: "https://example.com/mail/_agent-native/mcp",
+        authMode: "device",
+      },
+      clients: ["codex"],
+      scope: "user",
+      baseDir,
+      interactive: true,
+      deps: { fetchImpl, sleep: noSleep, now: () => 0 },
+    });
+
+    expect(requested).toEqual([
+      "https://example.com/mail/mcp/connect/device/start",
+      "https://example.com/mail/mcp/connect/device/poll",
+    ]);
+    expect(
+      fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8"),
+    ).toContain('url = "https://example.com/mail/mcp"');
+    expect(result.authenticated).toBe(true);
+  });
+
   it("writes URL-only OAuth entries for serverName + aliases, no Authorization", async () => {
     const { home } = isolateHome();
     const baseDir = tmpDir();
@@ -90,12 +146,12 @@ describe("registerMcpServer", () => {
     const alias = claudeJson.mcpServers["agent-native-plans"];
     expect(main).toMatchObject({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
     expect(main.headers).toBeUndefined();
     expect(alias).toMatchObject({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
     expect(alias.headers).toBeUndefined();
 
@@ -127,7 +183,7 @@ describe("registerMcpServer", () => {
       fs.readFileSync(path.join(baseDir, ".cursor", "mcp.json"), "utf-8"),
     );
     expect(cursorConfig.mcpServers.plan).toEqual({
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
 
     const opencodeConfig = JSON.parse(
@@ -135,7 +191,7 @@ describe("registerMcpServer", () => {
     );
     expect(opencodeConfig.mcp.plan).toEqual({
       type: "remote",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
       enabled: true,
     });
 
@@ -144,7 +200,7 @@ describe("registerMcpServer", () => {
     );
     expect(copilotConfig.servers.plan).toEqual({
       type: "http",
-      url: "https://plan.agent-native.com/_agent-native/mcp",
+      url: "https://plan.agent-native.com/mcp",
     });
 
     expect(result.authenticated).toBe(false);
@@ -198,9 +254,7 @@ describe("registerMcpServer", () => {
 
     const toml = fs.readFileSync(path.join(codexHome, "config.toml"), "utf-8");
     expect(toml).toContain('[mcp_servers."plan"]');
-    expect(toml).toContain(
-      'url = "https://plan.agent-native.com/_agent-native/mcp"',
-    );
+    expect(toml).toContain('url = "https://plan.agent-native.com/mcp"');
     expect(toml).toContain("Bearer minted-bearer-token");
     expect(result.authenticated).toBe(true);
   });
@@ -401,7 +455,7 @@ describe("registerMcpServer", () => {
     const entry = claudeJson.mcpServers["agent-native-context-xray"];
     expect(entry).toMatchObject({
       type: "http",
-      url: "https://xray.agent-native.com/_agent-native/mcp",
+      url: "https://xray.agent-native.com/mcp",
     });
     expect(entry.headers).toBeUndefined();
 

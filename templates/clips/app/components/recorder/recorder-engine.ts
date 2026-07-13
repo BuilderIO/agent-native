@@ -19,6 +19,10 @@ import {
   type AudioInputFallback,
 } from "@shared/media-device-selection";
 import {
+  SCREEN_CAPTURE_FRAME_RATE,
+  screenCaptureVideoConstraints,
+} from "@shared/recording-capture";
+import {
   chunkUploadUrl,
   pickMimeType,
   pickMimeTypeCandidates,
@@ -234,9 +238,6 @@ const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
-const SCREEN_CAPTURE_FRAME_RATE = 24;
-const SCREEN_CAPTURE_MAX_WIDTH = 1920;
-const SCREEN_CAPTURE_MAX_HEIGHT = 1080;
 // Capture quality for the browser MediaRecorder. We no longer shrink files
 // client-side (ffmpeg.wasm re-encode is disabled — see COMPRESSION_ENABLED in
 // `@/lib/compress`) and the upload provider streams large files directly, so we
@@ -907,15 +908,7 @@ export class RecorderEngine {
         this.opts.displaySurface ?? "window",
       );
       const displayOptions: ExtendedDisplayMediaOptions = {
-        video: {
-          frameRate: {
-            ideal: SCREEN_CAPTURE_FRAME_RATE,
-            max: SCREEN_CAPTURE_FRAME_RATE,
-          },
-          width: { ideal: SCREEN_CAPTURE_MAX_WIDTH },
-          height: { ideal: SCREEN_CAPTURE_MAX_HEIGHT },
-          displaySurface,
-        },
+        video: screenCaptureVideoConstraints(displaySurface),
         audio: wantsMic,
         // Let "Browser tab" open the tab picker. preferCurrentTab turns it
         // into a current-tab shortcut, which makes choosing another tab harder.
@@ -1834,6 +1827,7 @@ export class RecorderEngine {
       displayStream: this.displayStream!,
       cameraStream: this.cameraStream!,
       bubbleSizeRatio: this.cameraBubbleSizeRatio(),
+      frameRate: SCREEN_CAPTURE_FRAME_RATE,
     });
     const combined = new MediaStream();
     for (const t of this.cameraComposite.stream.getVideoTracks())

@@ -245,12 +245,71 @@
   transform-origin: top left;
 }
 
-/* IMPORTANT: Keep rrweb's stock SVG arrow. Only suppress its permanently
-   visible purple ::after disc, which can otherwise read as the cursor itself
-   when the arrow is small. The stock .active animation still supplies the
-   brief click halo. Do not replace the arrow with an app-colored dot. */
+/* INTENTIONAL — DO NOT REMOVE OR REPLACE WITH rrweb's STOCK CURSOR.
+   The recorded visitor cursor is a core session-replay affordance: users need
+   to see the Mac-style arrow where the visitor clicked, including on dark
+   recordings. rrweb's bundled cursor is a small black sprite that disappears
+   against those pages. This high-contrast arrow stays inside the replayer
+   wrapper and scales with the fit-to-stage transform. */
+.an-replay-stage-root .replayer-mouse {
+  position: absolute;
+  z-index: 2;
+  width: 1.125rem;
+  height: 1.5rem;
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+  pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: hsl(0 0% 100%);
+  clip-path: polygon(0 0, 0 77%, 30% 57%, 48% 100%, 68% 92%, 50% 51%, 92% 51%);
+  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.95))
+    drop-shadow(0 1px 3px hsl(0 0% 0% / 0.35));
+}
+
 .an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  left: -0.5rem;
+  top: -0.5rem;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid hsl(217 91% 60%);
+  border-radius: 9999px;
+  background: transparent;
   opacity: 0;
+}
+
+/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
+.an-replay-stage-root .replayer-mouse.active::after {
+  animation: an-replay-mouse-click 0.4s ease-out 1;
+}
+
+@keyframes an-replay-mouse-click {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.5);
+  }
+}
+
+.an-replay-stage-root .replayer-mouse-tail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {

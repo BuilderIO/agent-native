@@ -123,7 +123,7 @@ Day-to-day, Dispatch is the place admins and ops folks open to keep the workspac
   Dispatch access without copying raw secrets. App-specific source
   configuration stays in the app that uses the provider.
 - **Expose one MCP connector.** Add
-  `https://dispatch.agent-native.com/_agent-native/mcp` in Claude, ChatGPT,
+  `https://dispatch.agent-native.com/mcp` in Claude, ChatGPT,
   Codex, Cursor, or another MCP host, then choose which workspace apps the
   connector can reach from Dispatch's **Agents** page. Use a direct app URL
   only when that host should be isolated to one app.
@@ -304,7 +304,7 @@ _How it works under the hood (for developers)._
   ]}
 />
 
-- **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
+- **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 
 ## Dreams {#dreams}
 

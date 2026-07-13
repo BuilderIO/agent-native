@@ -186,7 +186,7 @@ describe("handleMcpConnect", () => {
       // (Claude / ChatGPT / Cursor / Claude Code / Codex / Other) so users can
       // connect without copying a token. Display the live host MCP URL rather
       // than a hardcoded one.
-      expect(body).toContain("https://mail.agent-native.com/_agent-native/mcp");
+      expect(body).toContain("https://mail.agent-native.com/mcp");
       expect(body).toContain('data-tab="claude"');
       expect(body).toContain('data-tab="chatgpt"');
       expect(body).toContain('data-tab="claude-code"');
@@ -239,13 +239,11 @@ describe("handleMcpConnect", () => {
       );
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.mcpUrl).toBe(
-        "https://mail.agent-native.com/_agent-native/mcp",
-      );
+      expect(data.mcpUrl).toBe("https://mail.agent-native.com/mcp");
       expect(data.serverName).toBe("agent-native-mail");
       expect(data.mcpServerEntry).toEqual({
         type: "http",
-        url: "https://mail.agent-native.com/_agent-native/mcp",
+        url: "https://mail.agent-native.com/mcp",
         headers: {
           Authorization: `Bearer ${data.token}`,
         },
@@ -345,7 +343,7 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry).toEqual({
         type: "http",
-        url: "http://localhost:4321/_agent-native/mcp",
+        url: "http://localhost:4321/mcp",
         headers: {
           "X-Agent-Native-Owner-Email": "u@example.com",
         },
@@ -419,7 +417,7 @@ describe("handleMcpConnect", () => {
       expect(data.device_code).toBeTruthy();
       expect(data.user_code).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
       expect(data.verification_uri).toBe(
-        "https://mail.agent-native.com/_agent-native/mcp/connect",
+        "https://mail.agent-native.com/mcp/connect",
       );
       expect(data.verification_uri_complete).toContain(
         "?user_code=" + data.user_code,
@@ -444,9 +442,7 @@ describe("handleMcpConnect", () => {
           "/device/poll",
         );
         const data = await res.json();
-        expect(data.mcpUrl).toBe(
-          "https://mail.agent-native.com/mail/_agent-native/mcp",
-        );
+        expect(data.mcpUrl).toBe("https://mail.agent-native.com/mail/mcp");
         expect(data.cli).toBe(
           "npx @agent-native/core@latest connect https://mail.agent-native.com/mail",
         );

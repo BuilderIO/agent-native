@@ -56,11 +56,10 @@ export function normalizeMcpAppAccessSettings(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const mode = record.mode === "all-apps" ? "all-apps" : "selected-apps";
+  const mode = record.mode === "selected-apps" ? "selected-apps" : "all-apps";
   return {
     mode,
-    selectedAppIds:
-      raw == null ? ["dispatch"] : uniqueAppIds(record.selectedAppIds),
+    selectedAppIds: uniqueAppIds(record.selectedAppIds),
     updatedAt:
       typeof record.updatedAt === "string" ? record.updatedAt : undefined,
     updatedBy:

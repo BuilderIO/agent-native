@@ -5,6 +5,7 @@ import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
+import askAppStatus from "./ask_app_status.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
@@ -99,6 +100,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
+  ask_app_status: askAppStatus,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,

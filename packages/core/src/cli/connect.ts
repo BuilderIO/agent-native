@@ -15,11 +15,11 @@
  *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
  *
  * Server contract (implemented by another agent on `<url>`):
- *   POST <url>/_agent-native/mcp/connect/device/start  (no auth)
+ *   POST <url>/mcp/connect/device/start  (no auth)
  *     body { client?, app? }
  *     → { device_code, user_code, verification_uri,
  *         verification_uri_complete, interval, expires_in }
- *   POST <url>/_agent-native/mcp/connect/device/poll   (no auth)
+ *   POST <url>/mcp/connect/device/poll   (no auth)
  *     body { device_code }
  *     → { status: "pending" }
  *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
@@ -35,6 +35,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
 import {
   CLIENTS,
@@ -52,9 +56,10 @@ import {
 } from "./plan-publish-store.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
-const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
-const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
-const MCP_PATH = "/_agent-native/mcp";
+const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
+const DEVICE_POLL_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll`;
+const MCP_PATH = MCP_PUBLIC_ROUTE_PREFIX;
+const LEGACY_MCP_PATH = MCP_LEGACY_ROUTE_PREFIX;
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 
@@ -64,16 +69,15 @@ const CONNECT_PREFERENCES_VERSION = 1;
  * cannot import from there — it imports connect.ts, which would be circular).
  */
 const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
-  "https://plan.agent-native.com/_agent-native/mcp": "plan",
-  "https://assets.agent-native.com/_agent-native/mcp": "agent-native-assets",
-  "https://design.agent-native.com/_agent-native/mcp": "agent-native-design",
-  "https://context-xray.agent-native.com/_agent-native/mcp":
-    "agent-native-context-xray",
+  "https://plan.agent-native.com/mcp": "plan",
+  "https://assets.agent-native.com/mcp": "agent-native-assets",
+  "https://design.agent-native.com/mcp": "agent-native-design",
+  "https://context-xray.agent-native.com/mcp": "agent-native-context-xray",
 };
 const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<
   Record<string, readonly string[]>
 > = {
-  "https://plan.agent-native.com/_agent-native/mcp": [
+  "https://plan.agent-native.com/mcp": [
     "agent-native-plan",
     "agent-native-plans",
     "agent-native-visual-plans",
@@ -759,8 +763,9 @@ function responseMessage(json: any, fallback: string): string {
 function stripMcpPath(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   const pathname = parsed.pathname.replace(/\/+$/, "");
-  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
-    parsed.pathname = pathname.slice(0, -MCP_PATH.length) || "/";
+  const suffix = mcpPathSuffix(pathname);
+  if (suffix) {
+    parsed.pathname = pathname.slice(0, -suffix.length) || "/";
     parsed.search = "";
     parsed.hash = "";
     return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
@@ -771,8 +776,9 @@ function stripMcpPath(baseUrl: string): string {
 function mcpUrlForBaseUrl(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   const pathname = parsed.pathname.replace(/\/+$/, "");
-  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
-    parsed.pathname = pathname;
+  const suffix = mcpPathSuffix(pathname);
+  if (suffix) {
+    parsed.pathname = `${pathname.slice(0, -suffix.length)}${MCP_PATH}`;
     parsed.search = "";
     parsed.hash = "";
     return `${parsed.origin}${parsed.pathname}`;
@@ -805,7 +811,10 @@ async function validateOAuthMcpServer(
         const metadata = (await response.json().catch(() => null)) as {
           resource?: unknown;
         } | null;
-        if (metadata?.resource !== mcpUrl) {
+        if (
+          canonicalMcpUrl(String(metadata?.resource ?? "")) !==
+          canonicalMcpUrl(mcpUrl)
+        ) {
           logErr(
             `  ${metadataUrl} did not advertise the expected MCP resource ` +
               `${mcpUrl}.`,
@@ -980,7 +989,7 @@ export async function runDeviceFlow(
     if (poll.status === "approved") {
       if (isTTY) process.stdout.write("\r\x1b[K");
       const token = poll.token ?? "";
-      const mcpUrl = poll.mcpUrl ?? `${baseUrl}/_agent-native/mcp`;
+      const mcpUrl = mcpUrlForBaseUrl(poll.mcpUrl ?? baseUrl);
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
       const headers =
         poll.mcpServerEntry &&
@@ -990,7 +999,12 @@ export async function runDeviceFlow(
           ? (poll.mcpServerEntry.headers as Record<string, string>)
           : undefined;
       logOut("  Approved.");
-      return { token: token || undefined, mcpUrl, serverName, headers };
+      return {
+        token: token || undefined,
+        mcpUrl,
+        serverName,
+        ...(headers ? { headers } : {}),
+      };
     }
     if (poll.status === "expired") {
       if (isTTY) process.stdout.write("\r\x1b[K");
@@ -1383,10 +1397,23 @@ function canonicalMcpUrl(value: string | undefined): string | undefined {
   try {
     const url = new URL(value);
     url.hash = "";
+    const pathname = url.pathname.replace(/\/+$/, "");
+    if (pathname === LEGACY_MCP_PATH || pathname.endsWith(LEGACY_MCP_PATH)) {
+      url.pathname = `${pathname.slice(0, -LEGACY_MCP_PATH.length)}${MCP_PATH}`;
+    }
     return url.toString().replace(/\/+$/, "");
   } catch {
     return undefined;
   }
+}
+
+function mcpPathSuffix(pathname: string): string | undefined {
+  const normalized = pathname.replace(/\/+$/, "");
+  if (normalized === LEGACY_MCP_PATH || normalized.endsWith(LEGACY_MCP_PATH)) {
+    return LEGACY_MCP_PATH;
+  }
+  if (normalized === MCP_PATH || normalized.endsWith(MCP_PATH)) return MCP_PATH;
+  return undefined;
 }
 
 function sameMcpUrl(a: string | undefined, b: string | undefined): boolean {
@@ -1663,7 +1690,7 @@ function devMcpUrl(
   gatewayUrls: Map<string, string>,
 ): string {
   const base = gatewayUrls.get(app.name) ?? `${gatewayUrl}/${app.name}`;
-  return `${base.replace(/\/+$/, "")}/_agent-native/mcp`;
+  return `${base.replace(/\/+$/, "")}${MCP_PATH}`;
 }
 
 function serverNameForApp(app: ConnectableApp): string {
@@ -1856,14 +1883,13 @@ function preferredReconnectEntry(
 
 /**
  * Return true when `url` is an agent-native MCP endpoint.
- * Matches any URL whose path ends with `/_agent-native/mcp` (after stripping
- * trailing slashes), regardless of the MCP server's name in the config.
+ * Matches either the public `/mcp` path or the legacy `/_agent-native/mcp`
+ * path, regardless of the MCP server's name in the config.
  */
 function isAgentNativeMcpUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
-    const pathname = new URL(url).pathname.replace(/\/+$/, "");
-    return pathname === MCP_PATH || pathname.endsWith(MCP_PATH);
+    return Boolean(mcpPathSuffix(new URL(url).pathname));
   } catch {
     return false;
   }
@@ -2036,7 +2062,7 @@ async function resolveReconnectTarget(
   logErr("  Re-run with a URL or --name <serverName>. For example:");
   for (const u of urlList) {
     // Strip the MCP path suffix for a cleaner reconnect URL suggestion.
-    const baseUrl = u.replace(/\/_agent-native\/mcp$/, "");
+    const baseUrl = stripMcpPath(u);
     logErr(`    npx -y @agent-native/core@latest reconnect ${baseUrl}`);
   }
   return null;

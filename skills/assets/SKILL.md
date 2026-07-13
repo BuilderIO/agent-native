@@ -50,7 +50,7 @@ npx @agent-native/core@latest connect https://dispatch.agent-native.com --client
 OAuth-capable hosts can add this remote MCP URL directly:
 
 ```text
-https://assets.agent-native.com/_agent-native/mcp
+https://assets.agent-native.com/mcp
 ```
 
 ## Use The Picker
