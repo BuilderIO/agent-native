@@ -63,7 +63,10 @@ import {
   isConnected,
   listGmailMessages,
 } from "../server/lib/google-auth.js";
-import { getSnoozedThreadIds } from "../server/lib/jobs.js";
+import {
+  getSnoozedThreadIds,
+  getSyntheticEmailsForView,
+} from "../server/lib/jobs.js";
 import action from "./list-emails";
 
 const OWNER = "owner@example.com";
@@ -102,6 +105,7 @@ beforeEach(() => {
   vi.mocked(getConnectedAccounts).mockResolvedValue([OWNER]);
   vi.mocked(fetchGmailLabelMap).mockResolvedValue(new Map());
   vi.mocked(getSnoozedThreadIds).mockResolvedValue(new Set());
+  vi.mocked(getSyntheticEmailsForView).mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue(null);
   mocks.cursorState = null;
   mocks.createInventoryCursor.mockImplementation(async (_owner, state) => {
@@ -213,6 +217,70 @@ describe("list-emails action — coverage-aware inventory", () => {
       EMPTY,
       FAILED,
     ]);
+  });
+
+  it("rejects an explicitly empty account selection", () => {
+    expect(
+      action.schema.safeParse({
+        format: "inventory",
+        accountEmails: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each(["scheduled", "snoozed"] as const)(
+    "validates %s account selection against synthetic inventory without discovering Google accounts",
+    async (view) => {
+      const SYNTHETIC = `${view}@example.com`;
+      vi.mocked(getSyntheticEmailsForView).mockResolvedValue([
+        emailFor(
+          {
+            ...rawMessage(`${view}-1`, `${view}-thread`),
+            _accountEmail: SYNTHETIC,
+          },
+          { date: "2026-07-13T14:00:00Z" },
+        ),
+      ]);
+
+      const result = (await action.run(
+        {
+          view,
+          format: "inventory",
+          accountEmails: [SYNTHETIC],
+        },
+        { caller: "mcp" } as any,
+      )) as any;
+
+      expect(result.requestedAccounts).toEqual([SYNTHETIC]);
+      expect(result.resolvedAccounts).toEqual([SYNTHETIC]);
+      expect(result.items.map((item: any) => item.id)).toEqual([`${view}-1`]);
+      expect(getConnectedAccounts).not.toHaveBeenCalled();
+      expect(listGmailMessages).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a scheduled account absent from synthetic inventory", async () => {
+    vi.mocked(getSyntheticEmailsForView).mockResolvedValue([
+      emailFor({
+        ...rawMessage("scheduled-1", "scheduled-thread"),
+        _accountEmail: "scheduled@example.com",
+      }),
+    ]);
+
+    await expect(
+      action.run(
+        {
+          view: "scheduled",
+          format: "inventory",
+          accountEmails: ["missing@example.com"],
+        },
+        { caller: "mcp" } as any,
+      ),
+    ).rejects.toThrow(
+      "Account missing@example.com is not available in scheduled mail for this user.",
+    );
+    expect(getConnectedAccounts).not.toHaveBeenCalled();
+    expect(listGmailMessages).not.toHaveBeenCalled();
   });
 
   it("reports busy, quiet, empty, and failed accounts without silent partial coverage", async () => {

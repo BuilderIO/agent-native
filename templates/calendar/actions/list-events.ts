@@ -71,6 +71,11 @@ interface ListCalendarEventsArgs {
   providerPageSize?: number;
 }
 
+interface ListCalendarEventsOptions {
+  ownedAccounts?: string[];
+  range?: CalendarEventRange;
+}
+
 type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 
 interface CalendarEventsResult {
@@ -184,6 +189,16 @@ function normalizedOverlayEmails(value: string | string[] | undefined) {
     Array.isArray(value)
       ? value
       : value?.split(",").map((email) => email.trim()),
+  );
+}
+
+function resolveInventorySources(
+  sources: CalendarInventorySource[] | undefined,
+): CalendarInventorySource[] {
+  return Array.from(
+    new Set<CalendarInventorySource>(
+      sources ?? ["google", "bookings", "ics", "overlays"],
+    ),
   );
 }
 
@@ -544,19 +559,18 @@ function shouldShowLocalBookingEvent({
 
 export async function listCalendarEvents(
   args: ListCalendarEventsArgs = {},
+  options: ListCalendarEventsOptions = {},
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
-  const range = resolveCalendarEventRange({
-    from: args.from,
-    to: args.to,
-  });
+  const range =
+    options.range ??
+    resolveCalendarEventRange({
+      from: args.from,
+      to: args.to,
+    });
 
-  const sources = Array.from(
-    new Set<CalendarInventorySource>(
-      args.sources ?? ["google", "bookings", "ics", "overlays"],
-    ),
-  );
+  const sources = resolveInventorySources(args.sources);
   const includeGoogle = sources.includes("google");
   const includeOverlays = sources.includes("overlays");
 
@@ -576,7 +590,7 @@ export async function listCalendarEvents(
   // Resolve/validate ownership before `isConnected` or token refreshes. A
   // rejected filter is therefore atomic even when every token is expired.
   const [ownedAccounts, connected] = await Promise.all([
-    googleCalendar.getOwnedAccountEmails(email),
+    options.ownedAccounts ?? googleCalendar.getOwnedAccountEmails(email),
     googleCalendar.isConnected(email),
   ]);
   if (normalizedRequestedAccounts.length > 0) {
@@ -762,6 +776,7 @@ export default defineAction({
       ),
     accountEmails: z
       .array(z.string().email())
+      .min(1)
       .max(20)
       .optional()
       .describe(
@@ -794,21 +809,61 @@ export default defineAction({
   run: async (args, ctx) => {
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
-    const result = await listCalendarEvents({
-      ...args,
-    });
+    const owner = inventory ? getRequestUserEmail() : undefined;
+    if (inventory && !owner) throw new Error("no authenticated user");
+
+    // Reject invalid, expired, owner-bound, and query-bound cursors before any
+    // provider call. Omitted account filters require the cheap owned-account
+    // lookup to reproduce the exact query key, but token refreshes and calendar
+    // reads remain behind this gate.
+    let preparedCursor: InventoryCursor | undefined;
+    let preparedQuery: string | undefined;
+    let preparedRange: CalendarEventRange | undefined;
+    let preparedOwnedAccounts: string[] | undefined;
+    if (inventory && args.cursor) {
+      preparedRange = resolveCalendarEventRange({
+        from: args.from,
+        to: args.to,
+      });
+      preparedOwnedAccounts = args.accountEmails
+        ? undefined
+        : await googleCalendar.getOwnedAccountEmails(owner!);
+      preparedQuery = inventoryQueryKey({
+        from: preparedRange.from,
+        to: preparedRange.to,
+        query: args.query,
+        accountEmails: args.accountEmails ?? preparedOwnedAccounts ?? [],
+        overlayEmails: args.overlayEmails,
+        sources: resolveInventorySources(args.sources),
+      });
+      preparedCursor = decodeInventoryCursor(
+        args.cursor,
+        owner!,
+        preparedQuery,
+      );
+    }
+
+    const result = await listCalendarEvents(
+      {
+        ...args,
+      },
+      {
+        ownedAccounts: preparedOwnedAccounts,
+        range: preparedRange,
+      },
+    );
 
     if (inventory) {
-      const owner = getRequestUserEmail();
-      if (!owner) throw new Error("no authenticated user");
-      const query = inventoryQueryKey({
-        from: result.range.from,
-        to: result.range.to,
-        query: args.query,
-        accountEmails: result.requestedAccounts ?? result.resolvedAccounts,
-        overlayEmails: args.overlayEmails,
-        sources: result.sources,
-      });
+      const query =
+        preparedQuery ??
+        inventoryQueryKey({
+          from: result.range.from,
+          to: result.range.to,
+          query: args.query,
+          accountEmails: result.requestedAccounts ?? result.resolvedAccounts,
+          overlayEmails: args.overlayEmails,
+          sources: result.sources,
+        });
       const compact = result.events.map(compactInventoryEvent);
       // Provider ids are only unique within an account. Prefer the owned Google
       // occurrence to a duplicate local booking; otherwise keep first after a
@@ -823,9 +878,7 @@ export default defineAction({
             .map((item) => [item.key, item]),
         ).values(),
       );
-      const cursor = args.cursor
-        ? decodeInventoryCursor(args.cursor, owner, query)
-        : undefined;
+      const cursor = preparedCursor;
       const afterCursor = cursor
         ? unique.filter(
             (item) =>
@@ -849,7 +902,7 @@ export default defineAction({
       const nextCursor =
         hasMore && last
           ? encodeInventoryCursor({
-              owner,
+              owner: owner!,
               query,
               start: last.start,
               key: last.key,

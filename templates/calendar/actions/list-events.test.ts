@@ -318,6 +318,21 @@ describe("list-events inventory contract", () => {
     expect(listGoogleEventsMock).not.toHaveBeenCalled();
   });
 
+  it("rejects an explicitly empty account selection", async () => {
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+          accountEmails: [],
+        },
+        { caller: "mcp" },
+      ),
+    ).rejects.toThrow();
+    expect(getOwnedAccountEmailsMock).not.toHaveBeenCalled();
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
   it("keeps successful empty and failed owned accounts explicit", async () => {
     getOwnedAccountEmailsMock.mockResolvedValue([
       "quiet@example.com",
@@ -582,6 +597,7 @@ describe("list-events inventory contract", () => {
       [...first.items, ...second.items].map((item: any) => item.id),
     ).toEqual(["event-1", "event-2"]);
     getRequestUserEmailMock.mockReturnValue("other-owner@example.com");
+    listGoogleEventsMock.mockClear();
     await expect(
       (listEventsAction as any).run(
         {
@@ -594,7 +610,9 @@ describe("list-events inventory contract", () => {
         { caller: "mcp" },
       ),
     ).rejects.toThrow("does not match");
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
     getRequestUserEmailMock.mockReturnValue("owner@example.com");
+    listGoogleEventsMock.mockClear();
     await expect(
       (listEventsAction as any).run(
         {
@@ -607,7 +625,9 @@ describe("list-events inventory contract", () => {
         { caller: "mcp" },
       ),
     ).rejects.toThrow("does not match");
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
     verifyShortLivedTokenMock.mockReturnValueOnce({ ok: false });
+    listGoogleEventsMock.mockClear();
     await expect(
       (listEventsAction as any).run(
         {
@@ -620,6 +640,22 @@ describe("list-events inventory contract", () => {
         { caller: "mcp" },
       ),
     ).rejects.toThrow("Expired or invalid");
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed inventory cursor before provider reads", async () => {
+    await expect(
+      (listEventsAction as any).run(
+        {
+          from: "2026-06-17",
+          to: "2026-06-18",
+          format: "inventory",
+          cursor: "not-a-cursor",
+        },
+        { caller: "mcp" },
+      ),
+    ).rejects.toThrow("Invalid inventory cursor");
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
   });
 
   it("packs compact pages under the action-owned item budget", async () => {

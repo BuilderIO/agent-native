@@ -286,6 +286,7 @@ export default defineAction({
       ),
     accountEmails: z
       .array(z.string().email())
+      .min(1)
       .optional()
       .describe(
         "Inventory only: connected account email addresses to include.",
@@ -348,32 +349,32 @@ export default defineAction({
     // from touching token state for accounts the caller did not choose.
     const requestedAccounts =
       args.accountEmails ?? (args.account ? [args.account] : undefined);
-    const connectedAccounts = inventory
-      ? await getConnectedAccounts(ownerEmail)
-      : [];
-    const connectedByLower = new Map(
-      connectedAccounts.map((email) => [email.toLowerCase(), email]),
-    );
-    const selectedAccounts =
-      inventory && connectedAccounts.length > 0
-        ? Array.from(
-            new Set(
-              (requestedAccounts ?? connectedAccounts).map((email) =>
-                email.toLowerCase(),
-              ),
-            ),
-          ).map((email) => {
-            const owned = connectedByLower.get(email);
-            if (!owned)
-              throw new Error(
-                `Account ${email} is not connected for this user.`,
-              );
-            return owned;
-          })
-        : undefined;
 
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
+      const syntheticAccountsByLower = new Map<string, string>();
+      for (const email of emails) {
+        const accountEmail = String(email.accountEmail ?? ownerEmail);
+        syntheticAccountsByLower.set(accountEmail.toLowerCase(), accountEmail);
+      }
+      const syntheticSelectedAccounts = inventory
+        ? Array.from(
+            new Set(
+              (
+                requestedAccounts ??
+                Array.from(syntheticAccountsByLower.values())
+              ).map((email) => email.toLowerCase()),
+            ),
+          ).map((email) => {
+            const available = syntheticAccountsByLower.get(email);
+            if (!available) {
+              throw new Error(
+                `Account ${email} is not available in ${view} mail for this user.`,
+              );
+            }
+            return available;
+          })
+        : undefined;
       if (query) {
         emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
       }
@@ -384,7 +385,7 @@ export default defineAction({
       }
       if (inventory) {
         const selected = new Set(
-          (selectedAccounts ?? []).map((email) => email.toLowerCase()),
+          (syntheticSelectedAccounts ?? []).map((email) => email.toLowerCase()),
         );
         if (selected.size > 0) {
           emails = emails.filter((email) =>
@@ -392,8 +393,8 @@ export default defineAction({
           );
         }
         const syntheticResolvedAccounts =
-          selectedAccounts && selectedAccounts.length > 0
-            ? selectedAccounts
+          syntheticSelectedAccounts && syntheticSelectedAccounts.length > 0
+            ? syntheticSelectedAccounts
             : Array.from(
                 new Set(
                   emails.map((email) =>
@@ -417,6 +418,30 @@ export default defineAction({
         2,
       );
     }
+
+    const connectedAccounts = inventory
+      ? await getConnectedAccounts(ownerEmail)
+      : [];
+    const connectedByLower = new Map(
+      connectedAccounts.map((email) => [email.toLowerCase(), email]),
+    );
+    const selectedAccounts =
+      inventory && connectedAccounts.length > 0
+        ? Array.from(
+            new Set(
+              (requestedAccounts ?? connectedAccounts).map((email) =>
+                email.toLowerCase(),
+              ),
+            ),
+          ).map((email) => {
+            const owned = connectedByLower.get(email);
+            if (!owned)
+              throw new Error(
+                `Account ${email} is not connected for this user.`,
+              );
+            return owned;
+          })
+        : undefined;
 
     if (
       (inventory && selectedAccounts && selectedAccounts.length > 0) ||
