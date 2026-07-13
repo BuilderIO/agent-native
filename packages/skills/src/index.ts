@@ -902,14 +902,18 @@ function resolvePlanMcpUrlOverride(input: string): {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("--mcp-url must use http:// or https://.");
   }
-  const mcpSuffix = "/_agent-native/mcp";
+  const publicMcpSuffix = "/mcp";
+  const legacyMcpSuffix = "/_agent-native/mcp";
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith(mcpSuffix)
+  const mcpSuffix = trimmedPath.endsWith(legacyMcpSuffix)
+    ? legacyMcpSuffix
+    : trimmedPath.endsWith(publicMcpSuffix)
+      ? publicMcpSuffix
+      : undefined;
+  const appPath = mcpSuffix
     ? trimmedPath.slice(0, -mcpSuffix.length)
     : trimmedPath;
-  const mcpPath = trimmedPath.endsWith(mcpSuffix)
-    ? trimmedPath
-    : `${trimmedPath || ""}${mcpSuffix}`;
+  const mcpPath = `${appPath || ""}${publicMcpSuffix}`;
   return {
     hostedUrl: `${parsed.origin}${appPath}`,
     mcpUrl: `${parsed.origin}${mcpPath}`,

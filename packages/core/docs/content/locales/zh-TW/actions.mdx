@@ -536,7 +536,7 @@ JSON 輸入是代理和複雜物件的首選形狀。標誌是
 
 ## 透過 MCP 公開它 {#mcp}
 
-啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/_agent-native/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
+啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
 
 對於支援 UI 的 MCP 主機，操作可以透過 `mcpApp` 欄位（加上匹配的 `link`）聲明可選的 MCP Apps 資源，以便有能力的主機行內渲染結果。當 `link` 和 `mcpApp` 應指向同一路由時，`embedRoute()` 從一個純路徑建置器建置兩者：
 

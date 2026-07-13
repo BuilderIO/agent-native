@@ -113,16 +113,16 @@ Dispatch descubre automáticamente las otras aplicaciones en su espacio de traba
 
 ### Puerta de enlace unificada MCP
 
-Dispatch puede ser el único conector MCP para agentes externos: agregue `https://dispatch.agent-native.com/_agent-native/mcp` una vez en Claude, ChatGPT, Codex o Cursor, y una autorización llega a cada aplicación de espacio de trabajo otorgada en lugar de un conector por aplicación. Consulte [External Agents](/docs/external-agents) para conocer el flujo de conexión completo, las concesiones de aplicaciones, OAuth y las vistas previas de la aplicación MCP en línea.
+Dispatch puede ser el único conector MCP para agentes externos: agregue `https://dispatch.agent-native.com/mcp` una vez en Claude, ChatGPT, Codex o Cursor, y una autorización llega a cada aplicación de espacio de trabajo otorgada en lugar de un conector por aplicación. Consulte [External Agents](/docs/external-agents) para conocer el flujo de conexión completo, las concesiones de aplicaciones, OAuth y las vistas previas de la aplicación MCP en línea.
 
-<Endpoint id="doc-block-12cjrag" method="POST" path="/_agent-native/mcp" summary="Punto final de puerta de enlace MCP unificada" auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-12cjrag" method="POST" path="/mcp" summary="Punto final de puerta de enlace MCP unificada" auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 

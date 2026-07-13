@@ -269,7 +269,7 @@ El marco monta sus propias rutas bajo `/_agent-native/`. Trate ese espacio de no
 | `/_agent-native/extensions/*`    | Extensiones de tiempo de ejecución y proxy de extensión (alias heredado: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Integraciones de mensajería/webhook                                                                |
 | `/_agent-native/a2a`             | Agente a agente JSON-RPC                                                                           |
-| `/_agent-native/mcp`             | Punto final MCP                                                                                    |
+| `/mcp`                           | Punto final MCP                                                                                    |
 | `/_agent-native/onboarding/*`    | Lista de verificación de configuración                                                             |
 | `/_agent-native/observability/*` | Seguimientos, comentarios, evaluaciones, experimentos                                              |
 | `/_agent-native/file-upload`     | Punto final del proveedor de carga de archivos                                                     |
@@ -465,4 +465,4 @@ const handler = createProductionAgentHandler({
 - [**Base de datos**](/docs/database) — el patrón `getDb()`/`schema` que importan tanto las rutas personalizadas como las acciones
 - [**Seguridad**](/docs/security#access-guards) — `accessFilter`/`assertAccess` y el modelo completo de ámbito de datos
 - [**Mensajería**](/docs/messaging) — el patrón canónico de cola de integración para webhooks entrantes
-- [**Protocolo MCP**](/docs/mcp-protocol) — el endpoint `/_agent-native/mcp` que este servidor monta automáticamente
+- [**Protocolo MCP**](/docs/mcp-protocol) — el endpoint `/mcp` que este servidor monta automáticamente

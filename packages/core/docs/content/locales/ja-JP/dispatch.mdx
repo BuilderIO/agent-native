@@ -113,16 +113,16 @@ Dispatch は、ワークスペース内の他のアプリを A2A ピアとして
 
 ### 統合 MCP ゲートウェイ
 
-ディスパッチは、外部エージェントの単一の MCP コネクタにすることができます。Claude、ChatGPT、Codex、または Cursor に `https://dispatch.agent-native.com/_agent-native/mcp` を 1 回追加すると、アプリごとに 1 つのコネクタではなく、付与されたすべてのワークスペース アプリに 1 つの承認が到達します。完全な接続フロー、アプリ許可、OAuth、およびインライン MCP アプリ プレビューについては、[External Agents](/docs/external-agents) を参照してください。
+ディスパッチは、外部エージェントの単一の MCP コネクタにすることができます。Claude、ChatGPT、Codex、または Cursor に `https://dispatch.agent-native.com/mcp` を 1 回追加すると、アプリごとに 1 つのコネクタではなく、付与されたすべてのワークスペース アプリに 1 つの承認が到達します。完全な接続フロー、アプリ許可、OAuth、およびインライン MCP アプリ プレビューについては、[External Agents](/docs/external-agents) を参照してください。
 
-<Endpoint id="doc-block-1hsfyib" method="POST" path="/_agent-native/mcp" summary={"統合 MCP ゲートウェイ エンドポイント"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-1hsfyib" method="POST" path="/mcp" summary={"統合 MCP ゲートウェイ エンドポイント"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 

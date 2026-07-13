@@ -50,6 +50,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 
 /**
@@ -166,10 +167,26 @@ function matchingFrameworkPrefix(
 ): string | undefined {
   if (pathname.startsWith(frameworkPrefix)) return frameworkPrefix;
 
+  if (
+    pathname === MCP_PUBLIC_ROUTE_PREFIX ||
+    pathname.startsWith(`${MCP_PUBLIC_ROUTE_PREFIX}/`)
+  ) {
+    return MCP_PUBLIC_ROUTE_PREFIX;
+  }
+
   const basePath = getConfiguredAppBasePath();
   const basePathFrameworkPrefix = `${basePath}${frameworkPrefix}`;
   if (basePath && pathname.startsWith(basePathFrameworkPrefix)) {
     return basePathFrameworkPrefix;
+  }
+
+  const basePathMcpPrefix = `${basePath}${MCP_PUBLIC_ROUTE_PREFIX}`;
+  if (
+    basePath &&
+    (pathname === basePathMcpPrefix ||
+      pathname.startsWith(`${basePathMcpPrefix}/`))
+  ) {
+    return basePathMcpPrefix;
   }
 
   return undefined;

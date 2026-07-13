@@ -258,9 +258,11 @@ type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
-// Bubble during the countdown preview (any camera). During recording, the face
-// is composited into the video by the offscreen for screen+camera, so we only
-// show the on-page bubble for camera-only mode (recordingShowsBubble).
+// Bubble during the countdown preview (any camera). The offscreen document does
+// NOT composite the camera into screen recordings — that compositor code path is
+// unreachable because screen mode never acquires a camera stream (see
+// offscreen.ts acquire()). So the on-page bubble is the only place the face shows
+// up, for both camera-only AND screen+camera recording (recordingShowsBubble).
 let overlayShowsBubble = false;
 let recordingShowsBubble = false;
 // Cross-tab follow: when true, the overlay is pushed to whatever tab the user

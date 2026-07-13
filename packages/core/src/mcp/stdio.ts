@@ -7,12 +7,13 @@
  *
  *   - **proxy (default)** — connect an MCP `Client` over
  *     `StreamableHTTPClientTransport` to the *already-running* local app's
- *     `http://127.0.0.1:<port>/_agent-native/mcp`, and run a stdio `Server`
- *     that forwards tools and optional MCP App resources to it. The live app
- *     is the single source of truth: HMR'd actions, the real registry, correct
- *     per-request deep links, and tenant scoping all come for free. If the
- *     app isn't running, we wait briefly for it (the workspace gateway boots
- *     it lazily on first request).
+ *     `http://127.0.0.1:<port>/mcp` (falling back to the legacy
+ *     `/_agent-native/mcp` path), and run a stdio `Server` that forwards tools
+ *     and optional MCP App resources to it. The live app is the single source
+ *     of truth: HMR'd actions, the real registry, correct per-request deep
+ *     links, and tenant scoping all come for free. If the app isn't running,
+ *     we wait briefly for it (the workspace gateway boots it lazily on first
+ *     request).
  *
  *   - **standalone (`--standalone`)** — no running server, no HMR. Build the
  *     MCP server in-process from `autoDiscoverActions(cwd)` +
@@ -25,6 +26,10 @@
 
 import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "./route-paths.js";
 import { resolveLocalAppOrigin } from "./workspace-resolve.js";
 
 export interface RunMCPStdioOptions {
@@ -42,7 +47,10 @@ export interface RunMCPStdioOptions {
   waitForAppMs?: number;
 }
 
-const MCP_SUBPATH = "/_agent-native/mcp";
+const MCP_SUBPATHS = [
+  MCP_PUBLIC_ROUTE_PREFIX,
+  MCP_LEGACY_ROUTE_PREFIX,
+] as const;
 
 function log(msg: string): void {
   // stderr only — stdout is the MCP protocol channel and must stay clean.
@@ -74,9 +82,13 @@ function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
   return headers;
 }
 
-async function probeOrigin(origin: string, timeoutMs = 800): Promise<boolean> {
+async function probeOrigin(
+  origin: string,
+  subpath: string,
+  timeoutMs = 800,
+): Promise<boolean> {
   try {
-    const res = await fetch(`${origin}${MCP_SUBPATH}`, {
+    const res = await fetch(`${origin}${subpath}`, {
       method: "GET",
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -85,6 +97,13 @@ async function probeOrigin(origin: string, timeoutMs = 800): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function resolveMcpSubpath(origin: string): Promise<string | null> {
+  for (const subpath of MCP_SUBPATHS) {
+    if (await probeOrigin(origin, subpath)) return subpath;
+  }
+  return null;
 }
 
 /**
@@ -103,27 +122,26 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
     port: opts.port,
   });
   const env = opts.env ?? process.env;
-  const target = `${origin}${MCP_SUBPATH}`;
-
   // Wait for the app to come up. The workspace gateway lazily boots an app's
   // dev server on first request, so a fresh `mcp serve` may briefly race the
   // boot. Hit the gateway path too so the lazy start is triggered.
   const deadline = Date.now() + (opts.waitForAppMs ?? 60_000);
-  let up = await probeOrigin(origin);
-  if (!up) {
+  let mcpSubpath = await resolveMcpSubpath(origin);
+  if (!mcpSubpath) {
     log(`Waiting for ${appId} at ${origin} …`);
-    while (!up && Date.now() < deadline) {
+    while (!mcpSubpath && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 750));
-      up = await probeOrigin(origin);
+      mcpSubpath = await resolveMcpSubpath(origin);
     }
   }
-  if (!up) {
+  if (!mcpSubpath) {
     throw new Error(
       `Timed out waiting for the local app at ${origin}. Start it with ` +
         `\`agent-native dev\` (or \`agent-native workspace-dev\`), or run ` +
         `\`agent-native mcp serve --standalone\` to build the server from disk.`,
     );
   }
+  const target = `${origin}${mcpSubpath}`;
 
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { StreamableHTTPClientTransport } =

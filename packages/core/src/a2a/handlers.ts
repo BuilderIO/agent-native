@@ -8,6 +8,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -45,6 +46,70 @@ const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
+
+/**
+ * Request origin is routing/link context, not an identity signal. Accept only
+ * an absolute HTTP(S) origin from caller metadata so queued runs can preserve
+ * custom-domain/workspace links without allowing arbitrary values to leak
+ * into browser or artifact URLs.
+ */
+function requestOriginFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = metadata?.requestOrigin;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestOriginFromEvent(event: any | undefined): string | undefined {
+  if (!event) return undefined;
+  try {
+    return requestOriginFromMetadata({
+      requestOrigin: getOrigin(event as any),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Prefer the origin resolved from the receiving request. A distinct public
+ * browser origin is allowed only when the receiver configured it explicitly;
+ * arbitrary caller metadata must not steer links or service-token URLs.
+ */
+function requestOriginForContext(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): string | undefined {
+  if (!event) return undefined;
+  const receiverOrigin = requestOriginFromEvent(event);
+  const metadataOrigin = requestOriginFromMetadata(metadata);
+  if (
+    metadataOrigin &&
+    (metadataOrigin === receiverOrigin || isConfiguredAppOrigin(metadataOrigin))
+  ) {
+    return metadataOrigin;
+  }
+  return receiverOrigin;
+}
+
+function trustedA2AMetadata(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const trusted = { ...metadata };
+  const requestOrigin = requestOriginForContext(metadata, event);
+  if (requestOrigin) trusted.requestOrigin = requestOrigin;
+  else delete trusted.requestOrigin;
+  return trusted;
+}
 
 /**
  * Hard cap on how long a task may sit in submitted/working (never reaching
@@ -172,6 +237,12 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  // The processor metadata was created by the authenticated inbound handler
+  // from that request's resolved origin. Prefer it over the processor event,
+  // whose host may be an internal worker/dispatch origin. Legacy tasks that
+  // predate this metadata fall back to the processor event.
+  const requestOrigin =
+    requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -197,7 +268,11 @@ export async function processA2ATaskFromQueue(
   ).unref?.();
   try {
     await runWithRequestContext(
-      { userEmail: verifiedEmail, orgId: resolvedOrgId },
+      {
+        userEmail: verifiedEmail,
+        orgId: resolvedOrgId,
+        ...(requestOrigin ? { requestOrigin } : {}),
+      },
       () =>
         runHandlerAndPersist(
           taskId,
@@ -349,7 +424,7 @@ function makeHandlerContext(
  * inside `runWithRequestContext` so downstream actions see the org.
  */
 async function withA2ARequestContext<T>(
-  _metadata: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
   event: any | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -366,9 +441,14 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
+  const requestOrigin = requestOriginForContext(metadata, event);
 
   return runWithRequestContext(
-    { userEmail: verifiedEmail, orgId: resolvedOrgId },
+    {
+      userEmail: verifiedEmail,
+      orgId: resolvedOrgId,
+      ...(requestOrigin ? { requestOrigin } : {}),
+    },
     fn,
   ) as Promise<T>;
 }
@@ -528,14 +608,17 @@ async function handleSend(
     // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
+    const requestOrigin = requestOriginForContext(metadata, event);
+    const safeMetadata = trustedA2AMetadata(metadata, event);
 
     const taskMetadata: Record<string, unknown> = {
-      ...(metadata ?? {}),
+      ...(safeMetadata ?? {}),
       __a2a_processor: {
         verifiedEmail,
         orgDomainHint,
+        ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
-        callerMetadata: metadata ?? null,
+        callerMetadata: safeMetadata ?? null,
       },
     };
     const task = await createTask(
@@ -571,7 +654,12 @@ async function handleSend(
     );
     await updateTask(task.id, { state: "working" });
 
-    const ctx = makeHandlerContext(task.id, contextId, metadata, event);
+    const ctx = makeHandlerContext(
+      task.id,
+      contextId,
+      trustedA2AMetadata(metadata, event),
+      event,
+    );
 
     try {
       const result = getHandler(config)(message, ctx.context);
@@ -653,7 +741,7 @@ async function handleStream(
     const { context, artifacts } = makeHandlerContext(
       task.id,
       contextId,
-      metadata,
+      trustedA2AMetadata(metadata, event),
       event,
     );
 

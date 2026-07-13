@@ -69,6 +69,7 @@
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
     "guard:agent-chat-context": "tsx scripts/guard-agent-chat-context.ts",
     "guard:request-storms": "tsx scripts/guard-request-storms.ts",
+    "guard:ssr-cache-shell": "node scripts/guard-ssr-cache-shell.mjs",
     "guards": "tsx scripts/run-guards.ts",
     "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",
