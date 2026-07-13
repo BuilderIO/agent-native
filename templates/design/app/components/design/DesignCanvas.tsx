@@ -2345,11 +2345,9 @@ export function DesignCanvas({
           );
         }
         if (e.data.intent) {
-          // A genuine user click inside the iframe: it already shows this
-          // selection locally, so record it and skip mirroring the upcoming
-          // host commit straight back down (that echo is the fast-click
-          // bounce). Only user gestures carry `intent`; intent-less echoes are
-          // host-mirror replays and must never suppress a mirror.
+          // User click (only gestures carry `intent`): the iframe already
+          // shows it, so suppress mirroring the host commit back down (the
+          // fast-click bounce). Intent-less echoes must never suppress.
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
         } else if (
@@ -2360,11 +2358,9 @@ export function DesignCanvas({
             reportedCandidates.includes(c),
           )
         ) {
-          // Intent-less echo that disagrees with the committed selection: a
-          // stale mirror overwrote the iframe's real selection (it drifted).
-          // The host guard drops this echo, and the advanced dedup signature
-          // would otherwise block a corrective mirror — so force a resync to
-          // snap the iframe back to the committed selection.
+          // Intent-less echo disagreeing with the committed selection = the
+          // iframe drifted (a stale mirror overwrote it). Force a resync since
+          // the dedup signature would otherwise block the corrective mirror.
           forceSelectionMirrorResyncRef.current = true;
           replayIframeEditorStateRef.current?.();
         }
@@ -2831,30 +2827,20 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
-  // Selection-mirror dedup. replayIframeEditorState re-runs on many unrelated
-  // input changes (hover, tweaks, scale/pan mode, layer states…) and used to
-  // re-post `select-element` every time. That storm of stale mirrors of the
-  // PREVIOUS selection stayed in flight and, on a fast click, briefly
-  // re-highlighted the old element before the host caught up ("small dance").
-  // Only post the selection message when it actually changed, forcing a
-  // resync on (re)load since a freshly mounted document has no selection.
+  // Mirror the selection down only when it changes (replayIframeEditorState
+  // re-runs on many unrelated inputs). Re-posting an unchanged selector let
+  // stale mirrors race a fast click and re-highlight the old element.
   const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
   const forceSelectionMirrorResyncRef = useRef(true);
-  // When a selection ORIGINATES from this iframe (the user clicked inside it),
-  // the iframe already shows that selection locally. Mirroring it back down is
-  // redundant and, on a fast click, the echoed-back mirror of the PREVIOUS
-  // click lands after the NEXT click and yanks the outline back for a frame
-  // (the "quick bounce"). We record the selector(s) the iframe just reported
-  // and skip mirroring exactly that selection back once.
+  // Selectors the iframe just reported from a user click. It already shows that
+  // selection, so we skip mirroring it back once — otherwise the echo lands
+  // after the next click and bounces the outline back for a frame.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
-  // Latest replayIframeEditorState, callable from the message handler (which is
-  // defined earlier in this component). Used to force a corrective resync when
-  // the iframe drifts off the committed selection (see the element-select
-  // drift branch below).
+  // Latest replayIframeEditorState, callable from the (earlier-defined) message
+  // handler to force a corrective resync when the iframe drifts (see below).
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
-  // Render-synced mirrors of the committed selection so the message handler can
-  // compare against the CURRENT selection without adding it to the listener's
-  // dependency array (which would re-bind the window listener every selection).
+  // Render-synced committed selection, so the message handler can read the
+  // current value without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
@@ -2890,9 +2876,8 @@ export function DesignCanvas({
       selector: selectedSelector ?? null,
       candidates: selectedSelectorCandidates ?? [],
     });
-    // If this selection is the one the iframe just reported, it already shows
-    // it — don't echo it back (prevents the fast-click bounce). One-shot: a
-    // reload forces a resync, and any later external selection clears it.
+    // Skip echoing back a selection the iframe just reported (fast-click
+    // bounce). One-shot: reload forces a resync; external selection clears it.
     const isIframeOriginatedEcho =
       !forceSelectionMirrorResyncRef.current &&
       !!selectedSelector &&
@@ -2916,8 +2901,7 @@ export function DesignCanvas({
       );
       lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
       forceSelectionMirrorResyncRef.current = false;
-      // An authoritative (external) selection just went down; any pending
-      // iframe-origin suppression is now stale.
+      // An external selection just went down; pending suppression is now stale.
       suppressMirrorSelectorsRef.current = null;
     }
     iframe.contentWindow?.postMessage(

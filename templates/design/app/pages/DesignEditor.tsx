@@ -2063,14 +2063,10 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
-  // Fresh mirror of the committed selection for synchronous reads inside the
-  // iframe `element-select` message handler (see handleIframeElementSelect's
-  // echo-loop guard). Assigned during render (not in an effect) so it reflects
-  // the latest committed value for EVERY setSelectedElement path — including
-  // the ~dozens of direct callers (layers panel, drag, structure moves) — with
-  // no post-commit lag. A lagging ref could otherwise make the guard reject the
-  // first valid intent-less echo after a host-driven selection, dropping the
-  // runtime inspector payload the iframe sends back.
+  // Current committed selection for synchronous reads in the echo-loop guard
+  // (handleIframeElementSelect). Assigned during render (not an effect) so it
+  // covers every setSelectedElement path with no lag; a lagging ref would let
+  // the guard reject the first valid echo after a host-driven selection.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
   // Vector-edit mode (P5 integration): active while the user is editing a
@@ -12000,9 +11996,7 @@ function DesignEditor() {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
         // Same echo-loop guard as handleIframeElementSelect: the focused
-        // single-screen canvas rounds selections through here, so without
-        // this it would still commit stale intent-less echoes and reintroduce
-        // the quick-click race in the primary editing mode.
+        // single-screen canvas routes through here too.
         if (
           !intent &&
           isSupersededSelectionEcho(info, selectedElementRef.current)
@@ -12029,19 +12023,12 @@ function DesignEditor() {
     ],
   );
 
-  // Iframe→host selection boundary with an echo-loop guard.
-  //
-  // The host mirrors the committed selection DOWN to the iframe on every
-  // render (replayIframeEditorState). The bridge's select-element handler
-  // echoes that selection back UP as an `element-select` message with NO
-  // `intent` — a genuine user gesture always carries one. When two elements
-  // are selected in quick succession, their two mirror streams race over the
-  // iframe's single selection, so each intent-less echo disagrees with the
-  // previous commit; re-committing it re-mirrors and the selection "dances"
-  // between the two until reload. Drop an intent-less echo whose element
-  // differs from the current committed selection — it is a stale replay of a
-  // superseded mirror, never a user action. Matching echoes (layers-panel
-  // payload sync, post-drag reselect) still pass so the inspector populates.
+  // Iframe→host selection boundary with an echo-loop guard. The host mirrors
+  // the selection down; the bridge echoes it back up with NO `intent` (user
+  // gestures always carry one). On rapid clicks these echoes race and the
+  // selection "dances". Drop an intent-less echo that differs from the current
+  // selection (a stale mirror replay); matching echoes still pass so the
+  // inspector payload populates.
   const handleIframeElementSelect = useCallback(
     (
       screenId: string,
