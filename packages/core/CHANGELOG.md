@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.14
+
+### Patch Changes
+
+- 460583e: Run final-response guards even when an engine completes with streamed text but no normalized assistant-content event.
+
 ## 0.98.13
 
 ### Patch Changes
