@@ -1481,13 +1481,17 @@ function LayersPanelImpl(
 
         <div
           ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain py-2"
+          className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
           onDragOver={handleRowsDragOver}
           onDrop={stopAutoScroll}
           onDragEnd={stopAutoScroll}
         >
           {visibleRows.length ? (
-            <div className="w-full px-2" role="tree" aria-label={labels.title}>
+            <div
+              className="w-max min-w-full px-2"
+              role="tree"
+              aria-label={labels.title}
+            >
               {visibleRows.map((row) => {
                 // Per-row primitives computed here (not inside LayerRow) so the
                 // row only receives booleans/strings it needs — no whole-tree
@@ -2043,7 +2047,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative w-full min-w-0"
+          className="relative w-max min-w-full"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2083,7 +2087,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 w-full min-w-0 items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-8 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2229,67 +2233,71 @@ const LayerRow = memo(function LayerRow({
               ) : null}
             </button>
 
-            {lockable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.locked && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.locked ? labels.unlock : labels.lock}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleLocked?.(node.id, !node.locked);
-                    }}
-                  >
-                    {node.locked ? (
-                      <IconLock className="size-3" />
-                    ) : (
-                      <IconLockOpen className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.locked ? labels.unlock : labels.lock}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+            {(lockable || hideable) && (
+              <div className="sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit pl-2 pr-1">
+                {lockable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.locked && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.locked ? labels.unlock : labels.lock}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleLocked?.(node.id, !node.locked);
+                        }}
+                      >
+                        {node.locked ? (
+                          <IconLock className="size-3" />
+                        ) : (
+                          <IconLockOpen className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.locked ? labels.unlock : labels.lock}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
 
-            {hideable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.hidden && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.hidden ? labels.show : labels.hide}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleHidden?.(node.id, !node.hidden);
-                    }}
-                  >
-                    {node.hidden ? (
-                      <IconEyeOff className="size-3" />
-                    ) : (
-                      <IconEye className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.hidden ? labels.show : labels.hide}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+                {hideable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.hidden && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.hidden ? labels.show : labels.hide}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                      >
+                        {node.hidden ? (
+                          <IconEyeOff className="size-3" />
+                        ) : (
+                          <IconEye className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.hidden ? labels.show : labels.hide}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>
