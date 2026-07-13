@@ -27204,12 +27204,14 @@ function DesignEditor() {
             {t("designEditor.notFound")}
           </h1>
           <Button
+            asChild
             variant="default"
-            onClick={() => navigate("/")}
             className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
-            <IconArrowLeft className="size-4 rtl:-scale-x-100" />
-            {t("designEditor.backToDesigns")}
+            <Link to="/">
+              <IconArrowLeft className="size-4 rtl:-scale-x-100" />
+              {t("designEditor.backToDesigns")}
+            </Link>
           </Button>
         </div>
       </div>
@@ -27605,7 +27607,7 @@ function DesignEditor() {
             className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <a href={signInToSaveHref} role="button">
+            <a href={signInToSaveHref}>
               <span>{t("designEditor.signUpToSave")}</span>
             </a>
           </Button>
@@ -27621,7 +27623,7 @@ function DesignEditor() {
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
             aria-label={t("designEditor.share")}
           >
-            <a href={signInToShareHref} role="button">
+            <a href={signInToShareHref}>
               <span>{t("designEditor.share")}</span>
             </a>
           </Button>

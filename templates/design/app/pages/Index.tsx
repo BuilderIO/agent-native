@@ -5,6 +5,10 @@ import {
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -954,7 +958,8 @@ function DesignThumbnail({ html }: { html: string | null }) {
       className="aspect-video relative overflow-hidden bg-white"
     >
       <iframe
-        srcDoc={html}
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        srcDoc={injectSessionReplayIframeBootstrap(html)}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}

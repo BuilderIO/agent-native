@@ -122,6 +122,7 @@ const apiHelp =
   "Subjects: dashboard.set, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
   "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
   "Inserted panels support atTop, atBottom, before, after, atIndex, nextTo, atRow, atRowStart, and atRowEnd. Use nextTo(panelId) or atRow(rowNumber) for visible row placement. " +
+  "AI-generated first-party panels are dashboard-time-bound by default: set config.timeScope to dashboard and include a matching dashboard time filter in SQL. Allowed values are dashboard, fixed-window, cohort-history, and all-time; use all-time only when the user requests full available history and put all-time, lifetime, or historical in the title or description. A {{timeRange}} token requires the timeRange select filter; {{<id>Start}}/{{<id>End}} require a matching date-range filter. Server validation rejects unbound first-party SQL. " +
   `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 5).join(" ")}`;
 
 function resolveScope() {
@@ -198,7 +199,7 @@ export default defineAction({
     "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
     "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
     "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
-    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. " +
+    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
     "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({

@@ -1,5 +1,9 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
 import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
@@ -2098,24 +2102,32 @@ export function DesignCanvas({
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
     });
+    let frameDocument: string;
     if (frameContent.includes("</body>")) {
-      return frameContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
+      frameDocument = frameContent.replace(
+        "</body>",
+        bridgeToInject + "</body>",
+      ); // i18n-ignore generated iframe HTML injection
+    } else if (frameContent.includes("</html>")) {
+      frameDocument = frameContent.replace(
+        "</html>",
+        bridgeToInject + "</html>",
+      ); // i18n-ignore generated iframe HTML injection
+    } else {
+      // No body/html tags — wrap it
+      const frameStyle = [
+        getEmbeddedFrameBackgroundStyle({
+          embeddedFrameBackground,
+          transparentBackground,
+        }),
+        embeddedContentOffsetStyle(
+          embeddedFrame?.contentOffsetX ?? 0,
+          embeddedFrame?.contentOffsetY ?? 0,
+        ),
+      ].join("");
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
     }
-    if (frameContent.includes("</html>")) {
-      return frameContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
-    }
-    // No body/html tags — wrap it
-    const frameStyle = [
-      getEmbeddedFrameBackgroundStyle({
-        embeddedFrameBackground,
-        transparentBackground,
-      }),
-      embeddedContentOffsetStyle(
-        embeddedFrame?.contentOffsetX ?? 0,
-        embeddedFrame?.contentOffsetY ?? 0,
-      ),
-    ].join("");
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+    return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -4081,6 +4093,11 @@ export function DesignCanvas({
           readOnly,
         })}
         data-design-preview-iframe
+        {...{
+          [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
+            ? ""
+            : undefined,
+        }}
         data-screen-iframe-id={
           boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
         }

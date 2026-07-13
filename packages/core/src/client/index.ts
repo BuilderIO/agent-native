@@ -388,6 +388,13 @@ export {
   type BuildAgentNativeExtensionHtmlOptions,
   type CreateHttpAgentNativeExtensionStorageOptions,
 } from "./extensions/portable-extension.js";
+export { injectSessionReplayIframeBootstrap } from "../extensions/session-replay-iframe.js";
+export {
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  SESSION_REPLAY_IFRAME_PROBE,
+  SESSION_REPLAY_IFRAME_START,
+  SESSION_REPLAY_IFRAME_STOP,
+} from "../session-replay-iframe-protocol.js";
 export {
   AGENT_NATIVE_HOST_BRIDGE_VERSION,
   AGENT_NATIVE_HOST_MESSAGE_TYPES,

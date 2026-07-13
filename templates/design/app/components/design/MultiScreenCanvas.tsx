@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client";
 import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
@@ -9048,7 +9052,10 @@ const Screen = memo(function Screen({
   // rebuild the string every render (that would reload the iframe).
   // Keyed only on screen.content; the hit-test script itself is constant.
   const srcdocWithHitTest = useMemo(
-    () => appendHitTestResponder(screen.content),
+    () =>
+      injectSessionReplayIframeBootstrap(
+        appendHitTestResponder(screen.content),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [screen.content],
   );
@@ -9331,6 +9338,11 @@ const Screen = memo(function Screen({
           ) : (
             (screenContent ?? (
               <iframe
+                {...{
+                  [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+                    ? undefined
+                    : "",
+                }}
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
@@ -9989,6 +10001,11 @@ function BreakpointPreviewRow({
                       screen.id,
                       widthPx,
                     )}
+                    {...{
+                      [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+                        ? undefined
+                        : "",
+                    }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
                     sandbox="allow-scripts"
