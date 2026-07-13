@@ -100,6 +100,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       "",
     );
     chromeTransitionStyle.textContent =
+      "html{overflow:clip}" /* prevent negative-offset handles from expanding the iframe */ +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -1844,17 +1845,46 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     }
     selectionOverlay.appendChild(handle);
   });
-  ["nw", "ne", "se", "sw"].forEach(function (pos) {
-    var rotate = document.createElement("span");
-    rotate.setAttribute("data-agent-native-rotate-handle", pos);
-    rotate.style.cssText =
-      "position:absolute;width:18px;height:18px;border-radius:999px;pointer-events:auto;cursor:grab;";
-    if (pos.indexOf("n") !== -1) rotate.style.top = "-26px";
-    if (pos.indexOf("s") !== -1) rotate.style.bottom = "-26px";
-    if (pos.indexOf("w") !== -1) rotate.style.left = "-26px";
-    if (pos.indexOf("e") !== -1) rotate.style.right = "-26px";
-    selectionOverlay.appendChild(rotate);
-  });
+  (function () {
+    var baseAngles = { nw: 270, ne: 0, se: 90, sw: 180 };
+    function rotateCursorUri(angleDeg) {
+      var svg =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">' +
+        '<g transform="rotate(' +
+        angleDeg +
+        ' 10 10)" fill="none" stroke="black" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M 4 8 A 7 7 0 0 1 16 8" stroke="white" stroke-width="3.5"/>' +
+        '<path d="M 4 8 A 7 7 0 0 1 16 8"/>' +
+        '<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="white" stroke="white" stroke-width="3.5" stroke-linejoin="round"/>' +
+        '<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="black"/>' +
+        "</g></svg>";
+      return (
+        'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") 10 10, grab'
+      );
+    }
+    ["nw", "ne", "se", "sw"].forEach(function (pos) {
+      var handle = document.createElement("span");
+      handle.setAttribute("data-agent-native-rotate-handle", pos);
+      handle.style.cssText =
+        "position:absolute;width:28px;height:28px;border-radius:999px;pointer-events:auto;";
+      handle.style.cursor = rotateCursorUri(baseAngles[pos]);
+      if (pos.indexOf("n") !== -1) handle.style.top = "-34px";
+      if (pos.indexOf("s") !== -1) handle.style.bottom = "-34px";
+      if (pos.indexOf("w") !== -1) handle.style.left = "-34px";
+      if (pos.indexOf("e") !== -1) handle.style.right = "-34px";
+      selectionOverlay.appendChild(handle);
+    });
+    var button = document.createElement("span");
+    button.setAttribute("data-agent-native-rotate-handle", "top-center");
+    button.style.cssText =
+      "position:absolute;left:50%;transform:translateX(-50%);top:-22px;" +
+      "width:16px;height:16px;pointer-events:auto;" +
+      "display:flex;align-items:center;justify-content:center;" +
+      "border-radius:999px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);" +
+      "cursor:grab;user-select:none;font-size:10px;line-height:1;color:#333;";
+    button.textContent = "↻";
+    selectionOverlay.appendChild(button);
+  })();
   var spacingOverlay = document.createElement("div");
   spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
   spacingOverlay.style.cssText =
@@ -3851,50 +3881,44 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       .querySelectorAll("[data-agent-native-rotate-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-rotate-handle") || "";
-        handle.style.width = 18 * sx + "px";
-        handle.style.height = 18 * sy + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = -26 * sy + "px";
-        if (pos.indexOf("s") !== -1) handle.style.bottom = -26 * sy + "px";
-        if (pos.indexOf("w") !== -1) handle.style.left = -26 * sx + "px";
-        if (pos.indexOf("e") !== -1) handle.style.right = -26 * sx + "px";
+        if (pos === "top-center") {
+          var buttonScale = Math.min(sx, sy);
+          handle.style.width = 16 * buttonScale + "px";
+          handle.style.height = 16 * buttonScale + "px";
+          handle.style.fontSize = 10 * buttonScale + "px";
+          handle.style.top = -22 * sy + "px";
+          return;
+        }
+        var size = Math.min(sx, sy);
+        handle.style.width = 28 * size + "px";
+        handle.style.height = 28 * size + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = -34 * sy + "px";
+        if (pos.indexOf("s") !== -1) handle.style.bottom = -34 * sy + "px";
+        if (pos.indexOf("w") !== -1) handle.style.left = -34 * sx + "px";
+        if (pos.indexOf("e") !== -1) handle.style.right = -34 * sx + "px";
       });
   }
 
-  // Rotation-aware local-box placement shared by selectionOverlay, the hover
-  // highlightOverlay, and the passive multi-selection overlays: prefer the CSS
-  // box + rotation transform so the outline hugs the rotated element rather
-  // than its inflated axis-aligned bounding box. Returns true when it placed
-  // the overlay (caller should skip the AABB fallback), false when the element
-  // has no usable local box (falls back to getBoundingClientRect).
+  // Returns true when the overlay was placed with the element's rotated CSS box.
   function positionOverlayForRotatedLocalBox(
     overlay: HTMLElement,
     el: Element,
   ): boolean {
     var elCs = window.getComputedStyle(el);
-    var elLeft = readFinitePx(el.style.left || elCs.left);
-    var elTop = readFinitePx(el.style.top || elCs.top);
-    var elW = readFinitePx(el.style.width || elCs.width);
-    var elH = readFinitePx(el.style.height || elCs.height);
+    var elW = readFinitePx((el as HTMLElement).style.width || elCs.width);
+    var elH = readFinitePx((el as HTMLElement).style.height || elCs.height);
     var elRot = currentRotation(el);
-    var canUseLocalBox =
-      Math.abs(elRot) > 0.01 &&
-      elLeft !== null &&
-      elTop !== null &&
-      elW !== null &&
-      elH !== null;
-    if (!canUseLocalBox) return false;
-    // Convert element-local left/top to viewport coords by walking to the
-    // nearest positioned ancestor (same reference frame as getBoundingClientRect).
-    var parentRect = (
-      (el as HTMLElement).offsetParent || document.documentElement
-    ).getBoundingClientRect();
+    if (Math.abs(elRot) < 0.01 || elW === null || elH === null) return false;
+    var rect = (el as HTMLElement).getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
     overlay.style.display = "block";
-    overlay.style.left = parentRect.left + elLeft + "px";
-    overlay.style.top = parentRect.top + elTop + "px";
+    overlay.style.left = cx - elW / 2 + "px";
+    overlay.style.top = cy - elH / 2 + "px";
     overlay.style.width = elW + "px";
     overlay.style.height = elH + "px";
     overlay.style.transform = "rotate(" + elRot + "deg)";
-    overlay.style.transformOrigin = "0 0";
+    overlay.style.transformOrigin = "50% 50%";
     return true;
   }
 
@@ -5642,32 +5666,66 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     },
   );
 
-  function currentRotation(el) {
-    var transform =
-      el.style.transform || window.getComputedStyle(el).transform || "";
-    var match = transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
+  function rotationFromTransform(transform) {
+    var match = transform.match(/rotate(?:Z)?\((-?\d+(?:\.\d+)?)deg\)/i);
     if (match) return parseFloat(match[1]) || 0;
     if (transform && transform !== "none" && window.DOMMatrixReadOnly) {
       try {
         var matrix = new DOMMatrixReadOnly(transform);
-        return Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
+        return (Math.atan2(matrix.b, matrix.a) * 180) / Math.PI;
       } catch (err) {}
     }
     return 0;
   }
 
-  function mergeRotation(el, degrees) {
-    var inline = el.style.transform || "";
-    var next = inline.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/)
-      ? inline.replace(
-          /rotate\((-?\d+(?:\.\d+)?)deg\)/,
-          "rotate(" + degrees + "deg)",
-        )
-      : (inline && inline !== "none" ? inline + " " : "") +
-        "rotate(" +
-        degrees +
-        "deg)";
-    return next.trim();
+  function independentRotation(rotate) {
+    var match = rotate.match(
+      /^(?:z\s+)?(-?\d+(?:\.\d+)?)(deg|grad|rad|turn)$/i,
+    );
+    if (!match) return 0;
+    var value = parseFloat(match[1]) || 0;
+    var unit = match[2].toLowerCase();
+    if (unit === "grad") return value * 0.9;
+    if (unit === "rad") return (value * 180) / Math.PI;
+    if (unit === "turn") return value * 360;
+    return value;
+  }
+
+  function currentRotation(el) {
+    var computed = window.getComputedStyle(el);
+    return (
+      rotationFromTransform(computed.transform || "") +
+      independentRotation(computed.rotate || "")
+    );
+  }
+
+  // Merge an ABSOLUTE rotation value (degrees) into a transform string.
+  // When the string already has a rotate/rotateZ(), replace it in place.
+  // When the transform is a matrix() (e.g. computed from a class rule), strip
+  // the rotation component and append the new absolute rotate() so the inline
+  // value only adds what the class doesn't already own as non-rotation parts.
+  // When the string has non-rotation functions (translate, scale, etc.) without
+  // an explicit rotate(), append rotate() so other transforms are preserved.
+  function mergeAbsoluteRotation(transform, degrees) {
+    var rotatePattern = /rotate(?:Z)?\((-?\d+(?:\.\d+)?)deg\)/i;
+    if (rotatePattern.test(transform)) {
+      return transform
+        .replace(rotatePattern, "rotate(" + degrees + "deg)")
+        .trim();
+    }
+    // matrix() is the computed form of a class-rule transform; writing it
+    // inline would hard-pin every property from that rule. Instead start fresh
+    // with just the target rotation so the class still owns everything else.
+    if (/^matrix(?:3d)?\(/i.test(transform.trim())) {
+      return "rotate(" + degrees + "deg)";
+    }
+    // transform string with other functions but no existing rotate: append.
+    return (
+      (transform && transform !== "none" ? transform + " " : "") +
+      "rotate(" +
+      degrees +
+      "deg)"
+    ).trim();
   }
 
   function ensurePositionable(el) {
@@ -9126,6 +9184,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     // null-deref in onMove/onUp.
     var rotateEl = selectedEl;
     var originalInlineTransform = rotateEl.style.transform;
+    var originalComputedTransform = window.getComputedStyle(rotateEl).transform;
+    var baseTransform =
+      originalInlineTransform && originalInlineTransform !== "none"
+        ? originalInlineTransform
+        : originalComputedTransform;
     function onMove(ev) {
       if (!rotateEl) return;
       var pointerAngle =
@@ -9134,7 +9197,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       var next = originRotation + pointerAngle - originAngle;
       if (ev.shiftKey) next = Math.round(next / 15) * 15;
       next = Math.round(next);
-      rotateEl.style.transform = mergeRotation(rotateEl, next);
+      rotateEl.style.transform = mergeAbsoluteRotation(baseTransform, next);
       showTransformBadge(next + "deg", ev.clientX, ev.clientY);
       refreshOverlays();
     }
