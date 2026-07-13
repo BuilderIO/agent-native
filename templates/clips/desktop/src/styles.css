@@ -2853,7 +2853,9 @@ body[data-clips-route="recording-pill"] #root {
   left: var(--overlay-shadow-gutter);
   top: var(--overlay-shadow-gutter);
   width: 72px;
-  height: 190px;
+  /* 170px primary zone + 88px always-visible actions (+2 margin) + 20px
+     vertical padding — matches TOOLBAR_HEIGHT in toolbar.tsx. */
+  height: 280px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2875,15 +2877,6 @@ body[data-clips-route="recording-pill"] #root {
   -webkit-user-select: none;
   cursor: grab;
   transition: border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover,
-.toolbar-v:focus-within {
-  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 170px primary
-     zone (Stop / time / Pause / marker) + 88px hover actions (+2 margin) +
-     20px vertical padding. */
-  height: 280px;
-  border-radius: 26px;
 }
 
 .toolbar-v:active {
@@ -3029,31 +3022,16 @@ body[data-clips-route="recording-pill"] #root {
   text-align: center;
 }
 
+/* Restart + discard. Always visible: WKWebView doesn't deliver hover
+   events to a non-focused window on macOS, so hover-reveal made these
+   buttons undiscoverable until the pill was clicked once. */
 .toolbar-v-hover-actions {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(-6px);
-  pointer-events: none;
-  visibility: hidden;
-  transition:
-    opacity 130ms ease-out,
-    transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.toolbar-v:hover .toolbar-v-hover-actions,
-.toolbar-v:focus-within .toolbar-v-hover-actions {
   height: 88px;
   margin-top: 2px;
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-  visibility: visible;
 }
 
 .toolbar-v-action {

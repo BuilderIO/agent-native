@@ -11,20 +11,17 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
-import type { FocusEvent } from "react";
 
 const OVERLAY_SHADOW_GUTTER = 18;
 const TOOLBAR_CONTENT_WIDTH = 72;
-const TOOLBAR_COLLAPSED_HEIGHT = 190;
-// Collapsed content box (190 − 20 padding = 170) holds the centered primary
-// zone; the expanded height must fit that fixed 170 zone + the 88px hover
-// actions (+2 margin) + 20 vertical padding so nothing clips on hover.
-const TOOLBAR_EXPANDED_HEIGHT = 280;
+// 170px primary zone (Stop / time / Pause / marker) + 88px action zone
+// (+2 margin) + 20 vertical padding. The action buttons are ALWAYS visible:
+// hover-reveal never worked reliably because WKWebView in a non-focused
+// window doesn't deliver hover events until the window is clicked (made
+// key), so the discard button was effectively undiscoverable.
+const TOOLBAR_HEIGHT = 280;
 const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
-const TOOLBAR_COLLAPSED_WINDOW_HEIGHT =
-  TOOLBAR_COLLAPSED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
-const TOOLBAR_EXPANDED_WINDOW_HEIGHT =
-  TOOLBAR_EXPANDED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_WINDOW_HEIGHT = TOOLBAR_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
 
 /**
  * Floating recording toolbar — vertical pill anchored to the LEFT edge of
@@ -66,7 +63,6 @@ export function Toolbar() {
   const [markerFlash, setMarkerFlash] = useState(false);
   const markerFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const expandedRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -192,18 +188,16 @@ export function Toolbar() {
     }, 3_000);
   }
 
-  function resizeToolbarWindow(expanded: boolean) {
-    if (expandedRef.current === expanded) return;
-    expandedRef.current = expanded;
-    const height = expanded
-      ? TOOLBAR_EXPANDED_WINDOW_HEIGHT
-      : TOOLBAR_COLLAPSED_WINDOW_HEIGHT;
+  // The native window is created at the collapsed legacy size by older
+  // tray builds — assert the always-expanded size once on mount so both
+  // action buttons are inside the window bounds.
+  useEffect(() => {
     getCurrentWindow()
-      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, height))
+      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, TOOLBAR_WINDOW_HEIGHT))
       .catch((err) => {
         console.warn("[clips-toolbar] resize failed", err);
       });
-  }
+  }, []);
 
   function stop() {
     if (pendingAction || !enabled) return;
@@ -293,11 +287,6 @@ export function Toolbar() {
         console.warn("[clips-toolbar] startDragging failed", err);
       });
   };
-  const handleToolbarBlur = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    resizeToolbarWindow(false);
-  };
-
   const pendingActionLabel =
     pendingAction === "restart"
       ? "Restarting..."
@@ -309,10 +298,6 @@ export function Toolbar() {
     <div
       className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"} ${diskSpaceLevel !== "ok" ? `toolbar-v-disk-${diskSpaceLevel}` : ""}`}
       onMouseDown={handleToolbarMouseDown}
-      onMouseEnter={() => resizeToolbarWindow(true)}
-      onMouseLeave={() => resizeToolbarWindow(false)}
-      onFocusCapture={() => resizeToolbarWindow(true)}
-      onBlurCapture={handleToolbarBlur}
     >
       {/* Primary controls live in a fixed-height zone so they stay pinned
           to the same vertical position whether or not the pill is hovered.
