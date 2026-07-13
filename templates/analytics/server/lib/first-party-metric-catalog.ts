@@ -163,6 +163,7 @@ const DASHBOARD_WAU_BASE_RANGE_FILTER = dashboardLookbackTimeRangeFilter(
 );
 const DASHBOARD_EMAIL_FILTER =
   "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io'))";
+const SESSION_STATUS_FILTER = `event_name = 'session status' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
 const SIGNED_IN_ACTIVITY_KEY_SQL = USER_KEY_SQL;
 const SIGNED_IN_ACTIVITY_FILTER = `event_name = 'session status' AND signed_in = 'true' AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
 const SIGNED_IN_PRODUCT_ACTIVITY_FILTER = `${SIGNED_IN_ACTIVITY_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
@@ -292,7 +293,7 @@ const ENTRIES: FirstPartyMetric[] = [
     width: 2,
     windowed: false,
     buildSql: fixed(
-      "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20",
+      `SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app, COUNT(*) AS count FROM analytics_events WHERE ${SESSION_STATUS_FILTER} GROUP BY COALESCE(NULLIF(app, ''), 'unknown') ORDER BY count DESC LIMIT 20`,
     ),
     config: {
       xKey: "app",
@@ -310,7 +311,7 @@ const ENTRIES: FirstPartyMetric[] = [
     width: 1,
     windowed: false,
     buildSql: fixed(
-      `SELECT ${EVENT_DATE_SQL} AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY ${EVENT_DATE_SQL} ORDER BY date`,
+      `SELECT ${EVENT_DATE_SQL} AS date, COUNT(*) AS count FROM analytics_events WHERE ${SESSION_STATUS_FILTER} GROUP BY ${EVENT_DATE_SQL} ORDER BY date`,
     ),
     config: { xKey: "date", yKey: "count", color: "#10b981" },
   },
@@ -380,7 +381,7 @@ const ENTRIES: FirstPartyMetric[] = [
     width: 1,
     windowed: false,
     buildSql: fixed(
-      "SELECT COALESCE(NULLIF(signed_in, ''), 'unknown') AS signed_in, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY COALESCE(NULLIF(signed_in, ''), 'unknown') ORDER BY signed_in",
+      `SELECT COALESCE(NULLIF(signed_in, ''), 'unknown') AS signed_in, COUNT(*) AS count FROM analytics_events WHERE ${SESSION_STATUS_FILTER} GROUP BY COALESCE(NULLIF(signed_in, ''), 'unknown') ORDER BY signed_in`,
     ),
     config: {
       xKey: "signed_in",
@@ -1007,14 +1008,28 @@ export function buildPanel(
     overrides.width <= 6
       ? overrides.width
       : metric.width;
+  const title =
+    overrides.title?.trim() ||
+    (window === "all"
+      ? metric.title.replace(/\(\d+d\)$/i, "(all-time)")
+      : metric.title);
+  const config = { ...metric.config };
+  if (metric.windowed) {
+    config.timeScope = window === "all" ? "all-time" : "fixed-window";
+    if (window === "all") {
+      const description =
+        typeof config.description === "string" ? config.description.trim() : "";
+      config.description = `${description ? `${description} ` : ""}This panel is explicitly configured for an all-time window.`;
+    }
+  }
   return {
     id: overrides.id?.trim() || metric.key,
-    title: overrides.title?.trim() || metric.title,
+    title,
     chartType: overrides.chartType?.trim() || metric.chartType,
     source: "first-party",
     width,
     sql: metric.buildSql(window),
     // Clone so callers can't mutate the shared catalog config object.
-    config: { ...metric.config },
+    config,
   };
 }

@@ -139,7 +139,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -1670,14 +1670,16 @@ function DatabaseTable({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  asChild
                   type="button"
                   variant="ghost"
                   size="sm"
                   aria-label={dbText("openAsFullPage")}
                   className={databaseToolbarIconButtonClass()}
-                  onClick={() => navigate(`/page/${databaseDocumentId}`)}
                 >
-                  <IconArrowsDiagonal className="size-3.5" />
+                  <Link to={`/page/${databaseDocumentId}`}>
+                    <IconArrowsDiagonal className="size-3.5" />
+                  </Link>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{dbText("openAsFullPage")}</TooltipContent>

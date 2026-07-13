@@ -1604,6 +1604,19 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
   });
 
+  it("keeps the chat composer editable while provider readiness is loading", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "const isComposerDisabled = missingApiKey || composerDisabled;",
+    );
+    expect(source).not.toContain(
+      "missingApiKey || isProviderStatusChecking || composerDisabled",
+    );
+  });
+
   it("clears queued follow-ups and settles stopped tool calls by default", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

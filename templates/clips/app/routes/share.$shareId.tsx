@@ -32,7 +32,7 @@ import {
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
-import { useLoaderData, useNavigate, useParams } from "react-router";
+import { Link, useLoaderData, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -817,12 +817,14 @@ export default function ShareRoute() {
         <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 lg:flex-nowrap">
           {session ? (
             <Button
+              asChild
               variant="ghost"
               size="icon"
-              onClick={() => navigate("/")}
               aria-label={t("sharePage.backToHome")}
             >
-              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+              <Link to="/">
+                <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+              </Link>
             </Button>
           ) : null}
           <div className="min-w-0 flex-1">

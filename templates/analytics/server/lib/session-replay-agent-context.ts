@@ -663,7 +663,7 @@ export function resolveSessionReplayAgentAccess(
     resourceId: recordingId,
   });
   // Replay grants are always minted by an authenticated viewer. Fail closed
-  // for grants without that signed identity: demo-mode policy is viewer-scoped,
+  // for grants without that signed identity: access policy is viewer-scoped,
   // so guessing from the ambient request could expose identities to agents.
   if (!result.ok || !result.viewerEmail) return null;
   return { viewerEmail: result.viewerEmail };

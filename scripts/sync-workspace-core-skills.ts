@@ -75,6 +75,7 @@ const workspaceSkillIncludes = [
   "internationalization",
   "integration-webhooks",
   "mvp-followup",
+  "native-navigation",
   "observability",
   "onboarding",
   "performance",

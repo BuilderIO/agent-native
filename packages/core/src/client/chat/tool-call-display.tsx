@@ -897,6 +897,11 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const latestReasoningPartIndex = content.reduce(
+    (latestIndex, part, index) =>
+      part.type === "reasoning" ? index : latestIndex,
+    -1,
+  );
   const streamingTextPartIndex =
     content.at(-1)?.type === "text" ? content.length - 1 : -1;
   const streamingReasoningPartIndex =
@@ -924,7 +929,8 @@ export function ReconnectStreamMessage({
                 key={`reconnect-reasoning-${i}`}
                 text={part.text}
                 isStreaming={chatRunning && i === streamingReasoningPartIndex}
-                defaultOpen={chatRunning && i === streamingReasoningPartIndex}
+                defaultOpen={i === latestReasoningPartIndex}
+                collapseWhenReplaced={i < latestReasoningPartIndex}
               />
             );
           }
@@ -969,6 +975,7 @@ export function ReasoningCell({
   isStreaming = false,
   defaultOpen,
   autoCollapse = false,
+  collapseWhenReplaced = false,
   durationMs,
 }: {
   text: string;
@@ -976,6 +983,8 @@ export function ReasoningCell({
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
   autoCollapse?: boolean;
+  /** Animate closed when a newer reasoning segment replaces this one. */
+  collapseWhenReplaced?: boolean;
   /**
    * Elapsed thinking time in ms, once known. Only meaningful once streaming
    * has finished — callers that track live timing (see ReasoningMessagePart)
@@ -987,6 +996,7 @@ export function ReasoningCell({
   const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
   const [open, setOpen] = useState(defaultOpen ?? true);
   const wasStreamingRef = useRef(isStreaming);
+  const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
 
   useEffect(() => {
@@ -995,6 +1005,13 @@ export function ReasoningCell({
     }
     wasStreamingRef.current = isStreaming;
   }, [autoCollapse, isStreaming]);
+
+  useEffect(() => {
+    if (collapseWhenReplaced && !wasReplacedRef.current) {
+      setOpen(false);
+    }
+    wasReplacedRef.current = collapseWhenReplaced;
+  }, [collapseWhenReplaced]);
 
   if (!trimmed && !isStreaming) return null;
 

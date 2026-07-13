@@ -599,7 +599,6 @@ export async function mergeCoreSharingActions(
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
     // Audit log — read surface (who changed what, when, agent vs human).
     [
       "list-audit-events",

@@ -65,6 +65,18 @@ describe("resolveFilterVars", () => {
     );
   });
 
+  it("fails closed when a time variable is missing at render time", () => {
+    expect(
+      interpolate(
+        "'{{timeRange}}' IN ('', 'all')",
+        {},
+        {
+          failClosedTimeVariables: true,
+        },
+      ),
+    ).toBe("'__missing_dashboard_time_filter__' IN ('', 'all')");
+  });
+
   it("keeps explicit date values and date shorthands valid", () => {
     const filters: DashboardFilter[] = [
       { id: "window", label: "Window", type: "date-range", default: "30d" },

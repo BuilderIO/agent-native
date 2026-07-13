@@ -102,7 +102,7 @@ function panel(id: string, source = "first-party") {
     sql:
       source === "bigquery"
         ? "SELECT COUNT(*) AS value FROM `project.dataset.table`"
-        : "SELECT COUNT(*) AS value FROM analytics_events",
+        : "SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '2020-01-01'",
   };
 }
 

@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import {
-  ensureDemoModeFetchInterceptor,
-  refreshDemoModeFetchInterceptor,
-} from "../demo/fetch-interceptor.js";
+import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
@@ -314,15 +311,6 @@ class SyncTransport {
   // -------------------------------------------------------------------------
 
   private fan(events: SyncEvent[], version: number | undefined): void {
-    if (
-      events.some(
-        (event) =>
-          event.source === "app-state" &&
-          (event.key === "demo-mode" || event.key === "*"),
-      )
-    ) {
-      void refreshDemoModeFetchInterceptor();
-    }
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version);
     }
@@ -544,8 +532,8 @@ class SyncTransport {
   };
 
   private start(): void {
-    // Universal demo-mode redaction for the UI. Idempotent + browser-only +
-    // a no-op until demo mode is on. Lives here because every template root
+    // Universal browser-local demo-mode presentation redaction. Idempotent and
+    // a no-op until the local preference is on. Lives here because every root
     // already mounts useDbSync, so this needs zero per-template wiring.
     ensureEmbedAuthFetchInterceptor();
     ensureDemoModeFetchInterceptor();

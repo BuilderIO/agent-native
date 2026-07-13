@@ -705,6 +705,32 @@ describe("ToolCallDisplay native renderers", () => {
     ).toEqual([null]);
   });
 
+  it("keeps the latest completed reconnect thought expanded while a tool runs", () => {
+    const content: ContentPart[] = [
+      { type: "reasoning", text: "Completed thought" },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const thoughtButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.startsWith("Thought"),
+    );
+    expect(thoughtButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Completed thought");
+  });
+
   it("keeps only the active reconnect reasoning segment expanded", () => {
     const content: ContentPart[] = [
       { type: "reasoning", text: "First thought" },
@@ -903,6 +929,53 @@ describe("ReasoningCell", () => {
       null,
     );
     expect(container.textContent).toContain("Thought for 1s");
+    expect(
+      container
+        .querySelector(".agent-chat-collapse")
+        ?.getAttribute("data-state"),
+    ).toBe("closed");
+  });
+
+  it("keeps a finished reasoning segment open until a newer one replaces it", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming
+          defaultOpen
+        />,
+      );
+    });
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming={false}
+          durationMs={1400}
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+    expect(container.textContent).toContain("The first thought is complete.");
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming={false}
+          durationMs={1400}
+          collapseWhenReplaced
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="false"]')).not.toBe(
+      null,
+    );
     expect(
       container
         .querySelector(".agent-chat-collapse")

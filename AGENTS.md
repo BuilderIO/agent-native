@@ -159,7 +159,8 @@ instructions, and application state.
 - Keep template UX clean and progressively disclosed. Do not solve feedback by
   adding always-visible controls unless that is clearly the main workflow.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
-  `real-time-sync`, and `delegate-to-agent` skills for details.
+  `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
+  details.
 
 ## Packages And Releases
 
@@ -217,6 +218,8 @@ Read the relevant skill before making changes in that area:
   budget — one atomic call, never loop many small writes, verify and report
   proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
+- `native-navigation` for link-first internal navigation that preserves
+  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.

@@ -1339,13 +1339,12 @@ function AllAssetsBrowser() {
                   </div>
                 </button>
                 {(asset as any).libraryTitle ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/library/${asset.libraryId}`)}
+                  <Link
+                    to={`/library/${asset.libraryId}`}
                     className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
                     {(asset as any).libraryTitle}
-                  </button>
+                  </Link>
                 ) : null}
                 <TooltipProvider>
                   <Tooltip>

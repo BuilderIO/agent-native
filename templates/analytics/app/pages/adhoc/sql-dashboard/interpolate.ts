@@ -14,9 +14,23 @@ function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+export interface InterpolateOptions {
+  /**
+   * Replace missing/empty time variables with a value that cannot satisfy the
+   * canonical dashboard predicates. This keeps a stale or malformed panel
+   * fail-closed at render time instead of turning into an all-time query.
+   */
+  failClosedTimeVariables?: boolean;
+}
+
+function isTimeVariable(name: string): boolean {
+  return name === "timeRange" || /(?:Start|End)$/.test(name);
+}
+
 export function interpolate(
   sql: string | undefined | null,
   vars: Record<string, string> = {},
+  options: InterpolateOptions = {},
 ): string {
   // Defensive: a malformed dashboard config (e.g. agent wrote a panel without
   // a `sql` field) should not crash the page. Treat missing/non-string SQL
@@ -33,6 +47,13 @@ export function interpolate(
 
   return withConditionals.replace(/\{\{(\w+)\}\}/g, (_match, name) => {
     const value = vars[name];
+    if (
+      options.failClosedTimeVariables &&
+      isTimeVariable(name) &&
+      (value == null || value.length === 0)
+    ) {
+      return "__missing_dashboard_time_filter__";
+    }
     if (value == null) return "";
     return escapeSqlValue(String(value));
   });

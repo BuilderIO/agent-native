@@ -119,11 +119,11 @@ details live in `.agents/skills/`.
   without raw replay events or storage references. Do not add replay blob or
   dashboard mutation actions to this catalog without an explicit security
   review.
-- While Demo mode is enabled, session and error identities display anonymized
-  (`anonymous@builder.io`), so incident lookups must filter by the stable
+- Demo mode is a browser-local presentation preference. Analytics backend
+  actions, agent/MCP reads, session replays, and error issues always return real
+  authorized identities, so incident lookups should use the actual
   `userId`/email parameter (e.g. `userId: "user@example.com"`) or recording/
-  issue id — never by matching emails read back from previously displayed
-  output.
+  issue id.
 - Analytics keeps its direct MCP surface explicitly curated, so external
   agents should use `ask_app` for multi-step investigation and changes. The
   six incident reads above are bounded, user/org-scoped fallback tools for

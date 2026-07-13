@@ -11,8 +11,10 @@ import {
   BranchPickerPrimitive,
   ComposerPrimitive,
   useMessagePartReasoning,
+  useMessagePartRuntime,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
+import { useAuiState } from "@assistant-ui/store";
 import {
   IconX,
   IconCheck,
@@ -842,8 +844,18 @@ export function shouldShowAssistantMessageFooter({
 
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
-  const chatRunning = React.useContext(ChatRunningContext);
+  const partRuntime = useMessagePartRuntime();
+  const messageParts = useAuiState((state) => state.message.parts);
   const isStreaming = part.status?.type === "running";
+  const partIndex =
+    partRuntime.path.messagePartSelector.type === "index"
+      ? partRuntime.path.messagePartSelector.index
+      : -1;
+  const latestReasoningPartIndex = messageParts.reduce(
+    (latestIndex, messagePart, index) =>
+      messagePart.type === "reasoning" ? index : latestIndex,
+    -1,
+  );
   // Time thinking client-side: record the moment streaming first starts and
   // the moment it stops so the cell can show "Thought for Xs". Historical
   // messages that were never observed streaming in this session never get a
@@ -865,8 +877,8 @@ function ReasoningMessagePart() {
       text={part.text}
       isStreaming={isStreaming}
       durationMs={durationMs}
-      defaultOpen={isStreaming || !chatRunning}
-      autoCollapse={chatRunning}
+      defaultOpen={partIndex === latestReasoningPartIndex}
+      collapseWhenReplaced={partIndex < latestReasoningPartIndex}
     />
   );
 }

@@ -41,7 +41,7 @@ import {
 import { format } from "date-fns";
 import { nanoid } from "nanoid";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { FieldPropertiesPanel } from "@/components/builder/FieldPropertiesPanel";
@@ -338,13 +338,15 @@ export function FormBuilderPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  asChild
                   variant="ghost"
                   size="icon"
                   className="size-10 shrink-0 active:scale-[0.96]"
-                  onClick={() => navigate("/forms")}
                   aria-label={t("builder.backToForms")}
                 >
-                  <IconArrowLeft className="h-4 w-4" />
+                  <Link to="/forms">
+                    <IconArrowLeft className="h-4 w-4" />
+                  </Link>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t("builder.backToForms")}</TooltipContent>
@@ -399,12 +401,8 @@ export function FormBuilderPage() {
           {isAccessIssue ? t("builder.accessDenied") : t("builder.loadFailed")}
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("/forms")}
-          >
-            {t("builder.backToForms")}
+          <Button asChild variant="outline" size="sm">
+            <Link to="/forms">{t("builder.backToForms")}</Link>
           </Button>
           {!isAccessIssue && (
             <Button variant="outline" size="sm" onClick={() => refetch()}>
@@ -557,13 +555,15 @@ export function FormBuilderPage() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                asChild
                 variant="ghost"
                 size="icon"
                 className="size-10 shrink-0 active:scale-[0.96]"
-                onClick={() => navigate("/forms")}
                 aria-label={t("builder.backToForms")}
               >
-                <IconArrowLeft className="h-4 w-4" />
+                <Link to="/forms">
+                  <IconArrowLeft className="h-4 w-4" />
+                </Link>
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t("builder.backToForms")}</TooltipContent>

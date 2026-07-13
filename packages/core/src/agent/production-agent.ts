@@ -11,8 +11,6 @@ import type { EventHandler as H3EventHandler } from "h3";
 import { isAgentActionStopError } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import { isDemoModeEnabled } from "../demo/config.js";
-import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
@@ -4456,48 +4454,24 @@ export async function runAgentLoop(opts: {
           isError = true;
         }
         mcpApp = mcpResult?.mcpApp;
-        // Demo mode: the agent must see the same anonymized data the UI shows, so
-        // it can't read out a real name/email on a live screen share. Redact
-        // the structured result (not the JSON string) so IDs/dates/URLs stay
-        // intact and follow-up tool calls still work. Gated — the expensive
-        // walk only runs when demo mode is on.
-        let redacted: unknown = rawForAgent;
-        const demoMode = await isDemoModeEnabled();
-        if (demoMode) {
-          mcpApp = undefined;
-          if (typeof rawForAgent === "string") {
-            try {
-              redacted = JSON.stringify(
-                redactDemoData(JSON.parse(rawForAgent)),
-                null,
-                2,
-              );
-            } catch {
-              redacted = redactDemoString(rawForAgent);
-            }
-          } else {
-            redacted = redactDemoData(rawForAgent);
-          }
-        }
+        // Demo mode is browser-local presentation state. The agent and MCP
+        // layers always receive the real, access-scoped tool result.
+        let resultForAgent: unknown = rawForAgent;
         // Vision images for the model: MCP tools return standard `image`
         // content parts; first-party actions opt in via the well-known
         // `_agentImages` result field (stripped from the JSON the model
-        // reads, even in demo mode). Demo mode drops the images themselves —
-        // text redaction can't scrub pixels, and a screenshot may expose
-        // original visual data. The images array
+        // reads). The images array
         // never touches the ledger — only the compact text notes appended
         // below are persisted.
         let imageNotes: string[] = [];
         if (mcpResult) {
-          if (!demoMode) {
-            const mcpImages = extractMcpToolResultImages(mcpResult.raw);
-            if (mcpImages.length > 0) toolResultImages = mcpImages;
-          }
+          const mcpImages = extractMcpToolResultImages(mcpResult.raw);
+          if (mcpImages.length > 0) toolResultImages = mcpImages;
         } else {
-          const extracted = extractAgentImagesFromActionResult(redacted);
-          redacted = extracted.value;
+          const extracted = extractAgentImagesFromActionResult(resultForAgent);
+          resultForAgent = extracted.value;
           imageNotes = extracted.notes;
-          if (extracted.images.length > 0 && !demoMode) {
+          if (extracted.images.length > 0) {
             toolResultImages = extracted.images;
           }
         }
@@ -4508,9 +4482,9 @@ export async function runAgentLoop(opts: {
           ];
         }
         let resultStr =
-          typeof redacted === "string"
-            ? redacted
-            : JSON.stringify(redacted, null, 2);
+          typeof resultForAgent === "string"
+            ? resultForAgent
+            : JSON.stringify(resultForAgent, null, 2);
         if (resultStr.length > toolMaxResultChars) {
           const truncated = resultStr.slice(0, toolMaxResultChars);
           resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;

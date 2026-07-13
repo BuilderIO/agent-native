@@ -12,7 +12,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -362,14 +362,11 @@ export function DatabaseFormView({
               {t("database.formSubmittedDescription")}
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(`/page/${createdDocumentId}`)}
-          >
-            <IconExternalLink className="size-4" />
-            {t("database.openPage")}
+          <Button asChild type="button" variant="outline" size="sm">
+            <Link to={`/page/${createdDocumentId}`}>
+              <IconExternalLink className="size-4" />
+              {t("database.openPage")}
+            </Link>
           </Button>
         </div>
       ) : null}

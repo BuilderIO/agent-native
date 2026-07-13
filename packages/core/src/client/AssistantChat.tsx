@@ -2307,8 +2307,7 @@ const AssistantChatInner = forwardRef<
   const missingApiKey = agentEngineConfigured.missing;
   const isProviderStatusChecking =
     providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
-  const isComposerDisabled =
-    missingApiKey || isProviderStatusChecking || composerDisabled;
+  const isComposerDisabled = missingApiKey || composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);

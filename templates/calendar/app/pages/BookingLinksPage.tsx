@@ -48,7 +48,7 @@ import {
 } from "date-fns";
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -915,12 +915,10 @@ export default function BookingLinksPage({
     toast.error(t("common.clipboardUnavailable"));
   }
 
-  function openPreview(slug: string) {
-    // For local preview, use the local path
-    const localPath = bookingUsername
+  function bookingPreviewPath(slug: string) {
+    return bookingUsername
       ? `/book/${bookingUsername}/${slug}`
       : `/book/${slug}`;
-    window.open(localPath, "_blank", "noopener,noreferrer");
   }
 
   const handleSaveRef = useRef(handleSave);
@@ -952,14 +950,13 @@ export default function BookingLinksPage({
     }
     return {
       left: (
-        <button
-          type="button"
-          onClick={() => navigate("/booking-links")}
+        <Link
+          to="/booking-links"
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <IconChevronLeft className="h-4 w-4" />
           {t("bookingLinks.back")}
-        </button>
+        </Link>
       ),
       right: selectedLink ? (
         <div className="flex items-center gap-1.5">
@@ -1008,14 +1005,19 @@ export default function BookingLinksPage({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  type="button"
+                  asChild
                   variant="ghost"
                   size="icon"
-                  onClick={() => openPreview(draft.slug)}
                   className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
                   aria-label={t("bookingLinks.openBookingLink")}
                 >
-                  <IconExternalLink className="h-4 w-4" />
+                  <a
+                    href={bookingPreviewPath(draft.slug)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IconExternalLink className="h-4 w-4" />
+                  </a>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t("bookingLinks.openLink")}</TooltipContent>
@@ -1300,14 +1302,19 @@ export default function BookingLinksPage({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
-                          type="button"
+                          asChild
                           variant="ghost"
                           size="icon"
-                          onClick={() => openPreview(draft.slug)}
                           className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
                           aria-label={t("bookingLinks.openBookingPageNewTab")}
                         >
-                          <IconExternalLink className="h-4 w-4" />
+                          <a
+                            href={bookingPreviewPath(draft.slug)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <IconExternalLink className="h-4 w-4" />
+                          </a>
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
@@ -1499,7 +1506,7 @@ export default function BookingLinksPage({
                   availability={availability ?? undefined}
                   bookingUrl={previewUrl}
                   onCopy={() => void copyPreviewUrl(draft.slug)}
-                  onOpen={() => openPreview(draft.slug)}
+                  openHref={bookingPreviewPath(draft.slug)}
                   onCollapse={() => setIsPreviewCollapsed(true)}
                 />
               )}
@@ -1597,9 +1604,8 @@ export default function BookingLinksPage({
                     >
                       <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
                         {/* Info — clickable to edit */}
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/booking-links/${link.id}`)}
+                        <Link
+                          to={`/booking-links/${link.id}`}
                           className="min-w-0 flex-1 text-left"
                         >
                           <div className="flex items-center gap-2">
@@ -1622,7 +1628,7 @@ export default function BookingLinksPage({
                               {availability.timezone}
                             </p>
                           )}
-                        </button>
+                        </Link>
 
                         {/* Actions */}
                         <div className="flex shrink-0 items-center gap-2">
@@ -1642,19 +1648,17 @@ export default function BookingLinksPage({
                                 <IconLink className="h-3.5 w-3.5" />
                                 {t("bookingLinks.copyLink")}
                               </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openPreview(link.slug);
-                                }}
+                              <a
+                                href={bookingPreviewPath(link.slug)}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className={cn(
                                   "flex h-9 w-9 items-center justify-center rounded-full border",
                                   BRAND_PILL_LINK_CLASS,
                                 )}
                               >
                                 <IconExternalLink className="h-4 w-4" />
-                              </button>
+                              </a>
                             </>
                           )}
 
@@ -1669,12 +1673,10 @@ export default function BookingLinksPage({
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() =>
-                                  navigate(`/booking-links/${link.id}`)
-                                }
-                              >
-                                {t("eventForm.edit")}
+                              <DropdownMenuItem asChild>
+                                <Link to={`/booking-links/${link.id}`}>
+                                  {t("eventForm.edit")}
+                                </Link>
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
@@ -1949,7 +1951,7 @@ function BookingPreview({
   availability,
   bookingUrl,
   onCopy,
-  onOpen,
+  openHref,
   onCollapse,
 }: {
   title: string;
@@ -1961,7 +1963,7 @@ function BookingPreview({
   availability?: AvailabilityConfig;
   bookingUrl?: string;
   onCopy?: () => void;
-  onOpen?: () => void;
+  openHref?: string;
   onCollapse?: () => void;
 }) {
   const t = useT();
@@ -2138,19 +2140,20 @@ function BookingPreview({
                 <TooltipContent>{t("bookingLinks.copyLink")}</TooltipContent>
               </Tooltip>
             )}
-            {onOpen && (
+            {openHref && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={onOpen}
+                  <a
+                    href={openHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className={cn(
                       "flex h-6 w-6 items-center justify-center rounded",
                       BRAND_ICON_LINK_CLASS,
                     )}
                   >
                     <IconExternalLink className="h-3.5 w-3.5" />
-                  </button>
+                  </a>
                 </TooltipTrigger>
                 <TooltipContent>
                   {t("bookingLinks.openInteractiveBookingLink")}

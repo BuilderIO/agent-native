@@ -10,8 +10,10 @@ import {
   getDashboardCatalogEntry,
 } from "./dashboard-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
+import { validateFirstPartyDashboardTimeScope } from "./dashboard-time-scope";
 import { parseDemoDescriptor } from "./demo-source";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
+import { buildPanel } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
 
 function interpolate(input: string, values: Record<string, string>): string {
@@ -162,6 +164,46 @@ describe("dashboard catalog", () => {
     for (const panel of sentimentPanels) {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
+    }
+  });
+
+  it("scopes session panels to the first-party dashboard filters", () => {
+    const sessionPanelIds = [
+      "sessions-by-app",
+      "sessions-over-time",
+      "signed-in-vs-anon",
+    ];
+
+    for (const id of sessionPanelIds) {
+      const catalogPanel = buildPanel(id);
+      expect(catalogPanel?.sql).toContain("{{timeRange}}");
+      expect(catalogPanel?.sql).toContain("{{emailFilter}}");
+    }
+
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+    }>;
+    for (const id of sessionPanelIds) {
+      const seedPanel = seedPanels.find((panel) => panel.id === id);
+      expect(seedPanel?.sql).toContain("{{timeRange}}");
+      expect(seedPanel?.sql).toContain("{{emailFilter}}");
+    }
+  });
+
+  it("keeps every shipped first-party panel time-scoped or explicitly exceptional", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    expect(seed).not.toBeNull();
+
+    const panels = Array.isArray(seed?.panels)
+      ? (seed.panels as Array<{ source?: string }>)
+      : [];
+    for (const [index, panel] of panels.entries()) {
+      if (panel.source !== "first-party") continue;
+      expect(
+        validateFirstPartyDashboardTimeScope(panel, seed!, index),
+      ).toBeNull();
     }
   });
 

@@ -23,7 +23,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -504,13 +504,13 @@ export default function DesignSystemSetup() {
 
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
-      <button
-        onClick={() => navigate("/design-systems")}
+      <Link
+        to="/design-systems"
         className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/90"
         aria-label={t("designSystemSetup.backToDesignSystems")}
       >
         <IconArrowLeft className="w-4 h-4" />
-      </button>
+      </Link>
       <h1 className="text-lg font-semibold tracking-tight truncate">
         {t("navigation.setupDesignSystem")}
       </h1>

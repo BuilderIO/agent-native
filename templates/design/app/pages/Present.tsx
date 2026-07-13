@@ -1,6 +1,11 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router";
+import { Link, useParams, useNavigate } from "react-router";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,12 +89,12 @@ export default function Present() {
     return (
       <div className="h-screen w-screen bg-black flex flex-col items-center justify-center gap-4">
         <p className="text-white/50 text-sm">{t("pages.presentEmpty")}</p>
-        <button
-          onClick={() => navigate(`/design/${id}`)}
+        <Link
+          to={`/design/${id}`}
           className="text-sm text-white/40 hover:text-white/60 underline cursor-pointer"
         >
           {t("pages.presentBackToEditor")}
-        </button>
+        </Link>
       </div>
     );
   }
@@ -99,7 +104,8 @@ export default function Present() {
   return (
     <div className="h-screen w-screen bg-black overflow-hidden">
       <iframe
-        srcDoc={activeFile.content}
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        srcDoc={injectSessionReplayIframeBootstrap(activeFile.content)}
         sandbox="allow-scripts"
         className="w-full h-full border-0"
         title={`${design.title} — ${activeFile.filename}`}

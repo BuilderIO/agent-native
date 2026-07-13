@@ -6,7 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
 import { THEME_VAR_NAMES } from "../../extensions/theme.js";
@@ -482,7 +482,6 @@ function EmbeddedToolMenu({
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
 
   const closeMenu = () => {
     setOpen(false);
@@ -545,17 +544,14 @@ function EmbeddedToolMenu({
       <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
         {!confirmingDelete ? (
           <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={() => {
-                closeMenu();
-                navigate(extensionPath(extensionId, toolName));
-              }}
+            <Link
+              to={extensionPath(extensionId, toolName)}
+              onClick={closeMenu}
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
             >
               <IconExternalLink className="h-3.5 w-3.5" />
               <span>{t("extensions.openFullView")}</span>
-            </button>
+            </Link>
             <button
               type="button"
               onClick={removeFromSlot}

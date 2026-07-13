@@ -9,7 +9,7 @@ import {
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { Link, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -118,13 +118,11 @@ export function ManageBookingPage() {
           {t("manageBooking.cancelledSuffix")}
         </p>
         {booking.slug && (
-          <Button
-            variant="outline"
-            className="mt-6 gap-2"
-            onClick={() => navigate(`/book/${booking.slug}`)}
-          >
-            <IconCalendarPlus className="h-4 w-4" />
-            {t("manageBooking.reschedule")}
+          <Button asChild variant="outline" className="mt-6 gap-2">
+            <Link to={`/book/${booking.slug}`}>
+              <IconCalendarPlus className="h-4 w-4" />
+              {t("manageBooking.reschedule")}
+            </Link>
           </Button>
         )}
       </div>

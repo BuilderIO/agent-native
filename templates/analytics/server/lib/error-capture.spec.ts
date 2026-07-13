@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
-const appStateGetMock = vi.hoisted(() => vi.fn());
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/index.js", async () => {
@@ -20,17 +19,6 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return { ...actual, recordChange: recordChangeMock };
 });
 
-vi.mock("@agent-native/core/application-state", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("@agent-native/core/application-state")
-    >();
-  return {
-    ...actual,
-    appStateGet: appStateGetMock,
-  };
-});
-
 vi.mock("@agent-native/core/notifications", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/notifications")>();
@@ -39,7 +27,6 @@ vi.mock("@agent-native/core/notifications", async (importOriginal) => {
 
 import { schema } from "../db/index.js";
 import {
-  anonymizeErrorReportingEmails,
   candidateFingerprintsForConsole,
   culpritFromFrames,
   deriveConsoleExceptionIdentity,
@@ -58,11 +45,6 @@ import {
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
-
-beforeEach(() => {
-  appStateGetMock.mockReset();
-  appStateGetMock.mockResolvedValue(null);
-});
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -261,36 +243,6 @@ describe("deriveConsoleExceptionIdentity", () => {
     expect(deriveConsoleExceptionIdentity("just a message")).toEqual({
       type: "Error",
       message: "just a message",
-    });
-  });
-});
-
-describe("anonymizeErrorReportingEmails", () => {
-  it("replaces emails throughout error details, including URLs and identities", () => {
-    expect(
-      anonymizeErrorReportingEmails({
-        title: "Failure for alice@example.com",
-        events: [
-          {
-            userId: "alice@example.com",
-            userKey: "alice@example.com",
-            url: "https://app.example.com/error?email=alice@example.com",
-            tags: { reporter: "bob@example.com" },
-            breadcrumbs: [{ message: "Signed in as bob@example.com" }],
-          },
-        ],
-      }),
-    ).toEqual({
-      title: "Failure for anonymous@builder.io",
-      events: [
-        {
-          userId: "anonymous@builder.io",
-          userKey: "anonymous@builder.io",
-          url: "https://app.example.com/error?email=anonymous@builder.io",
-          tags: { reporter: "anonymous@builder.io" },
-          breadcrumbs: [{ message: "Signed in as anonymous@builder.io" }],
-        },
-      ],
     });
   });
 });
@@ -704,7 +656,7 @@ describe("ingestException", () => {
     expect(issues).toEqual([]);
   });
 
-  it("anonymizes list and detail reads at the server seam in demo mode", async () => {
+  it("keeps real identities in list and detail reads", async () => {
     const result = await ingestException(
       SCOPE,
       baseRaw({
@@ -727,8 +679,6 @@ describe("ingestException", () => {
     );
     expect(JSON.stringify(normalDetail)).toContain("customer@example.com");
 
-    appStateGetMock.mockResolvedValue({ enabled: true });
-
     const issues = await listErrorIssues({
       userEmail: SCOPE.ownerEmail,
       orgId: null,
@@ -739,16 +689,14 @@ describe("ingestException", () => {
     );
     const rendered = JSON.stringify({ issues, detail });
 
-    expect(appStateGetMock).toHaveBeenCalledWith(SCOPE.ownerEmail, "demo-mode");
-    expect(rendered).toContain("anonymous@builder.io");
-    expect(rendered).not.toContain("customer@example.com");
-    expect(rendered).not.toContain("support@example.com");
+    expect(rendered).toContain("customer@example.com");
+    expect(rendered).toContain("support@example.com");
     expect(detail.events[0]).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
-      url: "https://app.example.com/checkout?email=anonymous@builder.io",
-      tags: { reporter: "anonymous@builder.io" },
-      extra: { accountEmail: "anonymous@builder.io" },
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
+      url: "https://app.example.com/checkout?email=customer@example.com",
+      tags: { reporter: "support@example.com" },
+      extra: { accountEmail: "customer@example.com" },
     });
   });
 });
