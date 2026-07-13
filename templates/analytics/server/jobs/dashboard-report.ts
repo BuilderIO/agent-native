@@ -3,6 +3,7 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
 import {
   claimDueDashboardReportSubscriptions,
+  dashboardReportRetryAt,
   markDashboardReportResult,
 } from "../lib/dashboard-report-subscriptions";
 
@@ -41,22 +42,40 @@ export async function runDashboardReportsOnce(): Promise<{
     for (const sub of batch) {
       processed++;
       try {
+        const retryAt = dashboardReportRetryAt(sub);
         const result = await runWithRequestContext(
           {
             userEmail: sub.ownerEmail,
             orgId: sub.orgId ?? undefined,
           },
-          () => sendDashboardReportSubscription(sub),
+          () =>
+            sendDashboardReportSubscription(sub, {
+              skipEmailWithoutScreenshot: retryAt !== null,
+            }),
         );
         if (!result.screenshotAttached) {
+          failed++;
           const message = result.screenshotError
             ? `Dashboard screenshot unavailable: ${result.screenshotError}`
             : "Dashboard screenshot unavailable";
+          if (retryAt && !result.emailsSent) {
+            console.error(
+              `[dashboard-report] Subscription ${sub.id} skipped sending without a screenshot, will retry:`,
+              message,
+            );
+            await markDashboardReportResult(
+              sub,
+              "error",
+              `${message} (retry scheduled)`,
+              { nextRunAt: retryAt },
+            );
+            continue;
+          }
           console.error(
             `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
             message,
           );
-          await markDashboardReportResult(sub, "success", message);
+          await markDashboardReportResult(sub, "error", message);
           continue;
         }
         await markDashboardReportResult(sub, "success");
