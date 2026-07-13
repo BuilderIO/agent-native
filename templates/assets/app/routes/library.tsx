@@ -1108,6 +1108,7 @@ function AllAssetsBrowser({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   // The root Library view keeps its tab/search in the URL so deep links,
@@ -1243,6 +1244,15 @@ function AllAssetsBrowser({
     [setSearchParams],
   );
 
+  // The Drafts tab's candidate queries live inside LibraryCandidateStage;
+  // refetch them by key so the error state offers a working retry.
+  const retryDrafts = useCallback(() => {
+    void queryClient.refetchQueries({
+      queryKey: ["app-state", assetVariantStateKey(null)],
+    });
+    void queryClient.refetchQueries({ queryKey: ["action", "list-assets"] });
+  }, [queryClient]);
+
   return (
     <div className="flex min-w-0 flex-col">
       <div className="border-b border-border px-4 py-3 md:px-6">
@@ -1371,6 +1381,17 @@ function AllAssetsBrowser({
                 <div className="max-w-sm text-sm text-muted-foreground">
                   {t("library.noDrafts")}
                 </div>
+              </div>
+            }
+            errorState={
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
+                <IconAlertTriangle className="size-9 text-destructive" />
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {t("audit.unknownError")}
+                </p>
+                <Button size="sm" variant="outline" onClick={retryDrafts}>
+                  {t("brandKitDetail.refresh")}
+                </Button>
               </div>
             }
           />
@@ -1691,6 +1712,7 @@ function LibraryCandidateStage({
   onUseAsset,
   inline = false,
   emptyState = null,
+  errorState = null,
 }: {
   activeLibraryId?: string | null;
   foldersByLibraryId?: Record<string, any[]>;
@@ -1698,6 +1720,7 @@ function LibraryCandidateStage({
   onUseAsset?: (asset: Asset) => void;
   inline?: boolean;
   emptyState?: ReactNode;
+  errorState?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1790,7 +1813,8 @@ function LibraryCandidateStage({
     variantsError || (isAllAssetsStage && allCandidatesError);
 
   if (totalCount === 0) {
-    if (candidatesLoading || candidatesError) return null;
+    if (candidatesLoading) return null;
+    if (candidatesError) return errorState ? <>{errorState}</> : null;
     return emptyState ? <>{emptyState}</> : null;
   }
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
