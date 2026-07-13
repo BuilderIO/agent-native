@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.99.2
+
+### Patch Changes
+
+- 34b4f29: Keep Demo mode browser-local so backend actions and agent/MCP results retain real access-scoped data.
+- 34b4f29: Fix 404s when client-side navigating from the dispatch shell into a mounted workspace sub-app's root route. React Router's `.data` loader-fetch convention (e.g. `/coach.data`) didn't match either deployment platform's per-app routing rules (`basePath` / `basePath/*`), so the request fell through to a bare 404 before reaching the app's own server, leaving the sub-app stuck retrying its own action/agent-chat calls afterward.
+- 34b4f29: Keep the latest reasoning thought expanded until a newer thought arrives, then animate the previous thought closed.
+- 34b4f29: Preserve native browser link behavior when opening embedded extensions in their full view.
+- 34b4f29: Keep chat composers editable while AI provider readiness is loading.
+- 34b4f29: Record framework-owned Design preview iframes in session replays with the same privacy masking as the host page.
+- 34b4f29: Remove the extension viewer's View / edit source button.
+- 34b4f29: Retry transient chat-thread database failures so completed agent responses are not surfaced as unsaved.
+
 ## 0.99.1
 
 ### Patch Changes
