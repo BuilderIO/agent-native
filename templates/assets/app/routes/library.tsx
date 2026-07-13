@@ -1116,15 +1116,23 @@ function AllAssetsBrowser({
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
 
+  const isDraftsTab = assetTab === "drafts";
+
+  // The Drafts tab renders its own candidate queries via LibraryCandidateStage,
+  // so skip the cross-library asset scan while it is the active tab.
   const {
     data: assetData,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useActionQuery("list-assets", {
-    query: query.trim() || undefined,
-  } as any) as {
+  } = useActionQuery(
+    "list-assets",
+    {
+      query: query.trim() || undefined,
+    } as any,
+    { enabled: !isDraftsTab } as any,
+  ) as {
     data?: { assets?: Asset[] };
     isLoading: boolean;
     isError: boolean;
@@ -1138,11 +1146,11 @@ function AllAssetsBrowser({
     [allAssets, assetTab],
   );
   const visibleAssetCount = assets.length;
+  // The badge only renders on the Generated/References tabs, which are always a
+  // filtered subset, so report the shown count rather than the library total.
   const assetCountLabel = isLoading
     ? t("library.loading")
-    : query.trim() || assetTab !== "all"
-      ? t("library.shownCount", { count: visibleAssetCount })
-      : t("library.assetCount", { count: allAssets.length });
+    : t("library.shownCount", { count: visibleAssetCount });
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1176,8 +1184,6 @@ function AllAssetsBrowser({
     setStandaloneCopyOk(false);
     void copyStandaloneSelection(payload);
   }
-
-  const isDraftsTab = assetTab === "drafts";
 
   useEffect(() => {
     void writeClientAppState(`navigation:${getBrowserTabId()}`, {
@@ -1650,7 +1656,7 @@ function LibraryCandidateStage({
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
-  const { data: variants } = useQuery({
+  const { data: variants, isLoading: variantsLoading } = useQuery({
     queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
     queryFn: ({ signal }) => {
       return readClientAppState<AssetVariantState>(
@@ -1668,11 +1674,12 @@ function LibraryCandidateStage({
     { id: activeLibraryId ?? "" } as any,
     { enabled: Boolean(activeLibraryId) } as any,
   ) as { data?: { library?: Library; assets?: Asset[]; folders?: any[] } };
-  const { data: allCandidateData } = useActionQuery(
-    "list-assets",
-    { includeCandidates: true, status: "candidate" } as any,
-    { enabled: isAllAssetsStage } as any,
-  ) as { data?: { assets?: Asset[] } };
+  const { data: allCandidateData, isLoading: allCandidatesLoading } =
+    useActionQuery(
+      "list-assets",
+      { includeCandidates: true, status: "candidate" } as any,
+      { enabled: isAllAssetsStage } as any,
+    ) as { data?: { assets?: Asset[] }; isLoading: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
   const libraryAssets = isAllAssetsStage
@@ -1717,8 +1724,14 @@ function LibraryCandidateStage({
     [libraryAssets, liveAssetIds],
   );
   const totalCount = slots.length + draftAssets.length;
+  // Don't flash the empty state before the candidate sources have loaded.
+  const candidatesLoading =
+    variantsLoading || (isAllAssetsStage && allCandidatesLoading);
 
-  if (totalCount === 0) return emptyState ? <>{emptyState}</> : null;
+  if (totalCount === 0) {
+    if (candidatesLoading) return null;
+    return emptyState ? <>{emptyState}</> : null;
+  }
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
   if (!stageLibraryId) return emptyState ? <>{emptyState}</> : null;
 
