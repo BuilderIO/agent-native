@@ -2753,6 +2753,49 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
+  it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-detail": {
+          tool: { description: "Read a detail record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-42",
+            status: "failed",
+            message: "The request failed",
+            url: "/_agent-native/embed/start?ticket=must-not-leak",
+            steps: [{ kind: "network", status: 404 }],
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "tools/call",
+        params: { name: "read-detail", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-42",
+      status: "failed",
+      message: "The request failed",
+      steps: [{ kind: "network", status: 404 }],
+    });
+    expect(out.result.content[0].text).toContain('"record-42"');
+    expect(out.result.content[0].text).not.toContain("must-not-leak");
+  });
+
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
     // Regression: internal embed-routing fields are carried in
     // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT

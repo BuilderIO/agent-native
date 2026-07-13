@@ -1275,12 +1275,25 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   });
 }
 
-function conciseToolResultText(name: string, result: unknown): string {
+function conciseToolResultText(
+  name: string,
+  result: unknown,
+  options?: { preserveObjectResult?: boolean },
+): string {
   const purged = purgeEmbedStartUrls(result);
   if (typeof purged === "string") return truncateToolText(purged);
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
+    // Read-only actions are data reads, not mutations. Keep their object
+    // payload available to MCP clients in the text fallback too; the
+    // structuredContent branch below is the lossless path for clients that
+    // support it. Mutating/action-style results retain the concise status
+    // text so we do not unexpectedly dump write results into conversations.
+    if (options?.preserveObjectResult) {
+      const text = JSON.stringify(purged);
+      return text === undefined ? `${name} completed.` : truncateToolText(text);
+    }
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
       return truncateToolText(message.trim());
@@ -1711,10 +1724,17 @@ export async function createMCPServerForRequest(
               typeof rawResult === "object" &&
               !Array.isArray(rawResult)
             ? (rawResult as Record<string, unknown>)
-            : undefined;
+            : entry.readOnly === true &&
+                rawResult &&
+                typeof rawResult === "object" &&
+                !Array.isArray(rawResult)
+              ? mcpAppStructuredContent(rawResultForClient, responseMeta)
+              : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : conciseToolResultText(name, resultForClient);
+          : conciseToolResultText(name, resultForClient, {
+              preserveObjectResult: entry.readOnly === true,
+            });
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {
