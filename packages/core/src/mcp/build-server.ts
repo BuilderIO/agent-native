@@ -516,24 +516,45 @@ function routePathFromOpenUrl(value: string): string | null {
  * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
  * the URL) are replaced with `[hidden embed URL]`.
  */
-function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
-  if (depth > 5) return value;
+const EMBED_RESULT_SENSITIVE_KEYS = new Set([
+  "embedTargetPath",
+  "embedExpiresAt",
+  "ticket",
+  "embedTicket",
+]);
+
+function isSensitiveEmbedResultKey(key: string): boolean {
+  return EMBED_RESULT_SENSITIVE_KEYS.has(key) || /Ticket$/.test(key);
+}
+
+function purgeEmbedStartUrls(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    const out = value.map((item) => purgeEmbedStartUrls(item, seen));
+    seen.delete(value);
+    return out;
   }
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (isSensitiveEmbedResultKey(key)) continue;
       if (typeof val === "string" && isEmbedStartUrl(val)) {
         // Drop the key entirely for object-typed inputs so a tool result like
         // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, depth + 1);
+      out[key] = purgeEmbedStartUrls(val, seen);
     }
+    seen.delete(value);
     return out;
   }
   return value;
@@ -1195,11 +1216,12 @@ function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
+  const purged = purgeEmbedStartUrls(result);
   const out: Record<string, unknown> =
-    result && typeof result === "object" && !Array.isArray(result)
-      ? { ...(result as Record<string, unknown>) }
-      : primitiveValue(result)
-        ? { result }
+    purged && typeof purged === "object" && !Array.isArray(purged)
+      ? { ...(purged as Record<string, unknown>) }
+      : primitiveValue(purged)
+        ? { result: purged }
         : {};
   for (const key of ["embedStartUrl", "startUrl"]) {
     const value = out[key];
@@ -1213,17 +1235,6 @@ function mcpAppStructuredContent(
   // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
   // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
   // fields are single-use credentials. Drop all of them unconditionally.
-  for (const key of [
-    "embedTargetPath",
-    "embedExpiresAt",
-    "ticket",
-    "embedTicket",
-  ]) {
-    delete out[key];
-  }
-  for (const key of Object.keys(out)) {
-    if (/Ticket$/.test(key)) delete out[key];
-  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;

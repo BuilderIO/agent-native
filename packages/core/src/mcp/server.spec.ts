@@ -2766,7 +2766,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             status: "failed",
             message: "The request failed",
             url: "/_agent-native/embed/start?ticket=must-not-leak",
-            steps: [{ kind: "network", status: 404 }],
+            ticket: "top-level-ticket-must-not-leak",
+            embedTargetPath: "/private/thread/42",
+            embedExpiresAt: 1735689600,
+            uploadTicket: "nested-upload-ticket-must-not-leak",
+            steps: [
+              {
+                kind: "network",
+                status: 404,
+                details: {
+                  ticket: "nested-ticket-must-not-leak",
+                  embedTargetPath: "/private/nested",
+                  safe: "keep this detail",
+                },
+              },
+            ],
           }),
         },
       },
@@ -2790,10 +2804,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       id: "record-42",
       status: "failed",
       message: "The request failed",
-      steps: [{ kind: "network", status: 404 }],
+      steps: [
+        {
+          kind: "network",
+          status: 404,
+          details: { safe: "keep this detail" },
+        },
+      ],
     });
     expect(out.result.content[0].text).toContain('"record-42"');
     expect(out.result.content[0].text).not.toContain("must-not-leak");
+    expect(out.result.content[0].text).not.toContain("top-level-ticket");
+    expect(out.result.content[0].text).not.toContain("nested-ticket");
+    expect(out.result.content[0].text).not.toContain("private/thread/42");
   });
 
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
