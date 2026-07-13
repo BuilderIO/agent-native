@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.98.11
+
+### Patch Changes
+
+- 3a4b613: Fall back to the portable A2A processor when a configured durable background worker rejects a task dispatch, and allow apps to explicitly opt out of stale deploy-wide background flags.
+- 3a4b613: Preserve structured payloads from read-only MCP actions so external agents can inspect detailed records and replay data directly.
+- 3a4b613: Preserve unset durable-background configuration and make A2A fallback dispatches reliable when the background worker is unavailable.
+
 ## 0.98.10
 
 ### Patch Changes
