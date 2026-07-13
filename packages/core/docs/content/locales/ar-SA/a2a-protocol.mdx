@@ -393,34 +393,34 @@ agent-native invoke <app-or-url> "prompt" [options]
 ```
 
 ```bash
-# Resolve "analytics" in the workspace registry and wait for the reply
+# حلّ "analytics" في سجل مساحة العمل وانتظر الرد
 agent-native invoke analytics "Summarize signups by source this month"
 
-# Call a deployed app directly by URL, reading the bearer token from env
+# استدعِ تطبيقًا منشورًا مباشرةً عبر عنوان URL، مع قراءة رمز الحامل من متغير بيئة
 agent-native invoke https://analytics.example.com "How many signups last week?" \
   --api-key-env ANALYTICS_A2A_KEY
 
-# Force one blocking message/send instead of the default async+poll
+# فرض طلب message/send حاجز واحد بدلاً من الوضع الافتراضي async+poll
 agent-native invoke analytics "Quick lookup" --sync
 
-# Machine-readable output for scripting
+# إخراج قابل للقراءة الآلية للبرمجة النصية
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | الوصف                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | الوكيل المستهدف (اسم بديل للوسيطة الموضعية `<app-or-url>`)                    |
-| `--message <text>`       | الطلب النصي (اسم بديل للوسيطة الموضعية `"prompt"`)                             |
-| `--api-key-env <name>`   | قراءة رمز الحامل (bearer token) من متغير بيئة                       |
-| `--api-key <token>`      | قيمة رمز الحامل، مُمرَّرة مباشرة                                        |
-| `--context-id <id>`      | `contextId` الخاص بـ A2A، لمتابعة محادثة مهمة موجودة بالفعل             |
-| `--self-app-id <id>`     | معرف التطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                        |
-| `--self-url <url>`       | عنوان URL للتطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                    |
-| `--timeout-ms <n>`       | مهلة الاستطلاع (polling) غير المتزامن                                                    |
-| `--poll-interval-ms <n>` | فاصل الاستطلاع غير المتزامن                                                   |
-| `--sync`                 | استخدام طلب `message/send` حاجب واحد بدلاً من الوضع الافتراضي async+poll |
-| `--no-hint`               | إرسال الطلب النصي كما هو، دون تلميح الاستدعاء بين التطبيقات             |
-| `--json`                  | طباعة بيانات الهدف الوصفية ونص الاستجابة بصيغة JSON                         |
+| Option                    | الوصف                                                                    |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | الوكيل المستهدف (اسم بديل للوسيطة الموضعية `<app-or-url>`)               |
+| `--message <text>`        | الطلب النصي (اسم بديل للوسيطة الموضعية `"prompt"`)                       |
+| `--api-key-env <name>`    | قراءة رمز الحامل (bearer token) من متغير بيئة                            |
+| `--api-key <token>`       | قيمة رمز الحامل، مُمرَّرة مباشرة                                         |
+| `--context-id <id>`       | `contextId` الخاص بـ A2A، لمتابعة محادثة مهمة موجودة بالفعل              |
+| `--self-app-id <id>`      | معرف التطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                       |
+| `--self-url <url>`        | عنوان URL للتطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                  |
+| `--timeout-ms <n>`        | مهلة الاستطلاع (polling) غير المتزامن                                    |
+| `--poll-interval-ms <n>`  | فاصل الاستطلاع غير المتزامن                                              |
+| `--sync`                  | استخدام طلب `message/send` حاجب واحد بدلاً من الوضع الافتراضي async+poll |
+| `--no-hint`               | إرسال الطلب النصي كما هو، دون تلميح الاستدعاء بين التطبيقات              |
+| `--json`                  | طباعة بيانات الهدف الوصفية ونص الاستجابة بصيغة JSON                      |
 
 مثل `callAgent()`، تعتمد واجهة سطر الأوامر افتراضيًا على async + poll (`invokeAgent` ← `callAgent` تحت الغطاء)، وهو الخيار الآمن عند استهداف بيئات مستضافة/serverless — انظر [مهلات بوابة الويب هوك وبوابة العبور بلا خادم](#json-rpc-methods) أعلاه. استخدم `--sync` فقط عندما تكون متأكدًا أن الهدف ليس خلف بوابة ذات مهلة تنفيذ قصيرة.
 

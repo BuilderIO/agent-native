@@ -393,34 +393,34 @@ agent-native invoke <app-or-url> "prompt" [options]
 ```
 
 ```bash
-# Resolve "analytics" in the workspace registry and wait for the reply
+# वर्कस्पेस रजिस्ट्री में "analytics" को resolve करें और जवाब की प्रतीक्षा करें
 agent-native invoke analytics "Summarize signups by source this month"
 
-# Call a deployed app directly by URL, reading the bearer token from env
+# किसी डिप्लॉय किए गए ऐप को सीधे URL से कॉल करें, bearer token env से पढ़ते हुए
 agent-native invoke https://analytics.example.com "How many signups last week?" \
   --api-key-env ANALYTICS_A2A_KEY
 
-# Force one blocking message/send instead of the default async+poll
+# डिफ़ॉल्ट async+poll के बजाय एक ब्लॉकिंग message/send को बाध्य करें
 agent-native invoke analytics "Quick lookup" --sync
 
-# Machine-readable output for scripting
+# स्क्रिप्टिंग के लिए मशीन-रीडेबल आउटपुट
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | विवरण                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | लक्ष्य एजेंट (positional `<app-or-url>` का alias)                    |
-| `--message <text>`       | प्रॉम्प्ट (positional `"prompt"` का alias)                             |
-| `--api-key-env <name>`   | एक environment variable से bearer token पढ़ें                       |
-| `--api-key <token>`      | Bearer token मान, inline पास किया गया                                |
-| `--context-id <id>`      | A2A `contextId`, किसी मौजूदा task की बातचीत जारी रखने के लिए             |
-| `--self-app-id <id>`     | वर्तमान app id, self-call रोकथाम के लिए उपयोग की जाती है                            |
-| `--self-url <url>`       | वर्तमान app URL, self-call रोकथाम के लिए उपयोग की जाती है                            |
-| `--timeout-ms <n>`       | Async polling timeout                                                   |
-| `--poll-interval-ms <n>` | Async polling interval                                                   |
-| `--sync`                 | डिफ़ॉल्ट async+poll के बजाय एक blocking `message/send` request का उपयोग करें |
-| `--no-hint`               | प्रॉम्प्ट को cross-app invocation hint के बिना, ज्यों का त्यों भेजें                |
-| `--json`                  | Target metadata और response text को JSON के रूप में प्रिंट करें                         |
+| Option                    | विवरण                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | लक्ष्य एजेंट (positional `<app-or-url>` का alias)                            |
+| `--message <text>`        | प्रॉम्प्ट (positional `"prompt"` का alias)                                   |
+| `--api-key-env <name>`    | एक environment variable से bearer token पढ़ें                                |
+| `--api-key <token>`       | Bearer token मान, inline पास किया गया                                        |
+| `--context-id <id>`       | A2A `contextId`, किसी मौजूदा task की बातचीत जारी रखने के लिए                 |
+| `--self-app-id <id>`      | वर्तमान app id, self-call रोकथाम के लिए उपयोग की जाती है                     |
+| `--self-url <url>`        | वर्तमान app URL, self-call रोकथाम के लिए उपयोग की जाती है                    |
+| `--timeout-ms <n>`        | Async polling timeout                                                        |
+| `--poll-interval-ms <n>`  | Async polling interval                                                       |
+| `--sync`                  | डिफ़ॉल्ट async+poll के बजाय एक blocking `message/send` request का उपयोग करें |
+| `--no-hint`               | प्रॉम्प्ट को cross-app invocation hint के बिना, ज्यों का त्यों भेजें         |
+| `--json`                  | Target metadata और response text को JSON के रूप में प्रिंट करें              |
 
 `callAgent()` की तरह, CLI डिफ़ॉल्ट रूप से async + poll (`invokeAgent` → अंदरूनी रूप से `callAgent`) का उपयोग करती है, जो hosted/serverless targets के विरुद्ध सुरक्षित विकल्प है — ऊपर [Serverless webhook and gateway timeouts](#json-rpc-methods) देखें। `--sync` का उपयोग तभी करें जब आप जानते हों कि लक्ष्य किसी छोटी execution limit वाले gateway के पीछे नहीं है।
 

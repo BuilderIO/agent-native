@@ -407,20 +407,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | 目标代理（是位置参数 `<app-or-url>` 的别名）                    |
-| `--message <text>`       | 提示词（是位置参数 `"prompt"` 的别名）                             |
-| `--api-key-env <name>`   | 从环境变量中读取 bearer token                       |
-| `--api-key <token>`      | 直接内联传入的 bearer token 值                                        |
-| `--context-id <id>`      | A2A 的 `contextId`，用于延续已有任务的对话             |
-| `--self-app-id <id>`     | 当前应用 id，用于防止自我调用                          |
-| `--self-url <url>`       | 当前应用 URL，用于防止自我调用                          |
-| `--timeout-ms <n>`       | 异步轮询超时时间                                                    |
-| `--poll-interval-ms <n>` | 异步轮询间隔                                                   |
-| `--sync`                 | 使用一次阻塞式 `message/send` 请求，而非默认的异步+轮询方式 |
-| `--no-hint`               | 原样发送提示词，不附加跨应用调用提示             |
-| `--json`                  | 以 JSON 形式打印目标元数据和响应文本                         |
+| Option                    | Description                                                 |
+| ------------------------- | ----------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 目标代理（是位置参数 `<app-or-url>` 的别名）                |
+| `--message <text>`        | 提示词（是位置参数 `"prompt"` 的别名）                      |
+| `--api-key-env <name>`    | 从环境变量中读取 bearer token                               |
+| `--api-key <token>`       | 直接内联传入的 bearer token 值                              |
+| `--context-id <id>`       | A2A 的 `contextId`，用于延续已有任务的对话                  |
+| `--self-app-id <id>`      | 当前应用 id，用于防止自我调用                               |
+| `--self-url <url>`        | 当前应用 URL，用于防止自我调用                              |
+| `--timeout-ms <n>`        | 异步轮询超时时间                                            |
+| `--poll-interval-ms <n>`  | 异步轮询间隔                                                |
+| `--sync`                  | 使用一次阻塞式 `message/send` 请求，而非默认的异步+轮询方式 |
+| `--no-hint`               | 原样发送提示词，不附加跨应用调用提示                        |
+| `--json`                  | 以 JSON 形式打印目标元数据和响应文本                        |
 
 与 `callAgent()` 一样，该 CLI 默认使用异步+轮询方式（底层是 `invokeAgent` → `callAgent`），这是针对托管/无服务器目标的安全选择——参见上文的[无服务器 webhook 与网关超时](#json-rpc-methods)。只有在确定目标不在执行时间受限的网关之后时，才传入 `--sync`。
 

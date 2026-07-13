@@ -407,20 +407,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| 選項                     | 描述                                                                  |
-| ------------------------ | --------------------------------------------------------------------- |
-| `--agent <id\|name\|url>` | 目標代理（位置參數 `<app-or-url>` 的別名）                             |
-| `--message <text>`       | 提示（位置參數 `"prompt"` 的別名）                                     |
-| `--api-key-env <name>`   | 從環境變數讀取不記名權杖                                               |
-| `--api-key <token>`      | 直接內嵌傳入的不記名權杖值                                             |
-| `--context-id <id>`      | A2A `contextId`，用於延續現有工作的對話                                |
-| `--self-app-id <id>`     | 目前應用程式 ID，用於防止自我呼叫                                      |
-| `--self-url <url>`       | 目前應用程式 URL，用於防止自我呼叫                                     |
-| `--timeout-ms <n>`       | 非同步輪詢逾時時間                                                     |
-| `--poll-interval-ms <n>` | 非同步輪詢間隔                                                         |
-| `--sync`                 | 使用一次阻塞式 `message/send` 請求，取代預設的非同步+輪詢               |
-| `--no-hint`               | 按原樣傳送提示，不加入跨應用程式呼叫提示                               |
-| `--json`                  | 以 JSON 格式輸出目標中繼資料與回應文字                                 |
+| 選項                      | 描述                                                      |
+| ------------------------- | --------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 目標代理（位置參數 `<app-or-url>` 的別名）                |
+| `--message <text>`        | 提示（位置參數 `"prompt"` 的別名）                        |
+| `--api-key-env <name>`    | 從環境變數讀取不記名權杖                                  |
+| `--api-key <token>`       | 直接內嵌傳入的不記名權杖值                                |
+| `--context-id <id>`       | A2A `contextId`，用於延續現有工作的對話                   |
+| `--self-app-id <id>`      | 目前應用程式 ID，用於防止自我呼叫                         |
+| `--self-url <url>`        | 目前應用程式 URL，用於防止自我呼叫                        |
+| `--timeout-ms <n>`        | 非同步輪詢逾時時間                                        |
+| `--poll-interval-ms <n>`  | 非同步輪詢間隔                                            |
+| `--sync`                  | 使用一次阻塞式 `message/send` 請求，取代預設的非同步+輪詢 |
+| `--no-hint`               | 按原樣傳送提示，不加入跨應用程式呼叫提示                  |
+| `--json`                  | 以 JSON 格式輸出目標中繼資料與回應文字                    |
 
 與 `callAgent()` 一樣，此 CLI 預設使用非同步+輪詢（底層是 `invokeAgent` → `callAgent`），這是針對託管/無伺服器目標的安全選擇——請參閱上方的[無伺服器 webhook 與閘道逾時](#json-rpc-methods)。只有在確定目標不在具有短執行限制的閘道之後時，才傳入 `--sync`。
 

@@ -407,20 +407,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| 옵션                     | 설명                                                                      |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | 대상 에이전트 (위치 인수 `<app-or-url>`의 별칭)                            |
-| `--message <text>`       | 프롬프트 (위치 인수 `"prompt"`의 별칭)                                    |
-| `--api-key-env <name>`   | 환경 변수에서 전달자 토큰을 읽습니다                                       |
-| `--api-key <token>`      | 전달자 토큰 값을 인라인으로 전달합니다                                     |
-| `--context-id <id>`      | 기존 작업의 대화를 이어가기 위한 A2A `contextId`                          |
-| `--self-app-id <id>`     | 자체 호출 방지에 사용되는 현재 앱 id                                       |
-| `--self-url <url>`       | 자체 호출 방지에 사용되는 현재 앱 URL                                      |
-| `--timeout-ms <n>`       | 비동기 폴링 타임아웃                                                       |
-| `--poll-interval-ms <n>` | 비동기 폴링 간격                                                           |
-| `--sync`                 | 기본값인 async+poll 대신 블로킹 `message/send` 요청 하나를 사용합니다      |
-| `--no-hint`               | 크로스 앱 호출 힌트 없이 프롬프트를 그대로 전송합니다                     |
-| `--json`                  | 대상 메타데이터와 응답 텍스트를 JSON으로 출력합니다                       |
+| 옵션                      | 설명                                                                  |
+| ------------------------- | --------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 대상 에이전트 (위치 인수 `<app-or-url>`의 별칭)                       |
+| `--message <text>`        | 프롬프트 (위치 인수 `"prompt"`의 별칭)                                |
+| `--api-key-env <name>`    | 환경 변수에서 전달자 토큰을 읽습니다                                  |
+| `--api-key <token>`       | 전달자 토큰 값을 인라인으로 전달합니다                                |
+| `--context-id <id>`       | 기존 작업의 대화를 이어가기 위한 A2A `contextId`                      |
+| `--self-app-id <id>`      | 자체 호출 방지에 사용되는 현재 앱 id                                  |
+| `--self-url <url>`        | 자체 호출 방지에 사용되는 현재 앱 URL                                 |
+| `--timeout-ms <n>`        | 비동기 폴링 타임아웃                                                  |
+| `--poll-interval-ms <n>`  | 비동기 폴링 간격                                                      |
+| `--sync`                  | 기본값인 async+poll 대신 블로킹 `message/send` 요청 하나를 사용합니다 |
+| `--no-hint`               | 크로스 앱 호출 힌트 없이 프롬프트를 그대로 전송합니다                 |
+| `--json`                  | 대상 메타데이터와 응답 텍스트를 JSON으로 출력합니다                   |
 
 `callAgent()`와 마찬가지로 CLI는 기본적으로 async + poll을 사용하며(내부적으로 `invokeAgent` → `callAgent`), 이는 호스팅/서버리스 대상에 대한 안전한 선택입니다 — 위의 [서버리스 웹훅 및 게이트웨이 타임아웃](#json-rpc-methods)을 참조하세요. 대상이 짧은 실행 제한이 있는 게이트웨이 뒤에 있지 않다는 것을 알 때만 `--sync`를 전달하세요.
 

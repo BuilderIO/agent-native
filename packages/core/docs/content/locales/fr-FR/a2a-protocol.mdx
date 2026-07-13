@@ -407,20 +407,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | Agent cible (alias de l'argument positionnel `<app-or-url>`)               |
-| `--message <text>`       | Prompt (alias de l'argument positionnel `"prompt"`)                       |
-| `--api-key-env <name>`   | Lit le jeton au porteur depuis une variable d'environnement               |
-| `--api-key <token>`      | Valeur du jeton au porteur, passée directement                            |
-| `--context-id <id>`      | `contextId` A2A, pour poursuivre la conversation d'une tâche existante    |
-| `--self-app-id <id>`     | Identifiant de l'application courante, utilisé pour éviter les auto-appels |
-| `--self-url <url>`       | URL de l'application courante, utilisée pour éviter les auto-appels        |
-| `--timeout-ms <n>`       | Délai d'expiration du polling asynchrone                                  |
-| `--poll-interval-ms <n>` | Intervalle de polling asynchrone                                          |
-| `--sync`                 | Utilise une seule requête `message/send` bloquante au lieu du mode async+poll par défaut |
-| `--no-hint`               | Envoie le prompt tel quel, sans l'indice d'invocation inter-application  |
-| `--json`                  | Affiche les métadonnées de la cible et le texte de la réponse au format JSON |
+| Option                    | Description                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | Agent cible (alias de l'argument positionnel `<app-or-url>`)                             |
+| `--message <text>`        | Prompt (alias de l'argument positionnel `"prompt"`)                                      |
+| `--api-key-env <name>`    | Lit le jeton au porteur depuis une variable d'environnement                              |
+| `--api-key <token>`       | Valeur du jeton au porteur, passée directement                                           |
+| `--context-id <id>`       | `contextId` A2A, pour poursuivre la conversation d'une tâche existante                   |
+| `--self-app-id <id>`      | Identifiant de l'application courante, utilisé pour éviter les auto-appels               |
+| `--self-url <url>`        | URL de l'application courante, utilisée pour éviter les auto-appels                      |
+| `--timeout-ms <n>`        | Délai d'expiration du polling asynchrone                                                 |
+| `--poll-interval-ms <n>`  | Intervalle de polling asynchrone                                                         |
+| `--sync`                  | Utilise une seule requête `message/send` bloquante au lieu du mode async+poll par défaut |
+| `--no-hint`               | Envoie le prompt tel quel, sans l'indice d'invocation inter-application                  |
+| `--json`                  | Affiche les métadonnées de la cible et le texte de la réponse au format JSON             |
 
 Comme `callAgent()`, la CLI utilise par défaut le mode async + poll (`invokeAgent` → `callAgent` en interne), ce qui est le choix sûr face à des cibles hébergées/serverless — voir [Délais d'expiration des webhooks et passerelles serverless](#json-rpc-methods) ci-dessus. Ne passez `--sync` que lorsque vous savez que la cible n'est pas derrière une passerelle avec une limite d'exécution courte.
 

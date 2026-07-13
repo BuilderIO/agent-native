@@ -415,20 +415,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
+| Option                    | Description                                                               |
+| ------------------------- | ------------------------------------------------------------------------- |
 | `--agent <id\|name\|url>` | Target agent (alias for the positional `<app-or-url>`)                    |
-| `--message <text>`       | Prompt (alias for the positional `"prompt"`)                             |
-| `--api-key-env <name>`   | Read the bearer token from an environment variable                       |
-| `--api-key <token>`      | Bearer token value, passed inline                                        |
-| `--context-id <id>`      | A2A `contextId`, to continue an existing task's conversation             |
-| `--self-app-id <id>`     | Current app id, used for self-call prevention                            |
-| `--self-url <url>`       | Current app URL, used for self-call prevention                           |
-| `--timeout-ms <n>`       | Async polling timeout                                                    |
-| `--poll-interval-ms <n>` | Async polling interval                                                   |
-| `--sync`                 | Use one blocking `message/send` request instead of the async+poll default |
-| `--no-hint`               | Send the prompt as-is, without the cross-app invocation hint             |
-| `--json`                  | Print target metadata and response text as JSON                         |
+| `--message <text>`        | Prompt (alias for the positional `"prompt"`)                              |
+| `--api-key-env <name>`    | Read the bearer token from an environment variable                        |
+| `--api-key <token>`       | Bearer token value, passed inline                                         |
+| `--context-id <id>`       | A2A `contextId`, to continue an existing task's conversation              |
+| `--self-app-id <id>`      | Current app id, used for self-call prevention                             |
+| `--self-url <url>`        | Current app URL, used for self-call prevention                            |
+| `--timeout-ms <n>`        | Async polling timeout                                                     |
+| `--poll-interval-ms <n>`  | Async polling interval                                                    |
+| `--sync`                  | Use one blocking `message/send` request instead of the async+poll default |
+| `--no-hint`               | Send the prompt as-is, without the cross-app invocation hint              |
+| `--json`                  | Print target metadata and response text as JSON                           |
 
 Like `callAgent()`, the CLI defaults to async + poll (`invokeAgent` → `callAgent` under the hood), which is the safe choice against hosted/serverless targets — see [Serverless webhook and gateway timeouts](#json-rpc-methods) above. Pass `--sync` only when you know the target isn't behind a gateway with a short execution limit.
 

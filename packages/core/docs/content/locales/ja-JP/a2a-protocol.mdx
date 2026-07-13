@@ -407,20 +407,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | 対象のエージェント（位置引数 `<app-or-url>` のエイリアス）                    |
-| `--message <text>`       | プロンプト（位置引数 `"prompt"` のエイリアス）                             |
-| `--api-key-env <name>`   | 環境変数からベアラー トークンを読み取る                                       |
-| `--api-key <token>`      | ベアラー トークンの値をインラインで渡す                                        |
-| `--context-id <id>`      | A2A の `contextId`。既存タスクの会話を継続するために使用                       |
-| `--self-app-id <id>`     | 自己呼び出し防止に使われる、現在のアプリ id                                    |
-| `--self-url <url>`       | 自己呼び出し防止に使われる、現在のアプリ URL                                   |
-| `--timeout-ms <n>`       | 非同期ポーリングのタイムアウト                                                |
-| `--poll-interval-ms <n>` | 非同期ポーリングの間隔                                                       |
-| `--sync`                 | デフォルトの async+poll の代わりに、ブロッキングの `message/send` を1回だけ使用する |
-| `--no-hint`               | クロスアプリ呼び出しのヒントを付けずに、プロンプトをそのまま送信する                  |
-| `--json`                  | ターゲットのメタデータと応答テキストを JSON として出力する                        |
+| Option                    | Description                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 対象のエージェント（位置引数 `<app-or-url>` のエイリアス）                          |
+| `--message <text>`        | プロンプト（位置引数 `"prompt"` のエイリアス）                                      |
+| `--api-key-env <name>`    | 環境変数からベアラー トークンを読み取る                                             |
+| `--api-key <token>`       | ベアラー トークンの値をインラインで渡す                                             |
+| `--context-id <id>`       | A2A の `contextId`。既存タスクの会話を継続するために使用                            |
+| `--self-app-id <id>`      | 自己呼び出し防止に使われる、現在のアプリ id                                         |
+| `--self-url <url>`        | 自己呼び出し防止に使われる、現在のアプリ URL                                        |
+| `--timeout-ms <n>`        | 非同期ポーリングのタイムアウト                                                      |
+| `--poll-interval-ms <n>`  | 非同期ポーリングの間隔                                                              |
+| `--sync`                  | デフォルトの async+poll の代わりに、ブロッキングの `message/send` を1回だけ使用する |
+| `--no-hint`               | クロスアプリ呼び出しのヒントを付けずに、プロンプトをそのまま送信する                |
+| `--json`                  | ターゲットのメタデータと応答テキストを JSON として出力する                          |
 
 `callAgent()` と同様に、この CLI もデフォルトで async + poll を使用します（内部的には `invokeAgent` → `callAgent`）。これはホスト型/サーバーレスのターゲットに対して安全な選択です。上記の [サーバーレスの Webhook とゲートウェイのタイムアウト](#json-rpc-methods) を参照してください。ターゲットが短い実行時間制限のあるゲートウェイの背後にないとわかっている場合にのみ `--sync` を渡してください。
 

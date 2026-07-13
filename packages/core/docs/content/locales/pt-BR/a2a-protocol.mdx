@@ -409,20 +409,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Description                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | Agente de destino (alias para o argumento posicional `<app-or-url>`)                    |
-| `--message <text>`       | Prompt (alias para o argumento posicional `"prompt"`)                             |
-| `--api-key-env <name>`   | Lê o token de portador a partir de uma variável de ambiente                       |
-| `--api-key <token>`      | Valor do token de portador, passado diretamente                                        |
-| `--context-id <id>`      | `contextId` do A2A, para continuar a conversa de uma tarefa existente             |
-| `--self-app-id <id>`     | ID do aplicativo atual, usado para evitar autochamadas                                  |
-| `--self-url <url>`       | URL do aplicativo atual, usada para evitar autochamadas                                  |
-| `--timeout-ms <n>`       | Tempo limite do polling assíncrono                                                   |
-| `--poll-interval-ms <n>` | Intervalo do polling assíncrono                                                   |
-| `--sync`                 | Usa uma única requisição `message/send` bloqueante em vez do padrão assíncrono+polling |
-| `--no-hint`               | Envia o prompt como está, sem a dica de invocação entre aplicativos               |
-| `--json`                  | Imprime os metadados do destino e o texto da resposta como JSON                         |
+| Option                    | Description                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | Agente de destino (alias para o argumento posicional `<app-or-url>`)                   |
+| `--message <text>`        | Prompt (alias para o argumento posicional `"prompt"`)                                  |
+| `--api-key-env <name>`    | Lê o token de portador a partir de uma variável de ambiente                            |
+| `--api-key <token>`       | Valor do token de portador, passado diretamente                                        |
+| `--context-id <id>`       | `contextId` do A2A, para continuar a conversa de uma tarefa existente                  |
+| `--self-app-id <id>`      | ID do aplicativo atual, usado para evitar autochamadas                                 |
+| `--self-url <url>`        | URL do aplicativo atual, usada para evitar autochamadas                                |
+| `--timeout-ms <n>`        | Tempo limite do polling assíncrono                                                     |
+| `--poll-interval-ms <n>`  | Intervalo do polling assíncrono                                                        |
+| `--sync`                  | Usa uma única requisição `message/send` bloqueante em vez do padrão assíncrono+polling |
+| `--no-hint`               | Envia o prompt como está, sem a dica de invocação entre aplicativos                    |
+| `--json`                  | Imprime os metadados do destino e o texto da resposta como JSON                        |
 
 Assim como `callAgent()`, a CLI usa por padrão o modo assíncrono + polling (`invokeAgent` → `callAgent` internamente), que é a escolha segura contra destinos hospedados/serverless — veja [Tempos limite de webhook e gateway serverless](#json-rpc-methods) acima. Passe `--sync` somente quando você souber que o destino não está atrás de um gateway com um limite de execução curto.
 

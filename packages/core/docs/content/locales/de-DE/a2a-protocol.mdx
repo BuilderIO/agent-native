@@ -409,20 +409,20 @@ agent-native invoke analytics "Quick lookup" --sync
 agent-native invoke analytics "Summarize signups" --json
 ```
 
-| Option                  | Beschreibung                                                              |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `--agent <id\|name\|url>` | Ziel-Agent (Alias für das positionelle `<app-or-url>`)                    |
-| `--message <text>`       | Prompt (Alias für das positionelle `"prompt"`)                             |
-| `--api-key-env <name>`   | Liest das Bearer-Token aus einer Umgebungsvariable                        |
-| `--api-key <token>`      | Bearer-Token-Wert, inline übergeben                                       |
-| `--context-id <id>`      | A2A-`contextId`, um die Konversation einer bestehenden Aufgabe fortzusetzen |
-| `--self-app-id <id>`     | Aktuelle App-ID, verwendet zur Selbstaufruf-Vermeidung                    |
-| `--self-url <url>`       | Aktuelle App-URL, verwendet zur Selbstaufruf-Vermeidung                   |
-| `--timeout-ms <n>`       | Timeout für Async-Polling                                                 |
-| `--poll-interval-ms <n>` | Intervall für Async-Polling                                               |
-| `--sync`                 | Eine blockierende `message/send`-Anfrage anstelle des Async+Poll-Standards verwenden |
-| `--no-hint`               | Den Prompt unverändert senden, ohne den App-übergreifenden Aufruf-Hinweis |
-| `--json`                  | Zielmetadaten und Antworttext als JSON ausgeben                          |
+| Option                    | Beschreibung                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | Ziel-Agent (Alias für das positionelle `<app-or-url>`)                               |
+| `--message <text>`        | Prompt (Alias für das positionelle `"prompt"`)                                       |
+| `--api-key-env <name>`    | Liest das Bearer-Token aus einer Umgebungsvariable                                   |
+| `--api-key <token>`       | Bearer-Token-Wert, inline übergeben                                                  |
+| `--context-id <id>`       | A2A-`contextId`, um die Konversation einer bestehenden Aufgabe fortzusetzen          |
+| `--self-app-id <id>`      | Aktuelle App-ID, verwendet zur Selbstaufruf-Vermeidung                               |
+| `--self-url <url>`        | Aktuelle App-URL, verwendet zur Selbstaufruf-Vermeidung                              |
+| `--timeout-ms <n>`        | Timeout für Async-Polling                                                            |
+| `--poll-interval-ms <n>`  | Intervall für Async-Polling                                                          |
+| `--sync`                  | Eine blockierende `message/send`-Anfrage anstelle des Async+Poll-Standards verwenden |
+| `--no-hint`               | Den Prompt unverändert senden, ohne den App-übergreifenden Aufruf-Hinweis            |
+| `--json`                  | Zielmetadaten und Antworttext als JSON ausgeben                                      |
 
 Wie `callAgent()` verwendet die CLI standardmäßig Async + Poll (`invokeAgent` → `callAgent` unter der Haube), was die sichere Wahl gegenüber gehosteten/serverlosen Zielen ist — siehe [Serverless-Webhook- und Gateway-Timeouts](#json-rpc-methods) oben. Übergeben Sie `--sync` nur, wenn Sie wissen, dass sich das Ziel nicht hinter einem Gateway mit kurzem Ausführungslimit befindet.
 
