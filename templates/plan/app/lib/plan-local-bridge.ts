@@ -367,7 +367,12 @@ export function mergeLocalBridgeComments(
   if (!bundle) return bundle;
   const comments =
     bundle.comments.length > 0 ? bundle.comments : (folderComments ?? []);
-  if (comments === bundle.comments) return bundle;
+  if (
+    comments === bundle.comments ||
+    (comments.length === 0 && bundle.comments.length === 0)
+  ) {
+    return bundle;
+  }
   return {
     ...bundle,
     comments,
