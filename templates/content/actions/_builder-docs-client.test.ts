@@ -25,6 +25,10 @@ const resolveBuilderCredentialMock = vi.hoisted(() =>
 
 const collabStateMock = vi.hoisted(() => ({
   hasCollabState: vi.fn(async () => false),
+  loadAwarenessRowsStrict: vi.fn(
+    async () =>
+      [] as Array<{ clientId: number; state: string; lastSeen: number }>,
+  ),
 }));
 
 const appStateMock = vi.hoisted(() => ({
@@ -123,7 +127,9 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/collab", () => ({
+  AGENT_CLIENT_ID: 0xffffffff,
   hasCollabState: collabStateMock.hasCollabState,
+  loadAwarenessRowsStrict: collabStateMock.loadAwarenessRowsStrict,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -190,6 +196,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resolveBuilderCredentialMock.mockResolvedValue(null);
   collabStateMock.hasCollabState.mockResolvedValue(false);
+  collabStateMock.loadAwarenessRowsStrict.mockResolvedValue([]);
   appStateMock.appStateGet.mockResolvedValue(null);
   builderWriteMock.executeBuilderCmsWrite.mockResolvedValue({
     ok: true,
@@ -399,6 +406,21 @@ describe("Builder docs DB-backed source", () => {
       sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
     };
     collabStateMock.hasCollabState.mockResolvedValue(true);
+    collabStateMock.loadAwarenessRowsStrict.mockResolvedValue([
+      {
+        clientId: 123,
+        state: JSON.stringify({
+          visible: true,
+          user: { email: "owner@example.com" },
+        }),
+        lastSeen: Date.now(),
+      },
+    ]);
+    appStateMock.appStateGet.mockImplementation(async () => ({
+      id: bundle.mdx.documentId,
+      requestId: appStateMock.appStatePut.mock.calls[0]?.[2]?.requestId,
+      status: "success",
+    }));
 
     await resolveBuilderDocsSource({ documentId: bundle.mdx.documentId });
 

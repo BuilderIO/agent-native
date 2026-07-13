@@ -5,7 +5,6 @@ import {
   ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  RequireSession,
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
@@ -33,7 +32,12 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import {
+  MAIL_INTEGRATION_STATUS_QUERY_KEY,
+  mailIntegrationProviderFromAppStateKey,
+} from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { i18nCatalog } from "./i18n";
@@ -75,12 +79,6 @@ function getHydrationStableLocaleInitScript() {
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
-
-function skipBroadActionInvalidation() {
-  // Mail's Gmail-backed reads are expensive and already refresh through the
-  // explicit app-state refresh-signal that mutating mail actions write.
-  return false;
-}
 
 const MAIL_ERROR_COPY: Record<
   LocaleCode,
@@ -331,7 +329,9 @@ function DbSyncSetup() {
   useDbSync({
     queryClient: qc,
     queryKeys: [],
-    actionInvalidatePredicate: skipBroadActionInvalidation,
+    // Action events refresh action-backed reads (such as queued drafts) while
+    // expensive Gmail/provider queries stay on their targeted sync paths.
+    actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
     onEvent: (data: {
@@ -347,9 +347,6 @@ function DbSyncSetup() {
         qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
         qc.invalidateQueries({ queryKey: ["automations"] });
         qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        qc.invalidateQueries({ queryKey: ["apollo-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-data"] });
         qc.invalidateQueries({ queryKey: ["google-status"] });
         qc.invalidateQueries({ queryKey: ["automation-settings"] });
         qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
@@ -357,6 +354,20 @@ function DbSyncSetup() {
       };
 
       if (data.source === "app-state") {
+        const integrationProvider = mailIntegrationProviderFromAppStateKey(
+          data.key,
+        );
+        if (integrationProvider && !isOwnEvent) {
+          qc.invalidateQueries({
+            queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+          });
+          qc.invalidateQueries({
+            queryKey:
+              integrationProvider === "*"
+                ? ["integration-data"]
+                : ["integration-data", integrationProvider],
+          });
+        }
         if (
           (data.key?.startsWith("compose-") || data.key === "*") &&
           !isOwnEvent
@@ -397,8 +408,6 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["labels"] });
           invalidateSettingsSurfaces();
         }
-      } else if (!isOwnEvent) {
-        qc.invalidateQueries({ queryKey: ["action"] });
       }
     },
   });
@@ -410,18 +419,7 @@ function DbSyncSetup() {
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 export default function Root() {
-  const [queryClient] = useState(() =>
-    createAgentNativeQueryClient({
-      defaultOptions: {
-        queries: {
-          // Mail's VisibilityRefresh handles the focus-based refresh with a
-          // 60 s throttle, so we also want React Query's focus refetch to
-          // fire for other query keys (labels, settings, etc.).
-          refetchOnWindowFocus: true,
-        },
-      },
-    }),
-  );
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
       <AppProviders
@@ -429,17 +427,16 @@ export default function Root() {
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
         toaster={MAIL_TOASTER}
+        sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <RequireSession bypass={isMcpEmbedSurface()}>
-          <AutoFocus />
-          <AutomationTrigger />
-          <VisibilityRefresh />
-          <DbSyncSetup />
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </RequireSession>
+        <AutoFocus />
+        <AutomationTrigger />
+        <VisibilityRefresh />
+        <DbSyncSetup />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
       </AppProviders>
     </AppToolkitProvider>
   );

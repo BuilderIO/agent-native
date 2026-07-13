@@ -28,6 +28,10 @@ Detailed building, publishing, response, storage, and UI rules live in
   combined dashboard/report requests.
 - For form setup/configuration previews, call `preview-form`. It returns a
   native inline summary/table and an "Open editor" expansion path.
+- For an anonymous feedback form or survey, create all fields in one
+  `create-form` call with `status: "published"`, verify the persisted form, and
+  return the action's exact public `/f/<slug>` response URL rather than only
+  the private editor link.
 - Form UX should stay focused: clear labels, sensible validation, minimal
   required fields, and progressive disclosure for advanced settings.
 - Public form submission endpoints must be intentionally public; keep management

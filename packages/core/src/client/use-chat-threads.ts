@@ -449,8 +449,17 @@ export function useChatThreads(
           // haven't shown up in the server list yet — the server only learns
           // about a thread when the user actually sends a message and the
           // agent run's `persistSubmittedUserMessage` writes the row.
+          //
+          // Archived threads are excluded here too: the server list omits
+          // archived threads by default, so a thread we archived this same
+          // session would otherwise look identical to a not-yet-synced
+          // optimistic thread (created this session, missing from `loaded`)
+          // and get preserved forever instead of disappearing once archived.
           const optimisticOnly = prev.filter(
-            (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+            (t) =>
+              newlyCreatedRef.current.has(t.id) &&
+              !loadedIds.has(t.id) &&
+              !t.archivedAt,
           );
           // Reconcile each server thread against our local copy. If the local
           // copy has a newer updatedAt or higher messageCount, keep those
@@ -939,15 +948,39 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...threadDataPayload,
-            title,
-            scope: localScope,
-          }),
-        });
+        const payload = {
+          ...threadDataPayload,
+          title,
+          scope: localScope,
+        };
+        let response = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+        // A passive realtime-voice transcript can be the first content in a
+        // client-created thread, so no agent run has created its SQL row yet.
+        // Materialize that row idempotently and retry the same full save.
+        if (response.status === 404) {
+          const created = await fetch(`${apiUrl}/threads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, title, scope: localScope }),
+          });
+          if (!created.ok) return;
+          response = await fetch(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
+        }
+        if (!response.ok) return;
         emitThreadsUpdated();
         // Update local thread list metadata. If the thread isn't in our
         // local list yet (an optimistic-only thread that the server just

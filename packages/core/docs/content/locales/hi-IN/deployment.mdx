@@ -452,3 +452,11 @@ export default createAgentChatPlugin({
 ## मल्टी-इंस्टेंस परिनियोजन {#multi-instance}
 
 एजेंट-नेटिव ऐप्स सभी स्थिति को Drizzle के माध्यम से SQL में संग्रहीत करते हैं और UI को [polling](/docs/key-concepts#polling-sync) के माध्यम से डेटाबेस के विरुद्ध सिंक करते हैं - कोई फ़ाइल-सिस्टम स्थिति नहीं, कोई चिपचिपा सत्र नहीं, कोई इन-मेमोरी कैश नहीं। इसका मतलब है कि मल्टी-इंस्टेंस और सर्वर रहित परिनियोजन बॉक्स से बाहर काम करते हैं: प्रत्येक इंस्टेंस को एक ही `DATABASE_URL` पर इंगित करें और वे स्वचालित रूप से परिवर्तित हो जाते हैं। [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) और [Portability](/docs/key-concepts#hosting-agnostic) देखें।
+
+## आगे क्या है
+
+- [**Database**](/docs/database#production) — पहले production deploy से पहले persistent SQL backend चुनें
+- [**Security**](/docs/security) — इस पेज पर बताए गए production checklist और opt-in flags
+- [**Authentication**](/docs/authentication) — चुने गए auth mode के OAuth credentials और environment variables
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` के single-origin build के पीछे का workspace model
+- [**Frames**](/docs/frames) — production UI बदलावों के लिए embedded agent panel और Builder.io cloud frame की तुलना

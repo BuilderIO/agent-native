@@ -9,7 +9,8 @@
  *
  * Cloud fallback provider selection:
  *   1. Builder.io transcription (Gemini 3.1 Flash-Lite behind the Builder
- *      proxy) when Builder is connected.
+ *      proxy) when Builder is connected; if that model is unavailable in the
+ *      deployment region, retry the Builder gateway's default model.
  *   2. `GROQ_API_KEY` → Groq's fast speech-to-text fallback.
  *   3. Neither → keep any native transcript or fail with a clear reason.
  *
@@ -45,11 +46,13 @@ import {
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { assertAccess } from "@agent-native/core/sharing";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -86,6 +89,7 @@ import {
   normalizeProviderTranscript,
 } from "./lib/provider-transcript.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
 interface SpeechToTextSegment {
@@ -110,6 +114,7 @@ type TranscriptionProvider = {
 type RecordingMediaRow = {
   videoUrl: string | null;
   videoFormat?: "webm" | "mp4" | null;
+  videoSizeBytes?: number | null;
   hasAudio?: boolean | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -127,6 +132,54 @@ const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
 const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
 const BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
 const BUILDER_TRANSCRIPTION_PER_MINUTE_MS = 3_000;
+const MEDIA_FETCH_MIN_TIMEOUT_MS = 45_000;
+const MEDIA_FETCH_MAX_TIMEOUT_MS = 120_000;
+const MEDIA_FETCH_BASE_TIMEOUT_MS = 30_000;
+const MEDIA_FETCH_PER_50MB_MS = 10_000;
+const ESTIMATED_VIDEO_BYTES_PER_MINUTE = 5 * 1024 * 1024;
+
+function builderErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    return `${error.message} ${cause ? builderErrorText(cause) : ""}`.trim();
+  }
+  return String(error);
+}
+
+export function isBuilderModelAvailabilityError(error: unknown): boolean {
+  const message = builderErrorText(error).toLowerCase();
+  const identifiesModel =
+    message.includes("model") || message.includes("gemini");
+  const identifiesAvailability =
+    message.includes("not available") ||
+    message.includes("unavailable") ||
+    message.includes("unsupported") ||
+    message.includes("not supported") ||
+    message.includes("not found") ||
+    message.includes("region") ||
+    message.includes("location");
+  return identifiesModel && identifiesAvailability;
+}
+
+export async function transcribeWithBuilderModelFallback(
+  options: Omit<Parameters<typeof transcribeWithBuilder>[0], "model">,
+) {
+  try {
+    return await transcribeWithBuilder({
+      ...options,
+      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+    });
+  } catch (error) {
+    if (!isBuilderModelAvailabilityError(error)) throw error;
+    console.warn(
+      `[clips] Builder transcription model ${BUILDER_GEMINI_TRANSCRIPTION_MODEL} is unavailable; retrying the gateway default model.`,
+    );
+    // `model` is optional on the Builder transcription endpoint. Omitting it
+    // restores the gateway's region-aware default that Clips used before the
+    // explicit Gemini model was introduced.
+    return transcribeWithBuilder(options);
+  }
+}
 
 function clampTimeoutMs(value: number): number {
   return Math.max(
@@ -154,22 +207,43 @@ export function builderTranscriptionTimeoutMs(
   );
 }
 
+export function recordingMediaFetchTimeoutMs(
+  videoSizeBytes: number | null | undefined,
+  durationMs: number | null | undefined,
+): number {
+  const override = Number(
+    process.env.CLIPS_TRANSCRIPTION_MEDIA_FETCH_TIMEOUT_MS,
+  );
+  if (Number.isFinite(override) && override > 0) {
+    return Math.max(
+      MEDIA_FETCH_MIN_TIMEOUT_MS,
+      Math.min(MEDIA_FETCH_MAX_TIMEOUT_MS, Math.floor(override)),
+    );
+  }
+
+  const estimatedBytes =
+    videoSizeBytes && Number.isFinite(videoSizeBytes) && videoSizeBytes > 0
+      ? videoSizeBytes
+      : durationMs && Number.isFinite(durationMs) && durationMs > 0
+        ? Math.ceil(durationMs / 60_000) * ESTIMATED_VIDEO_BYTES_PER_MINUTE
+        : 0;
+  if (!estimatedBytes) return MEDIA_FETCH_MIN_TIMEOUT_MS;
+
+  const fiftyMbUnits = Math.ceil(estimatedBytes / (50 * 1024 * 1024));
+  return Math.max(
+    MEDIA_FETCH_MIN_TIMEOUT_MS,
+    Math.min(
+      MEDIA_FETCH_MAX_TIMEOUT_MS,
+      MEDIA_FETCH_BASE_TIMEOUT_MS + fiftyMbUnits * MEDIA_FETCH_PER_50MB_MS,
+    ),
+  );
+}
+
 // Bounded automatic retry for transient failures (ffmpeg timeout, transient
 // provider network/5xx errors) — NOT for permanent failures like "no audio
-// track" or a missing/rejected API key. Mirrors the fire-and-forget
-// background pattern already used for post-finalize transcription and
-// seekable remux in finalize-recording.ts, just with a delay before the
-// retry instead of running immediately.
-//
-// Serverless caveat: Clips deploys to Netlify Functions (NITRO_PRESET=netlify),
-// where a `setTimeout` scheduled after the handler returns can be frozen along
-// with the rest of the sandbox before it fires. This best-effort retry still
-// helps on any host that keeps the process warm (local/self-hosted, or a
-// Lambda instance reused for a later request), and it is never worse than
-// today's behavior — a clip that doesn't get an automatic retry just settles
-// into "failed", exactly as it does now, and stays retryable via
-// `request-transcript` (UI retry button or agent). Keeping the backoff short
-// maximizes the chance it fires before the sandbox freezes.
+// track" or a missing/rejected API key. Each retry is self-dispatched into a
+// fresh request so serverless runtimes cannot freeze a timer left behind by
+// the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
 
@@ -198,9 +272,7 @@ function isTransientTranscriptionError(err: unknown): boolean {
 
 /**
  * Schedule a bounded, backed-off automatic retry of `request-transcript` for
- * a transient failure. Fire-and-forget in the Nitro process — same mechanism
- * `finalize-recording.ts` uses to kick off transcription/remux passes in the
- * background, just delayed instead of immediate.
+ * a transient failure in a fresh server request.
  *
  * `nextRetryCount` must already be persisted to `recording_transcripts` by the
  * caller BEFORE this is invoked (not inside the timer) so the retry budget
@@ -223,20 +295,17 @@ function scheduleAutoTranscriptRetry({
     AUTO_TRANSCRIPT_RETRY_BACKOFF_MS[
       AUTO_TRANSCRIPT_RETRY_BACKOFF_MS.length - 1
     ];
-  setTimeout(() => {
-    void Promise.resolve(
-      requestTranscriptAction.run({
-        recordingId,
-        force: true,
-        retryAttempt: nextRetryCount,
-      }),
-    ).catch((err: unknown) => {
-      console.warn(
-        `[clips] auto-retry transcription failed for ${recordingId} (attempt ${nextRetryCount}):`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
-  }, backoffMs);
+  void dispatchPostFinalizeJob({
+    recordingId,
+    kind: "transcript",
+    delayMs: backoffMs,
+    retryAttempt: nextRetryCount,
+  }).catch((err: unknown) => {
+    console.warn(
+      `[clips] auto-retry transcription dispatch failed for ${recordingId} (attempt ${nextRetryCount}):`,
+      (err as Error)?.message ?? String(err),
+    );
+  });
 }
 
 function queueBrainExport(recordingId: string): void {
@@ -301,10 +370,12 @@ async function loadRecordingMediaBlob({
   recordingId,
   videoUrl,
   fallbackMimeType,
+  timeoutMs,
 }: {
   recordingId: string;
   videoUrl: string;
   fallbackMimeType: string;
+  timeoutMs: number;
 }): Promise<{ blob: Blob; sourceMimeType: string }> {
   const isLocalBlob =
     videoUrl.startsWith("/api/video/") ||
@@ -334,10 +405,10 @@ async function loadRecordingMediaBlob({
     resolvedVideoUrl = `${origin}${resolvedVideoUrl}`;
   }
   const vidRes = isAppRelativeUrl
-    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(30_000) })
+    ? await fetch(resolvedVideoUrl, { signal: AbortSignal.timeout(timeoutMs) })
     : await ssrfSafeFetch(
         resolvedVideoUrl,
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(timeoutMs) },
         { maxRedirects: 3 },
       );
   if (!vidRes.ok) {
@@ -687,6 +758,39 @@ async function cleanupNativeTranscript({
   }
 }
 
+async function generateRecordingMetadata({
+  recordingId,
+  title,
+  titleSource,
+  description,
+  transcriptText,
+}: {
+  recordingId: string;
+  title: string | null | undefined;
+  titleSource: string | null | undefined;
+  description: string | null | undefined;
+  transcriptText: string;
+}): Promise<{ titleQueued: boolean; summaryQueued: boolean }> {
+  if (isAutoTitleReplaceable(title, titleSource)) {
+    await regenerateTitle.run({
+      recordingId,
+      transcriptText,
+      includeSummary: !description?.trim(),
+    });
+    return {
+      titleQueued: true,
+      summaryQueued: !description?.trim(),
+    };
+  }
+
+  if (!description?.trim()) {
+    await regenerateSummary.run({ recordingId });
+    return { titleQueued: false, summaryQueued: true };
+  }
+
+  return { titleQueued: false, summaryQueued: false };
+}
+
 async function completeReadyTranscript({
   db,
   recordingId,
@@ -708,12 +812,14 @@ async function completeReadyTranscript({
   provider: "existing" | "native";
   cleanupQueued: boolean;
   titleQueued: boolean;
+  summaryQueued: boolean;
   preserved?: true;
 }> {
   const [recForTitle] = await db
     .select({
       title: schema.recordings.title,
       titleSource: schema.recordings.titleSource,
+      description: schema.recordings.description,
       durationMs: schema.recordings.durationMs,
     })
     .from(schema.recordings)
@@ -748,7 +854,7 @@ async function completeReadyTranscript({
     }
   }
 
-  void cleanupNativeTranscript({
+  const cleanupPromise = cleanupNativeTranscript({
     db,
     recordingId,
     ownerEmail,
@@ -759,24 +865,47 @@ async function completeReadyTranscript({
       `[clips] native transcript cleanup failed for ${recordingId}:`,
       (err as Error)?.message ?? String(err),
     );
+    return { cleaned: false };
   });
 
-  const titleQueued = !!(
-    recForTitle &&
-    isAutoTitleReplaceable(recForTitle.title, recForTitle.titleSource)
-  );
-  if (titleQueued) {
-    void Promise.resolve(
-      regenerateTitle.run({
+  const metadataPromise = recForTitle
+    ? generateRecordingMetadata({
         recordingId,
+        title: recForTitle.title,
+        titleSource: recForTitle.titleSource,
+        description: recForTitle.description,
         transcriptText: fullText,
-      }),
-    ).catch((err: unknown) => {
-      console.warn(
-        `[clips] native-transcript title generation failed for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    });
+      }).catch((err: unknown) => {
+        console.warn(
+          `[clips] native-transcript metadata generation failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+        return { titleQueued: false, summaryQueued: false };
+      })
+    : Promise.resolve({ titleQueued: false, summaryQueued: false });
+
+  // Both calls are independent. Await them together so the durable worker stays
+  // alive without serially stacking two model-call timeouts.
+  const [cleanupResult, metadataResult] = await Promise.all([
+    cleanupPromise,
+    metadataPromise,
+  ]);
+
+  if (!recForTitle) {
+    console.warn(
+      `[clips] recording metadata generation skipped because ${recordingId} was not found`,
+    );
+  }
+
+  if (metadataResult.titleQueued) {
+    console.log(
+      `[clips] transcript-backed title generation completed or queued for ${recordingId}`,
+    );
+  }
+  if (metadataResult.summaryQueued) {
+    console.log(
+      `[clips] transcript-backed summary generation queued for ${recordingId}`,
+    );
   }
 
   // Wake the player polling so it picks up the queued cleanup state row
@@ -788,10 +917,11 @@ async function completeReadyTranscript({
   return {
     recordingId,
     status: "ready",
-    cleaned: false,
+    cleaned: cleanupResult.cleaned,
     provider: segmentsJson && segmentsJson !== "[]" ? "existing" : "native",
-    cleanupQueued: true,
-    titleQueued,
+    cleanupQueued: false,
+    titleQueued: metadataResult.titleQueued,
+    summaryQueued: metadataResult.summaryQueued,
     ...(preserved ? { preserved: true as const } : {}),
   };
 }
@@ -813,6 +943,7 @@ async function preserveReadyTranscriptIfAvailable({
   provider: "existing" | "native";
   cleanupQueued: boolean;
   titleQueued: boolean;
+  summaryQueued: boolean;
   preserved?: true;
 } | null> {
   const [current] = await db
@@ -899,7 +1030,7 @@ async function pickProvider(
 
 const requestTranscriptAction = defineAction({
   description:
-    "Ensure a recording has a transcript. Preserves native Web Speech/macOS Speech transcripts first, then uses configured backup transcription only when needed.",
+    "Ensure a recording has a transcript, or explicitly regenerate it from the recording media. Preserves native Web Speech/macOS Speech transcripts unless regenerate is true, then uses Builder.io managed transcription or the configured Groq fallback.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     force: z
@@ -907,6 +1038,12 @@ const requestTranscriptAction = defineAction({
       .optional()
       .describe(
         "Bypass the recent pending guard for explicit retries or the finalize-recording background worker.",
+      ),
+    regenerate: z
+      .boolean()
+      .optional()
+      .describe(
+        "Generate a fresh transcript from the recording media even when a ready transcript already exists. The existing ready transcript is kept if regeneration fails.",
       ),
     retryAttempt: z
       .number()
@@ -918,6 +1055,8 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args) => {
+    await assertAccess("recording", args.recordingId, "editor");
+
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
@@ -944,6 +1083,10 @@ const requestTranscriptAction = defineAction({
           recordingId: args.recordingId,
           videoUrl,
           fallbackMimeType,
+          timeoutMs: recordingMediaFetchTimeoutMs(
+            rec.videoSizeBytes,
+            rec.durationMs,
+          ),
         });
         return prepareAudioOnlyTranscriptionMedia({
           blob: media.blob,
@@ -980,6 +1123,11 @@ const requestTranscriptAction = defineAction({
     // manual retry can still top the budget back up for one more bounded
     // automatic pass if it fails transiently again.
     const currentRetryCount = existingNativeTranscript?.retryCount ?? 0;
+    const regeneratingReadyTranscript = Boolean(
+      args.regenerate &&
+      existingNativeTranscript?.status === "ready" &&
+      existingNativeTranscript.fullText?.trim(),
+    );
     if (args.retryAttempt !== undefined) {
       console.log(
         `[clips] auto-retry transcription attempt ${args.retryAttempt} for ${args.recordingId}`,
@@ -987,6 +1135,7 @@ const requestTranscriptAction = defineAction({
     }
 
     if (
+      !args.regenerate &&
       existingNativeTranscript?.status === "ready" &&
       existingNativeTranscript.fullText?.trim()
     ) {
@@ -1032,19 +1181,22 @@ const requestTranscriptAction = defineAction({
     // is set at the deployment level. Use the per-user-aware resolver so
     // a sidebar OAuth connection actually wires through to transcription.
     if (await resolveHasBuilderPrivateKey()) {
-      await upsertTranscriptRow(db, {
-        recordingId: args.recordingId,
-        ownerEmail,
-        status: "pending",
-        failureReason: null,
-        now,
-      });
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      if (!regeneratingReadyTranscript) {
+        await upsertTranscriptRow(db, {
+          recordingId: args.recordingId,
+          ownerEmail,
+          status: "pending",
+          failureReason: null,
+          now,
+        });
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
 
       const [rec] = await db
         .select({
           videoUrl: schema.recordings.videoUrl,
           videoFormat: schema.recordings.videoFormat,
+          videoSizeBytes: schema.recordings.videoSizeBytes,
           hasAudio: schema.recordings.hasAudio,
           sourceAppName: schema.recordings.sourceAppName,
           sourceWindowTitle: schema.recordings.sourceWindowTitle,
@@ -1099,10 +1251,9 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilder({
+        const builderResult = await transcribeWithBuilderModelFallback({
           audioBytes: audioMedia.audioBytes,
           mimeType: audioMedia.mimeType,
-          model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           diarize: false,
           instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
           timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
@@ -1121,13 +1272,15 @@ const requestTranscriptAction = defineAction({
         );
         const fullText = normalizedTranscript.fullText;
 
-        const preserved = await preserveReadyTranscriptIfAvailable({
-          db,
-          recordingId: args.recordingId,
-          ownerEmail,
-          allowLikelyLanguageMismatch: false,
-        });
-        if (preserved) return preserved;
+        if (!regeneratingReadyTranscript) {
+          const preserved = await preserveReadyTranscriptIfAvailable({
+            db,
+            recordingId: args.recordingId,
+            ownerEmail,
+            allowLikelyLanguageMismatch: false,
+          });
+          if (preserved) return preserved;
+        }
 
         if (!fullText) {
           return failEmptyProviderTranscript({
@@ -1159,16 +1312,23 @@ const requestTranscriptAction = defineAction({
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
+            description: schema.recordings.description,
           })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
-        if (isAutoTitleReplaceable(freshRec?.title, freshRec?.titleSource)) {
+        if (freshRec) {
           try {
-            await regenerateTitle.run({ recordingId: args.recordingId });
+            await generateRecordingMetadata({
+              recordingId: args.recordingId,
+              title: freshRec.title,
+              titleSource: freshRec.titleSource,
+              description: freshRec.description,
+              transcriptText: fullText,
+            });
           } catch (delegateErr) {
             console.warn(
-              `[clips] auto-title delegation failed for ${args.recordingId}:`,
+              `[clips] automatic metadata generation failed for ${args.recordingId}:`,
               (delegateErr as Error).message,
             );
           }
@@ -1251,15 +1411,17 @@ const requestTranscriptAction = defineAction({
     }
 
     // Upsert a pending row so the UI can show "Transcribing…".
-    await upsertTranscriptRow(db, {
-      recordingId: args.recordingId,
-      ownerEmail,
-      status: "pending",
-      failureReason: null,
-      now,
-    });
+    if (!regeneratingReadyTranscript) {
+      await upsertTranscriptRow(db, {
+        recordingId: args.recordingId,
+        ownerEmail,
+        status: "pending",
+        failureReason: null,
+        now,
+      });
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    }
 
     // Load the recording's media URL and prepare audio-only bytes. We never
     // send video frames to a transcription provider; screen-only recordings
@@ -1269,12 +1431,14 @@ const requestTranscriptAction = defineAction({
       .select({
         videoUrl: schema.recordings.videoUrl,
         videoFormat: schema.recordings.videoFormat,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
         hasAudio: schema.recordings.hasAudio,
         sourceAppName: schema.recordings.sourceAppName,
         sourceWindowTitle: schema.recordings.sourceWindowTitle,
         durationMs: schema.recordings.durationMs,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -1369,13 +1533,15 @@ const requestTranscriptAction = defineAction({
       );
       const fullText = normalizedTranscript.fullText;
 
-      const preserved = await preserveReadyTranscriptIfAvailable({
-        db,
-        recordingId: args.recordingId,
-        ownerEmail,
-        allowLikelyLanguageMismatch: false,
-      });
-      if (preserved) return preserved;
+      if (!regeneratingReadyTranscript) {
+        const preserved = await preserveReadyTranscriptIfAvailable({
+          db,
+          recordingId: args.recordingId,
+          ownerEmail,
+          allowLikelyLanguageMismatch: false,
+        });
+        if (preserved) return preserved;
+      }
 
       if (!fullText) {
         return failEmptyProviderTranscript({
@@ -1401,23 +1567,22 @@ const requestTranscriptAction = defineAction({
       await writeAppState("refresh-signal", { ts: Date.now() });
       queueBrainExport(args.recordingId);
 
-      // Auto-title. The clip was just born with the default title and we now
-      // have a transcript to reason over. `regenerate-title` tries the fast
-      // media-pipeline path and only queues an agent fallback when appropriate,
-      // so Builder credit pauses stay paused instead of spawning another AI job.
-      // We intentionally skip this when the user (or agent) has already renamed
-      // the clip so we never clobber a human-authored title.
-      if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
-        try {
-          await regenerateTitle.run({ recordingId: args.recordingId });
-        } catch (delegateErr) {
-          // Non-fatal — a missing delegation just means the clip keeps its
-          // placeholder title until the user asks the agent to rename it.
-          console.warn(
-            `[clips] auto-title delegation failed for ${args.recordingId}:`,
-            (delegateErr as Error).message,
-          );
-        }
+      // Generate transcript-backed metadata without replacing a human title or
+      // description. The title action keeps any local heuristic replaceable
+      // while its agent refinement runs.
+      try {
+        await generateRecordingMetadata({
+          recordingId: args.recordingId,
+          title: rec.title,
+          titleSource: rec.titleSource,
+          description: rec.description,
+          transcriptText: fullText,
+        });
+      } catch (delegateErr) {
+        console.warn(
+          `[clips] automatic metadata generation failed for ${args.recordingId}:`,
+          (delegateErr as Error).message,
+        );
       }
 
       const elapsedMs = Date.now() - startedAt;

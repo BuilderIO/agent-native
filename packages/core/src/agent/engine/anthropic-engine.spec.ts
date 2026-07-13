@@ -387,4 +387,96 @@ describe("createAnthropicEngine", () => {
     expect(stopEvent?.reason).toBe("error");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
+
+  it("defaults to adaptive thinking at medium effort for a reasoning-capable model", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.output_config).toEqual({ effort: "medium" });
+  });
+
+  it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+    });
+
+    expect(requestParams.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 4_096,
+    });
+    expect(requestParams.output_config).toBeUndefined();
+  });
+
+  it("does not enable thinking by default for a non-reasoning model", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-3-5-haiku-20241022",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+  });
+
+  it("keeps explicit high effort behavior (adaptive thinking + output_config)", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      reasoningEffort: "high",
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
+  });
+
+  it("does not default to thinking when effort is explicitly none", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      reasoningEffort: "none",
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+    expect(requestParams.output_config).toBeUndefined();
+  });
+
+  it("respects an explicit providerOptions.anthropic.thinking config instead of defaulting", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      maxOutputTokens: 32_000,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: "enabled", budgetTokens: 4_000 },
+        },
+      },
+    });
+
+    expect(requestParams.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 4_000,
+    });
+    expect(requestParams.output_config).toBeUndefined();
+  });
 });

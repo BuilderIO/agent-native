@@ -8,8 +8,9 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastMock } = vi.hoisted(() => ({
-  toastMock: vi.fn(),
+const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -54,8 +55,11 @@ vi.mock("@agent-native/core/client", () => ({
     )[key] ?? key,
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  toast: toastMock,
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), {
+    success: toastSuccessMock,
+    error: toastErrorMock,
+  }),
 }));
 
 import { ExportMenu } from "./ExportMenu";
@@ -123,8 +127,11 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
     expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Downloaded for Google Slides" }),
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "Downloaded for Google Slides",
+      expect.objectContaining({
+        description: "Import the downloaded PPTX into Google Slides.",
+      }),
     );
   });
 
@@ -139,12 +146,9 @@ describe("<ExportMenu>", () => {
     expect(window.open).not.toHaveBeenCalled();
 
     await waitFor(() => {
-      expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: "Export failed",
-          description: "Could not render",
-          variant: "destructive",
-        }),
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Export failed",
+        expect.objectContaining({ description: "Could not render" }),
       );
     });
     expect(window.open).not.toHaveBeenCalled();

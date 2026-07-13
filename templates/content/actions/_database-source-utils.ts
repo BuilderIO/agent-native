@@ -32,6 +32,7 @@ import type {
   ContentDatabaseSourceWriteOwner,
   BuilderCmsModelFieldSummary,
   DocumentProperty,
+  DocumentPropertyOptions,
   DocumentPropertyValue,
 } from "../shared/api.js";
 import {
@@ -75,6 +76,12 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import {
+  databaseItemsPositionScope,
+  documentsPositionScope,
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
 import { isEffectivelyEmptyDocumentContent } from "./update-document.js";
 
@@ -128,6 +135,7 @@ type SourceMetadataRecord = {
   lastReadPartial?: boolean;
   lastReadHasMore?: boolean;
   lastReadNextOffset?: number;
+  lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
   sourceFetchState?: "idle" | "fetching" | "error" | string;
   allowDraftWrites?: boolean;
@@ -187,7 +195,12 @@ function normalizeWriteOwner(
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
-  if (value === "builder-cms" || value === "local-table") return value;
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "notion-database"
+  )
+    return value;
   return "mock-local";
 }
 
@@ -277,6 +290,7 @@ function sourceMetadataLabel(
 ) {
   if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
+  if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
 
@@ -335,6 +349,48 @@ const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
 ]);
+
+const SOURCE_VALUES_JSON_COLUMN =
+  '"content_database_source_rows"."source_values_json"';
+
+export function sourceSnapshotValuesJsonProjectionSql(dialect: Dialect) {
+  const keys = Array.from(HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS);
+  if (dialect === "postgres") {
+    return `COALESCE((${SOURCE_VALUES_JSON_COLUMN}::jsonb${keys
+      .map((key) => ` - '${key}'`)
+      .join("")})::text, '{}')`;
+  }
+  const paths = keys.map((key) => `'$."${key}"'`);
+  return `COALESCE(json_remove(${SOURCE_VALUES_JSON_COLUMN}, ${paths.join(", ")}), '{}')`;
+}
+
+function sourceSnapshotRowSelection(args: {
+  stripHeavyBuilderBodyValues: boolean;
+}) {
+  const row = schema.contentDatabaseSourceRows;
+  return {
+    id: row.id,
+    ownerEmail: row.ownerEmail,
+    sourceId: row.sourceId,
+    databaseItemId: row.databaseItemId,
+    documentId: row.documentId,
+    sourceRowId: row.sourceRowId,
+    sourceQualifiedId: row.sourceQualifiedId,
+    sourceDisplayKey: row.sourceDisplayKey,
+    sourceValuesJson: args.stripHeavyBuilderBodyValues
+      ? sql<string>`${sql.raw(
+          sourceSnapshotValuesJsonProjectionSql(getDialect()),
+        )}`
+      : row.sourceValuesJson,
+    provenance: row.provenance,
+    syncState: row.syncState,
+    freshness: row.freshness,
+    lastSyncedAt: row.lastSyncedAt,
+    lastSourceUpdatedAt: row.lastSourceUpdatedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 export function sourceValuesForSnapshot(
   sourceValues: Record<string, DocumentPropertyValue>,
@@ -507,11 +563,27 @@ function sameMappedSourceFieldValue(
   localValue: unknown,
   sourceValue: unknown,
   type: DocumentProperty["definition"]["type"] | null | undefined,
+  options?: DocumentPropertyOptions,
 ): boolean {
+  const normalizedLocalValue = type
+    ? normalizePropertyValueWithOptions(type, localValue, options)
+    : localValue;
   const normalizedSourceValue = type
-    ? normalizePropertyValue(type, sourceValue)
+    ? normalizePropertyValueWithOptions(type, sourceValue, options)
     : sourceValue;
-  return sameSourceFieldValue(localValue, normalizedSourceValue);
+  if (
+    type === "multi_select" &&
+    Array.isArray(normalizedLocalValue) &&
+    Array.isArray(normalizedSourceValue)
+  ) {
+    // Builder option order is not meaningful. Compare the canonical option IDs
+    // as sets so a reordered response does not become an outbound edit.
+    return sameSourceFieldValue(
+      [...normalizedLocalValue].sort(),
+      [...normalizedSourceValue].sort(),
+    );
+  }
+  return sameSourceFieldValue(normalizedLocalValue, normalizedSourceValue);
 }
 
 function stringSourceValue(
@@ -2004,6 +2076,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldKey: string;
     sourceFieldLabel: string;
     propertyType?: DocumentProperty["definition"]["type"] | null;
+    propertyOptions?: DocumentPropertyOptions;
   }>;
   // Row-union scoping (multi-source). Documents owned by ANOTHER source must
   // never be create candidates for this one — each row belongs to exactly one
@@ -2064,7 +2137,12 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         const localValue = rowLocalValues.get(field.localFieldKey);
         const baseValue = rowSourceValues[field.sourceFieldKey];
         if (
-          sameMappedSourceFieldValue(localValue, baseValue, field.propertyType)
+          sameMappedSourceFieldValue(
+            localValue,
+            baseValue,
+            field.propertyType,
+            field.propertyOptions,
+          )
         ) {
           continue;
         }
@@ -2074,7 +2152,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           localFieldKey: field.localFieldKey,
           sourceFieldKey: field.sourceFieldKey,
           currentValue: (field.propertyType
-            ? normalizePropertyValue(field.propertyType, baseValue)
+            ? normalizePropertyValueWithOptions(
+                field.propertyType,
+                baseValue,
+                field.propertyOptions,
+              )
             : (baseValue ?? null)) as DocumentPropertyValue,
           proposedValue: localValue as DocumentPropertyValue,
         });
@@ -2096,12 +2178,25 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       }
       return (
         changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some(
-            (change) =>
-              change.localFieldKey === stored.localFieldKey &&
-              sameSourceFieldValue(change.currentValue, stored.currentValue) &&
-              sameSourceFieldValue(change.proposedValue, stored.proposedValue),
-          ),
+          fieldChanges.some((change) => {
+            if (change.localFieldKey !== stored.localFieldKey) return false;
+            const writableField = args.writableFields?.find(
+              (field) => field.localFieldKey === change.localFieldKey,
+            );
+            const sameStoredValue = (current: unknown, previous: unknown) =>
+              writableField
+                ? sameMappedSourceFieldValue(
+                    current,
+                    previous,
+                    writableField.propertyType,
+                    writableField.propertyOptions,
+                  )
+                : sameSourceFieldValue(current, previous);
+            return (
+              sameStoredValue(change.currentValue, stored.currentValue) &&
+              sameStoredValue(change.proposedValue, stored.proposedValue)
+            );
+          }),
         ) ||
         (!!bodyChange && !!changeSet.bodyChange)
       );
@@ -2389,10 +2484,16 @@ async function readSourceSnapshotRowsOnce(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   const db = getDb();
   const rowRows = await db
-    .select()
+    .select(
+      sourceSnapshotRowSelection({
+        stripHeavyBuilderBodyValues:
+          args.isBuilderSource && !args.includeHeavyBuilderBodyValues,
+      }),
+    )
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
@@ -2467,6 +2568,7 @@ async function sourceSnapshotConsistencyMarker(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   const db = getDb();
   const [rows] = await db
@@ -2518,6 +2620,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
   source: ContentDatabaseSourceRowDb;
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
+  includeHeavyBuilderBodyValues: boolean;
 }) {
   let latest: Awaited<ReturnType<typeof readSourceSnapshotRowsOnce>> | null =
     null;
@@ -2565,6 +2668,7 @@ async function loadSourceSnapshot(
           id: schema.documentPropertyDefinitions.id,
           name: schema.documentPropertyDefinitions.name,
           type: schema.documentPropertyDefinitions.type,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
         })
         .from(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
@@ -2578,6 +2682,9 @@ async function loadSourceSnapshot(
       row.id,
       row.type as DocumentProperty["definition"]["type"],
     ]),
+  );
+  const propertyOptionsById = new Map(
+    propertyDefs.map((row) => [row.id, parsePropertyOptions(row.optionsJson)]),
   );
   const fields = fieldRows.map((row) =>
     serializeSourceField(
@@ -2616,6 +2723,7 @@ async function loadSourceSnapshot(
     source,
     database,
     isBuilderSource,
+    includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
   });
   const rows = rowRows.map((row) =>
     serializeSourceRowRecord(row, {
@@ -2653,6 +2761,9 @@ async function loadSourceSnapshot(
       propertyType: row.propertyId
         ? (propertyTypeById.get(row.propertyId) ?? null)
         : null,
+      propertyOptions: row.propertyId
+        ? propertyOptionsById.get(row.propertyId)
+        : undefined,
     }));
   // Row-union ownership scoping (Builder only). Determine which documents belong
   // to OTHER sources and whether this source is the primary (oldest), so the
@@ -2722,7 +2833,7 @@ async function loadSourceSnapshot(
     string,
     ContentDatabaseSourceBodyChange
   >();
-  if (isBuilderSource) {
+  if (isBuilderSource && options.includeHeavyBuilderBodyValues) {
     const sourceRowByDocumentId = new Map(
       rowRows.map((row) => [row.documentId, row]),
     );
@@ -2859,6 +2970,10 @@ async function loadSourceSnapshot(
       lastReadNextOffset:
         typeof metadata.lastReadNextOffset === "number"
           ? metadata.lastReadNextOffset
+          : undefined,
+      lastReadSuspiciousEmpty:
+        typeof metadata.lastReadSuspiciousEmpty === "boolean"
+          ? metadata.lastReadSuspiciousEmpty
           : undefined,
       sourceFetchState:
         metadata.sourceFetchState === "idle" ||
@@ -2999,6 +3114,20 @@ export function serializeSourceMetadataRecord(args: {
         args.builderModelFields ?? existingMetadata?.builderModelFields,
     });
   }
+  if (args.sourceType === "notion-database") {
+    return JSON.stringify({
+      primaryKey: "id",
+      titleField: "title",
+      naturalKeyField: null,
+      pushMode: "none",
+      pushModeLabel: "Read only",
+      pushModeDescription:
+        "Notion database sources are read-only in this pilot.",
+      notes:
+        "Notion values are refreshed through the current user's OAuth connection; write-back is disabled.",
+      label: sourceMetadataLabel(args.sourceType, args.sourceTable),
+    });
+  }
   return JSON.stringify({
     primaryKey: "id",
     titleField: "title",
@@ -3019,6 +3148,7 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
+  suspiciousEmpty?: boolean;
   builderModelFields?: BuilderCmsModelFieldSummary[];
   existingMetadataJson?: string | null;
 }) {
@@ -3038,7 +3168,10 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     lastReadPartial: args.progress?.partial,
     lastReadHasMore: args.progress?.hasMore,
     lastReadNextOffset: args.progress?.nextOffset,
-    activeReadSourceRowIds: args.activeReadSourceRowIds,
+    lastReadSuspiciousEmpty: args.suspiciousEmpty === true,
+    activeReadSourceRowIds: args.suspiciousEmpty
+      ? []
+      : args.activeReadSourceRowIds,
     sourceFetchState:
       args.sourceFetchState ??
       (args.progress?.partial
@@ -3069,6 +3202,21 @@ export function sourceCapabilitiesForType(
       canPull: true,
       canPublish: true,
       canStageLocalRevision: true,
+      liveWritesEnabled: false,
+      readOnlyRefresh: true,
+    });
+  }
+  if (sourceType === "notion-database") {
+    return serializeSourceCapabilitiesRecord({
+      canRefresh: true,
+      canCreateChangeSets: false,
+      canWriteFields: false,
+      canWriteBody: false,
+      canPush: false,
+      canPull: true,
+      canPublish: false,
+      canDelete: false,
+      canStageLocalRevision: false,
       liveWritesEnabled: false,
       readOnlyRefresh: true,
     });
@@ -3122,6 +3270,11 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  const existingBuilderFieldByPropertyId = new Map(
+    (args.existingFields ?? [])
+      .filter((field) => isBuilder && field.propertyId)
+      .map((field) => [field.propertyId!, field]),
+  );
   const rows = [
     {
       id: crypto.randomUUID(),
@@ -3224,10 +3377,12 @@ export async function seedMockSourceFields(args: {
         propertyId: property.definition.id,
         localFieldKey: property.definition.id,
         sourceFieldKey: isBuilder
-          ? builderCmsSourceFieldKey(
+          ? (existingBuilderFieldByPropertyId.get(property.definition.id)
+              ?.sourceFieldKey ??
+            builderCmsSourceFieldKey(
               property.definition.id,
               property.definition.name,
-            )
+            ))
           : `fields.${slugifySourceField(property.definition.name)}`,
         sourceFieldLabel: property.definition.name,
         sourceFieldType: property.definition.type,
@@ -3259,15 +3414,19 @@ export async function seedMockSourceFields(args: {
         updatedAt: args.now,
       })),
   ];
+  const sourceFieldIdentityKey = (sourceFieldKey: string) => {
+    const trimmed = sourceFieldKey.trim();
+    return isBuilder ? trimmed : trimmed.toLowerCase();
+  };
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
-      rows.map((row) => row.sourceFieldKey.trim().toLowerCase()),
+      rows.map((row) => sourceFieldIdentityKey(row.sourceFieldKey)),
     );
     for (const field of args.builderModelFields ?? []) {
       const fieldName = field.name.trim();
       if (!fieldName) continue;
       const sourceFieldKey = `data.${fieldName}`;
-      const normalizedKey = sourceFieldKey.toLowerCase();
+      const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
       if (existingSourceFieldKeys.has(normalizedKey)) continue;
       existingSourceFieldKeys.add(normalizedKey);
       rows.push({
@@ -3292,7 +3451,7 @@ export async function seedMockSourceFields(args: {
     for (const entry of args.builderSampleEntries ?? []) {
       for (const sourceFieldKey of Object.keys(entry.sourceValues)) {
         if (!sourceFieldKey.startsWith("data.")) continue;
-        const normalizedKey = sourceFieldKey.toLowerCase();
+        const normalizedKey = sourceFieldIdentityKey(sourceFieldKey);
         if (existingSourceFieldKeys.has(normalizedKey)) continue;
         existingSourceFieldKeys.add(normalizedKey);
         const value = entry.sourceValues[sourceFieldKey];
@@ -3329,13 +3488,13 @@ export async function seedMockSourceFields(args: {
 
   const existingFieldBySourceKey = new Map(
     (args.existingFields ?? []).map((field) => [
-      field.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(field.sourceFieldKey),
       field,
     ]),
   );
   const mergedRows = rows.map((row) => {
     const existing = existingFieldBySourceKey.get(
-      row.sourceFieldKey.trim().toLowerCase(),
+      sourceFieldIdentityKey(row.sourceFieldKey),
     );
     if (!existing) return row;
     return {
@@ -4050,82 +4209,106 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   const existingTitles = new Set(
     currentItems.map((row) => row.document.title.trim().toLowerCase()),
   );
-  const [maxDocPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, args.database.ownerEmail),
-        eq(schema.documents.parentId, args.database.documentId),
+
+  // Reads MAX(position) for both `documents` and `content_database_items`
+  // then batch-inserts at MAX+1.. — serialize the whole read-through-write
+  // span per scope so a concurrent import/add/move targeting the same parent
+  // document or the same database can't read the same MAX (see
+  // _position-utils.ts).
+  return withPositionLock(
+    documentsPositionScope(args.database.ownerEmail, args.database.documentId),
+    () =>
+      withPositionLock(
+        databaseItemsPositionScope(args.database.id),
+        async () => {
+          const [maxDocPos] = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.ownerEmail, args.database.ownerEmail),
+                eq(schema.documents.parentId, args.database.documentId),
+              ),
+            );
+          const [maxItemPos] = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.contentDatabaseItems)
+            .where(
+              eq(schema.contentDatabaseItems.databaseId, args.database.id),
+            );
+
+          let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
+          let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
+          const documentRows: (typeof schema.documents.$inferInsert)[] = [];
+          const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
+            [];
+
+          for (const entry of args.entries) {
+            if (
+              builderCmsEntryAlreadyRepresented({
+                entry,
+                sourceTable: args.sourceTable,
+                existingSourceRows: args.existingSourceRows ?? [],
+              })
+            ) {
+              continue;
+            }
+
+            const title = entry.title.trim() || entry.id;
+            const titleKey = title.toLowerCase();
+            if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
+            existingTitles.add(titleKey);
+
+            const documentId = nanoid();
+            const itemId = nanoid();
+            documentRows.push({
+              id: documentId,
+              ownerEmail: args.database.ownerEmail,
+              orgId: args.database.orgId,
+              parentId: args.database.documentId,
+              title,
+              content: "",
+              icon: null,
+              position: nextDocPosition++,
+              isFavorite: 0,
+              hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
+              visibility: databaseDocument?.visibility ?? "private",
+              createdAt: args.now,
+              updatedAt: args.now,
+            });
+            itemRows.push({
+              id: itemId,
+              ownerEmail: args.database.ownerEmail,
+              orgId: args.database.orgId,
+              databaseId: args.database.id,
+              documentId,
+              position: nextItemPosition++,
+              bodyHydrationStatus: "pending",
+              bodyHydrationError: null,
+              createdAt: args.now,
+              updatedAt: args.now,
+            });
+            importedEntriesByDocumentId.set(documentId, entry);
+          }
+          await db.transaction(async (tx) => {
+            for (const chunk of chunks(
+              documentRows,
+              bulkChunkSizeForColumnCount(13),
+            )) {
+              await tx.insert(schema.documents).values(chunk);
+            }
+            for (const chunk of chunks(
+              itemRows,
+              bulkChunkSizeForColumnCount(10),
+            )) {
+              await tx.insert(schema.contentDatabaseItems).values(chunk);
+            }
+          });
+
+          return { imported: itemRows.length, importedEntriesByDocumentId };
+        },
       ),
-    );
-  const [maxItemPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
-
-  let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
-  let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
-  const documentRows: (typeof schema.documents.$inferInsert)[] = [];
-  const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] = [];
-
-  for (const entry of args.entries) {
-    if (
-      builderCmsEntryAlreadyRepresented({
-        entry,
-        sourceTable: args.sourceTable,
-        existingSourceRows: args.existingSourceRows ?? [],
-      })
-    ) {
-      continue;
-    }
-
-    const title = entry.title.trim() || entry.id;
-    const titleKey = title.toLowerCase();
-    if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
-    existingTitles.add(titleKey);
-
-    const documentId = nanoid();
-    const itemId = nanoid();
-    documentRows.push({
-      id: documentId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      parentId: args.database.documentId,
-      title,
-      content: "",
-      icon: null,
-      position: nextDocPosition++,
-      isFavorite: 0,
-      hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
-      visibility: databaseDocument?.visibility ?? "private",
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    itemRows.push({
-      id: itemId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      databaseId: args.database.id,
-      documentId,
-      position: nextItemPosition++,
-      bodyHydrationStatus: "pending",
-      bodyHydrationError: null,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    importedEntriesByDocumentId.set(documentId, entry);
-  }
-  await db.transaction(async (tx) => {
-    for (const chunk of chunks(documentRows, bulkChunkSizeForColumnCount(13))) {
-      await tx.insert(schema.documents).values(chunk);
-    }
-    for (const chunk of chunks(itemRows, bulkChunkSizeForColumnCount(10))) {
-      await tx.insert(schema.contentDatabaseItems).values(chunk);
-    }
-  });
-
-  return { imported: itemRows.length, importedEntriesByDocumentId };
+  );
 }
 
 export async function resyncBuilderCmsSourceSnapshot(args: {
@@ -4152,16 +4335,41 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     sourceMetadata.lastReadNextOffset > 0
       ? sourceMetadata.lastReadNextOffset
       : 0;
+  const existingFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+  let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
+  let builderModelFieldsReadFailed = false;
+  try {
+    builderModelFields = await readBuilderCmsModelFields({
+      model: args.source.sourceTable,
+    });
+  } catch (error) {
+    builderModelFieldsReadFailed = true;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
+    );
+  }
+  const projectionModelFields =
+    builderModelFields && builderModelFields.length > 0
+      ? builderModelFields
+      : (sourceMetadata.builderModelFields ?? []);
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
+    fieldPaths: [
+      ...existingFields.map((field) => field.sourceFieldKey),
+      ...projectionModelFields.map((field) => `data.${field.name}`),
+    ],
     maxPages: args.runFullRefresh
       ? undefined
       : BUILDER_CMS_REFRESH_INITIAL_PAGES,
+    limit: args.runFullRefresh ? 10_000 : undefined,
     offset: continueOffset,
   });
   const incrementalRead =
     builderRead.state === "live" &&
-    !args.runFullRefresh &&
     (builderRead.progress?.partial === true ||
       (builderRead.progress?.startOffset ?? 0) > 0);
   const builderEntries =
@@ -4170,15 +4378,41 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .select()
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const readStartOffset = builderRead.progress?.startOffset ?? 0;
+  const activeReadSourceRowIdSet = new Set(activeReadSourceRowIds);
+  const suspiciousEmptyRead =
+    builderRead.state === "live" &&
+    builderRead.entries.length === 0 &&
+    existingRows.length > 0 &&
+    (readStartOffset === 0 ||
+      existingRows.some(
+        (row) => !activeReadSourceRowIdSet.has(row.sourceRowId),
+      ));
+  if (suspiciousEmptyRead) {
+    const message =
+      "Builder CMS returned no entries for a source with existing rows. The previous snapshot was preserved; retry the refresh before treating the source as empty.";
+    await updateBuilderCmsSourceReadMetadata({
+      sourceId: args.source.id,
+      sourceTable: args.source.sourceTable,
+      readState: builderRead.state,
+      entryCount: builderRead.entries.length,
+      matchedRowCount: 0,
+      fetchedAt: builderRead.fetchedAt,
+      now: args.now,
+      message,
+      builderModelFields,
+      progress: builderRead.progress,
+      sourceFetchState: "error",
+      syncState: "error",
+      suspiciousEmpty: true,
+    });
+    return;
+  }
   await enqueueEmptyHydratedBuilderBodiesFromStoredRows({
     source: args.source,
     now: args.now,
   });
   let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
-  const existingFields = await db
-    .select()
-    .from(schema.contentDatabaseSourceFields)
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   if (builderRead.state === "live") {
     const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
@@ -4195,19 +4429,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
     }
-  }
-  let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
-  let builderModelFieldsReadFailed = false;
-  try {
-    builderModelFields = await readBuilderCmsModelFields({
-      model: args.source.sourceTable,
-    });
-  } catch (error) {
-    builderModelFieldsReadFailed = true;
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
-    );
   }
   const builderEntriesByDocumentId =
     builderRead.state === "live"
@@ -4669,7 +4890,10 @@ export async function storeSecondarySourceRows(args: {
       sourceDisplayKey:
         entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
       sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
-      provenance: "secondary source row",
+      provenance:
+        args.sourceType === "notion-database"
+          ? "Notion database read adapter"
+          : "secondary source row",
       syncState: "linked" as const,
       freshness: "fresh" as const,
       lastSyncedAt: args.now,
@@ -4688,6 +4912,7 @@ export async function storeSecondarySourceRows(args: {
 export async function seedSecondarySourceFields(args: {
   sourceId: string;
   ownerEmail: string;
+  sourceType?: ContentDatabaseSourceType;
   modelFields: BuilderCmsModelFieldSummary[];
   sampleEntry?: BuilderCmsSourceEntry;
   now: string;
@@ -4753,7 +4978,10 @@ export async function seedSecondarySourceFields(args: {
         mappingType: "property" as const,
         writeOwner: "source" as const,
         readOnly: 1,
-        provenance: "secondary source field",
+        provenance:
+          args.sourceType === "notion-database"
+            ? "Notion database read adapter"
+            : "secondary source field",
         freshness: "fresh" as const,
         lastSyncedAt: args.now,
         createdAt: existing?.createdAt ?? args.now,
@@ -4797,12 +5025,14 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   activeReadSourceRowIds?: string[];
   syncState?: ContentDatabaseSourceSyncState;
   builderModelFields?: BuilderCmsModelFieldSummary[];
+  suspiciousEmpty?: boolean;
 }) {
   const db = getDb();
   const [currentSource] = await db
     .select({
       capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
       metadataJson: schema.contentDatabaseSources.metadataJson,
+      lastSourceUpdatedAt: schema.contentDatabaseSources.lastSourceUpdatedAt,
     })
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.id, args.sourceId))
@@ -4820,6 +5050,7 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
       progress: args.progress,
       sourceFetchState: args.sourceFetchState,
       activeReadSourceRowIds: args.activeReadSourceRowIds,
+      suspiciousEmpty: args.suspiciousEmpty,
       builderModelFields: args.builderModelFields,
       existingMetadataJson: currentSource?.metadataJson,
     }),
@@ -4829,14 +5060,54 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
     .set({
       syncState: args.syncState ?? "linked",
       freshness:
-        args.readState === "error" || args.progress?.partial
+        args.readState === "error" ||
+        args.progress?.partial ||
+        args.suspiciousEmpty
           ? "stale"
           : "fresh",
       capabilitiesJson: nextJson.capabilitiesJson,
       metadataJson: nextJson.metadataJson,
       lastRefreshedAt: args.now,
+      lastSourceUpdatedAt: args.suspiciousEmpty
+        ? (currentSource?.lastSourceUpdatedAt ?? null)
+        : args.fetchedAt,
+      lastError:
+        args.readState === "error" || args.suspiciousEmpty
+          ? args.message
+          : null,
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+}
+
+export async function updateReadOnlySourceMetadata(args: {
+  sourceId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  fetchedAt: string;
+  now: string;
+  message: string | null;
+  metadata?: Record<string, unknown>;
+  syncState?: ContentDatabaseSourceSyncState;
+}) {
+  const db = getDb();
+  const [current] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+    .limit(1);
+  const existing =
+    parseObject<Record<string, unknown>>(current?.metadataJson) ?? {};
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({
+      syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
+      freshness: args.message ? "stale" : "fresh",
+      capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+      metadataJson: JSON.stringify({ ...existing, ...(args.metadata ?? {}) }),
+      lastRefreshedAt: args.now,
       lastSourceUpdatedAt: args.fetchedAt,
-      lastError: args.readState === "error" ? args.message : null,
+      lastError: null,
       updatedAt: args.now,
     })
     .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -4988,26 +5259,31 @@ export async function ensureDatabaseSourceProperty(args: {
       .set({ optionsJson, updatedAt: args.now })
       .where(eq(schema.documentPropertyDefinitions.id, existing.id));
   } else {
-    const [maxPos] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
-      );
     propertyId = crypto.randomUUID();
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      databaseId: args.database.id,
-      name: SOURCE_PROPERTY_NAME,
-      type: "select",
-      visibility: "always_show",
-      optionsJson,
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
+    await withPositionLock(
+      propertyDefinitionsPositionScope(args.database.id),
+      async () => {
+        const [maxPos] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+          );
+        await db.insert(schema.documentPropertyDefinitions).values({
+          id: propertyId,
+          ownerEmail: args.database.ownerEmail,
+          orgId: args.database.orgId,
+          databaseId: args.database.id,
+          name: SOURCE_PROPERTY_NAME,
+          type: "select",
+          visibility: "always_show",
+          optionsJson,
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: args.now,
+          updatedAt: args.now,
+        });
+      },
+    );
   }
 
   // A row's Source value IS its owning source id (= the option id); unsourced

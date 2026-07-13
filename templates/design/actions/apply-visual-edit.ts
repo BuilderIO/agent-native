@@ -26,11 +26,17 @@ import {
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
 import {
+  planLocalJsxVisualEdit,
+  type LocalJsxLeafIntent,
+} from "../shared/local-jsx-visual-edit.js";
+import {
   breakpointUpperBoundPx,
   planBreakpointStyleWrite,
   utilityStem,
   widthToPrefix,
 } from "../shared/responsive-classes.js";
+import readLocalFileAction from "./read-local-file.js";
+import writeLocalFileAction from "./write-local-file.js";
 
 /**
  * Short human-readable label describing an edit intent, shown next to the
@@ -315,6 +321,7 @@ const sourceSchema = z.preprocess(
       filename: z.string().optional(),
       path: z.string().optional(),
       url: z.string().optional(),
+      connectionId: z.string().optional(),
       revision: z.string().optional(),
       html: z.string().optional(),
     })
@@ -326,6 +333,17 @@ const sourceSchema = z.preprocess(
           message: "designId or fileId is required for design-file sources",
         });
       }
+      if (
+        source.kind === "local-file" &&
+        (!source.designId || !source.connectionId || !source.path)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["path"],
+          message:
+            "designId, connectionId, and path are required for local-file sources",
+        });
+      }
     }),
 );
 
@@ -333,13 +351,29 @@ const targetSchema = z
   .object({
     nodeId: z.string().optional(),
     selector: z.string().optional(),
+    sourceAnchor: z
+      .object({
+        line: z.number().int().positive(),
+        column: z.number().int().positive(),
+        runtimeMultiplicity: z.number().int().positive().optional(),
+        scope: z
+          .enum([
+            "single-instance",
+            "repeated-render",
+            "shared-component-definition",
+            "unknown",
+          ])
+          .optional(),
+      })
+      .optional(),
   })
   .superRefine((target, ctx) => {
-    if (!target.nodeId && !target.selector) {
+    if (!target.nodeId && !target.selector && !target.sourceAnchor) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["nodeId"],
-        message: "target.nodeId or target.selector is required",
+        message:
+          "target.nodeId, target.selector, or target.sourceAnchor is required",
       });
     }
   });
@@ -589,7 +623,7 @@ async function persistDesignFileEdit(file: {
 export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
-    "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files; escalates ambiguous or structural edits with PatchResult statuses. " +
+    "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files, plus diff-first literal leaf JSX edits on consented localhost files; escalates ambiguous, dynamic, repeated, shared, or structural JSX edits without writing. " +
     "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
     "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
     "Pass activeBreakpoint to force legacy min-width prefix scoping for class edits, or maxWidthPx for an explicit desktop-down bound. Omit all three for base (global) behaviour.",
@@ -605,6 +639,13 @@ export default defineAction({
       .optional()
       .default(false)
       .describe("Include patched HTML content in the response."),
+    persist: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For local-file sources only, persist the proposed edit through write-local-file. Omit/false to return a proposed diff without writing. Local persistence requires the existing human write-consent grant and an exact bridge version hash.",
+      ),
     activeBreakpoint: z
       .enum(TAILWIND_PREFIXES)
       .optional()
@@ -635,12 +676,157 @@ export default defineAction({
     source,
     intent,
     includeContent,
+    persist,
     activeBreakpoint,
     activeFrameWidthPx,
     maxWidthPx,
   }) => {
     const actionSource = source as VisualEditActionSource;
     let editIntent = intent as EditIntent;
+
+    if (actionSource.kind === "local-file") {
+      const target =
+        "target" in editIntent
+          ? (editIntent.target as {
+              nodeId?: string;
+              selector?: string;
+              sourceAnchor?: {
+                line: number;
+                column: number;
+                runtimeMultiplicity?: number;
+                scope?:
+                  | "single-instance"
+                  | "repeated-render"
+                  | "shared-component-definition"
+                  | "unknown";
+              };
+            })
+          : undefined;
+      const sourceAnchor = target?.sourceAnchor;
+      if (
+        !actionSource.designId ||
+        !actionSource.connectionId ||
+        !actionSource.path ||
+        !sourceAnchor
+      ) {
+        return {
+          result: {
+            status: "conflict" as const,
+            changed: false,
+            message:
+              "Local visual edits require designId, connectionId, path, and an exact sourceAnchor from the live selection.",
+          },
+          persisted: false,
+        };
+      }
+      const pathSegments = actionSource.path
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter(Boolean);
+      if (
+        pathSegments.some((segment) =>
+          [
+            "node_modules",
+            "dist",
+            "build",
+            "coverage",
+            ".next",
+            ".nuxt",
+            ".output",
+            "generated",
+          ].includes(segment.toLowerCase()),
+        )
+      ) {
+        return {
+          result: {
+            status: "unsupported" as const,
+            changed: false,
+            message:
+              "Generated and dependency output files are not eligible for deterministic visual write-back.",
+          },
+          persisted: false,
+        };
+      }
+      if (
+        editIntent.kind !== "textContent" &&
+        editIntent.kind !== "class" &&
+        editIntent.kind !== "style"
+      ) {
+        return {
+          result: {
+            status: "needsAgent" as const,
+            changed: false,
+            message:
+              "Structural and semantic JSX edits require coding-agent inspection and are never written by the deterministic local-file path.",
+          },
+          persisted: false,
+        };
+      }
+      if (
+        activeBreakpoint != null ||
+        activeFrameWidthPx != null ||
+        maxWidthPx != null
+      ) {
+        return {
+          result: {
+            status: "needsAgent" as const,
+            changed: false,
+            message:
+              "Breakpoint-scoped localhost JSX edits require semantic source inspection in this first deterministic slice.",
+          },
+          persisted: false,
+        };
+      }
+
+      const read = await readLocalFileAction.run({
+        designId: actionSource.designId,
+        connectionId: actionSource.connectionId,
+        path: actionSource.path,
+      });
+      if (!read.versionHash) {
+        throw new Error(
+          "The local bridge did not return a version hash; no source was written.",
+        );
+      }
+      const planned = planLocalJsxVisualEdit({
+        content: read.content,
+        anchor: sourceAnchor,
+        intent: editIntent as LocalJsxLeafIntent,
+      });
+      let persisted = false;
+      let versionHash = read.versionHash;
+      if (
+        persist &&
+        planned.result.status === "applied" &&
+        planned.result.changed
+      ) {
+        const write = await writeLocalFileAction.run({
+          designId: actionSource.designId,
+          connectionId: actionSource.connectionId,
+          relPath: actionSource.path,
+          content: planned.content,
+          expectedVersionHash: read.versionHash,
+          requireExpectedVersionHash: true,
+        });
+        persisted = write.written;
+        versionHash = write.versionHash ?? versionHash;
+      }
+      return {
+        result: planned.result,
+        source: {
+          kind: "local-file" as const,
+          path: actionSource.path,
+          connectionId: actionSource.connectionId,
+        },
+        proposedDiff: planned.proposedDiff,
+        currentVersionHash: read.versionHash,
+        versionHash,
+        persisted,
+        patchedContent: includeContent ? planned.content : undefined,
+        bytesBefore: read.content.length,
+        bytesAfter: planned.content.length,
+      };
+    }
 
     // Breakpoint scoping precedence (§6.4):
     //
@@ -698,9 +884,8 @@ export default defineAction({
       const patch = applyVisualEdit("", editIntent, {
         source: codeLayerSource,
       });
-      // local-file / remote-url sources are not editable here (the engine
-      // reports "unsupported"), so no byte counts are returned — a 0/0 pair
-      // would misleadingly suggest an empty file was measured.
+      // remote-url sources stay preview-only/unsupported. A 0/0 byte count
+      // would misleadingly suggest that an empty remote file was measured.
       return {
         result: patch.result,
         projection: patch.projection,

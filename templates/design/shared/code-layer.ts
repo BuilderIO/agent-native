@@ -1007,7 +1007,11 @@ function getAttribute(
 
 function attributeValue(element: ParsedElement, name: string): string | null {
   const value = getAttribute(element, name)?.value;
-  if (typeof value === "string") return value;
+  // Parsed attributes contain source text, so quoted values may still carry
+  // entities emitted by an earlier deterministic patch. Decode before using
+  // them semantically or reserializing; otherwise sequential style edits turn
+  // `&quot;` into `&amp;quot;` on every pass and corrupt quoted CSS url() values.
+  if (typeof value === "string") return decodeBasicHtmlEntities(value);
   if (value === true) return "";
   return null;
 }
@@ -2120,12 +2124,24 @@ function buildProjection(
     const style = parseStyle(attributeValue(element, "style"));
     const dataAttributes = dataAttributeRecord(element);
     const layerName = layerNameFor(html, element);
+    // Only alias attribute selectors that are actually STABLE, UNIQUE node
+    // identifiers (data-agent-native-node-id, data-code-layer-id, etc). Every
+    // other data-* attribute (e.g. data-an-primitive="frame", or the boolean
+    // data-agent-native-locked/hidden state flags) is shared by many/most
+    // nodes of the same kind, not a per-node identity marker. Aliasing those
+    // here previously let a single hidden/locked layer's `hiddenSelectors`/
+    // `lockedSelectors` (built from these aliases — see
+    // codeLayerSelectorAliases in design-editor/code-layer-state.ts) resolve
+    // to `[data-an-primitive="frame"]` and silently hide/lock EVERY frame-kind
+    // container in the document via applyHiddenSelectors' document-wide
+    // querySelectorAll, instead of only the one node the user actually hid or
+    // locked.
     const selectors = Array.from(
       new Set([
         selector.selector,
         path,
-        ...Object.entries(dataAttributes).map(
-          ([name, value]) => `[${name}="${cssEscape(value)}"]`,
+        ...STABLE_NODE_ID_ATTRIBUTES.filter((name) => dataAttributes[name]).map(
+          (name) => `[${name}="${cssEscape(dataAttributes[name]!)}"]`,
         ),
       ]),
     );
@@ -3143,6 +3159,7 @@ function applyMoveNodeEdit(
   element: ParsedElement,
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
+  destinationParent?: ParsedElement,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   if (element.index === anchor.index) return "conflict";
   if (anchor.start >= element.start && anchor.end <= element.end) {
@@ -3152,7 +3169,14 @@ function applyMoveNodeEdit(
     return "unsupported";
   }
 
-  const fragment = html.slice(element.start, element.end);
+  const sourceParentIndex = element.parentIndex;
+  const entersNewParent =
+    destinationParent !== undefined &&
+    sourceParentIndex !== destinationParent.index;
+  const rawFragment = html.slice(element.start, element.end);
+  const fragment = entersNewParent
+    ? prepareMovedFragmentForParent(rawFragment, destinationParent)
+    : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
   )}`;
@@ -3176,6 +3200,55 @@ function applyMoveNodeEdit(
       confidence: 0.78,
     },
   };
+}
+
+/**
+ * Whether children of this element participate in normal flex/grid flow.
+ * Inline style is authoritative for inspector-created auto layout; the class
+ * checks cover authored Tailwind/utility layouts in standalone Alpine files.
+ */
+function isFlowLayoutContainer(element: ParsedElement | undefined): boolean {
+  if (!element) return false;
+  const display = parseStyle(attributeValue(element, "style")).display;
+  if (
+    display === "flex" ||
+    display === "inline-flex" ||
+    display === "grid" ||
+    display === "inline-grid"
+  ) {
+    return true;
+  }
+  const classes = new Set(classList(element));
+  return (
+    classes.has("flex") ||
+    classes.has("inline-flex") ||
+    classes.has("grid") ||
+    classes.has("inline-grid")
+  );
+}
+
+/**
+ * A Figma auto-layout drop makes the moved layer a flow child. Carrying its
+ * former `position:absolute` offsets into the new flex/grid parent leaves it
+ * visually detached from ordering, gap, and alignment even though the layer
+ * tree says it was reparented. Normalize only the moved fragment's root; its
+ * descendants keep their own positioning contexts unchanged.
+ */
+function prepareMovedFragmentForParent(
+  fragment: string,
+  destinationParent: ParsedElement | undefined,
+): string {
+  const fragmentRoot = parseHtmlElements(fragment).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!fragmentRoot) return fragment;
+  if (isFlowLayoutContainer(destinationParent)) {
+    return stripAbsolutePositioningFromChild(fragment, fragmentRoot);
+  }
+  // Mirror image: entering a non-flow (absolute/freeform) parent, or the
+  // document root, strips any leftover flex/grid-item-only styling instead —
+  // see stripFlexItemStylingFromChild's doc comment.
+  return stripFlexItemStylingFromChild(fragment, fragmentRoot);
 }
 
 /** Generate a fresh unique data-agent-native-node-id value not already in the set. */
@@ -3215,6 +3288,25 @@ const AUTO_LAYOUT_STRIP_PROPS = [
   "right",
   "bottom",
   "inset",
+] as const;
+
+/**
+ * Flex/grid-item-only properties stripped when a fragment leaves auto-layout
+ * flow for a non-flow (absolute/freeform) destination parent — the mirror
+ * image of AUTO_LAYOUT_STRIP_PROPS. Mirrors FLEX_ITEM_INLINE_PROPS in
+ * editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop and
+ * FLEX_ITEM_PROPS in DesignEditor.tsx's setAbsolutePositioningForNodeInHtml
+ * (the same-document/canvas-drag persistence paths for this exact leak);
+ * this is the moveNodeBetweenDocuments seam other reparent flows (e.g. a
+ * Layers-panel cross-screen move) go through instead.
+ */
+const FLEX_ITEM_STRIP_PROPS = [
+  "flex",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "align-self",
+  "order",
 ] as const;
 
 /**
@@ -3264,11 +3356,80 @@ function stripAbsolutePositioningFromChild(
   child: ParsedElement,
 ): string {
   const currentStyle = attributeValue(child, "style");
+  let nextHtml = currentStyle
+    ? replaceOrInsertAttribute(
+        html,
+        child,
+        "style",
+        stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS]),
+      )
+    : html;
+
+  // Source-backed Alpine/Tailwind designs commonly express positioning as
+  // utility classes instead of inline CSS. Once the layer moves into a new
+  // flex/grid parent, those utilities would keep it out of flow even though
+  // the Layers tree shows it as a child. Remove only position-mode utilities;
+  // inset utilities can remain because they are inert for a statically
+  // positioned flex/grid item, and preserving them avoids needless source
+  // churn if the user later makes the layer absolute again.
+  const reparsedRoot = parseHtmlElements(nextHtml).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!reparsedRoot) return nextHtml;
+  const classes = classList(reparsedRoot);
+  const flowClasses = classes.filter((token) => {
+    const variants = token.split(":");
+    const utility = variants[variants.length - 1]?.replace(/^!/, "");
+    return (
+      utility !== "absolute" && utility !== "fixed" && utility !== "sticky"
+    );
+  });
+  if (flowClasses.length === classes.length) return nextHtml;
+  nextHtml = replaceOrInsertAttribute(
+    nextHtml,
+    reparsedRoot,
+    "class",
+    flowClasses.join(" "),
+  );
+  return nextHtml;
+}
+
+/**
+ * Strip flex/grid-item-only inline properties (flex-grow/shrink/basis,
+ * align-self, order, the flex shorthand) from a child's inline style. Called
+ * when a fragment leaves auto-layout flow for a non-flow destination parent —
+ * these properties only mean anything inside a flex/grid container, so
+ * leaving them on an absolute/freeform element is dead (and misleading)
+ * source clutter that would silently reactivate with a stale value if the
+ * element were ever reparented back into flow. No-ops harmlessly when the
+ * child never had any of these set.
+ */
+function stripFlexItemStylingFromChild(
+  html: string,
+  child: ParsedElement,
+): string {
+  const currentStyle = attributeValue(child, "style");
   if (!currentStyle) return html;
-  const nextStyle = stripStyleProperties(currentStyle, [
-    ...AUTO_LAYOUT_STRIP_PROPS,
-  ]);
-  return replaceOrInsertAttribute(html, child, "style", nextStyle);
+  // Cheap presence check before touching anything: stripStyleProperties round
+  // -trips through parseStyleDeclarations/serializeStyleDeclarations, which
+  // normalizes formatting (adds "; " separators and a space after each
+  // colon) even when nothing actually needs removing. The overwhelming
+  // majority of moves into a non-flow destination involve a fragment that
+  // was never a flex/grid item, so unconditionally rewriting its style
+  // attribute would silently reformat unrelated, untouched authored CSS on
+  // every such move — exactly the kind of source churn this substrate is
+  // supposed to avoid. Only rewrite when there's actually something to strip.
+  const declarations = parseStyleDeclarations(currentStyle);
+  const hasFlexItemProp = declarations.some((decl) =>
+    (FLEX_ITEM_STRIP_PROPS as readonly string[]).includes(decl.property),
+  );
+  if (!hasFlexItemProp) return html;
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    stripStyleProperties(currentStyle, [...FLEX_ITEM_STRIP_PROPS]),
+  );
 }
 
 /**
@@ -3361,7 +3522,12 @@ function applyWrapNodes(
 ):
   | { content: string; capability: EditCapability; wrapperNodeId: string }
   | PatchResultStatus {
-  const { targetIds, autoLayout = false } = intent;
+  const { autoLayout = false } = intent;
+  // A UI selection is unique, but action/tool callers and stale multi-select
+  // state can repeat an id. Extracting/removing the same source span twice
+  // corrupts the surrounding document and duplicates the node inside the new
+  // wrapper. Normalize at the deterministic edit boundary.
+  const targetIds = Array.from(new Set(intent.targetIds));
   if (targetIds.length === 0) return "unsupported";
 
   // Resolve all target nodes via nodeId attribute matching.
@@ -4018,7 +4184,19 @@ export function applyVisualEdit(
     const removedLength = element.end - element.start;
     moveInsertAt =
       element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
-    edit = applyMoveNodeEdit(html, element, anchorElement, intent);
+    const destinationParent =
+      intent.placement === "inside"
+        ? anchorElement
+        : anchorResolution.node.parentId
+          ? initial.elementByNodeId.get(anchorResolution.node.parentId)
+          : undefined;
+    edit = applyMoveNodeEdit(
+      html,
+      element,
+      anchorElement,
+      intent,
+      destinationParent,
+    );
   }
 
   if (typeof edit === "string") {
@@ -4178,37 +4356,39 @@ export function moveNodeBetweenDocuments(
 
   // --- Re-stamp any colliding node ids in the fragment ---
   // We do this by parsing the fragment as its own HTML and replacing ids.
+  // Replacements are tracked PER ATTRIBUTE OCCURRENCE, not in an
+  // old-id -> new-id map: malformed/generated source can already contain the
+  // same stable id more than once. Mapping by the old string would assign the
+  // same replacement to every duplicate and leave the destination ambiguous
+  // after a cross-screen move (selection and undo would then target whichever
+  // duplicate happened to resolve first).
   const fragElements = parseHtmlElements(fragment);
-  // Build replacement map: old id → new id
-  const idRemap = new Map<string, string>();
+  const remapEdits: Array<{ start: number; end: number; value: string }> = [];
+  let movedNodeId = nodeId;
   for (const fragEl of fragElements) {
-    const existingId = attributeValue(fragEl, "data-agent-native-node-id");
-    if (!existingId) continue;
+    const attr = getAttribute(fragEl, "data-agent-native-node-id");
+    if (!attr || typeof attr.value !== "string") continue;
+    const existingId = attr.value;
+    let nextId = existingId;
     if (destUsedIds.has(existingId)) {
       const newId = freshNodeId(
         destUsedIds,
         `moved:${existingId}:${fragEl.start}`,
       );
-      idRemap.set(existingId, newId);
-    } else {
-      destUsedIds.add(existingId);
-    }
-  }
-
-  // Apply id remaps to the fragment (back to front by attribute position).
-  if (idRemap.size > 0) {
-    const remapEdits: Array<{ start: number; end: number; value: string }> = [];
-    for (const fragEl of fragElements) {
-      const attr = getAttribute(fragEl, "data-agent-native-node-id");
-      if (!attr || typeof attr.value !== "string") continue;
-      const newId = idRemap.get(attr.value);
-      if (!newId) continue;
+      nextId = newId;
       remapEdits.push({
         start: attr.start,
         end: attr.end,
         value: `data-agent-native-node-id="${escapeHtmlAttribute(newId)}"`,
       });
+    } else {
+      destUsedIds.add(existingId);
     }
+    if (fragEl.parentIndex === undefined) movedNodeId = nextId;
+  }
+
+  // Apply id remaps to the fragment (back to front by attribute position).
+  if (remapEdits.length > 0) {
     // Apply back to front.
     remapEdits.sort((a, b) => b.start - a.start);
     for (const edit of remapEdits) {
@@ -4265,6 +4445,13 @@ export function moveNodeBetweenDocuments(
         : destHtml.length;
       anchorRedirected = true;
     }
+    const destinationParent =
+      placement === "inside"
+        ? anchor
+        : anchor.parentIndex === undefined
+          ? undefined
+          : destElements[anchor.parentIndex];
+    fragment = prepareMovedFragmentForParent(fragment, destinationParent);
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   } else {
     // Default: find <body> and append inside it, or append at end of doc.
@@ -4281,11 +4468,15 @@ export function moveNodeBetweenDocuments(
     if (isOffsetInsideTemplateInterior(destHtml, insertAt)) {
       insertAt = destHtml.length;
     }
+    // Appending inside <body> makes the moved node a flow child of the body,
+    // exactly like the anchored `placement: "inside"` branch above. When the
+    // destination body is a flex/grid container, carrying the fragment's
+    // former absolute offsets along would leave it visually detached from
+    // the body's ordering/gap/alignment, so run the same normalization
+    // (prepareMovedFragmentForParent no-ops for non-flow bodies).
+    fragment = prepareMovedFragmentForParent(fragment, bodyEl);
     nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
   }
-
-  // The moved node keeps its original id unless it collided and was re-stamped.
-  const movedNodeId = idRemap.get(nodeId) ?? nodeId;
 
   return {
     sourceHtml: nextSourceHtml,

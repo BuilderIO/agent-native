@@ -37,6 +37,17 @@ Detailed event, availability, booking, storage, and UI rules live in
   with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
+- Google Calendar working locations are status events (`eventType:
+"workingLocation"`). Sync and display them as working locations, keep them
+  transparent/non-blocking, and preserve `workingLocationProperties` instead of
+  treating the summary as a generic all-day event title.
+- When updating one visible occurrence in a recurring working-location series,
+  pass that occurrence's event `id` with `scope: "single"` by default. Use the
+  series scope only when the user explicitly chooses all days.
+- Google Calendar API v3 exposes working locations through Events. The current
+  Settings API and Calendar v3 discovery document do not expose working-hours
+  settings, so do not promise working-hours UI or overlays unless a real
+  provider data path has been verified first.
 - Use framework sharing actions for calendars/events/booking resources when
   applicable.
 - Booking-link sharing controls who can manage the link. Public booking access
@@ -75,6 +86,10 @@ Detailed event, availability, booking, storage, and UI rules live in
 - `navigate` moves the UI to calendar, event, availability, booking, and settings
   views.
 - Use actions for full event details and availability calculations.
+- Preserve `accountEmail` on every Google event write. When more than one
+  Google account is connected, pass the chosen account to `create-event`, and
+  pass the event's returned `accountEmail` to `update-event`, `delete-event`,
+  and `rsvp-event`. These actions target that account's primary calendar.
 
 ## Skills
 

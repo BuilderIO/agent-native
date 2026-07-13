@@ -5,6 +5,10 @@ import {
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
+  corpusToolNamesTaughtByPrompt,
+  generateCorpusToolsPrompt,
+} from "./agent-chat/framework-prompts.js";
+import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
   FIRST_SESSION_PERSONALIZATION,
@@ -208,6 +212,26 @@ describe("prompt content invariants", () => {
     );
   });
 
+  it("routes extension requests that need native placement to code customization", () => {
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "UI inside or beside a native component where no named slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "show local time beside every native Calendar attendee row",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      'do not end with "extensions cannot do that."',
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "needs placement where no slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "continue the code-change handoff",
+    );
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");
@@ -259,6 +283,47 @@ describe("prompt content invariants", () => {
 });
 
 describe("available action prompt rendering", () => {
+  const actions = {
+    common: {
+      tool: {
+        description: "Common action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+    rare: {
+      tool: {
+        description: "Rare action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+  } as never;
+
+  it("defaults unconfigured apps to their own template actions", () => {
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions),
+    ).toEqual(["common", "rare"]);
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions, [
+        "common",
+      ]),
+    ).toEqual(["common"]);
+  });
+
+  it("summarizes only starter actions and points to tool-search for the rest", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      actions,
+      "tool",
+      ["common"],
+    );
+
+    expect(prompt).toContain("`common`");
+    expect(prompt).not.toContain("`rare`");
+    expect(prompt).toContain("1 less-common app action is available on demand");
+    expect(prompt).toContain("`tool-search`");
+  });
+
   it("labels actions that render native chat widgets", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       {
@@ -316,6 +381,76 @@ describe("render-data-widget framework action", () => {
         chartSeries: { type: "bar" },
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency", () => {
+  const noopTool = {
+    tool: {
+      description: "noop",
+      parameters: { type: "object" as const, properties: {} },
+    },
+    run: async () => "ok",
+  } as never;
+
+  it("returns no names and no prompt text for a registry with none of the corpus tools", () => {
+    const registry = { "some-template-action": noopTool } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([]);
+    expect(generateCorpusToolsPrompt(registry)).toBe("");
+  });
+
+  it("returns exactly the corpus tool names present, matching the prompt's authoritative availability line", () => {
+    const registry = {
+      "some-template-action": noopTool,
+      "provider-api-catalog": noopTool,
+      "query-staged-dataset": noopTool,
+    } as never;
+
+    const names = corpusToolNamesTaughtByPrompt(registry);
+    expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
+
+    const prompt = generateCorpusToolsPrompt(registry);
+    // "Available corpus-capable tools: ..." is the authoritative,
+    // registry-conditional line — this is the invariant
+    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
+    // to avoid teaching a tool as available when it isn't in the first
+    // request's active tool set. (The fixed prose below it separately
+    // explains `provider-corpus-job` / run-code usage unconditionally
+    // whenever the block renders at all — that static explanatory text is
+    // pre-existing and out of scope here.)
+    const availabilityLine = prompt
+      .split("\n")
+      .find((line) => line.startsWith("Available corpus-capable tools:"));
+    expect(availabilityLine).toBe(
+      "Available corpus-capable tools: `provider-api-catalog`, `query-staged-dataset`.",
+    );
+    for (const name of names) {
+      expect(availabilityLine).toContain(`\`${name}\``);
+    }
+    expect(availabilityLine).not.toContain("`provider-api-request`");
+    expect(availabilityLine).not.toContain("`provider-corpus-job`");
+    expect(availabilityLine).not.toContain("`run-code`");
+  });
+
+  it("includes every corpus tool name when the full set is registered", () => {
+    const registry = {
+      "provider-api-catalog": noopTool,
+      "provider-api-docs": noopTool,
+      "provider-api-request": noopTool,
+      "provider-corpus-job": noopTool,
+      "query-staged-dataset": noopTool,
+      "run-code": noopTool,
+    } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([
+      "provider-api-catalog",
+      "provider-api-docs",
+      "provider-api-request",
+      "provider-corpus-job",
+      "query-staged-dataset",
+      "run-code",
+    ]);
   });
 });
 

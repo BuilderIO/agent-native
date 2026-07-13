@@ -11,12 +11,17 @@ import {
   extractDocumentColors,
   extractDocumentFonts,
 } from "@agent-native/core/server/design-token-utils";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  mutateDesignData,
+  type DesignDataRecord,
+} from "../server/lib/design-data-mutation.js";
 import {
   isSafeCssTokenValue,
   isSafeCssVarName,
@@ -37,6 +42,31 @@ interface ImportedDesignToken {
   value: string;
   type: ImportedTokenType;
   source: string;
+}
+
+type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
+type TweakSelections = Record<string, string | number | boolean>;
+
+function readTweaks(data: DesignDataRecord): TweakDef[] {
+  return Array.isArray(data.tweaks) ? (data.tweaks as TweakDef[]) : [];
+}
+
+function readSelections(data: DesignDataRecord): TweakSelections {
+  return data.tweakSelections &&
+    typeof data.tweakSelections === "object" &&
+    !Array.isArray(data.tweakSelections)
+    ? (data.tweakSelections as TweakSelections)
+    : {};
+}
+
+function selectionKeyForCssVar(tweaks: TweakDef[], cssVar: string): string {
+  return tweaks.find((tweak) => tweak.cssVar === cssVar)?.id ?? cssVar;
+}
+
+function tokenSourceLabel(token: ImportedDesignToken, sourceLabel: string) {
+  return token.source === "CSS variables" || token.source === "Colors"
+    ? sourceLabel
+    : token.source;
 }
 
 const tokenFileSchema = z.object({
@@ -421,85 +451,93 @@ export default defineAction({
       };
     }
 
-    const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
-
-    let prevData: Record<string, unknown> = {};
-    if (access.resource.data) {
-      try {
-        const parsed = JSON.parse(access.resource.data);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          prevData = parsed;
+    const importId = nanoid();
+    const { data: persistedData } = await mutateDesignData({
+      designId,
+      mutate: (prevData, { updatedAt }) => {
+        const tweaks = readTweaks(prevData);
+        const nextSelections = { ...readSelections(prevData) };
+        for (const token of safeTokens) {
+          nextSelections[selectionKeyForCssVar(tweaks, token.cssVar)] =
+            token.value;
         }
-      } catch {
-        // Stale/invalid JSON — preserve the write with a fresh object.
-      }
-    }
 
-    type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
-    const tweaks: TweakDef[] = Array.isArray(prevData.tweaks)
-      ? (prevData.tweaks as TweakDef[])
-      : [];
-    const cssVarToTweakId = new Map<string, string>();
-    for (const tweak of tweaks) {
-      if (tweak.cssVar) cssVarToTweakId.set(tweak.cssVar, tweak.id);
-    }
+        const previousSources =
+          prevData.tokenImportSources &&
+          typeof prevData.tokenImportSources === "object" &&
+          !Array.isArray(prevData.tokenImportSources)
+            ? (prevData.tokenImportSources as Record<string, string>)
+            : {};
+        const tokenImportSources = { ...previousSources };
+        for (const token of safeTokens) {
+          tokenImportSources[token.cssVar] = tokenSourceLabel(
+            token,
+            sourceLabel,
+          );
+        }
 
-    const prevSelections: Record<string, string | number | boolean> =
-      prevData.tweakSelections &&
-      typeof prevData.tweakSelections === "object" &&
-      !Array.isArray(prevData.tweakSelections)
-        ? (prevData.tweakSelections as Record<
-            string,
-            string | number | boolean
-          >)
-        : {};
-    const nextSelections = { ...prevSelections };
+        const previousImports = Array.isArray(prevData.tokenImports)
+          ? (prevData.tokenImports as unknown[])
+          : [];
+        const alreadyAppended = previousImports.some(
+          (entry) =>
+            entry !== null &&
+            typeof entry === "object" &&
+            (entry as { id?: unknown }).id === importId,
+        );
+        const tokenImports = alreadyAppended
+          ? previousImports
+          : [
+              ...previousImports.slice(-9),
+              {
+                id: importId,
+                source,
+                sourceLabel,
+                tokenCount: safeTokens.length,
+                filesAnalyzed,
+                importedAt: updatedAt,
+              },
+            ];
 
-    for (const token of safeTokens) {
-      const tweakId = cssVarToTweakId.get(token.cssVar);
-      nextSelections[tweakId ?? token.cssVar] = token.value;
-    }
+        return {
+          ...prevData,
+          tweakSelections: nextSelections,
+          tokenImportSources,
+          tokenImports,
+          tweaksAppliedAt: updatedAt,
+        };
+      },
+      isApplied: (data) => {
+        const tweaks = readTweaks(data);
+        const selections = readSelections(data);
+        const sources =
+          data.tokenImportSources &&
+          typeof data.tokenImportSources === "object" &&
+          !Array.isArray(data.tokenImportSources)
+            ? (data.tokenImportSources as Record<string, string>)
+            : {};
+        const imports = Array.isArray(data.tokenImports)
+          ? data.tokenImports
+          : [];
+        return (
+          safeTokens.every(
+            (token) =>
+              selections[selectionKeyForCssVar(tweaks, token.cssVar)] ===
+                token.value &&
+              sources[token.cssVar] === tokenSourceLabel(token, sourceLabel),
+          ) &&
+          imports.some(
+            (entry) =>
+              entry !== null &&
+              typeof entry === "object" &&
+              (entry as { id?: unknown }).id === importId,
+          )
+        );
+      },
+    });
 
-    const previousSources =
-      prevData.tokenImportSources &&
-      typeof prevData.tokenImportSources === "object" &&
-      !Array.isArray(prevData.tokenImportSources)
-        ? (prevData.tokenImportSources as Record<string, string>)
-        : {};
-    const tokenImportSources = { ...previousSources };
-    for (const token of safeTokens) {
-      tokenImportSources[token.cssVar] =
-        token.source === "CSS variables" || token.source === "Colors"
-          ? sourceLabel
-          : token.source;
-    }
-
-    const now = new Date().toISOString();
-    const previousImports = Array.isArray(prevData.tokenImports)
-      ? (prevData.tokenImports as unknown[])
-      : [];
-    const nextData: Record<string, unknown> = {
-      ...prevData,
-      tweakSelections: nextSelections,
-      tokenImportSources,
-      tokenImports: [
-        ...previousImports.slice(-9),
-        {
-          source,
-          sourceLabel,
-          tokenCount: safeTokens.length,
-          filesAnalyzed,
-          importedAt: now,
-        },
-      ],
-      tweaksAppliedAt: now,
-    };
-
-    await db
-      .update(schema.designs)
-      .set({ data: JSON.stringify(nextData), updatedAt: now })
-      .where(eq(schema.designs.id, designId));
+    const tweaks = readTweaks(persistedData);
+    const nextSelections = readSelections(persistedData);
 
     return {
       designId,

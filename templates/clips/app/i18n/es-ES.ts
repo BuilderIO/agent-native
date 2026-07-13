@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Biblioteca",
+    sharedWithMe: "Compartido conmigo",
     spaces: "Espacios",
     meetings: "Reuniones",
     dictate: "Dictar",
@@ -82,6 +83,10 @@ const messages = {
       title: "Tu biblioteca está vacía",
       body: "Captura tu primera grabación de pantalla y aparecerá aquí, lista para compartir.",
       cta: "Grabar tu primer Clip",
+    },
+    shared: {
+      title: "Aún no han compartido clips contigo",
+      body: "Los clips que tus compañeros compartan contigo aparecerán aquí.",
     },
     folder: {
       title: "Esta carpeta está vacía",
@@ -304,6 +309,7 @@ const messages = {
     insights: "Perspectivas",
     downloadForMac: "Descargar para Mac",
     downloadForWindows: "Descargar para Windows",
+    downloadForLinux: "Descargar para Linux",
     downloadDesktopApp: "Descargar la aplicación de escritorio",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "es una alternativa gratuita,",
@@ -386,6 +392,7 @@ const messages = {
     searchPlaceholder: "Transcripción de búsqueda",
     copyTranscript: "Copiar transcripción",
     downloadSrt: "Descargar .srt",
+    regenerate: "Regenerar transcripción",
     cleanupRunning: "Limpiando la transcripción en segundo plano.",
     noMatches: "Sin coincidencias.",
     noTranscript: "Aún no hay transcripción.",
@@ -558,7 +565,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Descargar Clips Desktop",
     description:
-      "Graba tu pantalla desde la barra de menú. Aplicación de escritorio de actualización automática para macOS y Windows.",
+      "Graba tu pantalla desde la bandeja del sistema. Aplicación de escritorio con actualización automática para macOS, Windows y Linux.",
     macSublabel: "Traducido: Universal (Apple Silicon + Intel)",
     windowsSublabel: "Instalador MSI de 64 bits",
     downloadFor: "Descargar para {{platform}}",

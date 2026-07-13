@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "クリップ",
     library: "ライブラリ",
+    sharedWithMe: "自分と共有",
     spaces: "スペース",
     meetings: "ミーティング",
     dictate: "ディクテーション",
@@ -82,6 +83,10 @@ const messages = {
       title: "ライブラリは空です",
       body: "最初の画面録画を作成すると、共有できる状態でここに表示されます。",
       cta: "最初の Clip を録画",
+    },
+    shared: {
+      title: "共有されたクリップはまだありません",
+      body: "チームメンバーがあなたと共有したクリップがここに表示されます。",
     },
     folder: {
       title: "このフォルダは空です",
@@ -300,6 +305,7 @@ const messages = {
     insights: "インサイト",
     downloadForMac: "Mac 用のダウンロード",
     downloadForWindows: "Windows 用のダウンロード",
+    downloadForLinux: "Linux 用のダウンロード",
     downloadDesktopApp: "デスクトップアプリをダウンロード",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "は無料の",
@@ -381,6 +387,7 @@ const messages = {
     searchPlaceholder: "トランスクリプトの検索",
     copyTranscript: "トランスクリプトをコピーする",
     downloadSrt: ".srtをダウンロード",
+    regenerate: "トランスクリプトを再生成",
     cleanupRunning:
       "バックグラウンドでトランスクリプトをクリーンアップしています。",
     noMatches: "一致はありません。",
@@ -553,7 +560,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "ダウンロード",
     description:
-      "メニューバーから画面を録画します。 macOS および Windows のデスクトップ アプリを自動更新します。",
+      "システムトレイから画面を録画します。macOS、Windows、Linux 向けの自動更新デスクトップアプリです。",
     macSublabel: "ユニバーサル (Apple Silicon + Intel)",
     windowsSublabel: "64 ビット MSI インストーラー",
     downloadFor: "翻訳済み: Download for {{platform}}",

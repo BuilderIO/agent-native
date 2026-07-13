@@ -8,12 +8,13 @@ search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-na
 
 **This page: connect an external agent or MCP host to your app.** Use it when Claude, ChatGPT, Codex, Cursor, Claude Cowork, or another MCP-compatible host should drive a hosted agent-native app and round-trip the result back into the running UI.
 
-| If you want to…                                              | Read                               |
-| ------------------------------------------------------------ | ---------------------------------- |
-| Connect an external agent/host to your app                   | **This page** — External Agents    |
-| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)   |
-| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)         |
-| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol) |
+| If you want to…                                              | Read                                 |
+| ------------------------------------------------------------ | ------------------------------------ |
+| Connect an external agent/host to your app                   | **This page** — External Agents      |
+| Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)     |
+| Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)           |
+| Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui) |
+| Lower-level MCP server reference (auth, tools, custom mount) | [MCP Server](/docs/mcp-protocol)     |
 
 An agent-native app is reachable by any MCP-compatible host — Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam, and future clients that implement the standard. External agents are great at producing artifacts (a draft, an event, a dashboard) but they often live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
 
@@ -136,13 +137,8 @@ snapshot until you refresh/review it again, so rescan the connector after MCP
 tool or MCP App metadata changes. If you still have old per-app connectors
 enabled alongside Dispatch, refresh or reconnect each stale connector; updating
 Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
-snapshots. The scopes are:
-
-| Scope       | What it enables                                      |
-| ----------- | ---------------------------------------------------- |
-| `mcp:read`  | Read-only tools and tool/resource discovery          |
-| `mcp:write` | Drafting, updating, and other mutating actions       |
-| `mcp:apps`  | Inline MCP Apps, charts, dashboards, drafts, and UIs |
+snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
+covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
 Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
 MCP URL through their own MCP-server UIs when their build supports remote OAuth
@@ -213,7 +209,7 @@ instructions:
 npx skills@latest add BuilderIO/agent-native --skill assets
 ```
 
-The raw `skills` CLI installs `SKILL.md` files only; local MCP clients still
+The raw `skills` CLI installs `SKILL.md` files only; local MCP hosts still
 need a connector such as `npx @agent-native/core@latest connect https://assets.agent-native.com`.
 
 | Skill    | Alias              | For                    |
@@ -239,7 +235,7 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
-npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
 `reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
@@ -250,7 +246,7 @@ Never reinstall the skill from scratch just to fix a 401 — `reconnect` is the 
 
 ### Connect page fallback {#connect-page-fallback}
 
-For MCP clients that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
+For MCP hosts that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
 
 ```jsonc
 // .mcp.json
@@ -267,7 +263,7 @@ For MCP clients that cannot add a remote OAuth URL directly, open the app in you
 
 Restart the agent client after connecting so it picks up the new MCP server.
 
-Use this manual bearer block for MCP clients that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
+Use this manual bearer block for MCP hosts that cannot complete the standard remote MCP OAuth flow, or for one-off debugging when you explicitly want to paste a token.
 
 ### Standard remote MCP OAuth {#standard-oauth}
 
@@ -288,13 +284,14 @@ The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access 
 
 Current scopes are:
 
-| Scope       | Allows                                                                    |
-| ----------- | ------------------------------------------------------------------------- |
-| `mcp:read`  | read-only MCP actions and ordinary tool/resource discovery                |
-| `mcp:write` | mutating actions and the `ask-agent` meta-tool                            |
-| `mcp:apps`  | MCP Apps resource listing/reading and inline UI rendering where supported |
+| Scope            | Allows                                                                    |
+| ---------------- | ------------------------------------------------------------------------- |
+| `mcp:read`       | read-only MCP actions and ordinary tool/resource discovery                |
+| `mcp:write`      | mutating actions and the `ask-agent` meta-tool                            |
+| `mcp:apps`       | MCP Apps resource listing/reading and inline UI rendering where supported |
+| `offline_access` | refresh-token access so compatible hosts can stay connected               |
 
-When the client requests no explicit scope, the app grants all three so the connector behaves like the browser-authorized Connect flow. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
+When the client requests no explicit scope, the app grants all four so the connector behaves like the browser-authorized Connect flow and can refresh access without another sign-in. Keep the bearer-token Connect page and `npx @agent-native/core@latest connect --token <token>` fallback around for local dev, fallback hosts, and clients where you need a ready-to-paste config block.
 
 ## Catalog tiers {#catalog-tiers}
 
@@ -328,8 +325,9 @@ The MCP server serves a **compact catalog by default to every caller** — hoste
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> discovers full-tier tools on demand; the connector
+  catalog or authenticated-read policy must still permit execution unless the
+  caller explicitly opts into the full tier.
 </p>
 ```
 
@@ -367,15 +365,79 @@ The MCP server serves a **compact catalog by default to every caller** — hoste
 
 ### Compact / connector tier (default) {#connector-tier}
 
-By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface):
+By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface). Apps can either maintain an explicit `connectorCatalog`, or opt into the authenticated-read policy:
 
 - **Template-declared app actions** — the safe app-level allow-list. For Plan that is `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search`, and similar.
 - **Builtin cross-app tools** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`** is always present, so anything outside the list stays reachable on demand (see below).
+- **`tool-search`** is always present for discovery. A discovered action still needs to be in the connector catalog, included by the authenticated-read policy, or reached through the explicit full-catalog opt-in before `tools/call` can execute it.
 
-Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development. The connector tier is active **whenever a template declares a `connectorCatalog`** — it is not gated behind an environment variable.
+Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
 
-`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. That is how a compacted client discovers and loads any full-surface tool when it needs one.
+`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. It helps a compacted client discover capabilities; use `ask_app` for anything that requires the app agent's broader reasoning or a write.
+
+#### Authenticated reads by default
+
+Apps that want direct tools to "just work" without maintaining a long allow-list can opt into automatic authenticated reads:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "example-app",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Optional defense-in-depth veto for especially sensitive reads.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+This is a generic policy example. Analytics intentionally sets `authenticatedReads: "off"` and exposes only its reviewed `connectorCatalog` actions.
+
+`authenticatedReads: "auto"` adds only actions that explicitly declare all of the following:
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+The policy combines those actions with any explicit `connectorCatalog` entries, then applies `denyActions`. With `writes: "ask_app_only"` (the default when automatic reads are enabled), mutating tools are not directly callable; route multi-step work and mutations through `ask_app`. `writes: "allowlisted"` exists only for apps that intentionally maintain an explicit write allow-list.
+
+The policy is authenticated, not anonymous. MCP OAuth/connect identity is still carried through `runWithRequestContext`, so action-level access checks, owner/org scoping, and OAuth read scopes remain in force. Public/unauthenticated actions are not included by automatic reads.
+
+Generic core `db-schema` and `db-query` are intentionally **not** automatic external reads. They remain available to the in-app agent through the normal scoped SQL path, but broad schema/SQL access is too powerful to infer from read-only metadata alone. If an app needs direct external querying, expose an app-owned GET action with its own access checks and bounded query contract, or add an explicit app-level table/column allow-list with row, byte, timeout, and audit limits. `db-exec` and `db-patch` remain outside the automatic surface.
+
+This is a hard, name-based exclusion, not just a metadata omission: generic database/seed/browser-session/extension/Context X-Ray tools are never auto-exposed even if a future change accidentally annotates one with the full authenticated-read flag set — they always require an explicit `connectorCatalog` entry.
+
+#### Identity and authorization
+
+Authentication and authorization are separate gates. A verified MCP OAuth or
+connect token identifies the caller and organization; `publicAgent` only opts
+an action into the external protocol surface. It does not grant access to a
+record. Actions must still use the normal `accessFilter`, `resolveAccess`, or
+`assertAccess` helpers, so private documents and dashboards remain private,
+shared resources follow their share/org rules, and cross-organization reads are
+rejected.
+
+An app that supplies `resolveExecutionContext` explicitly replaces this default identity ladder. Its resolver must independently reject unverified callers, guests, external members, and unlinked workspaces before returning a principal.
+
+The default Slack integration follows the same rule. A verified Slack DM is
+matched to an existing Agent Native organization member and persisted as a
+workspace/user identity link before the agent runs, and the resulting user/org
+context loads that user's resources, instructions, and skills. By default, a
+hydrated workspace member whose email is missing or is not yet an organization
+member is declined. Apps may explicitly set
+`allowAnonymousOrgScopedSlackDm: true` to run those members as an anonymous
+org-scoped service principal instead — the same org-wide-visibility tier shared
+channels get, never user-private access — with an agent-visible note and a
+one-time Slack heads-up explaining how to gain personal access. This opt-in
+never admits hydration failures, unverified callers, guests or external (Slack
+Connect) members, or workspaces not connected to an organization; those receive
+a polite decline reply instead of a silent drop. Shared Slack channels use a service principal instead of
+borrowing one participant's private permissions. Managed Slack OAuth requests
+the `users:read.email` bot scope, and the generated Slack app manifest
+requests it too. Existing Slack installs must be reconnected/reinstalled to
+grant a newly added scope; legacy bot-token installs must add the scope in
+Slack manually. Without it, DMs fail closed unless the app explicitly enables
+`allowAnonymousOrgScopedSlackDm`.
 
 ### Full tier (explicit opt-in only) {#full-tier}
 
@@ -420,17 +482,12 @@ included regardless of the declared list.
 
 ## What you can do once connected {#what-you-can-do}
 
-Once your agent is connected, every caller gets the compact catalog by default
-(see [Catalog tiers](#catalog-tiers)) — code/stdio developer clients, the local
-CLI proxy, and chat hosts like Claude and ChatGPT alike. That surface is the
-template-declared app actions plus the builtin cross-app verbs (`list_apps`,
-`open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a
-natural-language task through an app agent (the same cross-app entry point
-[A2A](/docs/a2a-protocol) uses). `tool-search` is always present, so any tool
-outside the compact list stays reachable on demand. To get the full ~105-tool
-surface up front, opt in explicitly with `--full-catalog` or
-`AGENT_NATIVE_MCP_FULL_CATALOG=1`. In all cases, ask the agent to do real work
-and it hands back a link straight into the running app:
+Once your agent is connected, it sees the [compact catalog](#catalog-tiers) by
+default: template-declared app actions plus the builtin cross-app verbs
+(`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use
+`ask_app` to route a natural-language task through an app agent (the same
+cross-app entry point [A2A](/docs/a2a-protocol) uses). Ask the agent to do real
+work and it hands back a link straight into the running app:
 
 ```
 > draft an email to John about the Q3 report
@@ -453,7 +510,7 @@ entries and `resources/read` content, not on the tool descriptor.
 
 For ChatGPT/Claude-style OAuth app hosts, the discovery surface is compact by default: `tools/list` and `resources/list` advertise the generic `open_app` embed path instead of every action-specific MCP App resource (see [Catalog tiers](#catalog-tiers)). Mark an individual action with `mcpApp.compactCatalog: true` only when it truly needs to stay visible in chat-host discovery.
 
-That makes the same app surface available to every compatible host rather than building per-client shims. Which hosts render MCP Apps inline (and the connector-cache gotcha after metadata changes) lives in [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) — that page is the single home for the client matrix.
+That makes the same app surface available to every compatible host rather than building per-client shims. Which hosts render MCP Apps inline (and the connector-cache gotcha after metadata changes) lives in [MCP Apps → Host support and caching](/docs/mcp-apps#client-support) — that page is the single home for the host matrix.
 
 In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app. CLI/code-editor clients that do not render an iframe fall back to the deep link. Human-selection tools can add a paste-back step to that fallback: for example, the Assets picker opens from the fallback link, lets the user choose media in the browser, then copies a handoff summary that the user pastes back into the chat.
 
@@ -477,7 +534,7 @@ On top of the per-action tools the MCP server exposes a stable verb set, so an e
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
-The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the opt-in for safe read/ingest tools outside that compact catalog; set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
+The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools outside that compact catalog; apps may set `externalAgents.authenticatedReads: "auto"` to advertise those authenticated reads without a hand-written catalog. Set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
 
 For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
 
@@ -660,7 +717,7 @@ Restart the client after `install` so it picks up the new MCP server.
 
 ### Manual `.mcp.json` HTTP entry {#manual-entry}
 
-You can also write the MCP client config by hand against any deployed endpoint with a token you supply yourself (an `ACCESS_TOKEN`, or an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` so tool runs stay tenant-scoped):
+You can also write the host's MCP config by hand against any deployed endpoint with a token you supply yourself (an `ACCESS_TOKEN`, or an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` so tool runs stay tenant-scoped):
 
 ```jsonc
 // .mcp.json
@@ -675,7 +732,7 @@ You can also write the MCP client config by hand against any deployed endpoint w
 }
 ```
 
-This is the unmanaged equivalent of what `connect` writes for you. See [MCP Protocol](/docs/mcp-protocol) for the full auth env-var matrix.
+This is the unmanaged equivalent of what `connect` writes for you. See [MCP Server](/docs/mcp-protocol) for the full auth env-var matrix.
 
 ### Dev vs production tool surface {#dev-vs-prod}
 
@@ -710,7 +767,7 @@ Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP 
 The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
 
 - A logged-in browser session mints a **per-user, scoped, revocable** token — an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` and a unique `jti`, so every tool run stays tenant-scoped via `runWithRequestContext`.
-- The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Protocol](/docs/mcp-protocol)) — no new endpoint, no new transport.
+- The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Server](/docs/mcp-protocol)) — no new endpoint, no new transport.
 - The same Connect page lists every token you've minted and lets you **revoke** any of them by `jti`. Treat them like personal access tokens: one per agent client, revoke when a machine is decommissioned.
 - The deep link the agent hands back carries no privileged state. The record-focusing `navigate` write is always scoped to the **browser** session, never the agent's token — so a link is safe to paste into a terminal or chat transcript.
 
@@ -745,10 +802,10 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - Invent a new navigation mechanism; bridge to the existing `navigate` / `application_state` contract.
 - Widen the public template allow-list when scaffolding an app from an external agent — the allow-list is authoritative and guarded.
 
-## Related {#related}
+## What's next {#whats-next}
 
 - [MCP Apps](/docs/mcp-apps) — authoring MCP App UIs, the embed bridge, and host bridge API.
-- [MCP Protocol](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
+- [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool.
 - [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers.
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls.
 - [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`.

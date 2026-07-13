@@ -5,10 +5,15 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { isBoardFile } from "../shared/board-file.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import {
+  assertDesignHtmlEditIntegrity,
+  isDesignHtmlIntegrityError,
+} from "../shared/html-integrity.js";
+import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 import type { DesignSourceType } from "../shared/source-mode.js";
 import {
   languageForSourcePath,
@@ -49,6 +54,31 @@ export interface SourceWorkspaceFile {
 // the expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
+/**
+ * Normalize affected-row metadata from every createGetDb backend: libSQL,
+ * PGlite, Neon, postgres.js, better-sqlite3, and D1.
+ */
+function affectedRowCount(result: unknown): number | undefined {
+  const candidate = result as
+    | {
+        rowsAffected?: unknown;
+        affectedRows?: unknown;
+        rowCount?: unknown;
+        count?: unknown;
+        changes?: unknown;
+        meta?: { changes?: unknown };
+      }
+    | undefined;
+  const value =
+    candidate?.rowsAffected ??
+    candidate?.affectedRows ??
+    candidate?.rowCount ??
+    candidate?.count ??
+    candidate?.changes ??
+    candidate?.meta?.changes;
+  return typeof value === "number" ? value : undefined;
+}
+
 // Exported so other write paths touching the same per-file critical section
 // (content read -> optimistic-concurrency hash check -> collab/SQL write) can
 // serialize under the SAME lock instead of each guarding independently. Two
@@ -57,15 +87,11 @@ const _writeLocks = new Map<string, Promise<void>>();
 // prevent the interleave, only serializing the whole read-check-write section
 // per file id does. See actions/update-file.ts's content-write path.
 //
-// IN-PROCESS ONLY: `_writeLocks` is a plain JS `Map`, so this only serializes
-// writes within a single Node.js process/worker. Multi-instance / horizontally
-// scaled hosted deployments (several server processes/pods behind a load
-// balancer) do NOT share this lock — two requests routed to DIFFERENT
-// processes can still race past each other, since each process has its own
-// independent `_writeLocks` Map. A real cross-process guard would need
-// something like a Postgres/SQL advisory lock (e.g. `pg_advisory_lock`) or a
-// distributed lock service, keyed by file id, shared across all instances.
-// This is a known, tracked follow-up — not implemented here.
+// `_writeLocks` is intentionally only a fast in-process serialization layer.
+// Cross-process correctness comes from the content + updatedAt SQL CAS in
+// writeInlineSourceFile (and the operation-lineage CAS in update-file): a
+// different instance that commits first makes the losing update affect zero
+// rows, so it is rejected instead of overwriting the winner.
 export async function withSourceFileWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
@@ -107,17 +133,7 @@ export interface SourceWorkspaceContext {
 }
 
 function parseDesignDataSourceType(value: unknown): DesignSourceType {
-  if (typeof value !== "string") return "inline";
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const raw = (parsed as Record<string, unknown>).sourceType;
-      return normalizeDesignSourceType(raw) ?? "inline";
-    }
-  } catch {
-    // Invalid design data falls back to inline, matching existing actions.
-  }
-  return "inline";
+  return designSourceTypeFromData(value);
 }
 
 function parseDesignDataBoardFileId(value: unknown): string | null {
@@ -221,6 +237,70 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
   };
 }
 
+/**
+ * A caller-supplied editor snapshot has two distinct identities:
+ *
+ * - `content` is the working copy the mutation must transform (it may contain
+ *   unsaved local edits), while
+ * - `expectedVersionHash` is the live source version that working copy is
+ *   allowed to replace.
+ *
+ * Hashing `currentContent` for both roles creates a false conflict whenever a
+ * local working copy is legitimately ahead of the persisted/live base. This
+ * helper accepts that working copy only when its SQL revision still matches
+ * and the live document is either the persisted base it was derived from or
+ * the working copy itself (for callers that already published it to Yjs).
+ * Any third live value is a genuine concurrent edit and fails closed. The
+ * returned live hash must be passed to `writeInlineSourceFile`, whose
+ * read-check-write lock closes the race after this preparation step.
+ */
+export class SourceWorkspaceEditConflictError extends Error {
+  constructor(
+    message = "Source file changed since the editor snapshot was prepared.",
+  ) {
+    super(message);
+    this.name = "SourceWorkspaceEditConflictError";
+  }
+}
+
+export async function prepareInlineSourceEdit(args: {
+  file: SourceWorkspaceFile;
+  currentContent?: string;
+  revision?: string;
+}): Promise<{ content: string; expectedVersionHash: string }> {
+  const live = await readLiveSourceFile(args.file);
+
+  if (args.currentContent === undefined) {
+    return {
+      content: live.content,
+      expectedVersionHash: live.versionHash,
+    };
+  }
+
+  if (!args.revision) {
+    throw new SourceWorkspaceEditConflictError(
+      "A source revision is required with current editor content.",
+    );
+  }
+  if (!args.file.updatedAt || args.revision !== args.file.updatedAt) {
+    throw new SourceWorkspaceEditConflictError();
+  }
+
+  const persistedVersionHash = sourceContentHash(args.file.content ?? "");
+  const workingVersionHash = sourceContentHash(args.currentContent);
+  if (
+    live.versionHash !== persistedVersionHash &&
+    live.versionHash !== workingVersionHash
+  ) {
+    throw new SourceWorkspaceEditConflictError();
+  }
+
+  return {
+    content: args.currentContent,
+    expectedVersionHash: live.versionHash,
+  };
+}
+
 export async function writeInlineSourceFile(args: {
   designId: string;
   file: SourceWorkspaceFile;
@@ -266,6 +346,19 @@ export async function writeInlineSourceFile(args: {
       };
     }
 
+    if (
+      currentFile.fileType === "html" ||
+      currentFile.fileType === "jsx" ||
+      current.content.includes("data-agent-native-locked")
+    ) {
+      assertLockedLayersPreserved(current.content, args.content);
+    }
+    assertDesignHtmlEditIntegrity({
+      previousContent: current.content,
+      nextContent: args.content,
+      fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+    });
+
     if (await hasCollabState(args.file.id)) {
       const liveBeforeApply = await getText(args.file.id, "content");
       if (
@@ -277,7 +370,30 @@ export async function writeInlineSourceFile(args: {
         );
       }
       if (liveBeforeApply !== args.content) {
-        await applyText(args.file.id, args.content, "content", "agent");
+        try {
+          await applyText(args.file.id, args.content, "content", "agent", {
+            // A human artboard edit can reach the shared Y.Doc from another
+            // serverless process after the version check above. Validate the
+            // fully converged CRDT snapshot before core persists or broadcasts
+            // the agent diff so clients never observe a malformed intermediate
+            // document that is immediately rolled back below.
+            validateSnapshot: (snapshot) =>
+              assertDesignHtmlEditIntegrity({
+                previousContent: current.content,
+                nextContent: snapshot,
+                fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+              }),
+          });
+        } catch (error) {
+          if (!isDesignHtmlIntegrityError(error)) throw error;
+          // The caller's candidate already passed the integrity check above.
+          // A failure here therefore came from concurrent CRDT convergence,
+          // so surface it as a retryable conflict instead of blaming the edit
+          // with the invalid-HTML toast.
+          throw new SourceWorkspaceEditConflictError(
+            "Source file changed while the edit was being applied. Re-read the file and retry.",
+          );
+        }
       }
     } else {
       // No collab doc exists for this file yet. Without the write-lock this
@@ -299,11 +415,76 @@ export async function writeInlineSourceFile(args: {
     // true mirror of the converged live document under the lock rather than
     // trusting args.content directly.
     const authoritativeContent = await getText(args.file.id, "content");
+    try {
+      assertDesignHtmlEditIntegrity({
+        previousContent: current.content,
+        nextContent: authoritativeContent,
+        fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+      });
+    } catch (error) {
+      // `applyText` is a full-target diff, but keep the write transaction
+      // fail-closed even if a malformed/concurrent collab state somehow
+      // converges to something other than the validated candidate. Restore
+      // the exact pre-write live content before SQL can observe corruption.
+      await applyText(args.file.id, current.content, "content", "agent");
+      throw error;
+    }
 
-    await db
+    // The JS lock is process-local. Guard the SQL mirror with the exact
+    // content + revision read above so a writer on another instance cannot
+    // commit between our read/live-doc mutation and this final persistence.
+    const updateResult = await db
       .update(schema.designFiles)
-      .set({ content: authoritativeContent, updatedAt })
-      .where(eq(schema.designFiles.id, args.file.id));
+      .set({
+        content: authoritativeContent,
+        updatedAt,
+        // This action/agent write is outside the browser save sequence. Break
+        // that lineage so a later tab revision must pass its ordinary content
+        // hash guard instead of inheriting a stale same-source bypass.
+        contentOperationSource: null,
+        contentOperationRevision: null,
+        contentOperationResultHash: null,
+      })
+      .where(
+        and(
+          eq(schema.designFiles.id, args.file.id),
+          eq(schema.designFiles.designId, args.designId),
+          eq(schema.designFiles.content, currentFile.content),
+          currentFile.updatedAt === null
+            ? isNull(schema.designFiles.updatedAt)
+            : eq(schema.designFiles.updatedAt, currentFile.updatedAt),
+        ),
+      );
+
+    const affected = affectedRowCount(updateResult);
+    let persisted = affected === 1;
+    if (affected === undefined) {
+      const [confirmed] = await db
+        .select({
+          content: schema.designFiles.content,
+          updatedAt: schema.designFiles.updatedAt,
+        })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, args.file.id))
+        .limit(1);
+      persisted =
+        confirmed?.content === authoritativeContent &&
+        confirmed.updatedAt === updatedAt;
+    }
+
+    if (!persisted) {
+      const [winner] = await db
+        .select({ content: schema.designFiles.content })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, args.file.id))
+        .limit(1);
+      if (winner && winner.content !== authoritativeContent) {
+        await applyText(args.file.id, winner.content, "content", "agent");
+      }
+      throw new SourceWorkspaceEditConflictError(
+        "Source file changed while it was being saved. Re-read the file and retry.",
+      );
+    }
 
     await db
       .update(schema.designs)

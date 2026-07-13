@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
   />
 </WireframeBlock>
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a public Clips share link or a temporary **Copy for agent** link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app: async screen recordings, calendar-synced meeting notes, and push-to-talk voice dictation — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a public Clips share link or a temporary **Copy for agent** link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
 <Diagram id="doc-block-pqnd4p" title="Capture, transcribe, reuse" summary={"Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."}>
 
@@ -77,6 +77,9 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 ## What you can do with it
 
 - **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
+- **Import public Loom videos.** On the web, select **Record → Import Loom**,
+  then paste a Loom share or embed URL. Clips saves a copy in your library and
+  imports the public transcript when one is available.
 - **Capture meetings from your calendar.** Connect Google Calendar, see upcoming meetings in the sidebar, and hit record on any one. You get a live transcript plus AI summary, bullet notes, and action items the moment it ends.
 - **Push-to-talk dictation.** Hold Fn on your machine, speak, and the cleaned-up text drops into whatever app you're using. Every dictation is kept in a searchable history with originals and AI-cleaned versions side by side.
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
@@ -571,7 +574,7 @@ Routes in the UI live under `templates/clips/app/routes/` — the authenticated 
 
 ### Key actions
 
-Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are ~80 actions; the useful groupings:
+Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are about 100 actions; the useful groupings:
 
 - **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `get-recording-player-data` returns the sidecar to editors.

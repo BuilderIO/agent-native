@@ -253,12 +253,12 @@ export function usePullDocumentFromNotion(documentId: string) {
 
 export function usePushDocumentToNotion(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<DocumentSyncStatus, { documentId: string }>(
-    "push-notion-page",
-    {
-      onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
-    },
-  );
+  return useActionMutation<
+    DocumentSyncStatus,
+    { documentId: string; flushOpenEditor?: boolean }
+  >("push-notion-page", {
+    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+  });
 }
 
 export function useResolveDocumentSyncConflict(documentId: string) {

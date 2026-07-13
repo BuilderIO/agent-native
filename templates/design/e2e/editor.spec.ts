@@ -42,15 +42,15 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
-test("share dialog uses compact editor panel chrome", async ({
-  page,
-}, testInfo) => {
+test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   await page
-    .getByRole("button", { name: /^share$/i })
+    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
     .first()
     .click();
 
-  const shareOptions = page.getByRole("tablist", { name: "Share options" });
+  const shareOptions = page.locator(
+    '[role="tablist"][aria-label="Share options"]',
+  );
   await expect(shareOptions).toBeVisible();
 
   const tabListBox = await shareOptions.boundingBox();
@@ -58,13 +58,13 @@ test("share dialog uses compact editor panel chrome", async ({
     340,
   );
   expect(tabListBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    28,
+    42,
   );
 
   const sendTab = page.getByRole("tab", { name: "Send to agent" });
   const sendTabBox = await sendTab.boundingBox();
   expect(sendTabBox?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-    26,
+    36,
   );
 
   await sendTab.click();
@@ -83,7 +83,7 @@ test("share dialog uses compact editor panel chrome", async ({
   );
 
   await page.getByRole("tab", { name: "Share link" }).click();
-  await page.getByRole("button", { name: "General access" }).click();
+  await page.getByRole("combobox", { name: "General access" }).click();
   await expect(
     page.getByRole("option", { name: /Organization/ }),
   ).toBeVisible();
@@ -107,30 +107,39 @@ test("share dialog uses compact editor panel chrome", async ({
   await cdpScreenshot(page, testInfo.outputPath("share-dialog-compact.png"));
 });
 
-test("screen overview resizes previews from the device selector", async ({
+test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {
-  const firstScreenCard = page.locator("[data-screen-card]").first();
-  await expect(firstScreenCard).toBeVisible();
+  const breakpointControl = page.locator("[data-breakpoint-device-control]");
+  await expect(
+    breakpointControl.getByRole("button", { name: "Base" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("button", { name: "Device preview" }).first().click();
-  await page.getByRole("menuitemradio", { name: "Desktop" }).click();
-  await expect(page.getByText("1280 x 800").first()).toBeVisible();
-  const desktopBox = await firstScreenCard.boundingBox();
-  if (!desktopBox) throw new Error("missing desktop screen card bounds");
+  await breakpointControl
+    .getByRole("button", { name: "Add breakpoint" })
+    .click();
+  await page.getByRole("button", { name: /Phone/ }).click();
 
-  await page.getByRole("button", { name: "Device preview" }).first().click();
-  await page.getByRole("menuitemradio", { name: "Mobile" }).click();
-  await expect(page.getByText("390 x 844").first()).toBeVisible();
-  await expect
-    .poll(async () => (await firstScreenCard.boundingBox())?.width ?? 0)
-    .toBeLessThan(desktopBox.width - 1);
+  const mobileTarget = breakpointControl.getByRole("button", { name: "390" });
+  await expect(mobileTarget).toBeVisible();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(1);
+  await mobileTarget.click();
+  await expect(mobileTarget).toHaveAttribute("aria-pressed", "true");
+  await breakpointControl.getByRole("button", { name: "Base" }).click();
+  await expect(
+    breakpointControl.getByRole("button", { name: "Base" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByRole("button", { name: "Device preview" }).first().click();
-  await page.getByRole("menuitemradio", { name: "Responsive" }).click();
+  // Leave the shared seed design pristine for later inspector/browser specs.
+  await mobileTarget.click();
+  await breakpointControl
+    .getByRole("button", { name: "Breakpoint options" })
+    .click();
+  await page.getByRole("menuitem", { name: "Remove breakpoint" }).click();
+  await expect(page.locator("[data-breakpoint-frame]")).toHaveCount(0);
 });
 
-test("screen overview keeps the name readable when frame header space is tight", async ({
+test("screen overview keeps compact frame actions contained when header space is tight", async ({
   page,
 }) => {
   const screenShell = page
@@ -166,8 +175,15 @@ test("screen overview keeps the name readable when frame header space is tight",
   }
 
   expect(titleBox.width).toBeGreaterThan(0);
-  expect(titleBox.x).toBeLessThan(cardBox.x + cardBox.width);
-  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1);
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(fullViewBox.x + 1);
+  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x);
+  expect(fullViewBox.x + fullViewBox.width).toBeLessThanOrEqual(
+    cardBox.x + cardBox.width + 1,
+  );
+  await expect(screenShell.locator("[data-frame-full-view]")).toHaveAttribute(
+    "data-compact",
+    "true",
+  );
 });
 
 test("screen overview lets users select elements inside the active screen", async ({

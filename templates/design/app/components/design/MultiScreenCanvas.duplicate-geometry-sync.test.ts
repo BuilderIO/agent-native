@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  resolveFrameGeometrySync,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+import { resolveFrameGeometrySync } from "./multi-screen/frame-geometry";
+import type { FrameGeometry } from "./multi-screen/types";
 
 /**
  * B5-9 regression coverage: alt-drag duplicating a screen (or drawing a new

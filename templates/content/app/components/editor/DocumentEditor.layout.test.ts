@@ -146,6 +146,12 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "awareness={collabEnabled ? awareness : null}",
     );
+    expect(documentEditorSource).toContain(
+      'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
+    );
+    expect(documentEditorSource).toContain(
+      'awareness.setLocalStateField("canFlushDocument", false)',
+    );
 
     // Comments stay editor-only — viewers must not open the comment endpoints.
     expect(documentEditorSource).toContain(
@@ -177,6 +183,38 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "saved?.content === lastSavedContentRef.current.content",
     );
+  });
+
+  it("localizes the live-editor flush failure fallback", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain('t("editor.liveDocumentSaveBeforeSyncFailed")');
+    expect(source).not.toContain(
+      'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
+    );
+  });
+
+  it("wakes live-editor flush reads from shared sync events instead of polling", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("useDbSync({ onEvent: handleFlushRequestEvent })");
+    expect(source).toContain('event.source === "app-state"');
+    expect(source).toContain(
+      'event.key === flushRequestKey || event.key === "*"',
+    );
+    expect(source).toContain("void flushIfRequested()");
+    expect(source).not.toContain("setTimeout(poll, 600)");
+    expect(source).not.toContain("setTimeout(flushIfRequested");
   });
 
   it("lets slash-created page references use the editor save pipeline", () => {

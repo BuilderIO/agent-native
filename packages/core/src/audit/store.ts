@@ -8,7 +8,11 @@
  * shares table — audit rows are never individually shared).
  */
 import { getDbExec, intType, isPostgres } from "../db/client.js";
-import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureTableExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 import type {
   AuditEvent,
   AuditQueryFilters,
@@ -40,13 +44,42 @@ export async function ensureAuditTables(): Promise<void> {
           error_code TEXT,
           owner_email TEXT,
           visibility TEXT NOT NULL DEFAULT 'private'
+          ,run_id TEXT
+          ,task_id TEXT
+          ,parent_task_id TEXT
+          ,source_kind TEXT
+          ,source_platform TEXT
+          ,source_id TEXT
+          ,source_url TEXT
+          ,network_protocol TEXT
+          ,network_id TEXT
+          ,network_peer TEXT
         )
       `;
+      const lineageColumns = [
+        "run_id",
+        "task_id",
+        "parent_task_id",
+        "source_kind",
+        "source_platform",
+        "source_id",
+        "source_url",
+        "network_protocol",
+        "network_id",
+        "network_peer",
+      ];
 
       if (isPostgres()) {
         // PG-guard: probe information_schema / pg_indexes before issuing DDL to
         // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("agent_audit_log", createSql);
+        for (const column of lineageColumns) {
+          await ensureColumnExists(
+            "agent_audit_log",
+            column,
+            `ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+          );
+        }
         await ensureIndexExists(
           "idx_audit_owner",
           `CREATE INDEX IF NOT EXISTS idx_audit_owner ON agent_audit_log (owner_email, created_at)`,
@@ -76,6 +109,13 @@ export async function ensureAuditTables(): Promise<void> {
 
       // SQLite (local dev): no lock problem — keep the original behaviour.
       await client.execute(createSql);
+      for (const column of lineageColumns) {
+        try {
+          await client.execute(
+            `ALTER TABLE agent_audit_log ADD COLUMN ${column} TEXT`,
+          );
+        } catch {}
+      }
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_audit_owner ON agent_audit_log (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_audit_org ON agent_audit_log (org_id, created_at)`,
@@ -107,8 +147,10 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
     sql: `INSERT INTO agent_audit_log
       (id, created_at, action, caller, actor_kind, actor_email, org_id,
        thread_id, turn_id, target_type, target_id, status, summary, input,
-       error_code, owner_email, visibility)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       error_code, owner_email, visibility, run_id, task_id, parent_task_id,
+       source_kind, source_platform, source_id, source_url, network_protocol,
+       network_id, network_peer)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       event.id,
       event.createdAt,
@@ -127,6 +169,16 @@ export async function insertAuditEvent(event: AuditEvent): Promise<void> {
       event.errorCode,
       event.ownerEmail,
       event.visibility,
+      event.runId ?? null,
+      event.taskId ?? null,
+      event.parentTaskId ?? null,
+      event.sourceKind ?? null,
+      event.sourcePlatform ?? null,
+      event.sourceId ?? null,
+      event.sourceUrl ?? null,
+      event.networkProtocol ?? null,
+      event.networkId ?? null,
+      event.networkPeer ?? null,
     ],
   });
 }
@@ -150,6 +202,16 @@ function mapRow(row: any): AuditEvent {
     errorCode: row.error_code ?? null,
     ownerEmail: row.owner_email ?? null,
     visibility: (row.visibility ?? "private") as AuditVisibility,
+    runId: row.run_id ?? null,
+    taskId: row.task_id ?? null,
+    parentTaskId: row.parent_task_id ?? null,
+    sourceKind: row.source_kind ?? null,
+    sourcePlatform: row.source_platform ?? null,
+    sourceId: row.source_id ?? null,
+    sourceUrl: row.source_url ?? null,
+    networkProtocol: row.network_protocol ?? null,
+    networkId: row.network_id ?? null,
+    networkPeer: row.network_peer ?? null,
   };
 }
 
@@ -188,7 +250,9 @@ function scopeClause(scope: AuditReadScope): { sql: string; args: any[] } {
   return { sql: `(${clauses.join(" OR ")})`, args };
 }
 
-const MAX_LIMIT = 500;
+// Exported so callers that must page past a single call (e.g.
+// `export-audit-events`) can mirror the clamp instead of guessing it.
+export const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 
 // Columns returned by the list surface — deliberately EXCLUDES `input` so a
@@ -223,6 +287,10 @@ export async function queryAuditEvents(
   if (filters.threadId) push("thread_id = ?", filters.threadId);
   if (filters.turnId) push("turn_id = ?", filters.turnId);
   if (filters.action) push("action = ?", filters.action);
+  if (filters.taskId) push("task_id = ?", filters.taskId);
+  if (filters.runId) push("run_id = ?", filters.runId);
+  if (filters.sourcePlatform)
+    push("source_platform = ?", filters.sourcePlatform);
   if (typeof filters.sinceMs === "number") {
     push("created_at >= ?", Math.floor(filters.sinceMs));
   }
@@ -231,13 +299,16 @@ export async function queryAuditEvents(
     Math.max(1, Math.floor(filters.limit ?? DEFAULT_LIMIT)),
     MAX_LIMIT,
   );
+  // 0-based, default-compatible: existing callers that never pass `offset`
+  // keep selecting from the top of the ordered result set.
+  const offset = Math.max(0, Math.floor(filters.offset ?? 0));
 
   const result = await client.execute({
     sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
           ORDER BY created_at DESC
-          LIMIT ?`,
-    args: [...args, limit],
+          LIMIT ? OFFSET ?`,
+    args: [...args, limit, offset],
   });
   return (result.rows ?? []).map(mapRow);
 }

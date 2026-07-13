@@ -123,6 +123,28 @@ env 또는 로컬 계획에서 값을 사용할 수 있는 경우 비밀/변수
 커밋된 `visual-recap` 폴더를 고정하고 저장소 변수를 설정합니다.
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## 러너 선택
+
+기본적으로 워크플로는 GitHub에서 호스팅하는 `ubuntu-latest` 러너에서 실행됩니다. 다른 호스팅 러너나 자체 호스팅 러너를 사용하려면 저장소 또는 조직 변수 `VISUAL_RECAP_RUNS_ON`을 유효한 JSON 문자열이나 러너 레이블의 JSON 배열로 설정하세요.
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON 따옴표는 필수입니다. 이 값은 전체 `recap` 작업의 러너를 선택합니다. 안내식 설정 중 구성하려면 동일한 JSON 값을 `--runs-on`에 전달한 다음 `doctor`로 워크플로와 러너 가용성을 검증하세요.
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+경량 게이트는 별도로 `ubuntu-latest`를 사용합니다. GitHub 호스팅 러너를 비활성화한 저장소는 `VISUAL_RECAP_GATE_RUNS_ON`을 JSON이 아닌 단일 일반 레이블로 설정하거나 `--gate-runs-on visual-recap-gate`를 사용할 수 있습니다. 사용자 지정 레이블은 같은 저장소의 `OWNER`, `MEMBER`, `COLLABORATOR` 작성자에게만 사용됩니다. 포크와 그 밖의 작성자는 `ubuntu-latest`로 강제되며 GitHub 호스팅 러너가 꺼져 있으면 예약되지 않을 수 있습니다. 전용이며 가능하면 임시인 러너를 사용하세요. 기본 게이트는 PR 트리를 체크아웃하지 않고 워크플로 로직과 PR 메타데이터를 평가합니다.
+
+`recap doctor`는 잘못된 형식이나 지원되지 않는 JSON을 거부하며 구성된 모든 레이블과 일치하는 온라인 러너를 GitHub에서 찾을 수 없을 때 이를 보고합니다. 러너 등록, 설치, 업그레이드, 용량 및 유지 관리는 계속 사용자의 책임입니다. Agent Native는 레이블을 선택할 뿐 러너를 제공하거나 운영하지 않습니다.
+
+**보안:** 임시 자체 호스팅 러너를 권장합니다. 영구 자체 호스팅 러너는 신뢰할 수 있는 기여자만 있는 비공개 저장소에만 사용해야 합니다. 워크플로는 신뢰할 수 없는 공개 또는 포크 PR 작성자에게 자체 호스팅 작업을 할당하기 전에 안전하게 중단하지만, 영구 머신은 작업 사이에 워크스페이스와 프로세스 상태를 유지합니다. 이 게이트를 약화하거나 신뢰할 수 없는 기여를 영구 러너로 보내지 마세요.
+
 ## 백엔드 선택
 
 `VISUAL_RECAP_AGENT` 저장소 변수를 사용하여 기술을 실행하는 코딩 에이전트를 선택하세요:
@@ -138,11 +160,11 @@ env 또는 로컬 계획에서 값을 사용할 수 있는 경우 비밀/변수
 
 백엔드 외에도 두 개의 저장소 변수가 에이전트 실행 *방법*을 조정합니다.
 
-- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달된 모델을 고정합니다. 예를 들어 Codex의 경우 `gpt-5.5` 또는 Claude 모델 ID입니다. CLI 자체 기본 모델을 사용하려면 설정하지 않은 상태로 두세요.
+- **`VISUAL_RECAP_MODEL`**는 CLI(`--model`)에 전달된 모델을 고정합니다. 예를 들어 Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. CLI 자체 기본 모델을 사용하려면 설정하지 않은 상태로 두세요.
 - **`VISUAL_RECAP_REASONING`**는 추론 깊이를 `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`로 설정합니다. 이는 Codex 백엔드에 적용됩니다. Claude의 추론은 모델 중심이므로 이 변수는 무시됩니다.
 - **`VISUAL_RECAP_SKILL_SOURCE`**는 프롬프트 최신성을 제어합니다. `auto`/unset은 최신 번들 기술 지침을 사용하고 `repo`는 커밋된 저장소 로컬 `visual-recap` 기술 폴더에 고정합니다.
 
-예를 들어 GPT-5.5를 사용하여 Codex에 대한 요약을 실행하려면 저장소 변수 `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5` 및 `VISUAL_RECAP_REASONING=high`를 설정하세요.
+예를 들어 GPT-5.6 Sol를 사용하여 Codex에 대한 요약을 실행하려면 저장소 변수 `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` 및 `VISUAL_RECAP_REASONING=high`를 설정하세요.
 
 ## 비밀 및 변수
 
@@ -191,7 +213,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 비밀. 대신 Codex로 요약을 실행하려면 `VISUAL_RECAP_AGENT=codex`와 함께 설정하세요.                                                                  |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 변수. 코딩 에이전트 백엔드(`claude` 또는 `codex`)를 선택합니다.                                                                                     |
-| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.5` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                              |
+| `VISUAL_RECAP_MODEL`     | 각 CLI의 기본값                 | 변수입니다. 모델을 고정합니다. Codex의 경우 `gpt-5.6-sol` 또는 Claude 모델 ID입니다. Unset은 CLI 자체 기본값을 사용합니다.                          |
 | `VISUAL_RECAP_REASONING` | 각 모델의 기본값                | 변수입니다. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high` 또는 `xhigh`. Codex 백엔드에 적용됩니다.                                          |
 | `RECAP_CLI_VERSION`      | `latest`                        | 변수입니다. 워크플로가 설치하는 `@agent-native/core` CLI 버전을 고정합니다. `1.5.0`. [Version pinning](#version-pinning-copy-variant)를 참조하세요. |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 비밀. 다른 출처에서 Plans 앱을 자체 호스팅하는 경우에만 해당됩니다.                                                                                 |
@@ -460,10 +482,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables)에 설명된 것과 동일한 비밀 및 변수가 적용됩니다. 복사 변형과 동일한 방식으로 저장소 설정에서 설정하세요.
+[Secrets and variables](#secrets-and-variables)에 설명된 것과 동일한 비밀 및 변수가 적용됩니다. 재사용 가능한 호출자는 전체 작업에 `VISUAL_RECAP_RUNS_ON`을 `runs-on`으로, 게이트에 `VISUAL_RECAP_GATE_RUNS_ON`을 단일 레이블 `gate-runs-on`으로 전달합니다. 생략하면 둘 다 `ubuntu-latest`를 사용합니다.
 
 ### CLI를 통해 설치
 

@@ -8,17 +8,27 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  DESIGN_SYSTEM_TEMPLATE_IDS,
+  getProductionDesignSystemTemplate,
+} from "../shared/design-system-templates.js";
 
-export default defineAction({
-  description:
-    "Create a new design system with brand colors, typography, spacing, and other design tokens. " +
-    "If this is the first design system for the user, it is automatically set as the default.",
-  schema: z.object({
+export const createDesignSystemSchema = z
+  .object({
+    templateId: z
+      .enum(DESIGN_SYSTEM_TEMPLATE_IDS)
+      .optional()
+      .describe(
+        "Optional production design-system template to copy: material-3, carbon-white, or primer-light",
+      ),
     title: z
       .string()
       .trim()
       .min(1, "title is required")
-      .describe("Design system name (e.g. 'Acme Corp Brand')"),
+      .optional()
+      .describe(
+        "Design system name (required without templateId; optional title override for a template)",
+      ),
     description: z
       .string()
       .optional()
@@ -27,8 +37,9 @@ export default defineAction({
       .string()
       .trim()
       .min(1, "data is required")
+      .optional()
       .describe(
-        "JSON string of DesignSystemData (colors, typography, spacing, etc.)",
+        "JSON string of DesignSystemData (required without templateId; templates supply their verified token snapshot)",
       ),
     assets: z
       .string()
@@ -38,13 +49,71 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Free-form guidance the agent should follow whenever it generates designs using this design system (tone, voice, layout preferences, dos and don'ts).",
+        "Free-form guidance the agent should follow whenever it generates designs using this design system (tone, voice, layout preferences, dos and don'ts). For templates, this is appended to the system's built-in guidance.",
       ),
-  }),
-  run: async ({ title, description, data, assets, customInstructions }) => {
+  })
+  .superRefine((value, ctx) => {
+    if (!value.templateId && !value.title) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["title"],
+        message: "title is required without templateId",
+      });
+    }
+    if (!value.templateId && !value.data) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["data"],
+        message: "data is required without templateId",
+      });
+    }
+    if (value.templateId && value.data) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["data"],
+        message: "data cannot override a production template snapshot",
+      });
+    }
+  });
+
+export default defineAction({
+  description:
+    "Create a design system from custom tokens or copy a source-linked production template (Material Design 3, Carbon, or Primer). " +
+    "If this is the first design system for the user, it is automatically set as the default.",
+  schema: createDesignSystemSchema,
+  run: async ({
+    templateId,
+    title,
+    description,
+    data,
+    assets,
+    customInstructions,
+  }) => {
+    const template = templateId
+      ? getProductionDesignSystemTemplate(templateId)
+      : undefined;
+    const resolvedTitle = title ?? template?.title;
+    const resolvedDescription = description ?? template?.description;
+    const resolvedData =
+      data ?? (template ? JSON.stringify(template.data) : "");
+    const resolvedInstructions = template
+      ? [
+          template.customInstructions,
+          customInstructions?.trim()
+            ? `Additional guidance:\n${customInstructions.trim()}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : (customInstructions ?? "");
+
+    if (!resolvedTitle || !resolvedData) {
+      throw new Error("title and data are required");
+    }
+
     // Validate that data is valid JSON and not an empty primitive.
     try {
-      const parsed = JSON.parse(data);
+      const parsed = JSON.parse(resolvedData);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error();
       }
@@ -89,11 +158,11 @@ export default defineAction({
 
     await db.insert(schema.designSystems).values({
       id,
-      title,
-      description: description ?? null,
-      data,
+      title: resolvedTitle,
+      description: resolvedDescription ?? null,
+      data: resolvedData,
       assets: assets ?? null,
-      customInstructions: customInstructions ?? "",
+      customInstructions: resolvedInstructions,
       isDefault,
       ownerEmail,
       orgId,
@@ -101,6 +170,13 @@ export default defineAction({
       updatedAt: now,
     });
 
-    return { id, title, isDefault };
+    return {
+      id,
+      title: resolvedTitle,
+      isDefault,
+      templateId: template?.id,
+      sourceUrl: template?.sourceUrl,
+      version: template?.version,
+    };
   },
 });

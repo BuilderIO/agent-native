@@ -429,8 +429,8 @@
   color: hsl(var(--foreground));
   cursor: text;
   transition:
-    background-color 120ms ease-in,
-    color 120ms ease-in;
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
 
 .notion-toggle__body-placeholder::before {
@@ -1011,7 +1011,7 @@
   width: 1rem;
   height: 1.7em;
   border-radius: 3px;
-  transition: background 120ms ease-in;
+  transition: background-color 120ms ease-out;
 }
 .notion-toggle__chevron:hover {
   background: hsl(var(--muted));
@@ -1452,9 +1452,9 @@ audio.media-block__content {
   pointer-events: none;
   transform: translateY(-4px);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
-    visibility 0s linear 300ms;
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
+    visibility 0s linear 200ms;
   visibility: hidden;
 }
 
@@ -1463,8 +1463,8 @@ audio.media-block__content {
   pointer-events: auto;
   transform: translateY(0);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
     visibility 0s linear 0s;
   visibility: visible;
 }
@@ -1483,9 +1483,9 @@ audio.media-block__content {
   pointer-events: none;
   transform: translateY(-50%) scaleX(0.96);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
-    visibility 0s linear 300ms;
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
+    visibility 0s linear 200ms;
   visibility: hidden;
 }
 
@@ -1494,8 +1494,8 @@ audio.media-block__content {
   pointer-events: auto;
   transform: translateY(-50%) scaleX(1);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
     visibility 0s linear 0s;
   visibility: visible;
 }
@@ -1558,10 +1558,10 @@ audio.media-block__content {
     0 1px 3px hsl(0 0% 0% / 0.12);
   cursor: pointer;
   transition:
-    background 300ms ease-in-out,
-    border-color 300ms ease-in-out,
-    color 300ms ease-in-out,
-    transform 300ms ease-in-out;
+    background 200ms ease-out,
+    border-color 200ms ease-out,
+    color 200ms ease-out,
+    transform 200ms ease-out;
 }
 
 .media-block__alt-badge:hover,
@@ -1698,8 +1698,8 @@ audio.media-block__content {
   color: hsl(var(--muted-foreground));
   cursor: pointer;
   transition:
-    background 300ms ease-in-out,
-    color 300ms ease-in-out;
+    background 200ms ease-out,
+    color 200ms ease-out;
 }
 
 .media-block__toolbar-btn:hover,

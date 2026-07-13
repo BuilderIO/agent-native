@@ -465,6 +465,18 @@ type CodeAgentHostMetadata = {
     configuredProviders?: string[];
     missingEnvVars?: string[];
   };
+  computerControl?: {
+    available: boolean;
+    desktop: {
+      accessibility: boolean;
+      screenRecording: string;
+    };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;
@@ -475,6 +487,22 @@ type CodeAgentHostMetadata = {
     openTerminal: boolean;
     controlCommands: CodeAgentHostControlCommand[];
   };
+  error?: string;
+};
+
+type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+type CodeAgentComputerSetupResult = {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
   error?: string;
 };
 
@@ -558,6 +586,32 @@ type LocalAppFolderSelectResult = {
   error?: string;
 };
 
+type DesktopAppCreationSettings = {
+  appsRoot: string;
+};
+
+type DesktopCreateAppRequest = {
+  prompt: string;
+  appsRoot?: string;
+};
+
+type DesktopCreateAppResult = {
+  ok: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  app?: import("@agent-native/shared-app-config").AppConfig;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
+
+type DesktopAppRuntimeStatus = {
+  appId: string;
+  state: "waiting" | "starting" | "running" | "stopped" | "error";
+  message?: string;
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -596,7 +650,12 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
-  setActiveWebview(target: { appId: string; webContentsId?: number }): void;
+  setActiveWebview(target: {
+    appId: string;
+    webContentsId?: number;
+    active?: boolean;
+    hostBounds?: { x: number; y: number; width: number; height: number };
+  }): void;
 
   clipboard: {
     writeText(text: string): Promise<boolean>;
@@ -665,6 +724,9 @@ interface ElectronAPI {
       permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
     getHostMetadata(): Promise<CodeAgentHostMetadata>;
+    runComputerSetupAction(
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult>;
     listCodePacks(cwd?: string): Promise<CodeAgentCodePackResult>;
     listProjects(): Promise<CodeAgentProjectListResult>;
     selectProject(cwd: string): Promise<CodeAgentProjectSelectResult>;
@@ -700,8 +762,21 @@ interface ElectronAPI {
       id: string,
       updates: Partial<import("@agent-native/shared-app-config").AppConfig>,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    reorder(
+      id: string,
+      direction: "up" | "down",
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     reset(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     chooseLocalFolder(): Promise<LocalAppFolderSelectResult>;
+    getCreationSettings(): Promise<DesktopAppCreationSettings>;
+    updateCreationSettings(
+      settings: Partial<DesktopAppCreationSettings>,
+    ): Promise<DesktopAppCreationSettings>;
+    createFromPrompt(
+      request: DesktopCreateAppRequest,
+    ): Promise<DesktopCreateAppResult>;
+    showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
+    onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 }
 

@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -234,6 +237,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - يتم حظر المناطق الحساسة بمحددات مثل `[data-sensitive]`، و`.an-block`، و`.an-private`، و`data-an-block`، و`data-an-private`، والحقول الشبيهة ببطاقات الائتمان/كلمات المرور/أرقام الضمان الاجتماعي.
 - يتم تنظيف عناوين URL باستخدام نفس مساعد `scrubUrl()` المستخدم بواسطة تحليلات المتصفح.
 - التقاط إعادة التشغيل مخصص للويب فقط وباختيار المستخدم؛ فهو لا يسجل شاشات سطح المكتب الأصلية.
+
+تُضمَّن إطارات iframe التي يديرها إطار العمل، بما في ذلك الامتدادات ومحتوى البريد الإلكتروني المعروض، في التقاط إعادة التشغيل. تنطبق محددات الإخفاء والحظر نفسها داخل الإطارات المسجلة. يظل iframe تابع لجهة خارجية ومن أصل مختلف غير مرئي ما لم تُشغِّل وثيقته مسجِّل rrweb متوافقًا مع تمكين تسجيل إطارات iframe من أصول مختلفة؛ ولا يمكن للصفحة الأم تجاوز حدود الأصل التي يفرضها المتصفح.
 
 أثناء التسجيل، تلتقط إعادة تشغيل الجلسة أيضًا مخرجات وحدة تحكم المتصفح (`log`، و`info`، و`warn`، و`error`، و`debug`، بالإضافة إلى `error` / `unhandledrejection` الخاصة بالنافذة) وبيانات وصفية لطلبات الشبكة (`fetch` و XHR) كأحداث rrweb مخصصة موسومة، بحيث يمكن للوكلاء وعارض إعادة التشغيل تصحيح المشكلات التي يبلغ عنها المستخدمون. الالتقاط مفعّل افتراضيًا عند تفعيل إعادة التشغيل؛ اضبطه أو عطّله باستخدام خياري `sessionReplay.console` و`sessionReplay.network`، حيث يقبل كل منهما قيمة منطقية (boolean) أو كائن خيارات (`{ maxEvents?: number }`، مع قبول `network` إضافيًا لـ `captureErrorBodies` و`maxErrorBodyLength`). لا يتم التقاط نصوص/رؤوس الطلبات مطلقًا؛ أما نصوص الاستجابات فلا تُلتقط إلا كمقتطف محدود ومُنقّح لاستجابات 5xx (أخطاء الخادم) فقط (`captureErrorBodies`، الافتراضي true، بحد أقصى `maxErrorBodyLength` حرفًا، الافتراضي 2048) — استجابات غير 5xx وحالات فشل الشبكة لا تحمل أي نص استجابة أبدًا. يتم تنظيف عناوين URL، ويتم اقتطاع الرسائل، ويُستثنى حركة استيعاب/تتبع المسجِّل نفسه، وتضيف ميزانيات كل جلسة (1000 حدث وحدة تحكم / 2000 حدث شبكة) إشعار اقتطاع عند تجاوزها.
 
@@ -349,5 +354,5 @@ interface TrackingEvent {
 ## ما هي الخطوة التالية
 
 - [**Actions**](/docs/actions) — حيث تنشأ معظم مكالمات التتبع
-- [**Server Plugins**](/docs/server) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
-- [**Secrets**](/docs/security) - إدارة مفاتيح API لموفري التتبع
+- [**Server Plugins**](/docs/server#server-plugins) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
+- [**الأمان — إدارة الأسرار**](/docs/security#secrets) - إدارة مفاتيح API لموفري التتبع

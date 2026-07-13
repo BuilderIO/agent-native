@@ -123,6 +123,28 @@ npx @agent-native/core@latest recap doctor
 अपने प्रतिबद्ध `visual-recap` फ़ोल्डर को पिन करता है, रिपॉजिटरी वेरिएबल सेट करता है
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## रनर चयन
+
+डिफ़ॉल्ट रूप से वर्कफ़्लो GitHub द्वारा होस्ट किए गए `ubuntu-latest` रनर पर चलता है। किसी अन्य होस्ट किए गए रनर या अपने स्वयं के सेल्फ़-होस्टेड रनर का उपयोग करने के लिए, रिपॉजिटरी या संगठन वेरिएबल `VISUAL_RECAP_RUNS_ON` को एक मान्य JSON स्ट्रिंग या रनर लेबल की JSON सरणी पर सेट करें:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON उद्धरण चिह्न आवश्यक हैं। यह मान पूरे `recap` जॉब के रनर को चुनता है। निर्देशित सेटअप के दौरान इसे कॉन्फ़िगर करने के लिए, वही JSON मान `--runs-on` को दें और फिर `doctor` से वर्कफ़्लो और रनर की उपलब्धता सत्यापित करें:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+हल्का गेट अलग से `ubuntu-latest` का उपयोग करता है। GitHub-होस्टेड रनर बंद करने वाली रिपॉजिटरी `VISUAL_RECAP_GATE_RUNS_ON` को JSON के बिना एक सादे लेबल पर सेट कर सकती हैं, या `--gate-runs-on visual-recap-gate` का उपयोग कर सकती हैं। कस्टम लेबल केवल उसी रिपॉजिटरी के `OWNER`, `MEMBER` या `COLLABORATOR` लेखकों के लिए उपयोग होता है; फ़ोर्क और अन्य लेखक `ubuntu-latest` पर भेजे जाते हैं और GitHub-होस्टेड रनर बंद होने पर बिना शेड्यूल रह सकते हैं। समर्पित और संभव हो तो अस्थायी रनर उपयोग करें; मानक गेट PR ट्री को चेक आउट नहीं करता और वर्कफ़्लो लॉजिक व PR मेटाडेटा का मूल्यांकन करता है।
+
+`recap doctor` गलत प्रारूप या असमर्थित JSON को अस्वीकार करता है और तब रिपोर्ट करता है जब GitHub सभी कॉन्फ़िगर किए गए लेबल से मेल खाने वाला कोई ऑनलाइन रनर उपलब्ध नहीं कराता। रनर का पंजीकरण, स्थापना, अपग्रेड, क्षमता और रखरखाव आपकी जिम्मेदारी बने रहते हैं; Agent Native लेबल चुनता है, लेकिन रनर प्रदान या संचालित नहीं करता।
+
+**सुरक्षा:** अस्थायी सेल्फ़-होस्टेड रनर को प्राथमिकता दें। स्थायी सेल्फ़-होस्टेड रनर केवल उन निजी रिपॉजिटरी के लिए होने चाहिए जिनके योगदानकर्ता विश्वसनीय हों। वर्कफ़्लो अविश्वसनीय सार्वजनिक या फ़ोर्क PR लेखकों के लिए सेल्फ़-होस्टेड काम निर्धारित करने से पहले सुरक्षित रूप से बंद हो जाता है, लेकिन स्थायी मशीन जॉब के बीच वर्कस्पेस और प्रक्रिया स्थिति बनाए रखती है। इस गेट को कमजोर न करें और अविश्वसनीय योगदान को स्थायी रनर पर न भेजें।
+
 ## बैकएंड चयन
 
 चुनें कि कौन सा कोडिंग एजेंट `VISUAL_RECAP_AGENT` रिपॉजिटरी वेरिएबल के साथ कौशल चलाता है:
@@ -138,11 +160,11 @@ npx @agent-native/core@latest recap doctor
 
 बैकएंड से परे, दो रिपॉजिटरी वैरिएबल एजेंट को चलाने के तरीके को ट्यून करते हैं:
 
-- **`VISUAL_RECAP_MODEL`** मॉडल को CLI (`--model`) में पिन करता है - उदाहरण के लिए Codex के लिए `gpt-5.5`, या Claude मॉडल आईडी। CLI के अपने डिफ़ॉल्ट मॉडल का उपयोग करने के लिए इसे अनसेट छोड़ दें।
+- **`VISUAL_RECAP_MODEL`** मॉडल को CLI (`--model`) में पिन करता है - उदाहरण के लिए Codex के लिए `gpt-5.6-sol`, या Claude मॉडल आईडी। CLI के अपने डिफ़ॉल्ट मॉडल का उपयोग करने के लिए इसे अनसेट छोड़ दें।
 - **`VISUAL_RECAP_REASONING`** तर्क की गहराई निर्धारित करता है: `none`, `minimal`, `low`, `medium`, `high`, या `xhigh`। यह Codex बैकएंड पर लागू होता है; Claude का तर्क मॉडल-चालित है, इसलिए इस चर को वहां नजरअंदाज कर दिया गया है।
 - **`VISUAL_RECAP_SKILL_SOURCE`** त्वरित ताजगी को नियंत्रित करता है: `auto`/unset नवीनतम बंडल कौशल मार्गदर्शन का उपयोग करता है, जबकि `repo` प्रतिबद्ध रेपो-स्थानीय `visual-recap` कौशल फ़ोल्डर में पिन करता है।
 
-उदाहरण के लिए, Codex पर GPT-5.5 के साथ उच्च तर्क पर रिकैप चलाने के लिए, रिपॉजिटरी वेरिएबल `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5`, और `VISUAL_RECAP_REASONING=high` सेट करें।
+उदाहरण के लिए, Codex पर GPT-5.6 Sol के साथ उच्च तर्क पर रिकैप चलाने के लिए, रिपॉजिटरी वेरिएबल `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol`, और `VISUAL_RECAP_REASONING=high` सेट करें।
 
 ## रहस्य और चर
 
@@ -191,7 +213,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | गुप्त. इसके बजाय Codex के साथ रिकैप चलाने के लिए `VISUAL_RECAP_AGENT=codex` के साथ सेट करें।                                                                |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | परिवर्तनीय. कोडिंग-एजेंट बैकएंड (`claude` या `codex`) का चयन करता है।                                                                                       |
-| `VISUAL_RECAP_MODEL`     | प्रत्येक CLI का डिफ़ॉल्ट        | चर। मॉडल को पिन करें - उदा. Codex के लिए `gpt-5.5`, या Claude मॉडल आईडी। अनसेट CLI के स्वयं के डिफ़ॉल्ट का उपयोग करता है।                                   |
+| `VISUAL_RECAP_MODEL`     | प्रत्येक CLI का डिफ़ॉल्ट        | चर। मॉडल को पिन करें - उदा. Codex के लिए `gpt-5.6-sol`, या Claude मॉडल आईडी। अनसेट CLI के स्वयं के डिफ़ॉल्ट का उपयोग करता है।                               |
 | `VISUAL_RECAP_REASONING` | प्रत्येक मॉडल का डिफ़ॉल्ट       | परिवर्तनीय. तर्क की गहराई: `none`, `minimal`, `low`, `medium`, `high`, या `xhigh`। Codex बैकएंड पर लागू होता है।                                            |
 | `RECAP_CLI_VERSION`      | `latest`                        | चर। वर्कफ़्लो इंस्टॉल होने पर `@agent-native/core` CLI संस्करण को पिन करें - उदाहरण के लिए `1.5.0`. [Version pinning](#version-pinning-copy-variant) देखें. |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | गुप्त. केवल तभी जब प्लान्स ऐप को किसी भिन्न मूल पर स्वयं-होस्ट किया जाए।                                                                                    |
@@ -461,10 +483,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables) में वर्णित समान रहस्य और चर लागू होते हैं - उन्हें कॉपी संस्करण के समान ही अपनी रेपो सेटिंग्स में सेट करें।
+[Secrets and variables](#secrets-and-variables) में वर्णित समान रहस्य और चर लागू होते हैं। पुन: प्रयोज्य कॉलर पूरे जॉब के लिए `VISUAL_RECAP_RUNS_ON` को `runs-on` और गेट के लिए `VISUAL_RECAP_GATE_RUNS_ON` को एकल-लेबल `gate-runs-on` के रूप में भेजता है। दोनों छोड़ने पर `ubuntu-latest` उपयोग करते हैं।
 
 ### CLI के माध्यम से स्थापित करना
 

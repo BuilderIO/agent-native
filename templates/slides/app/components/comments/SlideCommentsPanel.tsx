@@ -5,6 +5,8 @@ import {
   IconTrash,
   IconMessageCircle,
   IconChevronDown,
+  IconAlertTriangle,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -334,7 +336,10 @@ function ThreadCard({
                     <TooltipTrigger asChild>
                       <button
                         onClick={() =>
-                          resolveComment.mutate({ id: rootComment.id })
+                          resolveComment.mutate({
+                            id: rootComment.id,
+                            resolved: true,
+                          })
                         }
                         className="p-0.5 rounded text-muted-foreground hover:text-green-400"
                       >
@@ -435,13 +440,15 @@ export function SlideCommentsPanel({
   onClose,
 }: SlideCommentsPanelProps) {
   const t = useT();
-  const { data: threads = [] } = useSlideComments(deckId, slideId);
+  const commentsQuery = useSlideComments(deckId, slideId);
+  const threads = commentsQuery.data ?? [];
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 
   const activeThreads = threads.filter((t) => !t.resolved);
   const resolvedThreads = threads.filter((t) => t.resolved);
   const visibleThreads = showResolved ? threads : activeThreads;
+  const showLoadError = commentsQuery.isError && threads.length === 0;
 
   // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
@@ -504,15 +511,33 @@ export function SlideCommentsPanel({
           />
         )}
 
+        {showLoadError && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-destructive/30 bg-destructive/5 px-3 py-8 text-center">
+            <IconAlertTriangle className="size-5 text-destructive/70" />
+            <p className="text-xs text-muted-foreground">
+              {t("comments.loadFailed")}
+            </p>
+            <button
+              type="button"
+              onClick={() => void commentsQuery.refetch()}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <IconRefresh className="size-3.5" />
+              {t("comments.retry")}
+            </button>
+          </div>
+        )}
+
         {/* Thread list */}
-        {visibleThreads.map((thread) => (
-          <ThreadCard
-            key={thread.threadId}
-            thread={thread}
-            deckId={deckId ?? ""}
-            slideId={slideId ?? ""}
-          />
-        ))}
+        {!showLoadError &&
+          visibleThreads.map((thread) => (
+            <ThreadCard
+              key={thread.threadId}
+              thread={thread}
+              deckId={deckId ?? ""}
+              slideId={slideId ?? ""}
+            />
+          ))}
 
         {/* Resolved toggle */}
         {resolvedThreads.length > 0 && (
@@ -527,7 +552,8 @@ export function SlideCommentsPanel({
         )}
 
         {/* Empty state */}
-        {!showInput &&
+        {!showLoadError &&
+          !showInput &&
           visibleThreads.length === 0 &&
           (deckId && slideId ? (
             <button

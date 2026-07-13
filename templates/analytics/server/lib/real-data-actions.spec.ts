@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   failedDataQueryAttemptMessage,
+  GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -9,6 +10,7 @@ import {
   hasIncompleteDataEvidence,
   hasRequestedSourceRecordEvidence,
   hasOverstatedCoverageConfidenceClaim,
+  isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
   looksLikeStrongCoverageClaim,
@@ -30,6 +32,17 @@ describe("real data action classification", () => {
 
   it("treats account deep dives as real source evidence", () => {
     expect(hasDataQueryAttempt([{ name: "account-deep-dive" }])).toBe(true);
+  });
+
+  it("treats first-party observability reads as grounded incident evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        { name: "list-session-recordings" },
+        { name: "list-error-issues" },
+        { name: "get-session-replay-summary" },
+        { name: "get-session-replay-timeline" },
+      ]),
+    ).toBe(true);
   });
 
   it("treats connected MCP provider tools as real source evidence", () => {
@@ -197,6 +210,15 @@ describe("analytics data request classification", () => {
     expect(looksLikeAnalyticsDataRequest("fix the dashboard layout")).toBe(
       false,
     );
+  });
+
+  it("keeps greetings and general math questions out of the guard", () => {
+    expect(looksLikeAnalyticsDataRequest("How's it going?")).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "For n = 3, 4, and 5 points in the plane, what is the maximum number of unit-distance pairs?",
+      ),
+    ).toBe(false);
   });
 
   it("does not reject source-record analysis just because it mentions integrations", () => {
@@ -519,6 +541,30 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
   });
 });
 
+describe("isGenericNoDataFallback", () => {
+  it("matches the exact canned fallback sentence", () => {
+    expect(isGenericNoDataFallback(GENERIC_NO_DATA_FALLBACK_MESSAGE)).toBe(
+      true,
+    );
+  });
+
+  it("matches case-insensitively and ignores surrounding whitespace", () => {
+    expect(
+      isGenericNoDataFallback(
+        `  ${GENERIC_NO_DATA_FALLBACK_MESSAGE.toUpperCase()}  `,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match unrelated safe no-data responses", () => {
+    expect(
+      isGenericNoDataFallback(
+        "I can't retrieve this data right now because BigQuery credentials are not configured.",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("safe no-data analytics responses", () => {
   it("allows explicit unavailable-source answers without forcing another retry", () => {
     expect(
@@ -534,6 +580,14 @@ describe("safe no-data analytics responses", () => {
         "Which data source should I use for signups: GA4 or BigQuery?",
       ),
     ).toBe(true);
+  });
+
+  it("does not let the generic guard fallback bypass a source-query retry", () => {
+    expect(
+      isSafeNoDataAnalyticsResponse(
+        "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.",
+      ),
+    ).toBe(false);
   });
 
   it("blocks unsupported metric claims", () => {

@@ -2,9 +2,9 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 
 registerRequiredSecret({
   key: "SLACK_BOT_TOKEN",
-  label: "Slack Bot Token",
+  label: "Slack Bot Token (local fallback)",
   description:
-    "Optional Slack bot token for channel backfills. Brain only scans allow-listed channels and never enumerates DMs.",
+    "Optional local fallback for Brain channel backfills. Prefer a Slack workspace integration in Settings > Connections. Brain only scans allow-listed channels and never enumerates DMs.",
   docsUrl: "https://api.slack.com/authentication/token-types",
   scope: "workspace",
   kind: "api-key",

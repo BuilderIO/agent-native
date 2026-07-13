@@ -1,6 +1,6 @@
 {
   "name": "Agent Native Templates (First-party)",
-  "description": "Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.",
+  "description": "Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events. Includes explicit feedback sentiment by model and optional inferred message sentiment.",
   "filters": [
     {
       "id": "timeRange",
@@ -754,6 +754,42 @@
         "yKey": "count",
         "yFormatter": "number",
         "description": "Distinct users who drove at least one referred signup in the window (distinct referrer_user on signups in the window)."
+      }
+    },
+    {
+      "id": "llm-feedback-by-model",
+      "title": "LLM Feedback Sentiment by Model",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 3,
+      "sql": "WITH feedback AS (SELECT COALESCE(NULLIF(properties::jsonb ->> '$ai_model', ''), NULLIF(properties::jsonb ->> 'model', ''), 'unknown') AS model, lower(properties::jsonb ->> 'sentiment') AS sentiment FROM analytics_events WHERE event_name = '$ai_feedback' AND lower(COALESCE(properties::jsonb ->> 'sentiment', '')) IN ('positive', 'negative') AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')), top_models AS (SELECT model, COUNT(*) AS total_responses FROM feedback GROUP BY model ORDER BY total_responses DESC LIMIT 20) SELECT feedback.model, feedback.sentiment, COUNT(*) AS responses FROM feedback JOIN top_models ON top_models.model = feedback.model GROUP BY feedback.model, feedback.sentiment, top_models.total_responses ORDER BY top_models.total_responses DESC, feedback.model, CASE WHEN feedback.sentiment = 'positive' THEN 0 ELSE 1 END",
+      "config": {
+        "xKey": "model",
+        "yKey": "responses",
+        "yFormatter": "number",
+        "pivot": {
+          "xKey": "model",
+          "seriesKey": "sentiment",
+          "valueKey": "responses"
+        },
+        "stacked": true,
+        "colors": ["#10b981", "#ef4444"],
+        "description": "Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response."
+      }
+    },
+    {
+      "id": "llm-inferred-sentiment-30d",
+      "title": "Inferred Message Sentiment (30d)",
+      "chartType": "bar",
+      "source": "first-party",
+      "width": 1,
+      "sql": "SELECT lower(properties::jsonb ->> 'sentiment') AS sentiment, COUNT(*) AS messages FROM analytics_events WHERE event_name = '$ai_sentiment' AND lower(COALESCE(properties::jsonb ->> 'method', '')) = 'llm' AND lower(COALESCE(properties::jsonb ->> 'sentiment', '')) IN ('positive', 'neutral', 'negative') AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') GROUP BY lower(properties::jsonb ->> 'sentiment') ORDER BY CASE lower(properties::jsonb ->> 'sentiment') WHEN 'positive' THEN 0 WHEN 'neutral' THEN 1 ELSE 2 END",
+      "config": {
+        "xKey": "sentiment",
+        "yKey": "messages",
+        "yFormatter": "number",
+        "colors": ["#10b981", "#94a3b8", "#ef4444"],
+        "description": "Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback."
       }
     }
   ]

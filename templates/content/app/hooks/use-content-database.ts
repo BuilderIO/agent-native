@@ -18,6 +18,7 @@ import type {
   CreateDatabaseRequest,
   DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
+  DocumentPropertiesResponse,
   ExecuteBuilderSourceBatchRequest,
   ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
@@ -34,6 +35,8 @@ import type {
   StageBuilderSourceBulkUpdateRequest,
   StageBuilderSourceBulkUpdateResponse,
   StageBuilderRevisionRequest,
+  SubmitContentDatabaseFormRequest,
+  SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
   UpdateContentDatabaseViewRequest,
@@ -129,6 +132,57 @@ export function applyDocumentPropertyValueToDatabaseResponse(
   });
 
   return changed ? { ...current, items } : current;
+}
+
+export function applyDocumentPropertiesToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  response: Pick<DocumentPropertiesResponse, "databaseId" | "properties">,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (response.databaseId && current.database.id !== response.databaseId) {
+    return current;
+  }
+
+  const sortedProperties = [...response.properties].sort(
+    (a, b) => a.definition.position - b.definition.position,
+  );
+  const propertyById = new Map(
+    sortedProperties.map((property) => [property.definition.id, property]),
+  );
+
+  return {
+    ...current,
+    properties: sortedProperties,
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties
+        .filter((property) => propertyById.has(property.definition.id))
+        .map((property) => ({
+          ...propertyById.get(property.definition.id)!,
+          value: property.value,
+        })),
+    })),
+  };
+}
+
+export function removeDocumentPropertyFromDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  propertyId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+
+  return {
+    ...current,
+    properties: current.properties.filter(
+      (property) => property.definition.id !== propertyId,
+    ),
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties.filter(
+        (property) => property.definition.id !== propertyId,
+      ),
+    })),
+  };
 }
 
 // `get-content-database` returns a union at runtime: the full response, or an
@@ -531,6 +585,26 @@ export function useAddDatabaseItem(documentId: string) {
   );
 }
 
+export function useSubmitContentDatabaseForm(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    SubmitContentDatabaseFormResponse,
+    SubmitContentDatabaseFormRequest
+  >("submit-content-database-form", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
+}
+
 export function useDuplicateDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -756,6 +830,19 @@ export function useBuilderCmsModels(enabled: boolean) {
   );
 }
 
+export function useNotionDatabaseSources(enabled: boolean) {
+  return useActionQuery(
+    "list-notion-database-sources",
+    enabled ? { limit: 50 } : undefined,
+    {
+      enabled,
+      retry: false,
+      placeholderData: (previous) => previous,
+      staleTime: 60_000,
+    },
+  );
+}
+
 export function useContentDatabases(args: {
   excludeDatabaseId?: string;
   excludeDatabaseIds?: string[];
@@ -775,7 +862,11 @@ export function useContentDatabases(args: {
 
 export function useSuggestSourceJoinKey(args: {
   documentId: string;
-  candidateSourceType: "mock-local" | "builder-cms" | "local-table";
+  candidateSourceType:
+    | "mock-local"
+    | "builder-cms"
+    | "local-table"
+    | "notion-database";
   candidateSourceTable: string;
   enabled: boolean;
 }) {

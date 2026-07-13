@@ -1,0 +1,20 @@
+---
+title: 패키지 수명 주기
+description: 매니페스트 기반 Agent Native 패키지를 안전하게 검사하고 추가하거나 꺼냅니다.
+---
+
+# 패키지 수명 주기
+
+재사용 패키지는 버전이 지정된 정적 `agent-native.package.json`을 게시할 수
+있습니다. CLI는 검사 중 이 JSON만 읽고 패키지 코드를 실행하지 않습니다.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+추가와 꺼내기는 기본적으로 미리 보기입니다. `--apply`를 지정해야 파일을 쓰고
+패키지 관리자를 실행합니다. 충돌과 알 수 없는 레이아웃은 거부하며 설치가
+실패하면 파일과 잠금 파일을 복원합니다. 파일럿에서는 Scheduling만 꺼낼 수
+있으며 Pinpoint는 보류합니다.

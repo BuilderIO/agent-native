@@ -25,9 +25,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
+import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -101,10 +103,17 @@ export default function Index() {
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
+  const skipToEditorPendingRef = useRef(false);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
-  const { data: designsData, isLoading } = useActionQuery<{
+  const {
+    data: designsData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery<{
     count: number;
     designs: Design[];
   }>("list-designs", { includePreview: "true" });
@@ -390,6 +399,40 @@ export default function Index() {
     ],
   );
 
+  const handleSkipToEditor = useCallback(async () => {
+    if (skipToEditorPendingRef.current) return;
+    skipToEditorPendingRef.current = true;
+    setNewDesignHandoffPending(true);
+
+    const designSystemId =
+      newDesignSystemId === undefined
+        ? resolveDefaultDesignSystemId()
+        : newDesignSystemId;
+    const { id, ready } = createDesign(
+      t("home.untitledDesign"),
+      designSystemId,
+    );
+
+    try {
+      // Unlike prompt-backed creation, an empty shell has no pending-generation
+      // marker to keep the editor polling across its route remount. Wait for the
+      // row to persist so the first get-design read cannot briefly return 404.
+      await ready;
+      navigate(`/design/${id}`);
+    } catch (error) {
+      skipToEditorPendingRef.current = false;
+      setNewDesignHandoffPending(false);
+      toast.error(t("home.failedToCreateDesign"));
+      throw error;
+    }
+  }, [
+    createDesign,
+    navigate,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    t,
+  ]);
+
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
     const id = deleteId;
@@ -547,6 +590,11 @@ export default function Index() {
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
+        ) : isError ? (
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
@@ -698,7 +746,7 @@ export default function Index() {
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -750,6 +798,8 @@ export default function Index() {
         onOpenChange={handleNewPromptOpenChange}
         title={t("home.newDesignLower")}
         placeholder={t("home.describeBuild")}
+        onSkip={handleSkipToEditor}
+        skipLabel={t("home.skipToEditor")}
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
         designSystems={designSystems}

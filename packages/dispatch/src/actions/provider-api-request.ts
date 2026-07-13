@@ -7,6 +7,7 @@ import {
   DISPATCH_APP_ID,
   executeProviderApiRequest,
 } from "../server/lib/provider-api.js";
+import { buildProviderApiAuditSummary } from "./provider-api-audit.js";
 
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
@@ -197,6 +198,15 @@ export default defineAction({
       ),
   }),
   http: false,
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "provider-api",
+      id: String(args.provider),
+      visibility: "private",
+    }),
+    summary: (args) => buildProviderApiAuditSummary(args),
+  },
   run: async (args) => {
     if (args.stageAs) {
       const ctx = getCredentialContext();

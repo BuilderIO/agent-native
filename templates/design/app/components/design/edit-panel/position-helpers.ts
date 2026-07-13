@@ -1,4 +1,8 @@
-import { parseCssColor } from "@shared/color-utils";
+import {
+  parseCssColor,
+  rgbaToCss,
+  withColorOpacity,
+} from "@shared/color-utils";
 
 export function cssLengthNumber(
   value: string | undefined,
@@ -177,6 +181,54 @@ export function outlineOffsetForPosition(
   if (position === "outside") return "0px";
   const widthPx = cssLengthNumber(width);
   return `${roundToOneDecimal(-widthPx / 2)}px`;
+}
+
+/**
+ * Resolve the borderStyle/outlineStyle to persist when (re)creating or
+ * restoring a stroke layer: preserve whatever real style was already set
+ * (solid/dashed/dotted/etc), and only default to "solid" when there's none
+ * yet or the legacy "none" hide value is still in place. Shared by both the
+ * border and outline "restore" branches in the Stroke section's add-layer
+ * handler so they stay in parity — previously only the outline branch did
+ * this (`styles.outlineStyle === "none" ? "solid" : styles.outlineStyle ||
+ * "solid"`); the border branch a few lines above it hardcoded `"solid"`
+ * unconditionally, silently discarding a dashed/dotted style whenever a
+ * hidden-but-existing border was restored via the section's + button
+ * instead of its own eye toggle (which already preserves style correctly).
+ */
+export function resolveRestoredStrokeStyle(
+  styleValue: string | undefined,
+): string {
+  return styleValue === "none" ? "solid" : styleValue || "solid";
+}
+
+/**
+ * The style patch StrokeLayerControl's eye-toggle "show" click commits when
+ * un-hiding a border/outline stroke: restores full alpha on the stashed RGB
+ * color (see `strokeHiddenByColor`), guarantees a non-zero width, and only
+ * forces the style back to "solid" when it was the legacy "none" hide value
+ * (preserving a dashed/dotted style otherwise). Extracted as a pure function
+ * — rather than three sequential `onStyleChange` calls — so the caller can
+ * commit it as ONE atomic patch via `commitStylePatch`/`onStylesChange`
+ * (a single undo/history step, matching every other multi-property commit
+ * in this file, e.g. TextStrokeProperties' equivalent show handler).
+ */
+export function strokeShowPatch(
+  prefix: "border" | "outline",
+  color: string,
+  width: string,
+  styleValue: string,
+): Record<string, string> {
+  const parsed = parseCssColor(color);
+  const restoredColor = parsed
+    ? rgbaToCss(withColorOpacity(parsed, 100))
+    : "#000000";
+  const patch: Record<string, string> = {
+    [`${prefix}Color`]: restoredColor,
+    [`${prefix}Width`]: width === "0px" ? "1px" : width || "1px",
+  };
+  if (styleValue === "none") patch[`${prefix}Style`] = "solid";
+  return patch;
 }
 
 export function swatchStyle(value: string | undefined) {

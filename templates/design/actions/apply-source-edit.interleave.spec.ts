@@ -67,6 +67,9 @@ import * as Y from "yjs";
 // nothing about the merge semantics under test is faked.
 // ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabTestControl = vi.hoisted(() => ({
+  corruptNextValidatedApply: false,
+}));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -107,10 +110,28 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
-  applyText: async (docId: string, newText: string) => {
+  applyText: async (
+    docId: string,
+    newText: string,
+    _fieldName?: string,
+    _requestSource?: string,
+    options?: { validateSnapshot?: (snapshot: string) => void },
+  ) => {
     const doc = getOrCreateDoc(docId);
     applyTextDiff(doc, newText);
-    return doc.getText("content").toString();
+    if (
+      collabTestControl.corruptNextValidatedApply &&
+      options?.validateSnapshot
+    ) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+    const snapshot = doc.getText("content").toString();
+    options?.validateSnapshot?.(snapshot);
+    return snapshot;
   },
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
@@ -336,8 +357,91 @@ function currentFileRef(): FileRow {
 
 beforeEach(() => {
   collabDocs.docs.clear();
+  collabTestControl.corruptNextValidatedApply = false;
   designFilesStore.rows.clear();
   seedFile(buildDoc());
+});
+
+describe("HTML integrity write boundary", () => {
+  it("rejects malformed managed-style source and leaves live + SQL content unchanged", async () => {
+    const before = buildDoc();
+    const live = await readLiveSourceFile(currentFileRef());
+    const malformed = before.replace(
+      "</head>",
+      'data-agent-native-breakpoints">@media (max-width: 1279px) { [data-agent-native-node-id="an-node-text-1"] { color: red; } }</style></head>',
+    );
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: malformed,
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/DESIGN_HTML_INTEGRITY/);
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect((await readLiveSourceFile(currentFileRef())).content).toBe(before);
+  });
+
+  it("reports an invalid concurrent collab merge as a retryable conflict", async () => {
+    const before = buildDoc();
+    await applyText(FILE_ID, before, "content", "seed");
+    const live = await readLiveSourceFile(currentFileRef());
+    const validAgentEdit = before.replace("Hello world", "Hello from agent");
+    collabTestControl.corruptNextValidatedApply = true;
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: validAgentEdit,
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/changed while the edit was being applied/);
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+  });
+});
+
+describe("locked-layer write boundaries", () => {
+  const lockedDoc = buildDoc().replace(
+    'data-agent-native-node-id="an-node-container-1"',
+    'data-agent-native-node-id="an-node-container-1" data-agent-native-locked="true"',
+  );
+
+  it("blocks locked subtree mutations through the shared inline writer", async () => {
+    designFilesStore.rows.clear();
+    seedFile(lockedDoc);
+    const live = await readLiveSourceFile(currentFileRef());
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: lockedDoc.replace("Hello world", "Changed"),
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/locked layer/i);
+  });
+
+  it("blocks agent update-file bypasses but permits the frontend unlock path", async () => {
+    designFilesStore.rows.clear();
+    seedFile(lockedDoc);
+    const unlocked = lockedDoc.replace(' data-agent-native-locked="true"', "");
+
+    await expect(
+      updateFileAction.run({ id: FILE_ID, content: unlocked }, {
+        caller: "tool",
+      } as any),
+    ).rejects.toThrow(/locked layer/i);
+
+    await expect(
+      updateFileAction.run({ id: FILE_ID, content: unlocked }, {
+        caller: "frontend",
+      } as any),
+    ).resolves.toMatchObject({ updated: true });
+  });
 });
 
 describe("apply-source-edit / update-file cross-pipeline interleave", () => {

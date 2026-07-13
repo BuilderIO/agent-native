@@ -24,7 +24,7 @@ import {
   applyVisualEdit,
   moveNodeBetweenDocuments,
 } from "../../shared/code-layer";
-import { resolveVisualStyleCommitContent } from "./DesignEditor";
+import { resolveVisualStyleCommitContent } from "./design-editor/pending-edits";
 
 describe("resolveVisualStyleCommitContent (fail-loud contract)", () => {
   it("returns the scoped content when the scoped patch applied", () => {

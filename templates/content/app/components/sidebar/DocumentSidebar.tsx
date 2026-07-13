@@ -48,6 +48,7 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   AlertDialog,
@@ -199,7 +200,8 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
-  const { data: documents = [], isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const { data: documents = [], isLoading } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
   const deleteContentDatabase = useDeleteContentDatabase();
@@ -943,6 +945,12 @@ export function DocumentSidebar({
             >
               {isLoading ? (
                 renderTreeSkeleton()
+              ) : documentsQuery.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => void documentsQuery.refetch()}
+                  retrying={documentsQuery.isFetching}
+                />
               ) : nodes.length === 0 ? (
                 <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                   {emptyLabel}
@@ -1109,7 +1117,8 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar",
+        !isResizing && "transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -1179,8 +1188,8 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pe-2">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="w-full min-w-0 py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>

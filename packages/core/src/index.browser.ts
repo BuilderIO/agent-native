@@ -10,6 +10,7 @@ export {
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   setAgentChatContextItem,
   setContextToAgentChat,
   isEmbedMcpChatBridgeActive,

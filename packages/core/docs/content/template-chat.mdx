@@ -111,7 +111,7 @@ That's the point. Chat is a thin, useful default shell for your own agent, not a
 ## Scaffolding {#scaffolding}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
 cd my-chat-app
 pnpm install
 pnpm dev
@@ -162,8 +162,7 @@ Use it for scheduled jobs, queues, CLI loops, or external-agent workflows where 
 
 The chat page is intentionally thin:
 
-```tsx
-// app/routes/_index.tsx
+```tsx filename="app/routes/_index.tsx"
 import { AgentChatSurface } from "@agent-native/core/client";
 
 export default function ChatRoute() {
@@ -196,7 +195,8 @@ The agent should add a Drizzle schema, actions, route, navigation, and instructi
 
 ## What's next
 
-- [**Getting Started**](/docs) — build the chat-first path from action to inline result to app page
+- [**Getting Started**](/docs/getting-started) — build the chat-first path from action to inline result to app page
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every domain template to start from instead
 - [**Agent Surfaces**](/docs/agent-surfaces) — chat, inline UI, app pages, embedded, automation, and external-agent patterns
 - [**Actions**](/docs/actions) — the action system chat and UI both call
 - [**Native Chat UI**](/docs/native-chat-ui) — chat surface primitives and runtime options

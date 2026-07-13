@@ -123,6 +123,28 @@ npx @agent-native/core@latest recap doctor
 コミットされた `visual-recap` フォルダーを固定し、リポジトリ変数を設定します
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## ランナーの選択
+
+デフォルトでは、ワークフローは GitHub がホストする `ubuntu-latest` ランナーで実行されます。別のホスト型ランナーまたは独自のセルフホスト ランナーを使用するには、リポジトリまたは組織変数 `VISUAL_RECAP_RUNS_ON` を有効な JSON 文字列、またはランナー ラベルの JSON 配列に設定します。
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON の引用符は必須です。この値は完全な `recap` ジョブのランナーを選択します。ガイド付きセットアップ中に構成するには、同じ JSON 値を `--runs-on` に渡し、`doctor` でワークフローとランナーの可用性を検証します。
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+軽量なゲートは別途 `ubuntu-latest` を使用します。GitHub ホスト型ランナーを無効にしたリポジトリでは、`VISUAL_RECAP_GATE_RUNS_ON` に JSON ではない単一のプレーンラベルを設定するか、`--gate-runs-on visual-recap-gate` を使用できます。カスタムラベルは同一リポジトリの `OWNER`、`MEMBER`、`COLLABORATOR` の作成者にのみ使用されます。フォークやその他の作成者は `ubuntu-latest` に強制され、GitHub ホスト型ランナーが無効な場合は未スケジュールのままになることがあります。専用で、できればエフェメラルなランナーを使用してください。標準ゲートは PR ツリーをチェックアウトせず、ワークフローのロジックと PR メタデータを評価します。
+
+`recap doctor` は不正な形式または未対応の JSON を拒否し、構成されたすべてのラベルに一致するオンライン ランナーが GitHub にない場合に報告します。ランナーの登録、インストール、アップグレード、容量、保守は引き続き利用者の責任です。Agent Native はラベルを選択しますが、ランナーを提供または運用しません。
+
+**セキュリティ:** エフェメラルなセルフホスト ランナーを推奨します。永続的なセルフホスト ランナーは、信頼できるコントリビューターだけが参加するプライベート リポジトリに限定してください。ワークフローは、信頼されていない公開 PR またはフォーク PR の作成者にセルフホスト作業を割り当てる前に安全側で停止しますが、永続的なマシンはジョブ間でワークスペースとプロセスの状態を保持します。このゲートを弱めたり、信頼されていないコントリビューションを永続的なランナーに送ったりしないでください。
+
 ## バックエンドの選択
 
 `VISUAL_RECAP_AGENT` リポジトリ変数を使用してスキルを実行するコーディング エージェントを選択します:
@@ -138,11 +160,11 @@ npx @agent-native/core@latest recap doctor
 
 バックエンドを超えて、2 つのリポジトリ変数がエージェントの実行方法を調整します。
 
-- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.5`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
+- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.6-sol`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
 - **`VISUAL_RECAP_REASONING`** は推論の深さを設定します: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。これは Codex バックエンドに適用されます。 Claude の推論はモデル駆動型であるため、この変数は無視されます。
 - **`VISUAL_RECAP_SKILL_SOURCE`** はプロンプトの鮮度を制御します。`auto`/unset は最新のバンドルされたスキル ガイダンスを使用しますが、`repo` はコミットされたリポジトリのローカル `visual-recap` スキル フォルダーに固定されます。
 
-たとえば、GPT-5.5 を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.5`、および `VISUAL_RECAP_REASONING=high` を設定します。
+たとえば、GPT-5.6 Sol を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol`、および `VISUAL_RECAP_REASONING=high` を設定します。
 
 ## シークレットと変数
 
@@ -191,7 +213,7 @@ npx @agent-native/core@latest recap setup
 | ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                             |
 | `VISUAL_RECAP_AGENT`     | `claude`                        | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                  |
-| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.5`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                               |
+| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.6-sol`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                           |
 | `VISUAL_RECAP_REASONING` | 各モデルのデフォルト            | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                      |
 | `RECAP_CLI_VERSION`      | `latest`                        | 変数。ワークフローがインストールする `@agent-native/core` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。 |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                            |
@@ -458,10 +480,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。コピー バリアントと同じ方法でリポジトリ設定に設定します。
+[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。再利用可能な呼び出し元は、完全なジョブ向けに `VISUAL_RECAP_RUNS_ON` を `runs-on` として、ゲート向けに `VISUAL_RECAP_GATE_RUNS_ON` を単一ラベルの `gate-runs-on` として渡します。省略時はどちらも `ubuntu-latest` です。
 
 ### CLI 経由でのインストール
 

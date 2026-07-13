@@ -6,11 +6,16 @@ import type {
   DocumentPropertyValue,
   SuggestSourceJoinKeyResponse,
 } from "../shared/api.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+} from "./_builder-cms-read-client.js";
+import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 import { suggestJoinKey } from "./_join-suggestion.js";
 import { readLocalTableEntries } from "./_local-table-source.js";
 
@@ -20,7 +25,12 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
-    candidateSourceType: z.enum(["mock-local", "builder-cms", "local-table"]),
+    candidateSourceType: z.enum([
+      "mock-local",
+      "builder-cms",
+      "local-table",
+      "notion-database",
+    ]),
     candidateSourceTable: z
       .string()
       .describe("Model/table name of the source being added."),
@@ -35,25 +45,45 @@ export default defineAction({
     if (!access) throw new Error(`Database "${database.id}" not found`);
 
     const primary = await getContentDatabaseSourceSnapshot(database);
-    if (!primary) {
-      return {
-        state: "no-primary",
-        suggestion: null,
-        message: "Attach a first source before federating a second one.",
-      };
-    }
-
-    const primaryValues = primary.rows
-      .map((row) => row.sourceValues)
-      .filter((values): values is Record<string, DocumentPropertyValue> =>
-        Boolean(values),
-      )
-      .slice(0, args.sampleLimit);
+    const primaryValues = primary
+      ? primary.rows
+          .map((row) => row.sourceValues)
+          .filter((values): values is Record<string, DocumentPropertyValue> =>
+            Boolean(values),
+          )
+          .slice(0, args.sampleLimit)
+      : (
+          await getContentDatabaseResponse(database.id, {
+            limit: args.sampleLimit,
+            offset: 0,
+          })
+        ).items.map((item) => ({
+          title: item.document.title ?? "",
+          ...Object.fromEntries(
+            item.properties
+              .filter((property) => !!property.definition.id)
+              .map((property) => [property.definition.id, property.value]),
+          ),
+        }));
 
     let secondaryValues: Record<string, DocumentPropertyValue>[];
-    if (args.candidateSourceType === "builder-cms") {
+    if (args.candidateSourceType === "notion-database") {
+      const adapter = getContentDatabaseSourceAdapter(args.candidateSourceType);
+      const read = await adapter!.read({
+        sourceTable: args.candidateSourceTable,
+        limit: args.sampleLimit,
+        offset: 0,
+      });
+      secondaryValues = read.entries
+        .map((entry) => entry.sourceValues)
+        .slice(0, args.sampleLimit);
+    } else if (args.candidateSourceType === "builder-cms") {
+      const modelFields = await readBuilderCmsModelFields({
+        model: args.candidateSourceTable,
+      }).catch(() => []);
       const read = await readBuilderCmsContentEntries({
         model: args.candidateSourceTable,
+        fieldPaths: modelFields.map((field) => `data.${field.name}`),
       });
       secondaryValues = (read.state === "live" ? read.entries : [])
         .map((entry) => entry.sourceValues)

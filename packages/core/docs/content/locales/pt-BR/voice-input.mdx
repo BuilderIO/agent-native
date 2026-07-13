@@ -9,6 +9,12 @@ Todo aplicativo nativo do agente possui um microfone no compositor de bate-papo.
 
 A estrutura lida com tudo isso automaticamente. Os usuários conectados ao Builder obtêm o Gemini Flash-Lite hospedado no Builder por padrão; caso contrário, os usuários poderão trazer sua própria chave de provedor ou recorrer ao reconhecimento de fala do navegador.
 
+## Modo de voz em tempo real {#realtime-speech-mode}
+
+Ao abrir o microfone, um popover permite escolher entre **Conversa em tempo real** e **Ditado editável**. O modo em tempo real exige uma `OPENAI_API_KEY` no escopo do usuário e conecta o navegador ao `gpt-realtime-2.1` por WebRTC. O chat se recolhe em uma esfera de voz no canto inferior direito; clique nela para mostrar ou ocultar o chat sem encerrar a conversa. A esfera permanece visível sobre o chat mesmo quando ele abre automaticamente, e uma forma de onda compacta reage à sua voz e à voz do assistente.
+
+O modelo de voz usa as mesmas ferramentas autenticadas do Agent Native que o chat, portanto pode navegar pelo aplicativo e chamar ações enquanto fala. Ações que exigem aprovação permanecem pausadas até você aprová-las. Somente as falas de texto concluídas do usuário e do assistente são adicionadas à conversa original. Ao encerrar o modo de voz, o chat é aberto para você continuar por texto; o áudio e os trechos provisórios da transcrição não são armazenados. Uma sessão em tempo real dura no máximo 60 minutos.
+
 ## Como funciona {#how-it-works}
 
 O botão de voz do compositor grava o áudio no navegador e depois escolhe um provedor:

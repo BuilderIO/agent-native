@@ -15,6 +15,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor } from "../lib/transcription-engine";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -83,6 +84,7 @@ export function RecordingPill() {
   const sysCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -111,6 +113,7 @@ export function RecordingPill() {
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+        setPaused(false);
         // The Rust side reuses the pill window across recordings, so the
         // component never unmounts. Reset stop state explicitly when a
         // new recording session begins, otherwise the Stop button stays
@@ -137,6 +140,21 @@ export function RecordingPill() {
           stopFallbackRef.current = null;
         }
       }),
+    );
+    trackListen(
+      listen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (ev) => {
+          // Meeting capture has its own optimistic pause state. Ordinary clips
+          // follow the recorder's authoritative broadcast so this reused pill
+          // cannot drift or emit an inverted command.
+          if (ctxRef.current.mode !== "clip") return;
+          setPaused(!!ev.payload.paused);
+          setElapsed(
+            Math.max(0, Math.floor((ev.payload.elapsedMs ?? 0) / 1000)),
+          );
+        },
+      ),
     );
     trackListen(
       listen<{ meetingId: string; initialNotes: string }>(
@@ -240,7 +258,9 @@ export function RecordingPill() {
 
   // Elapsed timer.
   useEffect(() => {
-    if (paused) return;
+    // Clip recordings already broadcast their pause-aware elapsed time every
+    // 500ms. Keep the local wall clock only for meeting mode.
+    if (paused || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 500);
@@ -248,7 +268,7 @@ export function RecordingPill() {
       if (tickRef.current) clearInterval(tickRef.current);
       tickRef.current = null;
     };
-  }, [paused]);
+  }, [ctx.mode, paused]);
 
   // Dual-stream "dancing bars" meter — one discrete vertical-bar group per
   // source (Granola/Wispr-style VU meter, not a continuous waveform line).
@@ -389,7 +409,7 @@ export function RecordingPill() {
 
   async function onPauseClick() {
     const nextPaused = !paused;
-    setPaused(nextPaused);
+    if (ctxRef.current.mode === "meeting") setPaused(nextPaused);
     emit(nextPaused ? "clips:recorder-pause" : "clips:recorder-resume").catch(
       () => {},
     );
@@ -460,11 +480,19 @@ export function RecordingPill() {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-no-drag]")) return;
+    dragStartScreenPointRef.current = { x: e.screenX, y: e.screenY };
     getCurrentWindow()
       .startDragging()
       .catch((err) => {
         console.warn("[clips-pill] startDragging failed", err);
       });
+  };
+
+  const handlePillMediaClick = (e: React.MouseEvent) => {
+    const start = dragStartScreenPointRef.current;
+    dragStartScreenPointRef.current = null;
+    if (!isDirectPillClick(start, { x: e.screenX, y: e.screenY })) return;
+    void toggleExpanded();
   };
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
@@ -491,9 +519,7 @@ export function RecordingPill() {
         >
           <div
             className="pill-media"
-            onClick={
-              !expanded && !detached ? () => void toggleExpanded() : undefined
-            }
+            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
           >
             <PillLogo className="pill-logo" />
             {hasSystemAudio ? (

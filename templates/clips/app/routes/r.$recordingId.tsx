@@ -1,4 +1,5 @@
 import {
+  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
@@ -59,7 +60,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -67,6 +67,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -240,6 +241,7 @@ export default function RecordingPage() {
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [pendingLinkCopied, setPendingLinkCopied] = useState(false);
   const browserTabId = useMemo(() => getBrowserTabId(), []);
   const recordingScope = useMemo(
     () =>
@@ -355,6 +357,24 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  const pendingShareUrl = useMemo(() => {
+    if (!recordingId || typeof window === "undefined") return "";
+    return new URL(
+      appPath(`/share/${encodeURIComponent(recordingId)}`),
+      window.location.origin,
+    ).toString();
+  }, [recordingId]);
+  const copyPendingShareLink = useCallback(async () => {
+    if (!pendingShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(pendingShareUrl);
+      setPendingLinkCopied(true);
+      window.setTimeout(() => setPendingLinkCopied(false), 1400);
+    } catch {
+      // The full Share popover remains available when clipboard permission is
+      // unavailable, so a denied clipboard write does not block the page.
+    }
+  }, [pendingShareUrl]);
   useEffect(() => {
     if (!recording?.id) return;
     const now = Date.now();
@@ -408,6 +428,7 @@ export default function RecordingPage() {
   const downloadRecording = useCallback(async () => {
     if (!recording?.videoUrl) return;
     setDownloading(true);
+    const downloadToastId = toast.loading(t("sharePage.downloading"));
     try {
       const res = await fetch(recording.videoUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -415,7 +436,11 @@ export default function RecordingPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      const extension =
+        blob.type.includes("webm") || recording.videoFormat === "webm"
+          ? "webm"
+          : "mp4";
+      a.download = `${sanitizeFilename(recording.title || "clip")}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -424,8 +449,9 @@ export default function RecordingPage() {
       window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
     } finally {
       setDownloading(false);
+      toast.dismiss(downloadToastId);
     }
-  }, [recording?.title, recording?.videoUrl]);
+  }, [recording?.title, recording?.videoFormat, recording?.videoUrl, t]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -499,6 +525,15 @@ export default function RecordingPage() {
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
+  const requestTranscript = useActionMutation("request-transcript" as any, {
+    onSuccess: () => void playerDataQ.refetch(),
+    onError: (err: Error) =>
+      toast.error(
+        t("recordingPage.retryFailed", {
+          message: err?.message ?? t("recordingPage.networkError"),
+        }),
+      ),
+  });
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.updated) {
@@ -732,6 +767,93 @@ export default function RecordingPage() {
         : t("recordingPage.clipDataPreserved")
       : displayReason;
     const detail = failureDetail(rawFailureReason);
+    if (!isFailure) {
+      return (
+        <div className="flex min-h-screen w-full flex-col bg-background">
+          <header className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={() => navigate("/")}
+              aria-label={t("recordingPage.back")}
+            >
+              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{visibleTitle}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {recording.ownerEmail}
+                {recording.visibility !== "private" ? (
+                  <> · {capitalize(recording.visibility)}</>
+                ) : null}
+              </p>
+            </div>
+            <ShareRecordingPopover
+              recordingId={recording.id}
+              recordingTitle={recording.title}
+              initialVisibility={recording.visibility}
+              initialRole={role}
+              hasPassword={Boolean(recording.hasPassword)}
+            >
+              <Button className="shrink-0 gap-1.5" size="sm">
+                <IconShare3 className="h-4 w-4" />
+                {t("recordingPage.share")}
+              </Button>
+            </ShareRecordingPopover>
+          </header>
+
+          <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 p-4 sm:p-6">
+            <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl bg-black">
+              <div className="flex flex-col items-center gap-3 text-center text-white">
+                <Spinner className="size-8" />
+                <p className="text-sm font-medium">
+                  {t("recordingPage.finishingClip")}
+                </p>
+              </div>
+            </div>
+
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+              <p className="text-center text-sm text-muted-foreground">
+                {t("recordingPage.uploadingAssembling")}
+              </p>
+              {progress > 0 ? (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-foreground transition-[width]"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, progress))}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 ps-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-muted-foreground">
+                    {t("shareDialog.shareLink")}
+                  </p>
+                  <p className="truncate text-sm text-foreground">
+                    {pendingShareUrl}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => void copyPendingShareLink()}
+                >
+                  <IconClipboardCopy className="size-4" />
+                  {pendingLinkCopied
+                    ? t("bugReportRoute.copied")
+                    : t("shareUi.copy")}
+                </Button>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
         {!isFailure ? (
@@ -913,36 +1035,34 @@ export default function RecordingPage() {
             durationMs={recording.durationMs}
             currentMs={currentMs}
             onSeek={(ms) => playerRef.current?.seek(ms)}
-            status={transcriptStatus}
+            status={
+              requestTranscript.isPending && transcriptStatus === "failed"
+                ? "pending"
+                : transcriptStatus
+            }
             failureReason={transcriptFailureReason}
             cleanup={transcriptCleanup}
             recordingTitle={recording.title}
-            onRetry={() => {
-              // Force a fresh transcript job, then let polling swap the panel
-              // back to the pending state while it runs.
-              fetch(
-                agentNativePath("/_agent-native/actions/request-transcript"),
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    recordingId: recording.id,
-                    force: true,
-                  }),
-                },
-              )
-                .then((res) => {
-                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                })
-                .catch((err) =>
-                  toast.error(
-                    t("recordingPage.retryFailed", {
-                      message: err?.message ?? t("recordingPage.networkError"),
-                    }),
-                  ),
-                )
-                .finally(() => playerDataQ.refetch());
-            }}
+            onRetry={
+              canEdit
+                ? () =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                    } as any)
+                : undefined
+            }
+            onRegenerate={
+              canEdit && transcriptStatus === "ready"
+                ? () =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                      regenerate: true,
+                    } as any)
+                : undefined
+            }
+            isRegenerating={requestTranscript.isPending}
           />
         </TabsContent>
         <TabsContent
@@ -1061,16 +1181,21 @@ export default function RecordingPage() {
                   {t("recordingPage.enhanceRecording")}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={includeFullVideoInAi}
-                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
-                  onCheckedChange={handleIncludeFullVideoChange}
-                  onSelect={(event) => event.preventDefault()}
-                  title={t("recordingPage.includeFullVideoDescription")}
+                <DropdownMenuItem
+                  disabled={requestTranscript.isPending}
+                  onSelect={() =>
+                    requestTranscript.mutate({
+                      recordingId: recording.id,
+                      force: true,
+                      regenerate: true,
+                    } as any)
+                  }
                 >
-                  {t("recordingPage.includeFullVideo")}
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
+                  {requestTranscript.isPending ? (
+                    <Spinner className="size-4" />
+                  ) : null}
+                  {t("transcriptPanel.regenerate")}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={regenerateTitle.isPending}
                   onSelect={() =>
@@ -1161,6 +1286,25 @@ export default function RecordingPage() {
                     </Tooltip>
                   );
                 })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    handleIncludeFullVideoChange(!includeFullVideoInAi);
+                  }}
+                  title={t("recordingPage.includeFullVideoDescription")}
+                  className="justify-between gap-3"
+                >
+                  <span>{t("recordingPage.includeFullVideo")}</span>
+                  <Switch
+                    checked={includeFullVideoInAi}
+                    disabled={aiPrefsQ.isLoading || updateAiPrefs.isPending}
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    className="pointer-events-none"
+                  />
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
@@ -1168,6 +1312,8 @@ export default function RecordingPage() {
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
+            initialVisibility={recording.visibility}
+            initialRole={role}
             videoUrl={recording.videoUrl}
             animatedThumbnailUrl={recording.animatedThumbnailUrl}
             isLoomRecording={isLoomEmbedBacked}

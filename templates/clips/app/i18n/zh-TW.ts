@@ -46,6 +46,7 @@ const messages = {
   navigation: {
     brand: "剪輯",
     library: "資料庫",
+    sharedWithMe: "與我共用",
     spaces: "空間",
     meetings: "會議",
     dictate: "聽寫",
@@ -79,6 +80,10 @@ const messages = {
       title: "你的資料庫還是空的",
       body: "錄製第一個螢幕影片後，它會出現在這裡，隨時可以分享。",
       cta: "錄製第一個 Clip",
+    },
+    shared: {
+      title: "目前沒有與你共用的剪輯",
+      body: "團隊成員與你共用的剪輯會顯示在這裡。",
     },
     folder: {
       title: "這個資料夾是空的",
@@ -283,6 +288,7 @@ const messages = {
     insights: "洞察",
     downloadForMac: "下載 Mac",
     downloadForWindows: "下載 Windows",
+    downloadForLinux: "下載 Linux",
     downloadDesktopApp: "下載桌面應用程式",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "是一款免費的",
@@ -361,6 +367,7 @@ const messages = {
     searchPlaceholder: "搜尋逐字稿",
     copyTranscript: "複製逐字稿",
     downloadSrt: "下載 .srt",
+    regenerate: "重新產生逐字稿",
     cleanupRunning: "在背景清理逐字稿。",
     noMatches: "沒有符合項目。",
     noTranscript: "還沒有逐字稿。",
@@ -523,7 +530,8 @@ const messages = {
   },
   downloadRoute: {
     pageTitle: "下載 Clips Desktop",
-    description: "從選單欄錄製螢幕。自動更新 macOS 和 Windows 的桌面應用程式。",
+    description:
+      "從系統匣錄製螢幕。適用於 macOS、Windows 和 Linux 的自動更新桌面應用程式。",
     macSublabel: "通用（Apple Silicon + Intel）",
     windowsSublabel: "64 位 MSI 安裝程式",
     downloadFor: "下載 {{platform}}",

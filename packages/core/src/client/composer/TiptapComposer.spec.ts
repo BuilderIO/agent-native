@@ -5,17 +5,62 @@ import { describe, expect, it } from "vitest";
 
 import {
   canSubmitComposerContent,
+  compactComposerModelName,
+  compactComposerReasoningEffortLabel,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
+  getComposerReasoningEffortOptions,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
+  isComposerEditorUsable,
   MODEL_SELECTOR_POPOVER_STYLE,
+  resolveContextChipBackspaceAction,
+  resolveComposerPrimaryAction,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
+  it("rejects a truthy editor after BFCache/remount destruction", () => {
+    const editor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+
+    expect(isComposerEditorUsable(editor)).toBe(true);
+    editor.destroy();
+    expect(editor).toBeTruthy();
+    expect(editor.isDestroyed).toBe(true);
+    expect(isComposerEditorUsable(editor)).toBe(false);
+    expect(() => {
+      if (isComposerEditorUsable(editor)) editor.commands.clearContent();
+    }).not.toThrow();
+  });
+
+  it("offers explicit reasoning levels without legacy Auto", () => {
+    expect(getComposerReasoningEffortOptions("auto")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(getComposerReasoningEffortOptions("claude-sonnet-5")).not.toContain(
+      "auto",
+    );
+  });
+
+  it("uses compact GPT-5.6 model and effort names in the collapsed trigger", () => {
+    expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
+    expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
+    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
+    expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
+    expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");
+  });
+
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {
     const editor = new Editor({
       element: document.createElement("div"),
@@ -64,6 +109,75 @@ describe("createTiptapComposerExtensions", () => {
         disabled: true,
       }),
     ).toBe(false);
+  });
+
+  it("uses one primary action while a response is running", () => {
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: false,
+        hasStopButton: true,
+      }),
+    ).toBe("stop");
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: true,
+        hasStopButton: true,
+      }),
+    ).toBe("send");
+    expect(
+      resolveComposerPrimaryAction({
+        canSubmit: false,
+        hasStopButton: false,
+      }),
+    ).toBe("send");
+  });
+
+  it("selects and removes context chips one Backspace at a time", () => {
+    let contextItemKeys = ["dashboard", "panel"];
+    let selectedKey: string | null = null;
+
+    const selectPanel = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(selectPanel).toEqual({ type: "select", key: "panel" });
+    selectedKey = selectPanel?.key ?? null;
+
+    const removePanel = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(removePanel).toEqual({ type: "remove", key: "panel" });
+    contextItemKeys = contextItemKeys.filter((key) => key !== removePanel?.key);
+    selectedKey = null;
+
+    const selectDashboard = resolveContextChipBackspaceAction({
+      contextItemKeys,
+      selectedKey,
+      cursorAtStart: true,
+    });
+    expect(selectDashboard).toEqual({ type: "select", key: "dashboard" });
+    selectedKey = selectDashboard?.key ?? null;
+
+    expect(
+      resolveContextChipBackspaceAction({
+        contextItemKeys,
+        selectedKey,
+        cursorAtStart: true,
+      }),
+    ).toEqual({ type: "remove", key: "dashboard" });
+  });
+
+  it("leaves context chips alone when the caret is not at the start", () => {
+    expect(
+      resolveContextChipBackspaceAction({
+        contextItemKeys: ["dashboard"],
+        selectedKey: null,
+        cursorAtStart: false,
+      }),
+    ).toBeNull();
   });
 
   it("uses a visible fallback for attachment-only composer mode prompts", () => {

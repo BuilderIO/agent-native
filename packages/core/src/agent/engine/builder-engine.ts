@@ -150,15 +150,13 @@ class BuilderEngine implements AgentEngine {
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
-    const explicitReasoningEffort = normalizeReasoningEffortForModel(
+    const reasoningEffort = normalizeReasoningEffortForModel(
       opts.model,
-      opts.reasoningEffort,
+      opts.reasoningEffort ??
+        (typeof thinkingBudget === "number"
+          ? mapReasoningEffort(thinkingBudget)
+          : undefined),
     );
-    const reasoningEffort =
-      explicitReasoningEffort ??
-      (typeof thinkingBudget === "number"
-        ? mapReasoningEffort(thinkingBudget)
-        : undefined);
 
     // Apply prompt caching to system + tools (stable prefix) and to the last
     // user message (moving cache breakpoint so growing history gets cached
@@ -224,6 +222,9 @@ class BuilderEngine implements AgentEngine {
         opts.maxOutputTokens,
         opts.model,
       ),
+      ...(typeof opts.temperature === "number"
+        ? { temperature: opts.temperature }
+        : {}),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 

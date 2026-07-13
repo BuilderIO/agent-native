@@ -14,6 +14,7 @@ import {
   IconDots,
   IconExternalLink,
   IconFileText,
+  IconForms,
   IconFilter,
   IconLayoutGrid,
   IconLayoutKanban,
@@ -69,6 +70,7 @@ export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "gallery") return IconLayoutGrid;
   if (type === "calendar") return IconCalendar;
   if (type === "timeline") return IconTimeline;
+  if (type === "form") return IconForms;
   return IconTable;
 }
 

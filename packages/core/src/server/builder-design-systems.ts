@@ -16,6 +16,21 @@ export interface BuilderDesignSystemCodeFileInput {
   filename: string;
   content: string;
   mimeType?: string;
+  /**
+   * How `content` is encoded. Defaults to `"utf8"` (existing behavior,
+   * unchanged for every current text-file caller). Pass `"base64"` for
+   * binary files -- most importantly `.fig` (a zip/kiwi binary container,
+   * never valid UTF-8 text). Without this, a `.fig` upload silently
+   * corrupts: `mimeTypeForBuilderDesignSystemFilename` already special-cases
+   * `.fig` as `application/octet-stream`, but the actual byte pipeline ran
+   * every file through `TextEncoder().encode()` regardless, which mangles
+   * any byte >= 0x80 in a binary-as-string payload (or, if the caller
+   * base64-encoded first with no decode step here, stores the literal
+   * base64 text instead of the decoded binary). Callers sending `.fig`/PDF/
+   * other binary bytes must base64-encode `content` and set this to
+   * `"base64"`.
+   */
+  encoding?: "utf8" | "base64";
 }
 
 export interface BuildBuilderDesignSystemIndexFilesOptions {
@@ -24,6 +39,8 @@ export interface BuildBuilderDesignSystemIndexFilesOptions {
   designMdFilename?: string;
   maxCodeFiles?: number;
   maxTotalCodeBytes?: number;
+  /** Default keeps legacy best-effort code indexing; upload/chat surfaces should fail loudly. */
+  overflowBehavior?: "skip" | "throw";
 }
 
 export interface BuilderDesignSystemProxyFieldsOptions {
@@ -179,16 +196,35 @@ export function buildBuilderDesignSystemIndexFiles({
   designMdFilename,
   maxCodeFiles = DEFAULT_MAX_CODE_FILES,
   maxTotalCodeBytes = DEFAULT_MAX_TOTAL_CODE_BYTES,
+  overflowBehavior = "skip",
 }: BuildBuilderDesignSystemIndexFilesOptions): BuilderDesignSystemIndexFile[] {
   const encoder = new TextEncoder();
   const files: BuilderDesignSystemIndexFile[] = [];
   let totalBytes = 0;
 
-  function pushTextFile(filename: string, content: string, mimeType?: string) {
+  function pushFile(
+    filename: string,
+    content: string,
+    mimeType?: string,
+    encoding?: "utf8" | "base64",
+  ) {
     const normalizedName = filename.replace(/^\/+/, "") || "code.txt";
-    const data = encoder.encode(content);
+    // `.fig`/PDF/other binary payloads must round-trip through base64, not
+    // UTF-8 -- TextEncoder().encode() on a binary-as-string payload mangles
+    // any byte >= 0x80. See BuilderDesignSystemCodeFileInput.encoding.
+    const data =
+      encoding === "base64"
+        ? new Uint8Array(Buffer.from(content, "base64"))
+        : encoder.encode(content);
     if (data.byteLength === 0) return;
-    if (totalBytes + data.byteLength > maxTotalCodeBytes) return;
+    if (totalBytes + data.byteLength > maxTotalCodeBytes) {
+      if (overflowBehavior === "throw") {
+        throw new Error(
+          `Design-system file "${normalizedName}" exceeds the ${Math.round(maxTotalCodeBytes / 1024 / 1024)} MB inline upload budget. Use the dedicated file upload instead of sending large binary files through an action payload.`,
+        );
+      }
+      return;
+    }
     totalBytes += data.byteLength;
     files.push({
       name: normalizedName,
@@ -201,15 +237,20 @@ export function buildBuilderDesignSystemIndexFiles({
   }
 
   if (designMd?.trim()) {
-    pushTextFile(
+    pushFile(
       designMdFilename?.trim() || "design.md",
       designMd,
       "text/markdown",
     );
   }
 
+  if (overflowBehavior === "throw" && (codeFiles?.length ?? 0) > maxCodeFiles) {
+    throw new Error(
+      `Too many design-system files (max ${maxCodeFiles}); no files were indexed.`,
+    );
+  }
   for (const file of (codeFiles ?? []).slice(0, maxCodeFiles)) {
-    pushTextFile(file.filename, file.content, file.mimeType);
+    pushFile(file.filename, file.content, file.mimeType, file.encoding);
   }
 
   return files;

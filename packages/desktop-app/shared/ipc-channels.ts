@@ -1,5 +1,6 @@
 /** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
+import type { DesktopDesignPreviewRect } from "./design-preview-placement";
 import type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
@@ -30,8 +31,13 @@ export const IPC = {
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
+  APPS_REORDER: "apps:reorder",
   APPS_RESET: "apps:reset",
   APPS_CHOOSE_LOCAL_FOLDER: "apps:choose-local-folder",
+  APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
+  APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
+  APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -53,6 +59,10 @@ export const IPC = {
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
+
+  /** Focused Design native preview (Design guest ↔ main) */
+  DESIGN_PREVIEW_REQUEST: "design-preview:request",
+  DESIGN_PREVIEW_STATE: "design-preview:state",
 
   /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
@@ -80,6 +90,7 @@ export const IPC = {
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
   CODE_AGENTS_RERUN_RUN: "code-agents:rerun-run",
   CODE_AGENTS_GET_HOST_METADATA: "code-agents:get-host-metadata",
+  CODE_AGENTS_COMPUTER_SETUP: "code-agents:computer-setup",
   CODE_AGENTS_LIST_CODE_PACKS: "code-agents:list-code-packs",
   CODE_AGENTS_LIST_PROJECTS: "code-agents:list-projects",
   CODE_AGENTS_SELECT_PROJECT: "code-agents:select-project",
@@ -126,6 +137,10 @@ export type UpdateStatus =
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
+  /** False releases this exact owner without racing a newly active tab. */
+  active?: boolean;
+  /** App webview bounds in BrowserWindow content coordinates. */
+  hostBounds?: DesktopDesignPreviewRect;
 }
 
 export interface InterAppMessage {
@@ -149,6 +164,43 @@ export interface LocalAppFolderSelectResult {
   ok: boolean;
   folder?: LocalAppFolderInfo;
   error?: string;
+}
+
+export interface DesktopAppCreationSettings {
+  appsRoot: string;
+}
+
+export interface DesktopCreateAppRequest {
+  prompt: string;
+  appsRoot?: string;
+}
+
+export interface DesktopCreateAppResult {
+  ok: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  app?: import("@agent-native/shared-app-config").AppConfig;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export type DesktopAppContextAction =
+  | "edit"
+  | "remove"
+  | "move-up"
+  | "move-down";
+
+export type DesktopAppRuntimeState =
+  | "waiting"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "error";
+
+export interface DesktopAppRuntimeStatus {
+  appId: string;
+  state: DesktopAppRuntimeState;
+  message?: string;
 }
 
 export interface DesktopPlanMdxFolder {
@@ -456,6 +508,13 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Structured marker for events that need special UI handling beyond
+   * free-text matching. `"credential-gap"` marks the status event reporting
+   * that no LLM provider key (or Codex CLI login) is available. Optional so
+   * older persisted transcripts without the field keep parsing unchanged.
+   */
+  signal?: "credential-gap";
 }
 
 export interface CodeAgentTranscriptRequest {
@@ -706,6 +765,18 @@ export interface CodeAgentHostMetadata {
     configuredProviders?: string[];
     missingEnvVars?: string[];
   };
+  computerControl?: {
+    available: boolean;
+    desktop: {
+      accessibility: boolean;
+      screenRecording: string;
+    };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;
@@ -716,6 +787,22 @@ export interface CodeAgentHostMetadata {
     openTerminal: boolean;
     controlCommands: CodeAgentHostControlCommand[];
   };
+  error?: string;
+}
+
+export type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+export interface CodeAgentComputerSetupResult {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
   error?: string;
 }
 

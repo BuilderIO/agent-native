@@ -7,6 +7,7 @@
  *
  * Usage:
  *   pnpm action navigate --view=library
+ *   pnpm action navigate --view=shared
  *   pnpm action navigate --view=recording --recordingId=<id>
  *   pnpm action navigate --view=meeting --meetingId=<id>
  *   pnpm action navigate --view=dictate
@@ -20,6 +21,7 @@ import { z } from "zod";
 
 const Views = [
   "library",
+  "shared",
   "spaces",
   "space",
   "archive",

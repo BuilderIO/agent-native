@@ -90,6 +90,35 @@ async function main() {
     );
   }
 
+  const localizedDocsCoverageResult = checkLocalizedDocsCoverageFromDisk();
+  if (process.env.UPDATE_I18N_DOC_COVERAGE_BASELINE === "1") {
+    writeFileSync(
+      localizedDocsCoverageBaselinePath,
+      [
+        "# Existing localized documentation files missing for English source docs.",
+        "# Keep this file sorted. Remove entries as localized coverage improves.",
+        "# Format: locale|relative/doc-slug",
+        ...localizedDocsCoverageResult.issueIds,
+        "",
+      ].join("\n"),
+    );
+    console.log(
+      `[guard:i18n-catalogs] updated ${path.relative(
+        rootDir,
+        localizedDocsCoverageBaselinePath,
+      )} with ${localizedDocsCoverageResult.issueIds.length} entries`,
+    );
+  } else {
+    errors.push(...localizedDocsCoverageResult.errors);
+    errors.push(
+      ...checkStaleBaselineEntries(
+        readLocalizedDocsCoverageBaseline(),
+        localizedDocsCoverageResult.issueIds,
+        localizedDocsCoverageBaselinePath,
+      ),
+    );
+  }
+
   const localizedDocsResult = checkLocalizedDocsEmbeddedStrings();
   if (process.env.UPDATE_I18N_DOCS_BASELINE === "1") {
     writeFileSync(
@@ -123,6 +152,37 @@ async function main() {
   if (errors.length > 0) {
     console.error(`[guard:i18n-catalogs] ${errors.length} issue(s):`);
     for (const error of errors) console.error(`- ${error}`);
+    console.error("");
+    console.error("Fix:");
+    console.error(
+      '  - "missing key" / "missing plural key/category" means that locale',
+    );
+    console.error(
+      "    catalog (<dir>/<locale>.ts) doesn't have a key that the en-US",
+    );
+    console.error(
+      "    source catalog (<dir>/en-US.ts) defines. Add the key to that",
+    );
+    console.error("    locale file with a translated value in the same shape.");
+    console.error(
+      '  - "stale key" means a locale catalog has a key en-US no longer',
+    );
+    console.error("    defines; remove it from that locale file.");
+    console.error(
+      "  - English-value / raw-literal / doc-coverage debt that's real and",
+    );
+    console.error(
+      "    already reviewed can be recorded in the tracked baseline via",
+    );
+    console.error(
+      "    UPDATE_I18N_CATALOG_VALUE_BASELINE=1, UPDATE_I18N_RAW_LITERAL_BASELINE=1,",
+    );
+    console.error(
+      "    UPDATE_I18N_DOC_COVERAGE_BASELINE=1, or UPDATE_I18N_DOCS_BASELINE=1",
+    );
+    console.error(
+      "    -- only after confirming the debt is expected, not a fresh miss.",
+    );
     process.exit(1);
   }
 
@@ -749,6 +809,12 @@ const localizedDocsBaselinePath = path.join(
   "i18n-localized-docs-baseline.txt",
 );
 
+const localizedDocsCoverageBaselinePath = path.join(
+  rootDir,
+  "scripts",
+  "i18n-localized-doc-coverage-baseline.txt",
+);
+
 const noTranslateTermsPath = path.join(
   rootDir,
   "scripts",
@@ -833,6 +899,10 @@ function readLocalizedDocsBaseline() {
   return readLineBaseline(localizedDocsBaselinePath);
 }
 
+function readLocalizedDocsCoverageBaseline() {
+  return readLineBaseline(localizedDocsCoverageBaselinePath);
+}
+
 function readNoTranslateTerms() {
   return readLineBaseline(noTranslateTermsPath);
 }
@@ -847,7 +917,7 @@ function readLineBaseline(file: string) {
   );
 }
 
-function checkStaleBaselineEntries(
+export function checkStaleBaselineEntries(
   baseline: Set<string>,
   currentIssueIds: string[],
   file: string,
@@ -1032,6 +1102,93 @@ const corruptedLocalizedDocsIdentifierPatterns = [
   /encode(?!ComposerDraft)[\p{L}]+Draft/u,
   /Nachricht\/send/u,
 ];
+
+type LocalizedDocsCoverageArgs = {
+  sourceSlugs: Iterable<string>;
+  localizedSlugsByLocale: ReadonlyMap<string, Iterable<string>>;
+  supportedLocales: readonly string[];
+  defaultLocale: string;
+  baseline: ReadonlySet<string>;
+};
+
+export function normalizeLocalizedDocSlug(relativePath: string): string {
+  return relativePath
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/\.(?:mdx|md)$/i, "");
+}
+
+export function checkLocalizedDocsCoverage({
+  sourceSlugs,
+  localizedSlugsByLocale,
+  supportedLocales,
+  defaultLocale,
+  baseline,
+}: LocalizedDocsCoverageArgs): {
+  errors: string[];
+  issueIds: string[];
+} {
+  const normalizedSourceSlugs = new Set(
+    [...sourceSlugs].map(normalizeLocalizedDocSlug),
+  );
+  const issueIds = new Set<string>();
+  const errors: string[] = [];
+  const targetLocales = [...new Set(supportedLocales)]
+    .filter((locale) => locale !== defaultLocale)
+    .sort();
+
+  for (const locale of targetLocales) {
+    const localizedSlugs = new Set(
+      [...(localizedSlugsByLocale.get(locale) ?? [])].map(
+        normalizeLocalizedDocSlug,
+      ),
+    );
+    for (const slug of normalizedSourceSlugs) {
+      if (localizedSlugs.has(slug)) continue;
+      const id = `${locale}|${slug}`;
+      issueIds.add(id);
+      if (baseline.has(id)) continue;
+      errors.push(
+        `packages/core/docs/content/locales/${locale}: localized documentation is missing for English doc slug "${slug}" — add a matching .md/.mdx locale doc or, only after review, run UPDATE_I18N_DOC_COVERAGE_BASELINE=1`,
+      );
+    }
+  }
+
+  return { errors: errors.sort(), issueIds: [...issueIds].sort() };
+}
+
+function collectLocalizedDocSlugs(files: string[], baseDir: string) {
+  return files.map((file) =>
+    normalizeLocalizedDocSlug(path.relative(baseDir, file)),
+  );
+}
+
+function checkLocalizedDocsCoverageFromDisk(): {
+  errors: string[];
+  issueIds: string[];
+} {
+  const sourceFiles = safeReadDir(sourceDocsDir)
+    .filter((child) => child !== "locales")
+    .flatMap((child) => collectMarkdownFiles(path.join(sourceDocsDir, child)));
+  const localizedSlugsByLocale = new Map<string, string[]>();
+
+  for (const locale of SUPPORTED_LOCALES) {
+    if (locale === DEFAULT_LOCALE) continue;
+    const localeDir = path.join(localizedDocsDir, locale);
+    localizedSlugsByLocale.set(
+      locale,
+      collectLocalizedDocSlugs(collectMarkdownFiles(localeDir), localeDir),
+    );
+  }
+
+  return checkLocalizedDocsCoverage({
+    sourceSlugs: collectLocalizedDocSlugs(sourceFiles, sourceDocsDir),
+    localizedSlugsByLocale,
+    supportedLocales: SUPPORTED_LOCALES,
+    defaultLocale: DEFAULT_LOCALE,
+    baseline: readLocalizedDocsCoverageBaseline(),
+  });
+}
 
 function checkLocalizedDocsEmbeddedStrings(): {
   errors: string[];
@@ -1253,4 +1410,10 @@ function unescapeJsonString(value: string): string {
     .replace(/\\\\/g, "\\");
 }
 
-void main();
+const entrypoint = process.argv[1];
+if (
+  entrypoint &&
+  import.meta.url === pathToFileURL(path.resolve(entrypoint)).href
+) {
+  void main();
+}

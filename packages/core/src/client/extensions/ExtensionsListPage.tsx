@@ -37,6 +37,7 @@ import {
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -128,7 +129,7 @@ export function ExtensionsListPage() {
     };
   }, []);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -138,10 +139,11 @@ export function ExtensionsListPage() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toolList =
     toolOrderState.length > 0
@@ -247,7 +249,7 @@ export function ExtensionsListPage() {
       </header>
 
       <div className="flex-1 overflow-auto px-5 py-8 sm:px-8 sm:py-10">
-        {isLoading ? (
+        {extensionsQuery.isLoading ? (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
@@ -260,6 +262,13 @@ export function ExtensionsListPage() {
               </div>
             ))}
           </div>
+        ) : extensionsQuery.isError ? (
+          <ExtensionQueryErrorState
+            className="min-h-[calc(100vh-9rem)]"
+            message={t("extensions.loadError")}
+            onRetry={() => void extensionsQuery.refetch()}
+            retrying={extensionsQuery.isFetching}
+          />
         ) : toolList.length === 0 ? (
           <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-start px-2 pb-12 pt-[clamp(5rem,18vh,11rem)] sm:pb-16">
             <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-7">

@@ -4,7 +4,7 @@ import { dispatchActions } from "../../actions/index.js";
 import { getDispatchConfig } from "../index.js";
 import {
   beforeDispatchProcess,
-  resolveDispatchOwner,
+  resolveDispatchExecutionContext,
 } from "../lib/dispatch-integrations.js";
 
 const dispatchIntegrationActions = {
@@ -32,6 +32,9 @@ Default posture:
 
 When a user asks for something:
 - If it belongs to analytics, content, slides, clips, assets, etc., delegate via call-agent — do not re-implement the domain logic in dispatch.
+- Synthetic uptime, health-check, and URL-availability monitors belong to Analytics, even when the monitored target is another app such as Clips. Delegate creation to Analytics and relay its exact monitor URL. Dispatch-native recurring jobs are for reminders, digests, and agent workflows, not HTTP uptime probes.
+- Route by the requested artifact type, not by organization-specific names stored in code. For structured records, databases, tables, queues, boards, and intake forms, resolve the owning app and canonical destination from loaded workspace instructions/resources plus discovered app capabilities; do not assume Content, a database ID, schema, owner, or required fields. Visual designs, mockups, wireframes, screens, and interfaces belong to Design. A trusted Required target agent hint in integration context is authoritative.
+- When delegating structured intake to the resolved owning app, preserve the exact Source thread URL and the workspace instruction context, inspect the destination's current required fields, ask only for missing values, submit once, verify the saved record, and return the exact link.
 - In messaging integrations, use call-agent for cross-app delegation; do not use ask_app.
 - After call-agent returns an answer, RELAY IT DIRECTLY to the user with at most a one-line preface — do not rephrase, summarize, or add commentary. The downstream agent already crafted the answer; your job is delivery, not editing. This minimizes round-trips and keeps the user-visible reply fast.
 - Exception: if the downstream agent reports a missing model/provider credential, do not name exact env vars, Vault keys, tokens, or secrets. Say the target app needs an LLM connection and recommend connecting Builder/managed LLM for that app; keep bring-your-own provider keys as a secondary option only if the user asks.
@@ -62,7 +65,7 @@ const dispatchIntegrationsPlugin = async (nitroApp: any) => {
   const plugin = createIntegrationsPlugin({
     appId: "dispatch",
     actions: dispatchIntegrationActions,
-    resolveOwner: resolveDispatchOwner,
+    resolveExecutionContext: resolveDispatchExecutionContext,
     beforeProcess: beforeDispatchProcess,
     systemPrompt,
     // Inherit the framework default (claude-sonnet-4-6 from

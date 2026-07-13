@@ -30,6 +30,43 @@ run recovery, and the runs tray.
 | `<RunsTray>`                      | User-visible background run progress and recovery.                                 |
 | Run recovery                      | Hydrates dropped/stale foreground and background runs back into the UI.            |
 
+## Wiring The Header {#wiring}
+
+`PromptComposer` and `RunsTray` are the two pieces most apps wire by hand
+outside the default sidebar: a standalone composer that posts into agent chat,
+plus a header trigger showing live run progress.
+
+```tsx
+import {
+  AgentToggleButton,
+  PromptComposer,
+  sendToAgentChat,
+} from "@agent-native/core/client";
+import { RunsTray } from "@agent-native/core/client/progress";
+
+export function AgentDock() {
+  return (
+    <div className="flex flex-col gap-2 border-t p-3">
+      <header className="flex items-center gap-2">
+        <AgentToggleButton />
+        <div className="flex-1" />
+        <RunsTray />
+      </header>
+      <PromptComposer
+        onSubmit={(text, _files, _references, options) =>
+          sendToAgentChat({ message: text, model: options.model })
+        }
+      />
+    </div>
+  );
+}
+```
+
+`RunsTray` polls `/_agent-native/runs` and hides itself when idle, so it is safe
+to mount unconditionally next to `AgentToggleButton`. Use the full
+`<AgentSidebar>` instead of a bare `<PromptComposer>` when you want the whole
+chat surface, not just the input — see [Drop-in Agent](/docs/drop-in-agent).
+
 ## UX Standard {#ux-standard}
 
 - Show what context the agent will use before the user sends.
@@ -38,6 +75,12 @@ run recovery, and the runs tray.
 - Approval prompts should name the action, data, and risk before proceeding.
 - Recovered runs should be visible and explain what happened.
 
-Related docs: [Using Your Agent](/docs/using-your-agent),
-[Human Approval](/docs/human-approval), [Progress](/docs/progress),
-[Native Chat UI](/docs/native-chat-ui).
+## What's next
+
+- [**Using Your Agent**](/docs/using-your-agent) — the end-user model/composer
+  experience this kit implements.
+- [**Human Approval**](/docs/human-approval) — the approval-gate contract
+  behind approval prompts.
+- [**Progress**](/docs/progress) — the run data `<RunsTray>` polls and renders.
+- [**Native Chat UI**](/docs/native-chat-ui) — build a custom chat surface on
+  the same runtime as `<PromptComposer>`.

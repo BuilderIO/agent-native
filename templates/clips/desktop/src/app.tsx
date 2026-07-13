@@ -12,6 +12,7 @@ import {
   IconRefresh,
   IconTrash,
   IconUpload,
+  IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -54,7 +55,9 @@ import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
+import { resolveDesktopMeetingJoinUrl } from "./lib/meeting-join-url";
 import {
+  DESKTOP_CAPTURE_PERMISSION_MESSAGE,
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
   MACOS_SCREEN_PERMISSION_MESSAGE,
@@ -63,7 +66,7 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
-  discardBrowserRecordingBackup,
+  dismissBrowserRecordingBackup,
   exportBrowserRecordingBackup,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
@@ -701,7 +704,7 @@ export function App() {
   const [exportingUploadId, setExportingUploadId] = useState<string | null>(
     null,
   );
-  const [discardingUploadId, setDiscardingUploadId] = useState<string | null>(
+  const [dismissingUploadId, setDismissingUploadId] = useState<string | null>(
     null,
   );
   const [localRecordingNotice, setLocalRecordingNotice] =
@@ -1026,7 +1029,7 @@ export function App() {
       const url = ev.payload?.joinUrl;
       if (!url) return;
       import("@tauri-apps/plugin-shell")
-        .then(({ open }) => open(url))
+        .then(({ open }) => open(resolveDesktopMeetingJoinUrl(url)))
         .catch((err) => {
           console.error("[clips-popover] open join url failed:", err);
         });
@@ -1157,11 +1160,14 @@ export function App() {
   const startMeetingNotesAndJoin = useCallback(
     (meeting: PopoverMeeting) => {
       if (meeting.joinUrl) {
-        openExternal(meeting.joinUrl).catch((err) => {
-          console.error("[clips-popover] open meeting join url failed:", err);
-        });
+        openExternal(resolveDesktopMeetingJoinUrl(meeting.joinUrl)).catch(
+          (err) => {
+            console.error("[clips-popover] open meeting join url failed:", err);
+          },
+        );
       }
       startMeetingNotes(meeting);
+      hidePopover();
     },
     [startMeetingNotes],
   );
@@ -1527,6 +1533,10 @@ export function App() {
   // from THAT render and stops the camera stream even though recording is
   // still in flight.
   const recordingFlowGateRef = useRef(false);
+  // Stop detaches the recorder state before optimization/upload finishes so a
+  // fresh camera session can recover immediately. Keep that post-stop phase
+  // separate so React cleanup does not close the finalizing progress window.
+  const recordingStopFinalizingRef = useRef(false);
   useEffect(() => {
     recordingFlowGateRef.current = isRecording || recordingFlowActive;
   }, [isRecording, recordingFlowActive]);
@@ -1565,7 +1575,9 @@ export function App() {
       // Hide them from here instead. Guard on !recordingInFlight so
       // we don't rip the toolbar out from under an active recording.
       if (!recordingFlowGateRef.current) {
-        invoke("hide_overlays").catch(() => {});
+        invoke("hide_overlays", {
+          preserveFinalizing: recordingStopFinalizingRef.current,
+        }).catch(() => {});
       }
     };
   }, [toolbarActive]);
@@ -1661,7 +1673,11 @@ export function App() {
           msg.includes("sandbox") ||
           err?.name === "NotAllowedError"
         ) {
-          setCameraError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+          setCameraError(
+            isMacPlatform()
+              ? MACOS_CAPTURE_PERMISSION_MESSAGE
+              : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
+          );
         } else if (isMediaConstraintFailure(err)) {
           // Even the default-camera retry inside getCameraStreamWithFallback
           // failed, so no camera is usable right now. Say that plainly
@@ -1721,7 +1737,9 @@ export function App() {
       // source changed (e.g. cameraId flip re-runs this effect): hiding
       // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
-        invoke("hide_overlays").catch(() => {});
+        invoke("hide_overlays", {
+          preserveFinalizing: recordingStopFinalizingRef.current,
+        }).catch(() => {});
       }
     };
   }, [bubbleActive, cameraId, bubbleSessionEpoch]);
@@ -1856,7 +1874,7 @@ export function App() {
   }
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
@@ -1897,7 +1915,7 @@ export function App() {
   }
 
   async function exportPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     setRecError(null);
 
     if (upload.kind === "native") {
@@ -1926,29 +1944,29 @@ export function App() {
     }
   }
 
-  async function discardPendingUpload(upload: PendingDesktopUpload) {
-    if (retryingUploadId || exportingUploadId || discardingUploadId) return;
+  async function dismissPendingUpload(upload: PendingDesktopUpload) {
+    if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     setRecError(null);
-    setDiscardingUploadId(upload.recordingId);
+    setDismissingUploadId(upload.recordingId);
     setPendingUploads((uploads) =>
       uploads.filter((item) => item.recordingId !== upload.recordingId),
     );
     try {
       if (upload.kind === "native") {
-        await invoke("native_fullscreen_recording_discard_upload", {
+        await invoke("native_fullscreen_recording_dismiss_upload", {
           recordingId: upload.recordingId,
         });
       } else {
-        await discardBrowserRecordingBackup(upload.recordingId);
+        await dismissBrowserRecordingBackup(upload.recordingId);
       }
       await loadPendingUploads();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[clips-tray] discard saved upload failed:", err);
+      console.error("[clips-tray] dismiss saved upload failed:", err);
       setRecError(message);
       await loadPendingUploads();
     } finally {
-      setDiscardingUploadId(null);
+      setDismissingUploadId(null);
     }
   }
 
@@ -2229,7 +2247,9 @@ export function App() {
       setRecError(
         isUpdatePendingRestart()
           ? MACOS_UPDATE_RESTART_MESSAGE
-          : MACOS_CAPTURE_PERMISSION_MESSAGE,
+          : isMacPlatform()
+            ? MACOS_CAPTURE_PERMISSION_MESSAGE
+            : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
       );
       return;
     }
@@ -2346,11 +2366,13 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
-        // Detach the React Start/bubble gate immediately. Native stop already
-        // released the camera and cleared Rust `is_recording_active` mid-
-        // finalize; keeping `recorder` set through the whole upload made
-        // reopen show a blank preview and made Start a silent no-op.
+        // Detach the React Start/bubble gate immediately. The recorder keeps
+        // Rust `is_recording_active` and the finalizing overlay guarded until
+        // its durable backup/finalize boundary; keeping this React handle set
+        // through the whole upload made reopen show a blank preview and made
+        // Start a silent no-op.
         const handle = recorder;
+        recordingStopFinalizingRef.current = true;
         bubbleStreamTransferredToRecorder.current = false;
         bubbleStreamRef.current = null;
         recordingFlowGateRef.current = false;
@@ -2381,6 +2403,7 @@ export function App() {
           setRecError(err instanceof Error ? err.message : String(err));
           await loadPendingUploads();
         } finally {
+          recordingStopFinalizingRef.current = false;
           invoke("set_recording_state", { active: false }).catch(() => {});
           if (stopFailed || stopResult?.localOnly) {
             invoke("show_popover").catch(() => {});
@@ -2612,10 +2635,10 @@ export function App() {
           uploads={pendingUploads}
           retryingUploadId={retryingUploadId}
           exportingUploadId={exportingUploadId}
-          discardingUploadId={discardingUploadId}
+          dismissingUploadId={dismissingUploadId}
           onExport={exportPendingUpload}
           onRetry={retryPendingUpload}
-          onDiscard={discardPendingUpload}
+          onDismiss={dismissPendingUpload}
           onOpenFolder={openPendingUploadFolder}
           onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
         />
@@ -2713,7 +2736,8 @@ export function App() {
         recError === MACOS_UPDATE_RESTART_MESSAGE ? (
           <UpdateRestartBanner message={recError} />
         ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
-          recError === MACOS_SCREEN_PERMISSION_MESSAGE ? (
+          recError === MACOS_SCREEN_PERMISSION_MESSAGE ||
+          recError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="recording"
             message={recError}
@@ -2738,7 +2762,8 @@ export function App() {
         )
       ) : null}
       {cameraError && !recError ? (
-        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ? (
+        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+        cameraError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
           <PermissionRecoveryBanner
             kind="camera"
             message={cameraError}
@@ -2829,6 +2854,7 @@ function PermissionRecoveryBanner({
         ? "Camera setup blocked"
         : "Recording setup blocked";
   const uniquePanes = Array.from(new Set(panes));
+  const canOpenPrivacySettings = isMacPlatform() || isWindowsPlatform();
 
   return (
     <div className="error-banner permission-banner">
@@ -2836,16 +2862,18 @@ function PermissionRecoveryBanner({
         <div className="permission-title">{title}</div>
         <div>{message}</div>
       </div>
-      <div className="permission-actions" aria-label="Open privacy settings">
-        {uniquePanes.map((pane) => (
-          <button
-            type="button"
-            key={pane}
-            onClick={() => openPrivacySettings(pane)}
-          >
-            {permissionPaneLabel(pane)}
-          </button>
-        ))}
+      <div className="permission-actions" aria-label="Permission recovery">
+        {canOpenPrivacySettings
+          ? uniquePanes.map((pane) => (
+              <button
+                type="button"
+                key={pane}
+                onClick={() => openPrivacySettings(pane)}
+              >
+                {permissionPaneLabel(pane)}
+              </button>
+            ))
+          : null}
         <button type="button" className="permission-retry" onClick={onRetry}>
           Try again
         </button>
@@ -2906,20 +2934,20 @@ function PendingUploadBanner({
   uploads,
   retryingUploadId,
   exportingUploadId,
-  discardingUploadId,
+  dismissingUploadId,
   onExport,
   onRetry,
-  onDiscard,
+  onDismiss,
   onOpenFolder,
   onConnectStorage,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
   exportingUploadId: string | null;
-  discardingUploadId: string | null;
+  dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
   onRetry: (upload: PendingDesktopUpload) => void;
-  onDiscard: (upload: PendingDesktopUpload) => void;
+  onDismiss: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
 }) {
@@ -2932,7 +2960,7 @@ function PendingUploadBanner({
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =
-    !!retryingUploadId || !!exportingUploadId || !!discardingUploadId;
+    !!retryingUploadId || !!exportingUploadId || !!dismissingUploadId;
   const savedLabel =
     uploads.length === 1
       ? "1 Clip saved locally"
@@ -2970,7 +2998,7 @@ function PendingUploadBanner({
           }
         >
           {nativeCorrupt
-            ? `${details.join(" · ")} · discard and record again`
+            ? `${details.join(" · ")} · file may be unusable`
             : storageSetupFailure
               ? `${details.join(" · ")} · your clip is safe locally`
               : `${details.join(" · ")}${errorText ? ` · ${errorText}` : ""}`}
@@ -3017,18 +3045,7 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-        {latest.kind === "native" && latest.corrupt ? (
-          <button
-            type="button"
-            className="pending-upload-discard"
-            disabled={actionsDisabled}
-            onClick={() => onDiscard(latest)}
-            aria-label="Discard corrupted clip"
-            title="This clip is corrupted and cannot be recovered. Discard it and record again."
-          >
-            <IconTrash size={14} stroke={2} />
-          </button>
-        ) : (
+        {latest.kind === "native" && latest.corrupt ? null : (
           <>
             {storageSetupFailure ? (
               <button
@@ -3050,18 +3067,24 @@ function PendingUploadBanner({
               <IconRefresh size={14} stroke={2} />
               {retrying ? "Retrying" : "Retry"}
             </button>
-            <button
-              type="button"
-              className="pending-upload-discard"
-              disabled={actionsDisabled}
-              onClick={() => onDiscard(latest)}
-              aria-label="Discard saved local clip"
-              title="Discard saved local clip"
-            >
-              <IconTrash size={14} stroke={2} />
-            </button>
           </>
         )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="pending-upload-dismiss"
+              disabled={actionsDisabled}
+              onClick={() => onDismiss(latest)}
+              aria-label="Dismiss saved clip warning"
+            >
+              <IconX size={16} stroke={2} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="end">
+            Dismiss warning and keep the clip in Clip Drafts
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
@@ -3708,7 +3731,7 @@ function formatStorageBytes(bytes: number): string {
 function desktopUpdateStatusText(status: UpdateStatus): string {
   switch (status.state) {
     case "idle":
-      return "Clips checks automatically after launch and every 4 hours.";
+      return "Clips checks automatically after launch, every hour, and when you return.";
     case "checking":
       return "Checking for updates...";
     case "not-available":
@@ -3810,6 +3833,7 @@ function Setup({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+  const [clipDraftsError, setClipDraftsError] = useState<string | null>(null);
   const [screenMemoryBusy, setScreenMemoryBusy] = useState(false);
   const screenMemorySegments = screenMemoryStatus?.recentSegments ?? [];
   const screenMemoryTotalBytes = screenMemorySegments.reduce(
@@ -3968,6 +3992,15 @@ function Setup({
         kind: "error",
         text: (err as Error)?.message ?? "Could not open Screen Memory folder.",
       });
+    });
+  }
+
+  function openClipDraftsFolder() {
+    setClipDraftsError(null);
+    invoke("native_fullscreen_open_drafts_folder").catch((err) => {
+      setClipDraftsError(
+        (err as Error)?.message ?? "Could not open Clip Drafts.",
+      );
     });
   }
 
@@ -4494,6 +4527,24 @@ function Setup({
       </div>
 
       <div className="setup-section-heading">Recording</div>
+
+      <div className="setup-section">
+        <SettingLabel
+          label="Clip Drafts"
+          hint="Clips dismissed after an upload problem stay in Movies/Clips/Drafts until you remove them in Finder."
+        />
+        <button
+          type="button"
+          className="secondary"
+          onClick={openClipDraftsFolder}
+        >
+          <IconFolderOpen size={15} stroke={1.9} />
+          Open Clip Drafts
+        </button>
+        {clipDraftsError ? (
+          <p className="setup-warning">{clipDraftsError}</p>
+        ) : null}
+      </div>
 
       <div className="setup-section">
         <div className="setup-toggle-row">

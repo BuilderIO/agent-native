@@ -10,6 +10,7 @@ export interface NavigationState {
   view: string;
   designId?: string;
   designSystemId?: string;
+  templateId?: string;
   editorView?: "single" | "overview";
   inspectorTab?: "design" | "tweaks" | "extensions";
   inspector?: "design" | "tweaks" | "extensions";
@@ -93,6 +94,20 @@ export function designSelectionStateKeysForTab(
   return browserTabId
     ? [`design-selection:${browserTabId}`, "design-selection"]
     : ["design-selection"];
+}
+
+/**
+ * Route-level cleanup only owns this tab's scoped selection. The editor's
+ * owner-aware unmount cleanup is responsible for the global compatibility
+ * mirror; clearing that mirror here would let any tab that leaves /design
+ * erase another still-open editor tab's current agent context.
+ */
+export function designSelectionCleanupKeysForTab(
+  browserTabId?: string,
+): string[] {
+  return [
+    browserTabId ? `design-selection:${browserTabId}` : "design-selection",
+  ];
 }
 
 function normalizeEditorView(
@@ -206,7 +221,7 @@ export function useNavigationState(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     if (location.pathname.startsWith("/design/")) return;
-    for (const key of designSelectionStateKeysForTab(browserTabId)) {
+    for (const key of designSelectionCleanupKeysForTab(browserTabId)) {
       setClientAppState(key, null).catch(() => {});
     }
   }, [browserTabId, enabled, location.pathname]);
@@ -247,6 +262,10 @@ export function useNavigationState(enabled = true) {
         state.view = "design-systems";
         const designSystemId = searchParams.get("designSystemId");
         if (designSystemId) state.designSystemId = designSystemId;
+      } else if (pathname.startsWith("/templates")) {
+        state.view = "templates";
+        const templateId = searchParams.get("templateId");
+        if (templateId) state.templateId = templateId;
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
@@ -263,6 +282,11 @@ export function useNavigationState(enabled = true) {
         return cmd.designSystemId
           ? `/design-systems?designSystemId=${encodeURIComponent(cmd.designSystemId)}`
           : "/design-systems";
+      }
+      if (cmd.view === "templates") {
+        return cmd.templateId
+          ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
+          : "/templates";
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;

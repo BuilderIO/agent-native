@@ -222,8 +222,8 @@ function RouteTransitionIndicator() {
       data-pending={pending ? "true" : undefined}
     >
       <div
-        className={`h-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-all duration-200 ${
-          pending ? "w-2/3 opacity-100" : "w-0 opacity-0"
+        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
+          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
         }`}
       />
     </div>

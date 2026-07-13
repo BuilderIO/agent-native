@@ -46,6 +46,7 @@ const messages = {
   navigation: {
     brand: "剪辑",
     library: "资料库",
+    sharedWithMe: "与我共享",
     spaces: "空间",
     meetings: "会议",
     dictate: "听写",
@@ -79,6 +80,10 @@ const messages = {
       title: "你的资料库还是空的",
       body: "录制第一个屏幕视频后，它会出现在这里，随时可以分享。",
       cta: "录制第一个 Clip",
+    },
+    shared: {
+      title: "暂时没有与你共享的剪辑",
+      body: "团队成员与你共享的剪辑会显示在这里。",
     },
     folder: {
       title: "这个文件夹是空的",
@@ -283,6 +288,7 @@ const messages = {
     insights: "洞察",
     downloadForMac: "下载 Mac",
     downloadForWindows: "下载 Windows",
+    downloadForLinux: "下载 Linux",
     downloadDesktopApp: "下载桌面应用程序",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "是一款免费的",
@@ -361,6 +367,7 @@ const messages = {
     searchPlaceholder: "搜索成绩单",
     copyTranscript: "复制成绩单",
     downloadSrt: "下载.srt",
+    regenerate: "重新生成转录文本",
     cleanupRunning: "在后台清理成绩单。",
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
@@ -523,7 +530,8 @@ const messages = {
   },
   downloadRoute: {
     pageTitle: "下载 Clips Desktop",
-    description: "从菜单栏录制屏幕。自动更新 macOS 和 Windows 的桌面应用程序。",
+    description:
+      "从系统托盘录制屏幕。适用于 macOS、Windows 和 Linux 的自动更新桌面应用程序。",
     macSublabel: "通用（Apple Silicon + Intel）",
     windowsSublabel: "64 位 MSI 安装程序",
     downloadFor: "下载 {{platform}}",

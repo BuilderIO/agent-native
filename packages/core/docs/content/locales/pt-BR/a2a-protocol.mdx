@@ -438,6 +438,18 @@ Esse limite é importante porque o loop do agente aceita entrada de formato livr
 
 A verificação JWT (`verifyA2AToken` em `server.ts`) aceita tokens assinados com o `A2A_SECRET` global ou com um segredo no escopo da organização consultado em SQL por meio da declaração `org_domain` do token e impõe as declarações `aud`/`iss` do próprio token, quando presentes.
 
+### Sincronização do segredo da organização {#organization-secret-sync}
+
+A configuração **Organização → Autenticação entre aplicativos** gerencia o segredo com escopo da organização que autentica a delegação entre aplicativos implantados separadamente na mesma organização. Não é uma configuração de login de usuário nem de Cross-App SSO. O segredo complementa o `A2A_SECRET` da implantação: um JWT A2A com uma declaração `org_domain` pode ser verificado com o segredo da organização correspondente.
+
+O proprietário da organização deve dar a cada aplicativo participante o mesmo domínio de e-mail permitido e o mesmo segredo com escopo da organização:
+
+1. No primeiro aplicativo, gere ou revele o segredo em **Organização → Autenticação entre aplicativos**.
+2. Em cada aplicativo adicional, escolha **Colar segredo de outro aplicativo** e cole esse valor. Essa etapa manual é necessária para a primeira conexão: um aplicativo que ainda não possui o segredo não pode verificar uma solicitação de sincronização remota.
+3. Quando os aplicativos compartilharem o segredo, use **Sincronizar com aplicativos** para enviar atualizações futuras aos aplicativos conectados e descobertos. O resultado informa qualquer aplicativo que não pôde ser atualizado.
+
+Ao **Regenerar** o segredo, a interface de configurações o sincroniza imediatamente e assina a atualização com o segredo anterior para que aplicativos já conectados possam verificar a mudança. Se um aplicativo perder essa sincronização, cole o novo segredo nele manualmente e sincronize novamente. Trate esse segredo como qualquer outra credencial: não o coloque em código do cliente, logs ou configuração de cliente de terceiros.
+
 ## Continuações {#continuations}
 
 Quando um agente chama um peer A2A remoto que não retorna imediatamente, a estrutura pesquisa `tasks/get` até que a tarefa seja resolvida. Isso é conectado por meio de `A2AClient.sendAndWait`, que é o modo padrão usado pelo auxiliar `callAgent()`.

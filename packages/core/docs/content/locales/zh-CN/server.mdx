@@ -92,8 +92,7 @@ server/routes/
 
 每条路由导出一个`defineEventHandler`：
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -133,8 +132,7 @@ export default defineEventHandler(() => ({
 
 对于只读状态 endpoint，请保持为 action：
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -167,8 +165,7 @@ GET /_agent-native/actions/get-status?service=billing
 工具、聊天记录或运行状态，使用 `completeText()` 作为显式转义
 孵化。
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -233,8 +230,7 @@ Actions 由框架自动安装并与请求上下文一起运行。自定义路线
 
 插件位于 `server/plugins/` 中并在启动时运行。将它们用于迁移、提供程序设置、重复作业、集成适配器和框架插件配置。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -412,8 +408,10 @@ export default runMigrations(
 
 </Diagram>
 
-> [!WARNING]
-> 不要依赖返回响应后未等待的承诺 — 无服务器主机会冻结执行。请参阅 [Messaging](/docs/messaging) 以了解规范集成队列。
+<Callout tone="warning">
+  不要依赖返回响应后未等待的承诺 — 无服务器主机会冻结执行。请参阅
+  [Messaging](/docs/messaging) 以了解规范集成队列。
+</Callout>
 
 ## 高级：逃生舱口 {#advanced-escape-hatches}
 
@@ -455,3 +453,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## 后续步骤
+
+- [**Actions**](/docs/actions) — 默认操作表面；仅当操作不适用时才使用自定义路由
+- [**数据库**](/docs/database) — 自定义路由和 actions 都会导入的 `getDb()`/`schema` 模式
+- [**安全**](/docs/security#access-guards) — `accessFilter`/`assertAccess` 和完整的数据作用域模型
+- [**消息传递**](/docs/messaging) — 入站 webhook 的标准集成队列模式
+- [**MCP 协议**](/docs/mcp-protocol) — 此服务器自动挂载的 `/_agent-native/mcp` 端点

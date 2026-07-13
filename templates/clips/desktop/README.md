@@ -1,6 +1,6 @@
 # Clips Tray — Desktop menu-bar app
 
-A small Tauri 2.x menu-bar app that lives in the macOS menu bar / Windows system tray. Click the icon — or press the global shortcut `Cmd/Ctrl+Shift+L` — to open a popover with:
+A small Tauri 2.x tray app for macOS, Windows, and Linux. Click the icon — or press the global shortcut `Cmd/Ctrl+Shift+L` — to open a popover with:
 
 - **New recording** button (opens `/record` on your configured Clips server)
 - **Recent** — your three most recent recordings
@@ -22,10 +22,18 @@ From the template root you can also run:
 
 ```bash
 pnpm tauri:dev    # start the tray app against the local dev server
-pnpm tauri:build  # produce a .dmg / .msi
+pnpm tauri:build  # produce platform installers (.dmg / .msi / AppImage + .deb + .rpm)
 ```
 
-Dev builds use the real macOS screen/camera/microphone permission flow by
+On Linux, install Tauri's WebKitGTK/AppIndicator prerequisites before running
+the app. Screen and window capture use the desktop portal and PipeWire, so a
+modern XDG desktop session with `xdg-desktop-portal` and PipeWire must be
+running. The AppImage bundles the GStreamer media framework; `.deb` and `.rpm`
+installs use the distribution's WebKitGTK/GStreamer packages. Use the AppImage
+for in-app auto-updates; package-manager installs are updated by installing the
+new `.deb` or `.rpm`.
+
+Dev builds use the real platform screen/camera/microphone permission flow by
 default so failures show up in the popover instead of saving a fake recording.
 For automation-only sessions that need a generated screen stream, run this in
 the tray devtools console:
@@ -35,6 +43,14 @@ localStorage.setItem("clips:dev-synthetic-capture", "1");
 ```
 
 Remove that key to return to real capture.
+
+### Linux capabilities
+
+Linux uses the WebKitGTK recorder for screen, window, camera, and microphone
+capture. Transcripts use Web Speech when available and the normal hosted
+fallback after upload. macOS-native features — ScreenCaptureKit system audio,
+local SFSpeech/Whisper capture, the Fn dictation shortcut, automatic text paste,
+and Screen Memory — are not available on Linux yet.
 
 Full-screen recording uses the native macOS recorder by default so it can start
 without WebKit's screen/window picker. To debug the old `getDisplayMedia` path,
@@ -65,12 +81,12 @@ Clips Desktop ships on its own release channel — tag prefix `clips-v*`, separa
 ### Shipping a release
 
 1. Bump `templates/clips/desktop/package.json` version (or pass it via workflow input).
-2. Trigger **Clips Desktop Release** in GitHub Actions (`.github/workflows/clips-desktop-release.yml`). It builds on macOS (universal), Windows, and Linux in parallel, signs everything, and uploads to `clips-v{version}`.
-3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Within a few hours (next update check) every installed Clips starts auto-downloading in the background through the hosted manifest endpoint.
+2. Trigger **Clips Desktop Release** in GitHub Actions (`.github/workflows/clips-desktop-release.yml`). It builds macOS (universal), Windows, and Linux x86_64 installers, signs updater artifacts, and uploads them to `clips-v{version}`.
+3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Installed macOS, Windows, and Linux AppImage copies auto-download it in the background on their next hourly or app-focus update check.
 
 ### Auto-update flow (inside the app)
 
-- `src/lib/updater.ts` checks for updates 3s after launch and every 4 hours.
+- `src/lib/updater.ts` checks for updates 3s after launch, hourly while Clips stays open, and when the user returns after at least 15 minutes.
 - On `available` it auto-downloads; on `downloaded` the popover shows an "Update ready — Restart" banner.
 - Clicking Restart calls `@tauri-apps/plugin-process` `relaunch()`, which applies the already-staged bundle.
 - No banner is shown in idle / checking / not-available states — the popover stays focused on recording.

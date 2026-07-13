@@ -1,4 +1,4 @@
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 export type ReminderMethod = "popup" | "email";
 export type ReminderMode = "default" | "none" | "custom";
@@ -193,6 +193,23 @@ export function getEventEndValidationMessage({
       : "End date and time must be after start date and time.";
   }
   return "End date and time must be after start date and time.";
+}
+
+export function normalizeAllDayEditEndDate(
+  singleDay: boolean,
+  startDate: string,
+  endDate: string,
+): string {
+  return singleDay ? startDate : endDate;
+}
+
+export function resolveTimeEditScope(
+  isRecurring: boolean,
+  isSingleDayWorkingLocation: boolean,
+  requestedScope: UpdateEventScope,
+): UpdateEventScope {
+  if (!isRecurring || isSingleDayWorkingLocation) return "single";
+  return requestedScope;
 }
 
 export function getLocalTimezone() {

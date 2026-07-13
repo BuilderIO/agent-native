@@ -15,7 +15,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 - **원격 MCP OAuth:** Claude 코드 및 ChatGPT 커넥터와 같은 MCP 호스트용 표준 OAuth 2.1.
 - **사용자 정의:** `getSession` 콜백을 통해 자신만의 인증을 가져옵니다.
 
-<Diagram id="doc-block-14pt28n" title={"세 가지 방법으로 하나의 세션"} summary={"브라우저 방문자, 프로그래밍 방식의 MCP 클라이언트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."}>
+<Diagram id="doc-block-14pt28n" title={"세 가지 방법으로 하나의 세션"} summary={"브라우저 방문자, MCP 호스트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."}>
 
 ```html
 <div class="auth-modes">
@@ -381,7 +381,7 @@ function MyComponent() {
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-익명의 뷰어가 이 URL를 조회하면 프레임워크의 로그인 페이지가 제공됩니다. 로그인에 성공하면(토큰, 이메일/비밀번호 또는 구글 OAuth 등 모든 흐름) 시청자는 302 `return`로 이동됩니다.
+익명의 뷰어가 이 URL를 조회하면 프레임워크의 로그인 페이지가 제공됩니다. 로그인에 성공하면(토큰, 이메일/비밀번호 또는 구글 OAuth 등 모든 흐름) 브라우저는 `return`로 돌아갑니다.
 
 `return` 매개변수는 **동일 출처 경로**로 검증됩니다. 네트워크 경로 참조(`//evil.com/...`), 절대 URL, `data:`/`javascript:` 체계 및 포함된 제어 문자는 모두 `/`로 대체됩니다. 검증된 경로는 입력에서 다시 에코되지 않고 URL 파서에서 재구성됩니다.
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### 북마크된 비공개 경로
 
-익명의 사용자가 `/dashboard`와 같은 개인 경로로 직접 이동하면 프레임워크는 이미 해당 URL에서 로그인 페이지를 제공합니다. 로그인에 성공하면 페이지가 다시 로드되고 사용자는 `/dashboard`에 도달합니다. 특별한 취급이 필요하지 않습니다. 이는 토큰, 이메일/비밀번호, **및** 구글 OAuth에 적용됩니다.
+일반 앱 페이지는 모든 방문자에게 동일한 비개인화 공개 캐시 가능 SSR 셸을 사용합니다. `AppProviders`가 클라이언트에서 세션을 확인하며, `/dashboard` 같은 비공개 경로에서는 비공개 UI를 마운트하기 전에 익명 방문자를 `/_agent-native/sign-in?return=%2Fdashboard`로 리디렉션합니다. 로그인 후에는 `/dashboard`로 돌아옵니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 별도의 제한된 인증 방식을 사용하는 화면에는 `sessionBypass`를 지정하세요.
 
 ### 비하인드 스토리: 구글 OAuth
 

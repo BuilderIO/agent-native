@@ -26,6 +26,7 @@ import {
   IconMessageCircle,
   IconPin,
   IconPlus,
+  IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
 import {
@@ -61,6 +62,7 @@ import {
 } from "@/components/ui/tooltip";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
+import { planReturnPathFromLocation } from "@/lib/plan-local-bridge";
 import { cn } from "@/lib/utils";
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
@@ -494,6 +496,22 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
             <Skeleton key={item} className="h-8 rounded-md bg-sidebar-accent" />
           ))}
         </div>
+      ) : plansQuery.isError ? (
+        <div className="grid gap-2 rounded-md border border-sidebar-border/70 p-2">
+          <p className="text-xs leading-5 text-sidebar-foreground/65">
+            {t("plansPage.loadError.didNotLoadTitle")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 justify-center text-xs"
+            onClick={() => void plansQuery.refetch()}
+          >
+            <IconRefresh className="size-3.5" />
+            {t("plansPage.loadError.retry")}
+          </Button>
+        </div>
       ) : plans.length === 0 ? (
         <p className="px-2 py-1.5 text-xs leading-5 text-sidebar-foreground/55">
           {t("sidebar.noPlans")}
@@ -634,7 +652,7 @@ export function Sidebar({
   const location = useLocation();
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
-  const returnPath = `${location.pathname}${location.search}${location.hash}`;
+  const returnPath = planReturnPathFromLocation(location);
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;

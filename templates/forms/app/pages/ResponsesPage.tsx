@@ -254,7 +254,7 @@ export function ResponsesPage() {
           variant="outline"
           size="sm"
           onClick={() => refetch()}
-          className="gap-2"
+          className="min-h-10 gap-2 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
         >
           <IconRefresh className="h-3.5 w-3.5" />
           {t("common.retry")}
@@ -272,7 +272,7 @@ export function ResponsesPage() {
             variant="ghost"
             size="sm"
             asChild
-            className="gap-1.5 shrink-0"
+            className="min-h-10 shrink-0 gap-1.5 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
           >
             <Link to={`/forms/${id}`}>
               <IconArrowLeft className="h-3.5 w-3.5" />
@@ -305,14 +305,14 @@ export function ResponsesPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t("responses.filterPlaceholder")}
-                className="h-8 pl-7 w-48 text-xs"
+                className="h-10 w-48 pl-7 text-xs transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none"
               />
             </div>
           ) : null}
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5 text-xs shrink-0"
+            className="min-h-10 shrink-0 gap-1.5 text-xs transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
             onClick={exportCsv}
             disabled={filteredSorted.length === 0}
           >
@@ -332,7 +332,7 @@ export function ResponsesPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("responses.filterPlaceholder")}
-              className="h-8 pl-7 text-xs"
+              className="h-10 pl-7 text-xs transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none"
             />
           </div>
         </div>
@@ -355,10 +355,10 @@ export function ResponsesPage() {
         </div>
       ) : (
         <div className="flex-1 min-w-0 overflow-auto overscroll-x-contain">
-          <div className="min-w-full">
+          <div className="w-full min-w-full">
             <table
-              className="min-w-full table-fixed text-sm"
-              style={{ minWidth: responseTableMinWidth }}
+              className="w-full min-w-full table-fixed text-sm"
+              style={{ width: "100%", minWidth: responseTableMinWidth }}
             >
               <colgroup>
                 <col className="w-16" />
@@ -366,15 +366,18 @@ export function ResponsesPage() {
                 {hasSubmitterEmail ? <col className="w-56" /> : null}
                 {hasPageUrl ? <col className="w-64" /> : null}
                 {hasClientSurface ? <col className="w-40" /> : null}
-                {fields.map((f) => (
-                  <col key={f.id} className="w-80" />
+                {fields.map((f, index) => (
+                  <col
+                    key={f.id}
+                    className={index === fields.length - 1 ? "w-auto" : "w-80"}
+                  />
                 ))}
               </colgroup>
               <thead>
-                <tr className="border-b border-border bg-muted/30">
+                <tr className="border-b border-border bg-muted/40">
                   <th
                     scope="col"
-                    className="min-w-16 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+                    className="min-w-16 px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     #
                   </th>
@@ -423,7 +426,7 @@ export function ResponsesPage() {
                 {filteredSorted.map((response, idx) => (
                   <tr
                     key={response.id}
-                    className="border-b border-border hover:bg-muted/20"
+                    className="border-b border-border transition-[background-color] duration-150 hover:bg-muted/20 motion-reduce:transition-none"
                   >
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
                       {filteredSorted.length - idx}
@@ -525,27 +528,50 @@ function SortableHeader(props: {
 }) {
   const t = useT();
   const { label, active, dir, onClick } = props;
-  const Icon = !active
-    ? IconArrowsSort
+  const sortState: "neutral" | "asc" | "desc" = !active
+    ? "neutral"
     : dir === "asc"
-      ? IconArrowUp
-      : IconArrowDown;
+      ? "asc"
+      : "desc";
+  const iconBase =
+    "absolute inset-0 transition-[opacity,scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]";
+  const iconVisible = "scale-100 opacity-60 blur-none";
+  const iconHidden = "scale-[0.25] opacity-0 blur-[4px]";
   return (
     <th
       scope="col"
-      className="min-w-40 px-4 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
+      className="min-w-40 px-4 py-1 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
     >
       <button
         type="button"
         onClick={onClick}
         className={cn(
-          "inline-flex items-center gap-1 cursor-pointer hover:text-foreground",
+          "relative -mx-2 inline-flex min-h-10 cursor-pointer items-center gap-1 rounded-md px-2 transition-[scale,background-color,color,box-shadow] duration-150 ease-out hover:bg-accent hover:text-foreground active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:active:scale-100 sm:min-h-0 sm:before:absolute sm:before:-inset-2.5 sm:before:content-['']",
           active && "text-foreground",
         )}
         aria-label={t("responses.sortBy", { label })}
       >
         {label}
-        <Icon className="h-3 w-3 opacity-60" />
+        <span className="relative inline-block h-3 w-3 shrink-0">
+          <IconArrowsSort
+            className={cn(
+              iconBase,
+              sortState === "neutral" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowUp
+            className={cn(
+              iconBase,
+              sortState === "asc" ? iconVisible : iconHidden,
+            )}
+          />
+          <IconArrowDown
+            className={cn(
+              iconBase,
+              sortState === "desc" ? iconVisible : iconHidden,
+            )}
+          />
+        </span>
       </button>
     </th>
   );

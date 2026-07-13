@@ -515,10 +515,10 @@ const messages = {
     slackUpdateFailed: "فشل تحديث استقبال Slack",
     slackConfigured: "تم تكوين بيانات اعتماد Slack.",
     slackNeedsCredentials:
-      "أضف SLACK_BOT_TOKEN و SLACK_SIGNING_SECRET لتفعيل استقبال Slack.",
-    slackIntake: "استقبال Slack",
+      "يتطلب الاستقبال المخصص القديم SLACK_BOT_TOKEN وSLACK_SIGNING_SECRET. لأتمتة مراسلة Slack الجديدة، اربط مساحة عمل في الإعدادات > المراسلة.",
+    slackIntake: "استقبال Slack (قديم)",
     slackDescription:
-      "اسمح لأعضاء المؤسسة بوضع مسودات البريد في قائمة الانتظار من Slack.",
+      "تكامل مخصص قديم يتيح لأعضاء المؤسسة وضع مسودات البريد في قائمة الانتظار من Slack.",
     enabled: "ممكّن",
     disable: "تعطيل",
     enable: "تمكين",

@@ -96,8 +96,7 @@ server/routes/
 
 يقوم كل مسار بتصدير `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -137,8 +136,7 @@ export default defineEventHandler(() => ({
 
 لإنشاء endpoint حالة للقراءة فقط، اجعله action:
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -171,8 +169,7 @@ GET /_agent-native/actions/get-status?service=billing
 الأدوات أو سجل الدردشة أو حالة التشغيل، استخدم `completeText()` كهروب صريح
 يفقس.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -237,8 +234,7 @@ export default defineAction({
 
 المكونات الإضافية موجودة في `server/plugins/` ويتم تشغيلها عند بدء التشغيل. استخدمها لعمليات الترحيل وإعداد الموفر والمهام المتكررة ومحولات التكامل وتكوين المكونات الإضافية لإطار العمل.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -416,8 +412,11 @@ export default runMigrations(
 
 </Diagram>
 
-> [!WARNING]
-> لا تعتمد على الوعود غير المنتظرة بعد إرجاع الرد - حيث يقوم المضيفون بدون خادم بتجميد التنفيذ. راجع [Messaging](/docs/messaging) للتعرف على قائمة انتظار التكامل الأساسية.
+<Callout tone="warning">
+  لا تعتمد على الوعود غير المنتظرة بعد إرجاع الرد - حيث يقوم المضيفون بدون خادم
+  بتجميد التنفيذ. راجع [Messaging](/docs/messaging) للتعرف على قائمة انتظار
+  التكامل الأساسية.
+</Callout>
 
 ## متقدم: فتحات الهروب {#advanced-escape-hatches}
 
@@ -459,3 +458,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## الخطوة التالية
+
+- [**الإجراءات**](/docs/actions) — سطح العمليات الافتراضي؛ استخدم مسارًا مخصصًا فقط عندما لا يناسبه
+- [**قاعدة البيانات**](/docs/database) — نمط `getDb()`/`schema` الذي تستورده المسارات المخصصة والإجراءات
+- [**الأمان**](/docs/security#access-guards) — `accessFilter`/`assertAccess` ونموذج تحديد نطاق البيانات الكامل
+- [**المراسلة**](/docs/messaging) — نمط قائمة انتظار التكامل القياسي للـ webhooks الواردة
+- [**بروتوكول MCP**](/docs/mcp-protocol) — نقطة النهاية `/_agent-native/mcp` التي يثبّتها هذا الخادم تلقائيًا

@@ -12,8 +12,8 @@ import {
 
 import { runApiHandlerWithContext } from "../lib/credentials";
 import {
+  resolveSessionReplayAgentAccess,
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
-  verifySessionReplayAgentAccess,
 } from "../lib/session-replay-agent-context.js";
 import {
   getSessionReplayManifest,
@@ -23,7 +23,9 @@ import {
   listSessionRecordings,
   parseSessionReplayIngestPayload,
   recordSessionReplayChunks,
+  readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
+  readSessionReplayTokenizedChunkBatch,
   readSessionReplayTokenizedChunkBytes,
   type SessionReplayListFilters,
 } from "../lib/session-replay.js";
@@ -221,15 +223,26 @@ function readAgentReplayAccessToken(event: any): string | undefined {
   return asString(getQuery(event)[SESSION_REPLAY_AGENT_ACCESS_PARAM]);
 }
 
+function replayChunkSeqsFromQuery(query: Record<string, unknown>): number[] {
+  const raw = asString(query.seqs);
+  if (!raw) return [];
+  return raw.split(",").map((value) => {
+    const normalized = value.trim();
+    if (!/^\d+$/.test(normalized)) return Number.NaN;
+    return Number(normalized);
+  });
+}
+
 function verifyAgentReplayAccessToken(
   event: any,
   recordingId: string,
-): string | null {
+): { token: string; viewerEmail: string } | null | false {
   const token = readAgentReplayAccessToken(event);
   if (!token) return null;
-  if (verifySessionReplayAgentAccess(recordingId, token)) return token;
+  const access = resolveSessionReplayAgentAccess(recordingId, token);
+  if (access) return { token, viewerEmail: access.viewerEmail };
   setResponseStatus(event, 401);
-  return "";
+  return false;
 }
 
 function listFiltersFromQuery(
@@ -359,13 +372,16 @@ export const handleSessionReplayManifest = defineEventHandler(async (event) => {
   }
 
   const agentAccessToken = verifyAgentReplayAccessToken(event, recordingId);
-  if (agentAccessToken === "") {
+  if (agentAccessToken === false) {
     return { error: "Invalid or expired agent access" };
   }
   if (agentAccessToken) {
     try {
       applyAgentReplayReadHeaders(event);
-      const manifest = await getSessionReplayTokenizedManifest(recordingId);
+      const manifest = await getSessionReplayTokenizedManifest(
+        recordingId,
+        agentAccessToken.viewerEmail,
+      );
       return {
         ...manifest,
         chunks: manifest.chunks.map((chunk) => ({
@@ -373,7 +389,7 @@ export const handleSessionReplayManifest = defineEventHandler(async (event) => {
           bytesPath: appendQueryParam(
             chunk.bytesPath,
             SESSION_REPLAY_AGENT_ACCESS_PARAM,
-            agentAccessToken,
+            agentAccessToken.token,
           ),
         })),
       };
@@ -407,7 +423,7 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
     }
 
     const agentAccessToken = verifyAgentReplayAccessToken(event, recordingId);
-    if (agentAccessToken === "") {
+    if (agentAccessToken === false) {
       return { error: "Invalid or expired agent access" };
     }
     if (agentAccessToken) {
@@ -415,6 +431,7 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
         const result = await readSessionReplayTokenizedChunkBytes(
           recordingId,
           seq,
+          agentAccessToken.viewerEmail,
         );
         applyAgentReplayReadHeaders(event);
         setResponseHeader(event, "Content-Type", "application/json");
@@ -442,6 +459,52 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));
         setResponseHeader(event, "X-Session-Replay-Checksum", result.checksum);
         return result.json;
+      } catch (error: any) {
+        setResponseStatus(event, statusFromError(error));
+        return { error: messageFromError(error) };
+      }
+    });
+  },
+);
+
+export const handleSessionReplayChunkBatch = defineEventHandler(
+  async (event) => {
+    const recordingId = getRouterParam(event, "recordingId");
+    if (!recordingId) {
+      setResponseStatus(event, 400);
+      return { error: "Missing recordingId" };
+    }
+    const seqs = replayChunkSeqsFromQuery(getQuery(event));
+
+    const agentAccessToken = verifyAgentReplayAccessToken(event, recordingId);
+    if (agentAccessToken === false) {
+      return { error: "Invalid or expired agent access" };
+    }
+    if (agentAccessToken) {
+      try {
+        const result = await readSessionReplayTokenizedChunkBatch(
+          recordingId,
+          seqs,
+          agentAccessToken.viewerEmail,
+        );
+        applyAgentReplayReadHeaders(event);
+        setResponseHeader(event, "Content-Type", "application/json");
+        return result;
+      } catch (error: any) {
+        setResponseStatus(event, statusFromError(error));
+        return { error: messageFromError(error) };
+      }
+    }
+
+    return runApiHandlerWithContext(event, async (ctx) => {
+      try {
+        const result = await readSessionReplayChunkBatch(recordingId, seqs, {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+        });
+        setResponseHeader(event, "Content-Type", "application/json");
+        setResponseHeader(event, "Cache-Control", "no-store");
+        return result;
       } catch (error: any) {
         setResponseStatus(event, statusFromError(error));
         return { error: messageFromError(error) };

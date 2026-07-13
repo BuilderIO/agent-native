@@ -1249,6 +1249,21 @@ const runAnalyticsMigrations = runMigrations(
         sqlite: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered INTEGER NOT NULL DEFAULT 0`,
       },
     },
+    {
+      version: 118,
+      name: "error-events-session-recording-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_session_recording_filter_idx ON error_events (session_recording_id, owner_email, org_id, issue_id)`,
+    },
+    {
+      version: 119,
+      name: "error-events-user-id-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_user_id_filter_idx ON error_events (user_id, owner_email, org_id, issue_id)`,
+    },
+    {
+      version: 120,
+      name: "error-events-user-key-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_user_key_filter_idx ON error_events (user_key, owner_email, org_id, issue_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

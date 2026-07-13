@@ -9,7 +9,7 @@ export default function MessagingRoute() {
   return (
     <DispatchShell
       title="Messaging"
-      description="Connect Slack and Telegram directly in dispatch so inbound conversations come through one place."
+      description="Connect Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp Cloud API, or provider-webhook email so supported inbound conversations reach one Dispatch inbox."
     >
       <MessagingSetupPanel />
     </DispatchShell>

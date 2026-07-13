@@ -28,12 +28,12 @@ import {
   type ReactNode,
 } from "react";
 import {
-  data,
   type HeadersArgs,
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
 import { useLoaderData, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -79,6 +79,7 @@ import {
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   buildClipsShareMeta,
   clipsSharePageTitle,
@@ -104,10 +105,6 @@ type SharePageLoaderData = {
   shareUrl: string | null;
 };
 
-const PRIVATE_AGENT_SHARE_HEADERS = {
-  "Cache-Control": "private, max-age=0, no-store",
-  "Referrer-Policy": "no-referrer",
-};
 const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
 function emptyLoaderData(url: URL): SharePageLoaderData {
@@ -124,9 +121,7 @@ function shareLoaderData(
   privateAgentAccess = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return data(payload, {
-    headers: PRIVATE_AGENT_SHARE_HEADERS,
-  });
+  return privateShareLoaderData(payload);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -222,7 +217,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return emptyLoaderData(url);
+    if (!access) return privateShareLoaderData(emptyLoaderData(url));
   }
 
   const recording: SharePageMetaRecording = {
@@ -291,13 +286,14 @@ const CLIPS_AGENT_DOCS_URL =
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
 
-type ViewerPlatform = "mac" | "windows";
+type ViewerPlatform = "mac" | "windows" | "linux";
 
 function detectViewerPlatform(): ViewerPlatform | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
   if (/Mac/i.test(ua)) return "mac";
+  if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
   return null;
 }
 
@@ -421,6 +417,7 @@ export default function ShareRoute() {
     [],
   );
   const [downloading, setDownloading] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const agentAccessToken = useMemo(() => {
     if (typeof window === "undefined") return "";
     return (
@@ -594,6 +591,7 @@ export default function ShareRoute() {
   async function downloadRecording() {
     if (!recording?.videoUrl) return;
     setDownloading(true);
+    const downloadToastId = toast.loading(t("sharePage.downloading"));
     try {
       const res = await fetch(recording.videoUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -601,7 +599,11 @@ export default function ShareRoute() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      const extension =
+        blob.type.includes("webm") || recording.videoFormat === "webm"
+          ? "webm"
+          : "mp4";
+      a.download = `${sanitizeFilename(recording.title || "clip")}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -610,6 +612,7 @@ export default function ShareRoute() {
       window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
     } finally {
       setDownloading(false);
+      toast.dismiss(downloadToastId);
     }
   }
 
@@ -859,7 +862,10 @@ export default function ShareRoute() {
               </Button>
             )}
             {!viewerCanEdit && canDownloadRecording ? (
-              <DropdownMenu>
+              <DropdownMenu
+                open={downloadMenuOpen}
+                onOpenChange={setDownloadMenuOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
@@ -873,6 +879,7 @@ export default function ShareRoute() {
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem
                     onSelect={() => {
+                      setDownloadMenuOpen(false);
                       void downloadRecording();
                     }}
                     disabled={downloading}
@@ -880,7 +887,7 @@ export default function ShareRoute() {
                     <IconDownload className="h-4 w-4" />
                     {downloading
                       ? t("sharePage.downloading")
-                      : t("sharePage.downloadMp4")}
+                      : t("recordRoute.downloadRecording")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -891,7 +898,7 @@ export default function ShareRoute() {
                 canDelete
                 canDownload={canDownloadRecording}
                 downloadPending={downloading}
-                downloadLabel={t("sharePage.downloadMp4")}
+                downloadLabel={t("recordRoute.downloadRecording")}
                 downloadingLabel={t("sharePage.downloading")}
                 onDownload={() => {
                   void downloadRecording();
@@ -903,6 +910,8 @@ export default function ShareRoute() {
               <ShareRecordingPopover
                 recordingId={recording.id}
                 recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
@@ -1008,7 +1017,7 @@ export default function ShareRoute() {
                   <IconDownload className="h-4 w-4" />
                   {downloading
                     ? t("sharePage.downloading")
-                    : t("sharePage.downloadMp4")}
+                    : t("recordRoute.downloadRecording")}
                 </Button>
               ) : null}
             </div>
@@ -1150,7 +1159,9 @@ function PublicAgentEmptyState({
       ? t("sharePage.downloadForMac")
       : platform === "windows"
         ? t("sharePage.downloadForWindows")
-        : t("sharePage.downloadDesktopApp");
+        : platform === "linux"
+          ? t("sharePage.downloadForLinux")
+          : t("sharePage.downloadDesktopApp");
 
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">

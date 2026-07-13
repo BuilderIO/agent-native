@@ -2753,6 +2753,236 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
+  it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-detail": {
+          tool: { description: "Read a detail record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-42",
+            status: "failed",
+            message: "The request failed",
+            url: "/_agent-native/embed/start?ticket=must-not-leak",
+            ticket: "top-level-ticket-must-not-leak",
+            embedTargetPath: "/private/thread/42",
+            embedExpiresAt: 1735689600,
+            uploadTicket: "nested-upload-ticket-must-not-leak",
+            steps: [
+              {
+                kind: "network",
+                status: 404,
+                details: {
+                  ticket: "nested-ticket-must-not-leak",
+                  embedTargetPath: "/private/nested",
+                  safe: "keep this detail",
+                },
+              },
+            ],
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "tools/call",
+        params: { name: "read-detail", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-42",
+      status: "failed",
+      message: "The request failed",
+      steps: [
+        {
+          kind: "network",
+          status: 404,
+          details: { safe: "keep this detail" },
+        },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-42"');
+    expect(out.result.content[0].text).not.toContain("must-not-leak");
+    expect(out.result.content[0].text).not.toContain("top-level-ticket");
+    expect(out.result.content[0].text).not.toContain("nested-ticket");
+    expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-business-record": {
+          tool: { description: "Read a business record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "order-42",
+            ticket: "customer-support-ticket-42",
+            receiptTicket: "receipt-ticket-42",
+            nested: { ticket: "nested-business-ticket-42" },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-business-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "order-42",
+      ticket: "customer-support-ticket-42",
+      receiptTicket: "receipt-ticket-42",
+      nested: { ticket: "nested-business-ticket-42" },
+    });
+    expect(out.result.content[0].text).toContain("customer-support-ticket-42");
+  });
+
+  it("sanitizes ticket fields across read-only array siblings when one item carries embed routing", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-array": {
+          tool: { description: "Read records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "business-record", ticket: "sibling-ticket-must-not-leak" },
+            {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this record",
+            },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-array", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [{ id: "business-record" }, { safe: "keep this record" }],
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
+  it("preserves top-level read-only arrays in structuredContent", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "list-records": {
+          tool: { description: "List records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "record-1", status: "ready" },
+            { id: "record-2", status: "failed" },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 165,
+        method: "tools/call",
+        params: { name: "list-records", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [
+        { id: "record-1", status: "ready" },
+        { id: "record-2", status: "failed" },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-1"');
+  });
+
+  it("propagates embed sanitization to credential siblings", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-nested-embed-record": {
+          tool: { description: "Read a nested embed record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-with-nested-embed",
+            ticket: "sibling-ticket-must-not-leak",
+            details: {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this detail",
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-nested-embed-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-with-nested-embed",
+      details: { safe: "keep this detail" },
+    });
+    expect(out.result.content[0].text).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
     // Regression: internal embed-routing fields are carried in
     // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT
@@ -2992,7 +3222,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps"',
+      'scope="mcp:read mcp:write mcp:apps offline_access"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).

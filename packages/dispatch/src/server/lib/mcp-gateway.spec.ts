@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   managerStop: vi.fn(),
   managerCallTool: vi.fn(),
   managerConstructor: vi.fn(),
+  callAgent: vi.fn(),
   signA2AToken: vi.fn(),
   getOrgA2ASecret: vi.fn(),
   getOrgDomain: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/a2a", () => ({
-  callAgent: vi.fn(),
+  callAgent: mocks.callAgent,
   signA2AToken: mocks.signA2AToken,
 }));
 
@@ -74,6 +75,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   createGrantedDispatchMcpEmbedSession,
+  askGrantedDispatchMcpApp,
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
@@ -90,8 +92,8 @@ const analyticsAgent = {
 
 beforeEach(() => {
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
-  mocks.getUserSetting.mockResolvedValue(null);
-  mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
+  mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.createEmbedSessionTicket.mockResolvedValue({
     ticket: "ticket-123",
     ticketHash: "hash-123",
@@ -104,6 +106,7 @@ beforeEach(() => {
       startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     },
   });
+  mocks.callAgent.mockResolvedValue("Created the requested dashboard.");
   mocks.signA2AToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
@@ -115,7 +118,21 @@ afterEach(() => {
 });
 
 describe("Dispatch MCP gateway app discovery", () => {
+  it("defaults to exposing Dispatch only until an owner or admin grants more apps", async () => {
+    mocks.getUserSetting.mockResolvedValue(null);
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
   it("includes Dispatch itself so agents can target extension routes", async () => {
+    mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
     const apps = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
@@ -222,6 +239,7 @@ describe("Dispatch MCP gateway app discovery", () => {
         color: "#111827",
       },
     ]);
+    mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
 
     await expect(
       runWithRequestContext(
@@ -232,6 +250,64 @@ describe("Dispatch MCP gateway app discovery", () => {
         () => resolveGrantedDispatchMcpApp("bad-url"),
       ),
     ).rejects.toThrow(/invalid URL/);
+  });
+});
+
+describe("askGrantedDispatchMcpApp", () => {
+  it("routes the authenticated user and active org identity to the granted app", async () => {
+    mocks.getOrgSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["analytics"],
+    });
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp(
+          "analytics",
+          "Build a weekly active users dashboard.",
+        ),
+    );
+
+    expect(mocks.callAgent).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      "Build a weekly active users dashboard.",
+      {
+        userEmail: "owner@example.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-specific-secret",
+        timeoutMs: 5 * 60_000,
+      },
+    );
+    expect(result).toEqual({
+      app: "analytics",
+      routedVia: "a2a",
+      response: "Created the requested dashboard.",
+    });
+  });
+
+  it("rejects delegation to an app outside the grant", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch"],
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => askGrantedDispatchMcpApp("analytics", "Show signups."),
+      ),
+    ).rejects.toThrow(/not granted/);
+    expect(mocks.callAgent).not.toHaveBeenCalled();
   });
 });
 

@@ -231,12 +231,6 @@ export type PreparingActionState = {
   toolEntries?: Map<string, PreparingActionEntry>;
 };
 
-function formatProgressBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function activityProgressBytes(ev: SSEEvent): number | undefined {
   return typeof ev.progressBytes === "number" &&
     Number.isFinite(ev.progressBytes) &&
@@ -281,7 +275,7 @@ function preparationActivityLabel(
   if (progressBytes <= 0) {
     return `Preparing ${action}...`;
   }
-  return `Writing ${action}... (${formatProgressBytes(progressBytes)} prepared)`;
+  return `Writing ${action}...`;
 }
 
 function visibleActivityLabel(ev: SSEEvent, tool?: string): string {
@@ -301,16 +295,8 @@ function findPendingToolCallIndex(
   // calls can be in flight simultaneously, and name-only matching would
   // attach a result to the wrong call.
   if (toolCallId) {
-    for (let i = content.length - 1; i >= 0; i--) {
-      const part = content[i];
-      if (
-        part.type === "tool-call" &&
-        part.toolCallId === toolCallId &&
-        part.result === undefined
-      ) {
-        return i;
-      }
-    }
+    const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+    if (exactIndex >= 0) return exactIndex;
     // Fall through to name-matching: the start event may have arrived before
     // the server started emitting ids (e.g. older server build), so the
     // stored toolCallId is the locally-generated "tc_N" value rather than the
@@ -327,6 +313,76 @@ function findPendingToolCallIndex(
     }
   }
   return -1;
+}
+
+function findPendingToolCallIndexById(
+  content: ContentPart[],
+  toolCallId: string,
+): number {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolCallId === toolCallId &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findOldestPendingActivityToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+): number {
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.activity === true &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findPendingActivityToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  // Activity events emitted while the model is assembling tool input already
+  // carry the engine's stable call id. Match that id exactly so repeated
+  // progress for one call updates one placeholder while parallel same-name
+  // calls retain separate cards.
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  // Older activity events may omit the id before a later progress event adds
+  // it. Upgrade one unambiguous reader-local placeholder instead of painting a
+  // second card for the same logical call.
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.activity === true &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0] : -1;
 }
 
 function findCompletedToolCallIndex(
@@ -651,6 +707,22 @@ function dispatchActivityClear(tabId: string | undefined) {
   );
 }
 
+// Fires once per chunk (see ProcessEventState.streamProgressDispatched) the
+// moment a chunk produces real model output (visible text or a reasoning
+// delta). Unlike `agent-chat:activity-clear` — which also fires for
+// old-chunk `tool_done` replays and server-retry `clear` events, and so
+// cannot be used to detect genuine forward progress — this event exists
+// solely so listeners can distinguish "the run is actually producing new
+// output" from those replay/retry cases.
+function dispatchStreamProgress(tabId: string | undefined) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", {
+      detail: { tabId },
+    }),
+  );
+}
+
 function dispatchMissingApiKey(tabId: string | undefined) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -890,6 +962,11 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
 
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
+  /** Set once `agent-chat:stream-progress` has been dispatched for the
+   *  current chunk, so a burst of per-token text/reasoning deltas only fires
+   *  it once. Cleared by `resetProcessEventState` on a server `clear` retry
+   *  so the next batch of real output re-arms it. */
+  streamProgressDispatched: boolean;
 }
 
 function markAssistantText(state: ProcessEventState | undefined) {
@@ -905,6 +982,18 @@ function markCompletedToolAfterAssistantText(
 
 function resetProcessEventState(state: ProcessEventState | undefined) {
   state?.completedToolsAfterLastAssistantText.clear();
+  if (state) state.streamProgressDispatched = false;
+}
+
+// Returns true the first time it's called for a given state (or every time
+// when state is unavailable, since there is nothing to dedupe against) and
+// false on subsequent calls until `resetProcessEventState` re-arms it.
+function shouldDispatchStreamProgress(
+  state: ProcessEventState | undefined,
+): boolean {
+  if (state?.streamProgressDispatched) return false;
+  if (state) state.streamProgressDispatched = true;
+  return true;
 }
 
 /**
@@ -949,7 +1038,13 @@ export function processEvent(
     // activity label so a transient "Contacting model" / "Still generating
     // image" doesn't linger beside streamed text. Idempotent (clears once, then
     // no-ops) so per-token text deltas stay cheap.
-    if (ev.text) dispatchActivityClear(tabId);
+    if (ev.text) {
+      dispatchActivityClear(tabId);
+      // Real output resumed — let listeners (e.g. the auto-resume "Resuming…"
+      // indicator) clear state that must NOT be cleared by activity-clear
+      // alone, since activity-clear also fires for old-chunk/retry replays.
+      if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
+    }
     if (ev.text?.trim()) markAssistantText(state);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "text") {
@@ -968,6 +1063,7 @@ export function processEvent(
     // part so the UI can render a single collapsible "Thinking" cell.
     const delta = ev.text ?? "";
     if (!delta) return { action: "continue" };
+    if (shouldDispatchStreamProgress(state)) dispatchStreamProgress(tabId);
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "reasoning") {
       lastPart.text += delta;
@@ -1000,7 +1096,17 @@ export function processEvent(
     }
     if (!tool) return { action: "continue" };
 
-    const pendingToolCallIndex = findPendingToolCallIndex(content, tool);
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    if (pendingToolCallIndex >= 0 && ev.id) {
+      const pending = content[pendingToolCallIndex];
+      if (pending?.type === "tool-call" && pending.toolCallId !== ev.id) {
+        content[pendingToolCallIndex] = { ...pending, toolCallId: ev.id };
+      }
+    }
     if (pendingToolCallIndex === -1) {
       // Only surface a placeholder spinner when this tool has no card yet. A
       // trailing activity heartbeat that arrives after the matching tool_done
@@ -1011,12 +1117,13 @@ export function processEvent(
         (part) =>
           part.type === "tool-call" &&
           part.toolName === tool &&
-          part.result !== undefined,
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
       );
       if (!hasCompletedSameTool) {
         content.push({
           type: "tool-call",
-          toolCallId: `tc_${++toolCallCounter.value}`,
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
           toolName: tool,
           argsText: "",
           args: {},
@@ -1054,7 +1161,9 @@ export function processEvent(
     }
     // Pass the server-assigned id so we upgrade the pending activity card
     // using id-match when available (parallel same-name calls stay separate).
-    const pendingToolCallIndex = findPendingToolCallIndex(content, tool, ev.id);
+    const pendingToolCallIndex = ev.id
+      ? findPendingActivityToolCallIndex(content, tool, ev.id)
+      : findOldestPendingActivityToolCallIndex(content, tool);
     const pendingToolCall =
       pendingToolCallIndex >= 0 ? content[pendingToolCallIndex] : undefined;
     const pendingIsActivityPlaceholder =
@@ -1498,6 +1607,7 @@ export async function* readSSEStream(
     options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
+    streamProgressDispatched: false,
   };
 
   const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
@@ -1700,6 +1810,7 @@ export async function readSSEStreamRaw(
     options?.preparingActionState ?? {};
   const processEventState: ProcessEventState = {
     completedToolsAfterLastAssistantText: new Set(),
+    streamProgressDispatched: false,
   };
   // Tracks whether the most recent content state was already pushed via
   // onUpdate inside the loop, so the post-loop flush below doesn't emit the

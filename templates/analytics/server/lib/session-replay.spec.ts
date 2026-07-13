@@ -7,7 +7,7 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
-const readAppStateMock = vi.hoisted(() => vi.fn());
+const appStateGetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -25,7 +25,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: readAppStateMock,
+  appStateGet: appStateGetMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -47,8 +47,12 @@ import {
   compactSessionRecordingSummary,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
+  getSessionReplayTokenizedSummary,
   listSessionRecordings,
+  MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
+  MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
   parseSessionReplayIngestPayload,
+  readSessionReplayChunkBatch,
   readSessionReplayChunkBytes,
   recordSessionReplayChunks,
 } from "./session-replay";
@@ -200,7 +204,8 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
-    readAppStateMock.mockReset();
+    appStateGetMock.mockReset();
+    appStateGetMock.mockResolvedValue(null);
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -564,9 +569,11 @@ describe("session replay ingest parsing", () => {
     ]);
     getDbMock.mockReturnValue(db);
 
-    const result = await getSessionReplayTokenizedEvents("sr_agent", {
-      limit: 10,
-    });
+    const result = await getSessionReplayTokenizedEvents(
+      "sr_agent",
+      "owner@example.com",
+      { limit: 10 },
+    );
 
     expect(result.eventCount).toBe(1);
     expect(result.chunks[0]?.events).toEqual([
@@ -667,6 +674,249 @@ describe("session replay ingest parsing", () => {
     expect(JSON.parse(result.json)).toHaveLength(2);
   });
 
+  it("returns actionable setup guidance when a replay blob key does not match", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_blob_mismatch"),
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "encrypted-blob-handle" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 4096,
+          eventCount: 2,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockRejectedValue(
+      new Error("Unsupported state or unable to authenticate data"),
+    );
+
+    await expect(
+      readSessionReplayChunkBytes("sr_blob_mismatch", 0, {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      message: expect.stringContaining("ANALYTICS_SECRETS_ENCRYPTION_KEY"),
+    });
+  });
+
+  it("reads an ordered replay chunk batch with one access check and one row query", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch"),
+    });
+    const firstJson = JSON.stringify([{ type: 4, timestamp: 1000 }]);
+    const secondJson = JSON.stringify([{ type: 3, timestamp: 2000 }]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 1,
+          checksum: "checksum_1",
+          byteLength: secondJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: secondJson,
+        },
+        {
+          seq: 2,
+          checksum: "checksum_2",
+          byteLength: firstJson.length,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: firstJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = await readSessionReplayChunkBatch("sr_batch", [2, 1], {
+      userEmail: "viewer@example.com",
+      orgId: "org_123",
+    });
+
+    expect(resolveAccessMock).toHaveBeenCalledTimes(1);
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(result.chunks.map((chunk) => chunk.seq)).toEqual([2, 1]);
+    expect(result.chunks[0]?.events).toEqual([{ type: 4, timestamp: 1000 }]);
+    expect(result.unavailableChunks).toBe(0);
+  });
+
+  it("bounds replay chunk batches by count and declared bytes before blob reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_bounds"),
+    });
+
+    await expect(
+      readSessionReplayChunkBatch(
+        "sr_batch_bounds",
+        Array.from(
+          { length: MAX_REPLAY_CHUNK_READ_BATCH_SIZE + 1 },
+          (_, index) => index,
+        ),
+        { userEmail: "viewer@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "oversized" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: MAX_REPLAY_CHUNK_READ_BATCH_BYTES + 1,
+          eventCount: 1,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_bounds", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 413 });
+    expect(readPrivateBlobMock).not.toHaveBeenCalled();
+  });
+
+  it("limits replay chunk blob reads to ten and marks missing chunks unavailable", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_concurrency"),
+    });
+    const eventsJson = JSON.stringify([{ type: 4, timestamp: 1000 }]);
+    const rows = Array.from({ length: 15 }, (_, seq) => ({
+      seq,
+      checksum: `checksum_${seq}`,
+      byteLength: eventsJson.length,
+      eventCount: 1,
+      storageKind: "blob",
+      storageRef: JSON.stringify({
+        kind: "agent-native.session-replay.private-blob",
+        version: 1,
+        compression: "gzip",
+        handle: { opaque: `blob-${seq}` },
+      }),
+      inlineData: null,
+    }));
+    const { db } = createReplayDbMock([rows]);
+    getDbMock.mockReturnValue(db);
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    readPrivateBlobMock.mockImplementation(async () => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeReads -= 1;
+      return { data: gzipSync(Buffer.from(eventsJson, "utf8")) };
+    });
+
+    const result = await readSessionReplayChunkBatch(
+      "sr_batch_concurrency",
+      [...rows.map((row) => row.seq), 19],
+      { userEmail: "viewer@example.com", orgId: "org_123" },
+    );
+
+    expect(maxActiveReads).toBe(10);
+    expect(result.chunks[result.chunks.length - 1]).toMatchObject({
+      seq: 19,
+      events: [],
+      unavailable: true,
+    });
+    expect(result.unavailableChunks).toBe(1);
+  });
+
+  it("rejects replay chunk batches whose actual JSON response exceeds the cap", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_actual_size"),
+    });
+    const oversizedJson = JSON.stringify([
+      { data: "x".repeat(MAX_REPLAY_CHUNK_READ_BATCH_BYTES) },
+    ]);
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 1,
+          eventCount: 1,
+          storageKind: "inline",
+          storageRef: null,
+          inlineData: oversizedJson,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_actual_size", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 413 });
+  });
+
+  it("fails a replay chunk batch on systemic blob read errors", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: playableRecordingResource("sr_batch_storage_error"),
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: { opaque: "unreadable" },
+    });
+    const { db } = createReplayDbMock([
+      [
+        {
+          seq: 0,
+          checksum: "checksum_0",
+          byteLength: 10,
+          eventCount: 1,
+          storageKind: "blob",
+          storageRef,
+          inlineData: null,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockRejectedValue(new Error("provider unavailable"));
+
+    await expect(
+      readSessionReplayChunkBatch("sr_batch_storage_error", [0], {
+        userEmail: "viewer@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+  });
+
   it("requires signed-in email identity and replay events in session recording lists", async () => {
     const listDb = createSessionReplayListDbMock([
       {
@@ -711,6 +961,10 @@ describe("session replay ingest parsing", () => {
       chunkCount: 1,
       eventCount: 2,
     });
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@example.com",
+      "demo-mode",
+    );
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
     expect(listCondition).toContain("user_id");
@@ -721,7 +975,7 @@ describe("session replay ingest parsing", () => {
   });
 
   it("filters demo-mode session lists to builder emails and anonymizes identities", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     const listDb = createSessionReplayListDbMock([
       {
         id: "sr_builder_one",
@@ -816,19 +1070,23 @@ describe("session replay ingest parsing", () => {
       "sr_builder_one",
       "sr_builder_two",
     ]);
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@builder.io",
+      "demo-mode",
+    );
     expect(rows[0]).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
       metadata: {
-        accountEmail: "anonymized-1@builder.io",
-        note: "Viewed by anonymized-1@builder.io",
+        accountEmail: "anonymous@builder.io",
+        note: "Viewed by anonymous@builder.io",
       },
     });
     expect(rows[1]).toMatchObject({
-      userId: "anonymized-3@builder.io",
-      userKey: "anonymized-3@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
     });
     expect(JSON.stringify(rows)).not.toContain("alice@builder.io");
     expect(JSON.stringify(rows)).not.toContain("customer@example.com");
@@ -837,7 +1095,7 @@ describe("session replay ingest parsing", () => {
   });
 
   it("anonymizes demo-mode direct summaries used by detail and action surfaces", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -856,22 +1114,55 @@ describe("session replay ingest parsing", () => {
     const compact = compactSessionRecordingSummary(summary);
 
     expect(summary).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
-      metadata: { actorEmail: "anonymized-1@builder.io" },
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
+      metadata: { actorEmail: "anonymous@builder.io" },
     });
     expect(compact).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
     });
     expect(JSON.stringify({ summary, compact })).not.toContain(
       "detail@builder.io",
     );
   });
 
+  it("uses the signed link viewer identity for tokenized demo-mode summaries", async () => {
+    appStateGetMock.mockResolvedValue({ enabled: true });
+    const { db } = createReplayDbMock([
+      [
+        {
+          ...playableRecordingResource("sr_builder_agent_link"),
+          userId: "detail@builder.io",
+          userKey: "detail@builder.io",
+          ownerEmail: "owner@builder.io",
+          metadata: JSON.stringify({ actorEmail: "detail@builder.io" }),
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const summary = await getSessionReplayTokenizedSummary(
+      "sr_builder_agent_link",
+      "owner@builder.io",
+    );
+
+    expect(appStateGetMock).toHaveBeenCalledWith(
+      "owner@builder.io",
+      "demo-mode",
+    );
+    expect(summary).toMatchObject({
+      userId: "anonymous@builder.io",
+      userKey: "anonymous@builder.io",
+      ownerEmail: "anonymous@builder.io",
+      metadata: { actorEmail: "anonymous@builder.io" },
+    });
+    expect(JSON.stringify(summary)).not.toContain("detail@builder.io");
+  });
+
   it("hides non-builder sessions from demo-mode direct summary reads", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+    appStateGetMock.mockResolvedValue({ enabled: true });
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {

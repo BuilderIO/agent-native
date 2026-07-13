@@ -5,60 +5,69 @@ import {
   buildCodeLayerTree,
 } from "../../shared/code-layer";
 import {
-  buildActiveFileNodeIdSet,
-  computeExportCropBox,
-  EDITOR_CHROME_OVERLAY_SELECTOR,
   findMovedCodeLayerNodeInProjection,
-  getAvailableContentHistoryChanges,
+  parseInlineStyleAttribute,
+  refreshElementInfoFromContent,
+  refreshSelectedLayerIdsFromContent,
+  renameFilenamePreservingExtension,
+  replaceDataScreenReferences,
+  collectCodeLayerSubtreeDataNodeIds,
+  resolveCodeLayerNodeFromElementInfo,
+  sortCodeLayerIdsByTreeOrder,
+} from "./design-editor/code-layer-state";
+import {
   getFreshActiveFileContent,
   getFreshScreenContent,
   getUndoRedoPriorityOrder,
-  getContentHistoryChanges,
-  getDefaultOverviewCanvasZoom,
   getDesignEditorShareUrl,
   getDesignEditorStateUrlSearch,
   getLayerMoveIterationOrder,
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
-  getOverviewCanvasZoom,
-  getOverviewDisplayZoom,
-  getOverviewEnterTarget,
-  getOverviewScreenIdsFromLayerSelection,
-  getOverviewScreenRuntimeReplacementKey,
-  getOverviewZoomScale,
-  getPendingVisualStylePropertyCount,
-  parseInlineStyleAttribute,
-  refreshElementInfoFromContent,
-  refreshSelectedLayerIdsFromContent,
   removeUndoRedoOrderKind,
-  renameFilenamePreservingExtension,
-  replaceDataScreenReferences,
-  getSidebarCodeLayerSelectionState,
-  applyGeometryHistoryDiff,
   applyRelativeDeltaToStyleValue,
-  collectCodeLayerSubtreeDataNodeIds,
-  findScreenFrameAtCanvasPoint,
-  geometryHistoryEntryTouchesFrameIds,
-  geometrySnapshotsEqual,
-  hydrateMotionDockTracks,
-  isScreenRootElementInfo,
-  mergeLocalContentHistoryFallback,
-  pruneGeometryHistoryEntryForDeletedFiles,
-  resolveCodeLayerNodeFromElementInfo,
-  getSelectedScreenIdsForEditorState,
-  getSelectedScreenGeometryForInspector,
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldSkipVisualStyleCommitForPreview,
-  shouldLimitEditorChromeUntilContentReady,
-  shouldClearBridgeSelectionOnEmptyMarquee,
-  shouldEscapeToOverview,
-  shouldIgnoreOverviewLayerCreationEcho,
+} from "./design-editor/editor-state";
+import {
+  buildStaticForeignObjectSvg,
+  computeExportCropBox,
+  createMultiPageRasterPdf,
+  createSinglePageRasterPdf,
+  EDITOR_CHROME_OVERLAY_SELECTOR,
+  getExportCompositeBounds,
+  PDF_MIN_PRINT_RASTER_SCALE,
+  resolveRasterExportScale,
+  unionExportCropRects,
+} from "./design-editor/export-capture";
+import { geometrySnapshotsEqual } from "./design-editor/geometry-persistence";
+import {
+  applyGeometryHistoryDiff,
+  contentHistoryScopeForViewMode,
+  getAvailableContentHistoryChanges,
+  getContentHistoryChanges,
+  geometryHistoryEntryTouchesFrameIds,
+  mergeLocalContentHistoryFallback,
+  pruneGeometryHistoryEntryForDeletedFiles,
+} from "./design-editor/history";
+import {
+  hydrateMotionDockTracks,
+  upsertMotionStyleKeyframes,
+} from "./design-editor/motion-state";
+import {
+  getDefaultOverviewCanvasZoom,
+  getOverviewCanvasZoom,
+  getOverviewDisplayZoom,
+  getOverviewZoomScale,
+  findScreenFrameAtCanvasPoint,
+} from "./design-editor/overview-camera";
+import {
+  getPendingVisualStylePropertyCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
+  shouldPreferRuntimeLayerProjection,
+  shouldUseRuntimeLayerProjection,
   shouldShowPendingVisualStyleApply,
-  shouldUseOverviewRuntimeReplacement,
-  shouldMirrorSelectedElementToAgentChat,
-  sortCodeLayerIdsByTreeOrder,
   formatPendingVisualStylePrompt,
   buildPendingVisualStyleRevertPatches,
   mergePendingLiveNonStyleEdits,
@@ -67,8 +76,30 @@ import {
   originalStylesForPendingVisualEdit,
   pendingLiveTextUndoRevertValue,
   pendingVisualStyleUndoRevertStyles,
-  upsertMotionStyleKeyframes,
-} from "./DesignEditor";
+} from "./design-editor/pending-edits";
+import {
+  buildActiveFileNodeIdSet,
+  getOverviewEnterTarget,
+  getOverviewScreenIdsFromLayerSelection,
+  getOverviewScreenRuntimeReplacementKey,
+  getSidebarCodeLayerSelectionState,
+  isScreenRootElementInfo,
+  resolveAvailableActiveFileId,
+  getSelectedScreenIdsForEditorState,
+  getSelectedScreenGeometryForInspector,
+  shouldLimitEditorChromeUntilContentReady,
+  shouldClearBridgeSelectionOnEmptyMarquee,
+  shouldEscapeToOverview,
+  shouldIgnoreOverviewLayerCreationEcho,
+  shouldUseOverviewRuntimeReplacement,
+  shouldIncludeScreenRenameContentOverride,
+  shouldMirrorSelectedElementToAgentChat,
+  computeOverviewScreenPickSelectionIds,
+} from "./design-editor/selection-state";
+import {
+  getDesignToolActivationState,
+  getMoveGroupToolPresentation,
+} from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
   it("uses the explicit overview screen selection while in overview", () => {
@@ -89,6 +120,78 @@ describe("DesignEditor overview selection state", () => {
         viewMode: "single",
       }),
     ).toEqual(["screen-active"]);
+  });
+
+  it("replaces a deleted active file id with an available default", () => {
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-deleted",
+        availableFileIds: ["screen-a", "screen-b"],
+        defaultFileId: "screen-a",
+      }),
+    ).toBe("screen-a");
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-b",
+        availableFileIds: ["screen-a", "screen-b"],
+        defaultFileId: "screen-a",
+      }),
+    ).toBe("screen-b");
+    expect(
+      resolveAvailableActiveFileId({
+        activeFileId: "screen-deleted",
+        availableFileIds: [],
+        defaultFileId: undefined,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("DesignEditor command tool activation", () => {
+  it("keeps draw and comment annotation modes mutually exclusive", () => {
+    expect(getDesignToolActivationState("draw")).toEqual({
+      mode: "annotate",
+      drawMode: true,
+      pinMode: false,
+    });
+    expect(getDesignToolActivationState("comment")).toEqual({
+      mode: "annotate",
+      drawMode: false,
+      pinMode: true,
+    });
+    expect(getDesignToolActivationState("pen")).toEqual({
+      mode: "edit",
+      drawMode: false,
+      pinMode: false,
+    });
+  });
+});
+
+describe("DesignEditor move-group toolbar presentation", () => {
+  it("projects Hand and Scale with their Figma shortcut labels", () => {
+    expect(getMoveGroupToolPresentation("hand")).toEqual({
+      tool: "hand",
+      labelKey: "designEditor.tools.hand",
+      shortcut: "H",
+    });
+    expect(getMoveGroupToolPresentation("scale")).toEqual({
+      tool: "scale",
+      labelKey: "designEditor.tools.scale",
+      shortcut: "K",
+    });
+  });
+
+  it("projects other tools through the default Move group presentation", () => {
+    expect(getMoveGroupToolPresentation("move")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
+    });
+    expect(getMoveGroupToolPresentation("pen")).toEqual({
+      tool: "move",
+      labelKey: "designEditor.tools.move",
+      shortcut: "V",
+    });
   });
 });
 
@@ -340,6 +443,49 @@ describe("DesignEditor pending visual style edits", () => {
     ]);
   });
 
+  it("keeps localhost base and interaction-state edits independent for the same runtime target", () => {
+    const base = {
+      screenId: "home",
+      filename: "index.html",
+      screenName: "Home",
+      selector: "#cta",
+      sourceId: "runtime-cta",
+      classes: [],
+      styles: { color: "blue" },
+      originalStyles: { color: "" },
+      updatedAt: 1,
+    };
+    const hover = {
+      ...base,
+      interactionState: "hover" as const,
+      styles: { color: "red" },
+      baseStyles: { color: "blue" },
+      updatedAt: 2,
+    };
+    const focusVisible = {
+      ...base,
+      interactionState: "focus-visible" as const,
+      styles: { outline: "2px solid blue" },
+      originalStyles: { outline: "" },
+      updatedAt: 3,
+    };
+
+    expect(mergePendingVisualStyleEdits([base, hover, focusVisible])).toEqual([
+      base,
+      hover,
+      focusVisible,
+    ]);
+    expect(buildPendingVisualStyleRevertPatches([hover])).toEqual([
+      {
+        screenId: "home",
+        selector: "#cta",
+        sourceId: "runtime-cta",
+        styles: { color: "" },
+        interactionState: "hover",
+      },
+    ]);
+  });
+
   it("derives original live-edit values from authored inline styles", () => {
     expect(
       originalStylesForPendingVisualEdit(
@@ -410,6 +556,30 @@ describe("DesignEditor pending visual style edits", () => {
     );
     expect(prompt).toContain('"screenId": "home"');
     expect(prompt).toContain('"color": "rgb(37, 99, 235)"');
+  });
+
+  it("marks localhost interaction-state styles as pseudo-class edits in the guarded source handoff", () => {
+    const prompt = formatPendingVisualStylePrompt({
+      designId: "design-1",
+      edits: [
+        {
+          screenId: "home",
+          filename: "index.html",
+          screenName: "Home",
+          selector: "#cta",
+          sourceId: "runtime-cta",
+          classes: [],
+          styles: { transform: "scale(0.98)" },
+          originalStyles: { transform: "" },
+          interactionState: "active",
+          updatedAt: 1,
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"interactionState": "active"');
+    expect(prompt).toContain("pseudo-class overrides, not base styles");
+    expect(prompt).toContain("preserving the element's default styling");
   });
 
   it("formats pending live text and structure edits in the handoff prompt", () => {
@@ -571,6 +741,53 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(true);
   });
 
+  it("uses runtime layers only for URL-backed localhost screens", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost", bridgeUrl: "http://127.0.0.1:7336" },
+        content: "http://127.0.0.1:9210/",
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "inline" },
+        content:
+          '<div x-data="{}"><template x-for="item in items"></template></div>',
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "localhost" },
+        content:
+          '<div x-data="{}">Inline Alpine remains source projected</div>',
+      }),
+    ).toBe(false);
+  });
+
+  it("prefers a valid live runtime tree even when its node count is equal or smaller", () => {
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 3,
+        sourceNodeCount: 3,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: true,
+        runtimeNodeCount: 2,
+        sourceNodeCount: 5,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPreferRuntimeLayerProjection({
+        eligible: false,
+        runtimeNodeCount: 8,
+        sourceNodeCount: 2,
+      }),
+    ).toBe(false);
+  });
+
   it("hides the apply styles affordance for non-localhost visual edits", () => {
     const edits = [
       {
@@ -633,6 +850,46 @@ describe("DesignEditor overview layer selection", () => {
         event: "select",
       }),
     ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "selected-beta",
+        },
+        event: "select",
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "selected-beta",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "real-canvas-click",
+        },
+        event: "select",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldIgnoreOverviewLayerCreationEcho({
+        pendingLayerId: "projected-beta-id",
+        pendingScreenId: "screen-a",
+        screenId: "screen-a",
+        info: {
+          ...layerInfo,
+          sourceId: "authored-beta-id",
+        },
+        resolvedLayerId: "projected-beta-id",
+        event: "select",
+      }),
+    ).toBe(true);
   });
 
   it("allows normal element selection after the creation echo has cleared", () => {
@@ -823,6 +1080,17 @@ describe("computeExportCropBox (selected-frame image export)", () => {
     ).toEqual({ sx: 400, sy: 400, sw: 100, sh: 100 });
   });
 
+  it("clips a selection that starts above or left of the document", () => {
+    expect(
+      computeExportCropBox(
+        500,
+        500,
+        { x: -20, y: -10, width: 70, height: 50 },
+        2,
+      ),
+    ).toEqual({ sx: 0, sy: 0, sw: 100, sh: 80 });
+  });
+
   it("returns null when the rect starts past the canvas edge", () => {
     expect(
       computeExportCropBox(
@@ -841,6 +1109,201 @@ describe("computeExportCropBox (selected-frame image export)", () => {
   });
 });
 
+describe("buildStaticForeignObjectSvg (non-zero selection crop)", () => {
+  it("keeps the full document coordinate space while covering the cropped viewBox", () => {
+    const svg = buildStaticForeignObjectSvg({
+      documentWidth: 1280,
+      documentHeight: 900,
+      cropRect: { x: 24, y: 163, width: 1232, height: 505.25 },
+      scale: 1,
+      safeTitle: "Complex artboard",
+      serializedHtml: '<html xmlns="http://www.w3.org/1999/xhtml"></html>',
+    });
+    expect(svg).toContain('width="1232" height="505.25"');
+    expect(svg).toContain('viewBox="24 163 1232 505.25"');
+    expect(svg).toContain(
+      '<foreignObject x="0" y="0" width="1280" height="900">',
+    );
+  });
+
+  it("expands the foreignObject when a fractional crop extends past stale document metrics", () => {
+    const svg = buildStaticForeignObjectSvg({
+      documentWidth: 100,
+      documentHeight: 100,
+      cropRect: { x: 80, y: 70, width: 40, height: 50 },
+      scale: 2,
+      safeTitle: "Overflow",
+      serializedHtml: "<html></html>",
+    });
+    expect(svg).toContain('width="80" height="100"');
+    expect(svg).toContain(
+      '<foreignObject x="0" y="0" width="120" height="120">',
+    );
+  });
+});
+
+describe("resolveRasterExportScale (high-fidelity bounded raster export)", () => {
+  it("defaults a 1280x900 design to a crisp 2x artifact on a 1x display", () => {
+    expect(
+      resolveRasterExportScale({
+        width: 1280,
+        height: 900,
+        devicePixelRatio: 1,
+      }),
+    ).toBe(2);
+  });
+
+  it("honors explicit Figma-style scale presets through 4x", () => {
+    expect(
+      resolveRasterExportScale({
+        width: 1280,
+        height: 900,
+        requestedScale: 4,
+      }),
+    ).toBe(4);
+  });
+
+  it("bounds extreme artboards by both canvas side and pixel-area limits", () => {
+    const scale = resolveRasterExportScale({
+      width: 40_000,
+      height: 20_000,
+      requestedScale: 4,
+    });
+    expect(40_000 * scale).toBeLessThanOrEqual(16_384);
+    expect(40_000 * 20_000 * scale * scale).toBeLessThanOrEqual(
+      64 * 1024 * 1024,
+    );
+  });
+
+  it("does not re-expand million-pixel artboards past the allocation budget", () => {
+    const width = 1_000_000;
+    const height = 1_000_000;
+    const scale = resolveRasterExportScale({
+      width,
+      height,
+      requestedScale: 4,
+    });
+    expect(width * scale).toBeLessThanOrEqual(16_384);
+    expect(width * height * scale * scale).toBeLessThanOrEqual(
+      64 * 1024 * 1024,
+    );
+  });
+});
+
+describe("createSinglePageRasterPdf (real non-web artifact export)", () => {
+  const onePixelPng =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("produces a valid PDF payload at a fixed 1280x900 artboard size", async () => {
+    const pdf = await createSinglePageRasterPdf({
+      dataUrl: onePixelPng,
+      width: 1280,
+      height: 900,
+    });
+    const signature = new TextDecoder().decode(
+      new Uint8Array(await pdf.arrayBuffer()).subarray(0, 5),
+    );
+    expect(signature).toBe("%PDF-");
+    expect(pdf.type).toBe("application/pdf");
+    expect(pdf.size).toBeGreaterThan(500);
+  });
+
+  // US Letter at 96dpi (816x1056px) must produce an 8.5in x 11in physical
+  // page (612pt x 792pt) — this is the "px -> pt" conversion
+  // createSinglePageRasterPdf relies on the jsPDF `px_scaling` hotfix for; a
+  // regression here would silently ship wrong-sized print PDFs. Parse the
+  // page's /MediaBox directly from the raw PDF bytes rather than adding a
+  // parser dependency for one assertion.
+  it("maps 96dpi US Letter pixel dimensions to an exact 612x792pt page", async () => {
+    const letterPdf = await createSinglePageRasterPdf({
+      dataUrl: onePixelPng,
+      width: 816,
+      height: 1056,
+    });
+    const text = new TextDecoder("latin1").decode(
+      new Uint8Array(await letterPdf.arrayBuffer()),
+    );
+    const match = text.match(
+      /\/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\]/,
+    );
+    expect(match).not.toBeNull();
+    const [, , , widthPt, heightPt] = match!;
+    expect(Number(widthPt)).toBeCloseTo(612, 0);
+    expect(Number(heightPt)).toBeCloseTo(792, 0);
+  });
+});
+
+describe("createMultiPageRasterPdf (multi-screen -> multi-page PDF export)", () => {
+  const onePixelPng =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("builds one page per screen, each at its own artboard size", async () => {
+    const pdf = await createMultiPageRasterPdf([
+      { dataUrl: onePixelPng, width: 816, height: 1056 }, // US Letter
+      { dataUrl: onePixelPng, width: 1080, height: 1080 }, // social square
+      { dataUrl: onePixelPng, width: 300, height: 250 }, // ad unit
+    ]);
+    const signature = new TextDecoder().decode(
+      new Uint8Array(await pdf.arrayBuffer()).subarray(0, 5),
+    );
+    expect(signature).toBe("%PDF-");
+    expect(pdf.type).toBe("application/pdf");
+  });
+
+  it("throws instead of producing an empty document", async () => {
+    await expect(createMultiPageRasterPdf([])).rejects.toThrow();
+  });
+});
+
+describe("PDF_MIN_PRINT_RASTER_SCALE (print sharpness floor)", () => {
+  it("is at least 2x so a fixed-physical-size PDF page isn't a blurry 96dpi raster", () => {
+    expect(PDF_MIN_PRINT_RASTER_SCALE).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("unionExportCropRects (multi-selection image export)", () => {
+  it("returns the visual bounds spanning every selected layer", () => {
+    expect(
+      unionExportCropRects([
+        { x: 40, y: 20, width: 80, height: 50 },
+        { x: 10, y: 90, width: 30, height: 20 },
+        { x: 100, y: 60, width: 70, height: 80 },
+      ]),
+    ).toEqual({ x: 10, y: 20, width: 160, height: 120 });
+  });
+
+  it("ignores empty or non-finite stale measurements", () => {
+    expect(
+      unionExportCropRects([
+        { x: 0, y: 0, width: 0, height: 40 },
+        { x: Number.NaN, y: 0, width: 30, height: 40 },
+        { x: 12, y: 14, width: 30, height: 40 },
+      ]),
+    ).toEqual({ x: 12, y: 14, width: 30, height: 40 });
+  });
+});
+
+describe("getExportCompositeBounds (multi-screen image export)", () => {
+  it("preserves the canvas gap between unrotated selected frames", () => {
+    expect(
+      getExportCompositeBounds([
+        { x: 20, y: 10, width: 100, height: 80 },
+        { x: 170, y: 40, width: 60, height: 100 },
+      ]),
+    ).toEqual({ x: 20, y: 10, width: 210, height: 130 });
+  });
+
+  it("includes the visual footprint of a rotated frame", () => {
+    const bounds = getExportCompositeBounds([
+      { x: 10, y: 20, width: 100, height: 40, rotation: 90 },
+    ]);
+    expect(bounds?.x).toBeCloseTo(40);
+    expect(bounds?.y).toBeCloseTo(-10);
+    expect(bounds?.width).toBeCloseTo(40);
+    expect(bounds?.height).toBeCloseTo(100);
+  });
+});
+
 describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
   // These markers are the editor-chrome overlays editor-chrome.bridge.ts appends
   // inside the preview iframe; image exports must strip them.
@@ -854,6 +1317,7 @@ describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
     "data-agent-native-spacing-overlay",
     "data-agent-native-insertion-guide",
     "data-agent-native-measurement-overlay",
+    "data-agent-native-editor-chrome-style",
   ])("targets the %s overlay marker", (marker) => {
     expect(EDITOR_CHROME_OVERLAY_SELECTOR).toContain(`[${marker}]`);
   });
@@ -1055,6 +1519,26 @@ describe("DesignEditor URL state", () => {
         codeFilename: "app/routes/home.tsx",
       }),
     ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
+  });
+
+  it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&tool=comment",
+        viewMode: "single",
+        screenId: "screen-123",
+        tool: "pen",
+      }),
+    ).toBe("?view=single&screen=screen-123&tool=pen");
+
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&tool=pen",
+        viewMode: "single",
+        screenId: "screen-123",
+        tool: "move",
+      }),
+    ).toBe("?view=single&screen=screen-123");
   });
 });
 
@@ -1282,6 +1766,33 @@ describe("DesignEditor layer move source snapshots", () => {
         externalSnapshotHtml: "<html>snapshot</html>",
       }),
     ).toBe(false);
+  });
+
+  it("never sends localhost or fusion preview HTML as a screen-rename content override", () => {
+    const shared = {
+      fileType: "html",
+      persistedContent: "http://127.0.0.1:4173/settings",
+      freshContent: "<html><body>Rendered local app</body></html>",
+    };
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        sourceType: "localhost",
+      }),
+    ).toBe(false);
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        sourceType: "fusion",
+      }),
+    ).toBe(false);
+    expect(
+      shouldIncludeScreenRenameContentOverride({
+        ...shared,
+        persistedContent: "<html><body>Saved</body></html>",
+        sourceType: "inline",
+      }),
+    ).toBe(true);
   });
 
   it("does not use a stale active snapshot for a different active file", () => {
@@ -1675,6 +2186,13 @@ describe("DesignEditor undo order helpers", () => {
       "file-content",
       "geometry",
     ]);
+    expect(getUndoRedoPriorityOrder("file-deleted")).toEqual([
+      "file-deleted",
+      "file-created",
+      "content",
+      "file-content",
+      "geometry",
+    ]);
   });
 });
 
@@ -1950,6 +2468,16 @@ describe("U18: undo/redo refreshes stale layer selection", () => {
     expect(refreshSelectedLayerIdsFromContent(html, [keptNode!.id])).toEqual([
       keptNode!.id,
     ]);
+  });
+});
+
+describe("external content checkpoint history scope", () => {
+  it("uses shared content history in overview so an agent replacement is undoable", () => {
+    expect(contentHistoryScopeForViewMode("overview")).toBe("global");
+  });
+
+  it("uses the active-file fallback in single-screen mode", () => {
+    expect(contentHistoryScopeForViewMode("single")).toBe("local");
   });
 });
 
@@ -2252,5 +2780,54 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
         additive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("computeOverviewScreenPickSelectionIds", () => {
+  // PICK-RACE: MultiScreenCanvas's onPick prop is `(id: string) => void` —
+  // no modifier info — even though a shift-click there already toggled a
+  // full multi-id array internally before calling onPick with just the
+  // resulting primary id. handleOverviewScreenPick used to always clobber
+  // selectedLayerIdsState down to [pickedId], which is wrong for both
+  // shift-click cases below; the fix defers entirely to the
+  // onScreenSelectionChange-reported overviewSelectedScreenIds while shift
+  // is held instead of guessing a (necessarily wrong) merged array.
+  it("replaces the selection with the singleton pick when shift is not held", () => {
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: false,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-b"]);
+  });
+
+  it("does not clobber a multi-screen selection on a shift-click ADD", () => {
+    // handleFrameClick already added "screen-b" to ITS OWN selectedIds and
+    // reported "screen-b" as the new primary via onPick; DesignEditor's
+    // selectedLayerIdsState still shows only ["screen-a"] until the
+    // onScreenSelectionChange effect lands ["screen-a", "screen-b"] a render
+    // later. The fix must not overwrite it with a wrong singleton meanwhile.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-b",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a"],
+      }),
+    ).toEqual(["screen-a"]);
+  });
+
+  it("does not clobber the remaining selection on a shift-click REMOVE", () => {
+    // Selection was [A, B, C]; shift-clicking B toggles it off, and
+    // handleFrameClick reports the new primary (the last remaining id, "C")
+    // through onPick — NOT the full remaining array. A naive
+    // [pickedId] === ["C"] clobber would incorrectly drop "A" too.
+    expect(
+      computeOverviewScreenPickSelectionIds({
+        pickedId: "screen-c",
+        shiftKeyHeld: true,
+        currentSelectedLayerIds: ["screen-a", "screen-b", "screen-c"],
+      }),
+    ).toEqual(["screen-a", "screen-b", "screen-c"]);
   });
 });

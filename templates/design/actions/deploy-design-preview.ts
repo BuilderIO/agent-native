@@ -32,17 +32,16 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   resolveSourceCapabilities,
   resolveFusionCapabilities,
 } from "../shared/capability-resolver.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -126,8 +125,6 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, branchName }) => {
-    const db = getDb();
-
     // ── Access check (editor level required for deploys) ────────────────────
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
@@ -140,8 +137,7 @@ export default defineAction({
 
     // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
-    const sourceType =
-      normalizeDesignSourceType(designData["sourceType"]) ?? "inline";
+    const sourceType = designSourceTypeFromData(designData);
 
     // For fusion sources, resolve the Builder connection status first so that
     // resolveFusionCapabilities returns the CONNECTED map (with deployPreview
@@ -228,27 +224,63 @@ export default defineAction({
 
     // ── Persist preview URL + deploy status into the branch entry ────────────
     const now = new Date().toISOString();
-    const updatedBranches = branches.map((b) => {
-      if (b.branchName?.toLowerCase() !== branch!.branchName!.toLowerCase()) {
-        return b;
-      }
-      return {
-        ...b,
-        previewUrl: builderResult.url,
-        deployStatus: builderResult.status,
-        lastDeployedAt: now,
-      };
+    const targetBranchName = branch.branchName;
+    await mutateDesignData({
+      designId,
+      mutate: (current) => {
+        const latestBranches = Array.isArray(current.branches)
+          ? current.branches
+          : [];
+        let found = false;
+        const updatedBranches = latestBranches.map((candidate) => {
+          if (
+            candidate === null ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            return candidate;
+          }
+          const stored = candidate as StoredBranchEntry;
+          if (
+            stored.branchName?.toLowerCase() !== targetBranchName.toLowerCase()
+          ) {
+            return candidate;
+          }
+          found = true;
+          return {
+            ...stored,
+            previewUrl: builderResult.url,
+            deployStatus: builderResult.status,
+            lastDeployedAt: now,
+          };
+        });
+        if (!found) {
+          throw new Error(
+            `Branch "${targetBranchName}" was removed while its preview was building. The preview was not attached to stale design data.`,
+          );
+        }
+        return { ...current, branches: updatedBranches };
+      },
+      isApplied: (current) =>
+        Array.isArray(current.branches) &&
+        current.branches.some((candidate) => {
+          if (
+            candidate === null ||
+            typeof candidate !== "object" ||
+            Array.isArray(candidate)
+          ) {
+            return false;
+          }
+          const stored = candidate as StoredBranchEntry;
+          return (
+            stored.branchName?.toLowerCase() ===
+              targetBranchName.toLowerCase() &&
+            stored.previewUrl === builderResult.url &&
+            stored.deployStatus === builderResult.status &&
+            stored.lastDeployedAt === now
+          );
+        }),
     });
-
-    const updatedData = JSON.stringify({
-      ...designData,
-      branches: updatedBranches,
-    });
-
-    await db
-      .update(schema.designs)
-      .set({ data: updatedData, updatedAt: now })
-      .where(eq(schema.designs.id, designId));
 
     return {
       designId,

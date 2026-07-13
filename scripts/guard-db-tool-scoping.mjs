@@ -75,6 +75,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
   "forms:responses": "public submissions scoped through forms",
   "assets:asset_folders": "child rows scoped through libraries",

@@ -15,7 +15,7 @@ A autenticação é configurada automaticamente via `autoMountAuth(app)` no plug
 - **MCP remoto OAuth:** OAuth 2.1 padrão para hosts MCP, como código Claude e conectores ChatGPT.
 - **Personalizado:** Traga sua própria autenticação por meio do retorno de chamada `getSession`.
 
-<Diagram id="doc-block-1rujd8s" title={"Três entradas, uma sessão"} summary={"Visitantes do navegador, clientes MCP programáticos e provedores personalizados resolvem para a mesma AuthSession que o escopo downstream lê."}>
+<Diagram id="doc-block-1rujd8s" title={"Três entradas, uma sessão"} summary={"Visitantes do navegador, hosts MCP e provedores personalizados resolvem para a mesma AuthSession que o escopo downstream lê."}>
 
 ```html
 <div class="auth-modes">
@@ -381,7 +381,7 @@ Modelos com **páginas públicas** (compartilhar links, incorporações, página
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o visualizador é direcionado para 302 para `return`.
+Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o navegador retorna a `return`.
 
 O parâmetro `return` é validado como um **caminho de mesma origem**. Referências de caminho de rede (`//evil.com/...`), URLs absolutos, esquemas `data:`/`javascript:` e caracteres de controle incorporados retornam para `/`. O caminho validado é reconstruído a partir do analisador URL, e não retornado da entrada.
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### Caminhos privados marcados
 
-Quando um usuário anônimo navega diretamente para um caminho privado como `/dashboard`, a estrutura já serve a página de login nesse URL — após o login bem-sucedido, a página é recarregada e o usuário chega ao `/dashboard`. Não é necessário nenhum tratamento especial; isso funciona para token, e-mail/senha **e** Google OAuth.
+As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/_agent-native/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
 
 ### Nos bastidores: Google OAuth
 

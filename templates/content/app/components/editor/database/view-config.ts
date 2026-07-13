@@ -52,6 +52,7 @@ export function createDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -206,6 +207,7 @@ export function duplicateDatabaseView(
       wrapCells: view.wrapCells,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
+      formQuestions: view.formQuestions,
     },
     view.type,
   );
@@ -296,7 +298,8 @@ function normalizeClientDatabaseView(
     value.type === "list" ||
     value.type === "gallery" ||
     value.type === "calendar" ||
-    value.type === "timeline"
+    value.type === "timeline" ||
+    value.type === "form"
       ? value.type
       : "table";
   return createDatabaseView(
@@ -331,9 +334,33 @@ function normalizeClientDatabaseView(
       wrapCells: value.wrapCells === true,
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
+      formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
     },
     type,
   );
+}
+
+export function normalizeClientDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as {
+      key?: unknown;
+      enabled?: unknown;
+      required?: unknown;
+    };
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeClientCalculations(value: unknown) {
@@ -432,6 +459,7 @@ export function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "gallery") return "Gallery";
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
+  if (type === "form") return "Form";
   return "Table";
 }
 

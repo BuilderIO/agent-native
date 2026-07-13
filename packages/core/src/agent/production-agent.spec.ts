@@ -21,6 +21,7 @@ import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
@@ -34,6 +35,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
+  resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
@@ -84,6 +86,24 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("resolveAgentRequestReasoningEffort", () => {
+  it("defaults missing reasoning to Medium", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
+    ).toBe("medium");
+  });
+
+  it("preserves explicit none through the production request path", () => {
+    expect(
+      resolveAgentRequestReasoningEffort({
+        model: "claude-sonnet-5",
+        requestEffort: "none",
+        configuredEffort: "high",
+      }),
+    ).toBe("none");
+  });
+});
 
 describe("resolveSkillReferenceContent", () => {
   it("does not resolve scope: dev codebase skills for runtime agent references", async () => {
@@ -228,6 +248,43 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("caps the aggregate text from multiple attachments", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Compare these files",
+      attachments: [
+        {
+          type: "file",
+          name: "first.md",
+          contentType: "text/markdown",
+          text: "A".repeat(60_000),
+        },
+        {
+          type: "file",
+          name: "second.md",
+          contentType: "text/markdown",
+          text: "B".repeat(60_000),
+        },
+        {
+          type: "file",
+          name: "third.md",
+          contentType: "text/markdown",
+          text: "C".repeat(10_000),
+        },
+      ],
+    });
+
+    const text = content[0].type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("B".repeat(20_000));
+    expect(text).not.toContain("B".repeat(20_001));
+    expect(text).toContain(
+      "[Attachment content omitted from the initial request; 10,000 characters available.",
+    );
+    expect(text).toContain(
+      'Use the `read-attachment` tool with name="third.md" to read the rest.',
+    );
   });
 
   it("adds binary file attachments before the prompt text", () => {
@@ -619,7 +676,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(writeTool.description).toContain("Plan mode blocked");
   });
 
-  it("promotes common provider tools into lean initial catalogs when available", () => {
+  it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         starter: actionEntry({ readOnly: true }),
@@ -643,17 +700,63 @@ describe("buildUserContentWithAttachments", () => {
 
     expect(initialTools).toContain("starter");
     expect(initialTools).toContain("tool-search");
-    expect(initialTools).toContain("provider-api-request");
-    expect(initialTools).toContain("provider-api-docs");
-    expect(initialTools).toContain("run-code");
-    expect(initialTools).toContain("get-extension");
-    expect(initialTools).toContain("update-extension");
-    expect(initialTools).toContain("account-deep-dive");
-    expect(initialTools).toContain("hubspot-deals");
-    expect(initialTools).toContain("hubspot-metrics");
-    expect(initialTools).toContain("gong-calls");
-    expect(initialTools).toContain("gcloud");
+    expect(initialTools).not.toContain("provider-api-request");
+    expect(initialTools).not.toContain("provider-api-docs");
+    expect(initialTools).not.toContain("run-code");
+    expect(initialTools).not.toContain("get-extension");
+    expect(initialTools).not.toContain("update-extension");
+    expect(initialTools).not.toContain("account-deep-dive");
+    expect(initialTools).not.toContain("hubspot-deals");
+    expect(initialTools).not.toContain("hubspot-metrics");
+    expect(initialTools).not.toContain("gong-calls");
+    expect(initialTools).not.toContain("gcloud");
     expect(initialTools).not.toContain("ordinary-rare-tool");
+  });
+
+  it("adds universal discovery tools to a configured starter list", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({
+        resources: actionEntry({ readOnly: true }),
+        "docs-search": actionEntry({ readOnly: true }),
+        "get-framework-context": actionEntry({ readOnly: true }),
+        "read-attachment": actionEntry({ readOnly: true }),
+        "mcp__huge__rare-tool": actionEntry({ readOnly: true }),
+      }),
+    );
+
+    expect(
+      filterInitialEngineTools(tools, ["mcp__huge__rare-tool"]).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual([
+      "resources",
+      "docs-search",
+      "get-framework-context",
+      "read-attachment",
+      "mcp__huge__rare-tool",
+      "tool-search",
+    ]);
+  });
+
+  it("records first-request prompt and tool payload sizes without content", () => {
+    const detail = buildFirstRequestPayloadDetail({
+      isFirstRequest: true,
+      systemPrompt: "system",
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      tools: [
+        {
+          name: "hello",
+          description: "Say hello",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      availableToolCount: 500,
+    });
+
+    expect(detail).toContain("first_request_system_chars=6");
+    expect(detail).toContain("first_request_tool_count=1");
+    expect(detail).toContain("first_request_available_tool_count=500");
+    expect(detail).not.toContain("hello");
   });
 
   it("compacts repeated identical tool-search calls within one agent run", async () => {
@@ -1413,6 +1516,229 @@ describe("runAgentLoop", () => {
       label: "Preparing edit-design action",
       tool: "edit-design",
       id: "tool-edit",
+    });
+  });
+
+  // ─── FIX 2: foreground first-model-event no-progress cap ───────────────────
+  // A hung FIRST engine-stream event previously rode the full 90s
+  // MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS watchdog before auto_continue could
+  // fire — but the clamped ~40s HOSTED foreground runtime is killed before
+  // that watchdog ever gets a chance, so the run died as a silent platform
+  // kill instead of a recoverable checkpoint.
+  // FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS (25s) closes that gap — gated on
+  // `isHostedRuntime() && !isInBackgroundFunctionRuntime()`, so local dev /
+  // self-hosted runtimes (no soft-timeout regime, no platform wall) and
+  // proven background-function workers keep the full 90s window. See
+  // production-agent.ts for the ordering invariant.
+
+  // Every env var the two runtime predicates read (`isHostedRuntime` in
+  // run-manager.ts; `isInBackgroundFunctionRuntime` in durable-background.ts).
+  // Snapshot + clear them all so each test pins BOTH predicates explicitly,
+  // regardless of the machine/CI environment the suite happens to run on.
+  function snapshotAndClearRuntimePredicateEnv(): () => void {
+    // Keep each deployment flag explicit. Dynamic process.env indexing is
+    // forbidden in credential-adjacent agent code, including tests, because it
+    // can conceal an unscoped credential read. Vitest restores the original
+    // host values when the test finishes.
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("AGENT_CHAT_FORCE_BACKGROUND_RUNTIME", "");
+    vi.stubEnv("CF_PAGES", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("RENDER", "");
+    vi.stubEnv("FLY_APP_NAME", "");
+    vi.stubEnv("K_SERVICE", "");
+    return () => vi.unstubAllEnvs();
+  }
+  const hangingFirstEventEngine = (): AgentEngine => ({
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: true,
+    },
+    async *stream(): AsyncIterable<EngineEvent> {
+      // Zero tokens, ever — mirrors the incident's hung first model call.
+      await new Promise(() => {});
+    },
+  });
+
+  it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    // Hosted (non-background Lambda name, e.g. the regular `server` function)
+    // + not a background-function runtime: the exact clamped runtime from the
+    // incident.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Just past the 25s foreground cap, comfortably under the normal 90s
+      // watchdog — only the tightened first-event deadline explains a fire
+      // this early.
+      await vi.advanceTimersByTimeAsync(26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a hung FIRST model event keeps the full 90s window on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
+    // All hosted markers cleared — resolveRunSoftTimeoutMs resolves to 0
+    // here (no soft-timeout regime, no platform wall), so a genuinely slow
+    // first token (large local contexts, slow local providers) must NOT be
+    // chopped at 25s.
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Past the 25s cap — a non-hosted runtime must be unaffected by it.
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).toHaveLength(0);
+
+      // The normal 90s in-loop watchdog still applies and eventually fires.
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a hung FIRST model event does NOT fire early when proven to be running inside a background function", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    // Hosted AND proven background-function runtime (`-background` Lambda
+    // name) — the 15-min budget applies, so the cap must stay off.
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine: hangingFirstEventEngine(),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      // Past the 25s foreground cap — a proven background-function worker
+      // must be unaffected by it.
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).toHaveLength(0);
+
+      // The normal 90s watchdog still applies and eventually fires.
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
+    });
+  });
+
+  it("FIX 2: a gap AFTER the first event keeps the normal 90s window on the HOSTED foreground runtime", async () => {
+    const restoreEnv = snapshotAndClearRuntimePredicateEnv();
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+    vi.useFakeTimers({ now: 1_000_000 });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        // A real first event arrives promptly...
+        yield { type: "text-delta", text: "thinking" };
+        // ...then the stream goes silent. Only the FIRST await on a fresh
+        // model call is capped at 25s — this gap must ride the normal 90s
+        // watchdog even though it also exceeds 25s.
+        await new Promise(() => {});
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      await vi.advanceTimersByTimeAsync(26_000);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+
+      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
+      await run;
+    } finally {
+      vi.useRealTimers();
+      restoreEnv();
+    }
+
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "no_progress",
     });
   });
 
@@ -4817,9 +5143,15 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(1);
     expect(events).toEqual([
-      { type: "tool_start", tool: "bigquery", input: { sql: "select nope" } },
+      {
+        type: "tool_start",
+        id: "query-1",
+        tool: "bigquery",
+        input: { sql: "select nope" },
+      },
       {
         type: "tool_done",
+        id: "query-1",
         tool: "bigquery",
         input: { sql: "select nope" },
         result: JSON.stringify({
@@ -4896,12 +5228,14 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({
       type: "tool_start",
+      id: "bad-call",
       tool: "add-slide",
       input: { deckId: "deck-1", content: "<div></div>", position: "x" },
     });
     const toolDone = events.find(
       (event) => event.type === "tool_done" && event.tool === "add-slide",
     );
+    expect(toolDone?.id).toBe("bad-call");
     expect(toolDone?.result).toContain("Invalid action parameters");
     expect(toolDone?.result).toContain("position must be a number");
     expect(events).toContainEqual({
@@ -5019,6 +5353,7 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({
       type: "tool_done",
+      id: "mcp-call",
       tool: "mcp__x__fail",
       input: {},
       result: "Error calling MCP tool mcp__x__fail: boom",
@@ -5131,6 +5466,7 @@ describe("runAgentLoop", () => {
     ]);
     expect(events).toContainEqual({
       type: "tool_start",
+      id: "query-1",
       tool: "query-data",
       input: { sql: "select count(*)" },
     });
@@ -5236,6 +5572,66 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("runs the final-response guard when an engine emits text with empty content", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "text-delta",
+          text: streamCalls === 1 ? "unclear" : "grounded",
+        };
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.text === "unclear"
+        ? {
+            retryMessage: "Retry with grounded evidence.",
+            fallbackMessage: "No grounded result.",
+          }
+        : null,
+    );
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: guard,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(guard).toHaveBeenCalledTimes(2);
+    expect(guard.mock.calls.map(([context]) => context.text)).toEqual([
+      "unclear",
+      "grounded",
+    ]);
+    expect(events).toEqual([
+      { type: "text", text: "unclear" },
+      { type: "clear" },
+      { type: "text", text: "grounded" },
+      { type: "done" },
+    ]);
+  });
+
   it("clears streamed final-answer text when the guard throws", async () => {
     const engine: AgentEngine = {
       name: "test",
@@ -5339,6 +5735,62 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("allows a final-response guard to request additional corrective retries", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = `ungrounded answer ${streamCalls}`;
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+    const guard = vi.fn(() => ({
+      retryMessage: "Query a real source before answering.",
+      fallbackMessage: "No grounded result is available.",
+      maxRetries: 2,
+    }));
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: guard,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(guard).toHaveBeenCalledTimes(3);
+    expect(guard.mock.calls.map(([context]) => context.retryCount)).toEqual([
+      0, 1, 2,
+    ]);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "No grounded result is available.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
   it("continues once when the engine ends with no text or tool calls", async () => {
     // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
     // zero `output_text` items: the engine still emits a clean `end_turn`
@@ -5393,6 +5845,12 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(2);
     expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "clear",
+      "text",
+      "done",
+    ]);
     const textEvents = events.filter((e) => e.type === "text");
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toBe("Recovered answer.");
@@ -5437,6 +5895,16 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "clear",
+      "thinking",
+      "clear",
+      "thinking",
+      "clear",
+      "text",
+      "done",
+    ]);
   });
 
   it("adapts each empty-response retry: raises maxOutputTokens and steps reasoning effort down a tier", async () => {
@@ -6531,13 +6999,14 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {
     const updateRunStatusIfRunning = vi.fn(async () => true);
+    const setRunError = vi.fn(async () => {});
     const setRunTerminalReason = vi.fn(async () => {});
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "no_progress",
-        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
       }),
     ).resolves.toBe(true);
 
@@ -6546,17 +7015,54 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       "completed",
     );
     expect(setRunTerminalReason).toHaveBeenCalledWith("run-old", "no_progress");
+    expect(setRunError).not.toHaveBeenCalled();
+  });
+
+  it("marks a recoverable error continuation chunk errored with its durable failure details", async () => {
+    const updateRunStatusIfRunning = vi.fn(async () => true);
+    const setRunError = vi.fn(async () => {});
+    const setRunTerminalReason = vi.fn(async () => {});
+
+    await expect(
+      markBackgroundContinuationChunkTerminal({
+        runId: "run-error-boundary",
+        continuationReason: "run_timeout",
+        terminalEvent: {
+          type: "error",
+          error: "Provider connection failed",
+          errorCode: "provider_failed",
+          details: "upstream returned 500",
+          recoverable: true,
+        },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
+      }),
+    ).resolves.toBe(true);
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "errored",
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "error:provider_failed",
+    );
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-error-boundary",
+      "provider_failed",
+      "upstream returned 500",
+    );
   });
 
   it("does not overwrite terminal reason when another process already finished the chunk", async () => {
     const updateRunStatusIfRunning = vi.fn(async () => false);
+    const setRunError = vi.fn(async () => {});
     const setRunTerminalReason = vi.fn(async () => {});
 
     await expect(
       markBackgroundContinuationChunkTerminal({
         runId: "run-old",
         continuationReason: "run_timeout",
-        deps: { updateRunStatusIfRunning, setRunTerminalReason },
+        deps: { updateRunStatusIfRunning, setRunError, setRunTerminalReason },
       }),
     ).resolves.toBe(false);
 
@@ -6565,6 +7071,7 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       "completed",
     );
     expect(setRunTerminalReason).not.toHaveBeenCalled();
+    expect(setRunError).not.toHaveBeenCalled();
   });
 });
 

@@ -17,7 +17,7 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 - **تبديل المؤسسة** — تتعقب الجلسة المؤسسة النشطة (`session.orgId`)، ويؤدي تبديلها إلى تغيير البيانات التي يراها المستخدم والوكيل.
 - **عزل البيانات لكل مؤسسة** — يتم تحديد نطاق كل استعلام تلقائيًا ليشمل المؤسسة النشطة.
 
-إذا كنت تقوم بتقييم الوكيل الأصلي لـ CRM، أو متتبع المشروع، أو صندوق بريد الدعم، أو أي أداة فريق، فإن الأساس متعدد المستأجرين موجود بالفعل. جميع قوالب الطرف الأول متعددة المستأجرين — راجع [Cloneable SaaS templates](/docs/cloneable-saas) للحصول على القائمة.
+إذا كنت تقوم بتقييم الوكيل الأصلي لـ CRM، أو متتبع المشروع، أو صندوق بريد الدعم، أو أي أداة فريق، فإن الأساس متعدد المستأجرين موجود بالفعل. جميع قوالب الطرف الأول متعددة المستأجرين — راجع [القوالب](/docs/cloneable-saas) للحصول على القائمة.
 
 <Diagram id="doc-block-1junwhj" title={"عضوية المنظمة وعزلها"} summary={"ينضم المستخدمون إلى المؤسسات باسم owner/admin/member. يحمل كل صف قابل للتملك org_id للمستأجر الذي يمتلكه، ولا يتسرب أي صف عبر الحدود."}>
 
@@ -117,8 +117,8 @@ description: "يعد كل تطبيق أصلي للوكيل متعدد المست
 
 هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`, راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
 
-## المستندات ذات الصلة {#related}
+## الخطوات التالية {#related}
 
-- [Authentication](/docs/authentication#organizations) — الجلسات ومقدمو الخدمات الاجتماعية وسطح إدارة المؤسسة
-- [Security → Data Scoping](/docs/security#data-scoping) — العزل على مستوى SQL، وعقد `ownableColumns()`، ووحدات حماية الوصول
-- [Multi-App Workspace](/docs/multi-app-workspace) — استضافة العديد من تطبيقات الوكيل الأصلية في monorepo واحد مع مصادقة مشتركة وRBAC
+- [**Authentication**](/docs/authentication#organizations) — الجلسات ومقدمو الخدمات الاجتماعية وسطح إدارة المؤسسة
+- [**Security — Data Scoping**](/docs/security#data-scoping) — العزل على مستوى SQL وعقد `ownableColumns()` ووحدات حماية الوصول
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — استضافة العديد من تطبيقات Agent-Native في monorepo واحد مع مصادقة مشتركة وRBAC

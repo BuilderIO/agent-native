@@ -12,6 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 
+import { resolveDesktopMeetingJoinUrl } from "../lib/meeting-join-url";
 import {
   detectMeetingJoinProvider,
   joinProviderLabel,
@@ -45,12 +46,12 @@ const NOTIFICATION_COLLAPSED_HEIGHT = 120;
 const NOTIFICATION_MENU_HEIGHT = 224;
 
 /**
- * Open a meeting join URL via the Tauri shell plugin.
+ * Open a meeting join URL via its native desktop app when supported.
  */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
-    await openExternal(url);
+    await openExternal(resolveDesktopMeetingJoinUrl(url));
   } catch (err) {
     console.error("[clips-tray] openJoinUrl failed:", err);
   }
@@ -325,19 +326,19 @@ export function MeetingNotification() {
   const secondaryLabel = hasJoin ? "& open Clips" : null;
 
   return (
-    <div
-      className="meeting-notification-root"
-      onMouseEnter={() => {
-        setShowClose(true);
-        clearAutoHide();
-      }}
-      onMouseLeave={() => {
-        setShowClose(false);
-        setMenuOpen(false);
-        resumeAutoHide();
-      }}
-    >
-      <div className="meeting-notification">
+    <div className="meeting-notification-root">
+      <div
+        className="meeting-notification"
+        onMouseEnter={() => {
+          setShowClose(true);
+          clearAutoHide();
+        }}
+        onMouseLeave={() => {
+          setShowClose(false);
+          setMenuOpen(false);
+          resumeAutoHide();
+        }}
+      >
         <div
           className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
         />

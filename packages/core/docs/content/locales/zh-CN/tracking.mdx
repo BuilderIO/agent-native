@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -234,6 +237,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - 敏感区域会通过诸如 `[data-sensitive]`、`.an-block`、`.an-private`、`data-an-block`、`data-an-private` 等选择器以及类似信用卡/密码/社会安全号码的字段进行屏蔽。
 - URL 会使用与浏览器分析相同的 `scrubUrl()` 辅助函数进行清理。
 - 重放采集仅限 Web 端且为选择性加入（opt-in）；不会录制原生桌面屏幕。
+
+框架管理的 iframe（包括扩展和渲染后的电子邮件内容）会纳入重放采集。录制的 frame 内同样适用遮罩和屏蔽选择器。第三方跨源 iframe 会保持不可见，除非其自身文档运行兼容的 rrweb 录制器并启用跨源 iframe 录制；父页面无法绕过浏览器的源边界。
 
 录制期间，会话重放还会捕获浏览器控制台输出（`log`、`info`、`warn`、`error`、`debug`，以及 window 的 `error` / `unhandledrejection`）和网络请求元数据（`fetch` 和 XHR），并将其作为带标签的 rrweb 自定义事件记录下来，以便代理和重放查看器调试用户报告的问题。启用重放后，此项捕获默认开启；可通过 `sessionReplay.console` 和 `sessionReplay.network` 选项进行调整或禁用，两者均可接受布尔值或选项对象（`{ maxEvents?: number }`，其中 `network` 还可接受 `captureErrorBodies` 和 `maxErrorBodyLength`）。请求正文和请求头永远不会被捕获；响应正文仅在 5xx（服务器错误）响应下才会被捕获，且只捕获一段有边界、经过脱敏处理的片段（`captureErrorBodies`，默认值为 `true`，长度上限为 `maxErrorBodyLength` 个字符，默认 2048）——非 5xx 响应以及网络失败（状态码 0）的响应永远不会携带正文。URL 会被清理，消息会被截断，录制器自身的上报/跟踪流量会被排除，并且每个会话的配额（1000 条控制台事件 / 2000 条网络事件）在超出时会附加截断提示。
 
@@ -349,5 +354,5 @@ interface TrackingEvent {
 ## 下一步是什么
 
 - [**Actions**](/docs/actions) — 大多数跟踪调用的发起位置
-- [**Server Plugins**](/docs/server) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
-- [**Secrets**](/docs/security) — 管理用于跟踪提供商的 API 密钥
+- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
+- [**安全 — 密钥管理**](/docs/security#secrets) — 管理用于跟踪提供商的 API 密钥

@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothèque",
+    sharedWithMe: "Partagés avec moi",
     spaces: "Espaces",
     meetings: "Réunions",
     dictate: "Dicter",
@@ -82,6 +83,10 @@ const messages = {
       title: "Votre bibliothèque est vide",
       body: "Capturez votre premier enregistrement d’écran et il apparaîtra ici, prêt à partager.",
       cta: "Enregistrer votre premier Clip",
+    },
+    shared: {
+      title: "Aucun clip partagé avec vous",
+      body: "Les clips que vos collègues partagent avec vous apparaîtront ici.",
     },
     folder: {
       title: "Ce dossier est vide",
@@ -304,6 +309,7 @@ const messages = {
     insights: "Connaissances",
     downloadForMac: "Télécharger pour Mac",
     downloadForWindows: "Télécharger pour Windows",
+    downloadForLinux: "Télécharger pour Linux",
     downloadDesktopApp: "Téléchargez l'application de bureau",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "est une alternative gratuite,",
@@ -386,6 +392,7 @@ const messages = {
     searchPlaceholder: "Rechercher la transcription",
     copyTranscript: "Copier la transcription",
     downloadSrt: "Télécharger .srt",
+    regenerate: "Régénérer la transcription",
     cleanupRunning: "Nettoyage de la transcription en arrière-plan.",
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
@@ -558,7 +565,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Télécharger Clips Desktop",
     description:
-      "Enregistrez votre écran à partir de la barre de menu. Application de bureau à mise à jour automatique pour macOS et Windows.",
+      "Enregistrez votre écran depuis la barre d’état système. Application de bureau à mise à jour automatique pour macOS, Windows et Linux.",
     macSublabel: "Universel (Apple Silicon + Intel)",
     windowsSublabel: "Programme d'installation de MSI 64 bits",
     downloadFor: "Télécharger pour {{platform}}",

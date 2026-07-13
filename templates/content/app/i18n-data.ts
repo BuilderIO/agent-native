@@ -26,6 +26,8 @@ const databaseMessages = {
   bestWhenSameKindAdditionalRows:
     "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
+  connectNotionFirst: "Connect Notion first",
+  connected: "Connected",
   builderBulkUpdateNotStaged: "Builder bulk update not staged",
   builderBulkUpdateStaged: "Builder bulk update staged",
   builderUpdateFailed: "Builder update failed",
@@ -71,6 +73,8 @@ const databaseMessages = {
   closeSearch: "Close search",
   databaseRowsAndLocalPropertiesWereKeptIntact:
     "Database rows and local properties were kept intact.",
+  failedToAttachSource: "Failed to attach source",
+  failedToCreateRow: "Failed to create row",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -136,6 +140,7 @@ const databaseMessages = {
   previousTimelineRange: "Previous timeline range",
   propertyVisibility: "Property visibility",
   reset: "Reset",
+  refreshSource: "Refresh source",
   resizeNameColumn: "Resize Name column",
   row: "Row",
   rowOptions: "Row options",
@@ -220,6 +225,28 @@ const databaseMessages = {
   expandAllGroups: "Expand all groups",
   fieldsWereNotAdded: "Fields were not added",
   filterRowsWhere: "Filter rows where",
+  formChecked: "Checked",
+  formChooseOption: "Choose an option",
+  formDescription:
+    "Fill out the questions below to add a page to this database.",
+  formEditorAccessRequired: "Editor access is required to submit this form.",
+  formLongAnswerPlaceholder: "Enter a detailed response...",
+  formMoveQuestionDown: "Move {{name}} down",
+  formMoveQuestionUp: "Move {{name}} up",
+  formName: "Name",
+  formNotChecked: "Not checked",
+  formOnePerLinePlaceholder: "Enter one value per line",
+  formQuestions: "Questions",
+  formQuestionsDescription:
+    "Choose which questions appear, mark required answers, and set their order.",
+  formRequired: "Required",
+  formRequiredError: "This question is required.",
+  formShowQuestion: "Show",
+  formSubmit: "Submit",
+  formSubmitFailed: "The form could not be submitted.",
+  formSubmitted: "Response submitted",
+  formSubmittedDescription: "The new database page is ready.",
+  formSubmitting: "Submitting...",
   gallery: "Gallery",
   groupBy: "Group by",
   groupName: "Group name",
@@ -409,6 +436,26 @@ const databaseMessagesByLocale = {
   "en-US": databaseMessages,
   "zh-TW": zhTW.database,
   "zh-CN": {
+    formChecked: "已勾选",
+    formChooseOption: "选择一个选项",
+    formDescription: "填写以下问题以向此数据库添加页面。",
+    formEditorAccessRequired: "需要编辑者权限才能提交此表单。",
+    formLongAnswerPlaceholder: "输入详细回复...",
+    formMoveQuestionDown: "将 {{name}} 下移",
+    formMoveQuestionUp: "将 {{name}} 上移",
+    formName: "名称",
+    formNotChecked: "未勾选",
+    formOnePerLinePlaceholder: "每行输入一个值",
+    formQuestions: "问题",
+    formQuestionsDescription: "选择显示的问题、标记必填项并调整顺序。",
+    formRequired: "必填",
+    formRequiredError: "此问题为必填项。",
+    formShowQuestion: "显示",
+    formSubmit: "提交",
+    formSubmitFailed: "无法提交表单。",
+    formSubmitted: "回复已提交",
+    formSubmittedDescription: "新的数据库页面已准备就绪。",
+    formSubmitting: "正在提交...",
     addARowTo: "添加行到…",
     addASource: "添加来源",
     aField: "一个字段",
@@ -489,6 +536,8 @@ const databaseMessagesByLocale = {
     addProperty: "添加属性",
     back: "返回",
     builderSpace: "Builder 空间",
+    connectNotionFirst: "请先连接 Notion",
+    connected: "已连接",
     builderBulkUpdateNotStaged: "Builder 批量更新未暂存",
     builderBulkUpdateStaged: "Builder 批量更新已暂存",
     builderUpdateFailed: "Builder 更新失败",
@@ -496,6 +545,8 @@ const databaseMessagesByLocale = {
     closeDatabaseSettings: "关闭数据库设置",
     closeSearch: "关闭搜索",
     databaseRowsAndLocalPropertiesWereKeptIntact: "数据库行和本地属性已保留。",
+    failedToAttachSource: "附加来源失败",
+    failedToCreateRow: "创建行失败",
     failedToDeleteRow: "删除行失败",
     failedToDeleteSelectedRows: "删除所选行失败",
     failedToDuplicateEverySelectedRow: "未能复制所有选中行",
@@ -545,6 +596,7 @@ const databaseMessagesByLocale = {
     previousMonth: "上个月",
     previousTimelineRange: "上一个时间线范围",
     propertyVisibility: "属性可见性",
+    refreshSource: "刷新数据源",
     resizeNameColumn: "调整名称列宽",
     search: "搜索",
     saveForEveryone: "为所有人保存",
@@ -567,6 +619,29 @@ const databaseMessagesByLocale = {
     wrapAllContent: "换行显示所有内容",
   },
   "es-ES": {
+    formChecked: "Marcado",
+    formChooseOption: "Elige una opción",
+    formDescription:
+      "Responde estas preguntas para añadir una página a esta base de datos.",
+    formEditorAccessRequired:
+      "Se necesita acceso de editor para enviar este formulario.",
+    formLongAnswerPlaceholder: "Escribe una respuesta detallada...",
+    formMoveQuestionDown: "Mover {{name}} hacia abajo",
+    formMoveQuestionUp: "Mover {{name}} hacia arriba",
+    formName: "Nombre",
+    formNotChecked: "Sin marcar",
+    formOnePerLinePlaceholder: "Introduce un valor por línea",
+    formQuestions: "Preguntas",
+    formQuestionsDescription:
+      "Elige qué preguntas aparecen, marca las obligatorias y ordénalas.",
+    formRequired: "Obligatorio",
+    formRequiredError: "Esta pregunta es obligatoria.",
+    formShowQuestion: "Mostrar",
+    formSubmit: "Enviar",
+    formSubmitFailed: "No se pudo enviar el formulario.",
+    formSubmitted: "Respuesta enviada",
+    formSubmittedDescription: "La nueva página de la base de datos está lista.",
+    formSubmitting: "Enviando...",
     addARowTo: "Añadir una fila a…",
     addASource: "Añadir una fuente",
     aField: "un campo",
@@ -657,6 +732,8 @@ const databaseMessagesByLocale = {
     addProperty: "Añadir propiedad",
     back: "Atrás",
     builderSpace: "Espacio de Builder",
+    connectNotionFirst: "Conecta Notion primero",
+    connected: "Conectado",
     builderBulkUpdateNotStaged: "Actualización masiva de Builder no preparada",
     builderBulkUpdateStaged: "Actualización masiva de Builder preparada",
     builderUpdateFailed: "Falló la actualización de Builder",
@@ -666,6 +743,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Cerrar búsqueda",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Se conservaron las filas y propiedades locales.",
+    failedToAttachSource: "No se pudo adjuntar la fuente",
+    failedToCreateRow: "No se pudo crear la fila",
     failedToDeleteRow: "No se pudo eliminar la fila",
     failedToDeleteSelectedRows:
       "No se pudieron eliminar las filas seleccionadas",
@@ -719,6 +798,7 @@ const databaseMessagesByLocale = {
     previousMonth: "Mes anterior",
     previousTimelineRange: "Rango de cronología anterior",
     propertyVisibility: "Visibilidad de propiedades",
+    refreshSource: "Actualizar fuente",
     resizeNameColumn: "Cambiar ancho de la columna Nombre",
     search: "Buscar",
     saveForEveryone: "Guardar para todos",
@@ -741,6 +821,29 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Ajustar todo el contenido",
   },
   "fr-FR": {
+    formChecked: "Coché",
+    formChooseOption: "Choisir une option",
+    formDescription:
+      "Répondez aux questions ci-dessous pour ajouter une page à cette base de données.",
+    formEditorAccessRequired:
+      "Un accès éditeur est requis pour envoyer ce formulaire.",
+    formLongAnswerPlaceholder: "Saisissez une réponse détaillée...",
+    formMoveQuestionDown: "Descendre {{name}}",
+    formMoveQuestionUp: "Monter {{name}}",
+    formName: "Nom",
+    formNotChecked: "Non coché",
+    formOnePerLinePlaceholder: "Saisissez une valeur par ligne",
+    formQuestions: "Questions",
+    formQuestionsDescription:
+      "Choisissez les questions affichées, les réponses obligatoires et leur ordre.",
+    formRequired: "Obligatoire",
+    formRequiredError: "Cette question est obligatoire.",
+    formShowQuestion: "Afficher",
+    formSubmit: "Envoyer",
+    formSubmitFailed: "Le formulaire n’a pas pu être envoyé.",
+    formSubmitted: "Réponse envoyée",
+    formSubmittedDescription: "La nouvelle page de base de données est prête.",
+    formSubmitting: "Envoi...",
     addARowTo: "Ajouter une ligne à…",
     addASource: "Ajouter une source",
     aField: "un champ",
@@ -833,6 +936,8 @@ const databaseMessagesByLocale = {
     addProperty: "Ajouter une propriété",
     back: "Retour",
     builderSpace: "Espace Builder",
+    connectNotionFirst: "Connectez d’abord Notion",
+    connected: "Connecté",
     builderBulkUpdateNotStaged: "Mise à jour groupée Builder non préparée",
     builderBulkUpdateStaged: "Mise à jour groupée Builder préparée",
     builderUpdateFailed: "Échec de la mise à jour Builder",
@@ -841,6 +946,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Fermer la recherche",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Les lignes et propriétés locales ont été conservées.",
+    failedToAttachSource: "Échec de la connexion de la source",
+    failedToCreateRow: "Échec de la création de la ligne",
     failedToDeleteRow: "Échec de la suppression de la ligne",
     failedToDeleteSelectedRows:
       "Échec de la suppression des lignes sélectionnées",
@@ -894,6 +1001,7 @@ const databaseMessagesByLocale = {
     previousMonth: "Mois précédent",
     previousTimelineRange: "Plage chronologique précédente",
     propertyVisibility: "Visibilité des propriétés",
+    refreshSource: "Actualiser la source",
     resizeNameColumn: "Redimensionner la colonne Nom",
     search: "Rechercher",
     saveForEveryone: "Enregistrer pour tout le monde",
@@ -916,6 +1024,28 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Renvoyer tout le contenu à la ligne",
   },
   "de-DE": {
+    formChecked: "Ausgewählt",
+    formChooseOption: "Option auswählen",
+    formDescription:
+      "Beantworten Sie die Fragen, um dieser Datenbank eine Seite hinzuzufügen.",
+    formEditorAccessRequired: "Zum Absenden ist Editorzugriff erforderlich.",
+    formLongAnswerPlaceholder: "Ausführliche Antwort eingeben...",
+    formMoveQuestionDown: "{{name}} nach unten verschieben",
+    formMoveQuestionUp: "{{name}} nach oben verschieben",
+    formName: "Name",
+    formNotChecked: "Nicht ausgewählt",
+    formOnePerLinePlaceholder: "Einen Wert pro Zeile eingeben",
+    formQuestions: "Fragen",
+    formQuestionsDescription:
+      "Legen Sie sichtbare und erforderliche Fragen sowie ihre Reihenfolge fest.",
+    formRequired: "Erforderlich",
+    formRequiredError: "Diese Frage ist erforderlich.",
+    formShowQuestion: "Anzeigen",
+    formSubmit: "Absenden",
+    formSubmitFailed: "Das Formular konnte nicht gesendet werden.",
+    formSubmitted: "Antwort gesendet",
+    formSubmittedDescription: "Die neue Datenbankseite ist bereit.",
+    formSubmitting: "Wird gesendet...",
     addARowTo: "Zeile hinzufügen zu…",
     addASource: "Quelle hinzufügen",
     aField: "ein Feld",
@@ -1008,6 +1138,8 @@ const databaseMessagesByLocale = {
     addProperty: "Eigenschaft hinzufügen",
     back: "Zurück",
     builderSpace: "Builder-Bereich",
+    connectNotionFirst: "Zuerst Notion verbinden",
+    connected: "Verbunden",
     builderBulkUpdateNotStaged:
       "Builder-Massenaktualisierung nicht bereitgestellt",
     builderBulkUpdateStaged: "Builder-Massenaktualisierung bereitgestellt",
@@ -1017,6 +1149,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Suche schließen",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "Datenbankzeilen und lokale Eigenschaften wurden beibehalten.",
+    failedToAttachSource: "Quelle konnte nicht angehängt werden",
+    failedToCreateRow: "Zeile konnte nicht erstellt werden",
     failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
     failedToDeleteSelectedRows:
       "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -1070,6 +1204,7 @@ const databaseMessagesByLocale = {
     previousMonth: "Vorheriger Monat",
     previousTimelineRange: "Vorheriger Zeitachsenbereich",
     propertyVisibility: "Eigenschaftensichtbarkeit",
+    refreshSource: "Quelle aktualisieren",
     resizeNameColumn: "Namensspalte anpassen",
     search: "Suchen",
     saveForEveryone: "Für alle speichern",
@@ -1092,6 +1227,27 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Gesamten Inhalt umbrechen",
   },
   "ja-JP": {
+    formChecked: "チェック済み",
+    formChooseOption: "オプションを選択",
+    formDescription:
+      "以下の質問に回答して、このデータベースにページを追加します。",
+    formEditorAccessRequired: "このフォームの送信には編集権限が必要です。",
+    formLongAnswerPlaceholder: "詳しい回答を入力...",
+    formMoveQuestionDown: "{{name}} を下へ移動",
+    formMoveQuestionUp: "{{name}} を上へ移動",
+    formName: "名前",
+    formNotChecked: "未チェック",
+    formOnePerLinePlaceholder: "1行に1つ入力",
+    formQuestions: "質問",
+    formQuestionsDescription: "表示する質問、必須項目、順序を設定します。",
+    formRequired: "必須",
+    formRequiredError: "この質問は必須です。",
+    formShowQuestion: "表示",
+    formSubmit: "送信",
+    formSubmitFailed: "フォームを送信できませんでした。",
+    formSubmitted: "回答を送信しました",
+    formSubmittedDescription: "新しいデータベースページを作成しました。",
+    formSubmitting: "送信中...",
     addARowTo: "行の追加先…",
     addASource: "ソースを追加",
     aField: "フィールド",
@@ -1181,6 +1337,8 @@ const databaseMessagesByLocale = {
     addProperty: "プロパティを追加",
     back: "戻る",
     builderSpace: "Builder スペース",
+    connectNotionFirst: "最初に Notion を接続",
+    connected: "接続済み",
     builderBulkUpdateNotStaged: "Builder 一括更新はステージングされていません",
     builderBulkUpdateStaged: "Builder 一括更新をステージングしました",
     builderUpdateFailed: "Builder の更新に失敗しました",
@@ -1190,6 +1348,8 @@ const databaseMessagesByLocale = {
     closeSearch: "検索を閉じる",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "データベース行とローカルプロパティは保持されました。",
+    failedToAttachSource: "ソースを接続できませんでした",
+    failedToCreateRow: "行を作成できませんでした",
     failedToDeleteRow: "行を削除できませんでした",
     failedToDeleteSelectedRows: "選択した行を削除できませんでした",
     failedToDuplicateEverySelectedRow:
@@ -1241,6 +1401,7 @@ const databaseMessagesByLocale = {
     previousMonth: "前の月",
     previousTimelineRange: "前のタイムライン範囲",
     propertyVisibility: "プロパティの表示",
+    refreshSource: "ソースを更新",
     resizeNameColumn: "名前列のサイズ変更",
     search: "検索",
     saveForEveryone: "全員に保存",
@@ -1263,6 +1424,27 @@ const databaseMessagesByLocale = {
     wrapAllContent: "すべての内容を折り返す",
   },
   "ko-KR": {
+    formChecked: "선택됨",
+    formChooseOption: "옵션 선택",
+    formDescription:
+      "아래 질문에 답하여 이 데이터베이스에 페이지를 추가하세요.",
+    formEditorAccessRequired: "이 양식을 제출하려면 편집자 권한이 필요합니다.",
+    formLongAnswerPlaceholder: "자세한 답변 입력...",
+    formMoveQuestionDown: "{{name}} 아래로 이동",
+    formMoveQuestionUp: "{{name}} 위로 이동",
+    formName: "이름",
+    formNotChecked: "선택 안 됨",
+    formOnePerLinePlaceholder: "한 줄에 하나씩 입력",
+    formQuestions: "질문",
+    formQuestionsDescription: "표시할 질문, 필수 답변, 순서를 설정하세요.",
+    formRequired: "필수",
+    formRequiredError: "필수 질문입니다.",
+    formShowQuestion: "표시",
+    formSubmit: "제출",
+    formSubmitFailed: "양식을 제출하지 못했습니다.",
+    formSubmitted: "응답 제출됨",
+    formSubmittedDescription: "새 데이터베이스 페이지가 준비되었습니다.",
+    formSubmitting: "제출 중...",
     addARowTo: "행 추가 대상…",
     addASource: "소스 추가",
     aField: "필드",
@@ -1352,6 +1534,8 @@ const databaseMessagesByLocale = {
     addProperty: "속성 추가",
     back: "뒤로",
     builderSpace: "Builder 공간",
+    connectNotionFirst: "먼저 Notion 연결",
+    connected: "연결됨",
     builderBulkUpdateNotStaged: "Builder 대량 업데이트가 스테이징되지 않음",
     builderBulkUpdateStaged: "Builder 대량 업데이트가 스테이징됨",
     builderUpdateFailed: "Builder 업데이트 실패",
@@ -1360,6 +1544,8 @@ const databaseMessagesByLocale = {
     closeSearch: "검색 닫기",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "데이터베이스 행과 로컬 속성은 유지되었습니다.",
+    failedToAttachSource: "소스를 연결하지 못했습니다",
+    failedToCreateRow: "행을 생성하지 못했습니다",
     failedToDeleteRow: "행을 삭제하지 못했습니다",
     failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
     failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
@@ -1410,6 +1596,7 @@ const databaseMessagesByLocale = {
     previousMonth: "이전 달",
     previousTimelineRange: "이전 타임라인 범위",
     propertyVisibility: "속성 표시 여부",
+    refreshSource: "소스 새로 고침",
     resizeNameColumn: "이름 열 크기 조정",
     search: "검색",
     saveForEveryone: "모두에게 저장",
@@ -1432,6 +1619,29 @@ const databaseMessagesByLocale = {
     wrapAllContent: "모든 콘텐츠 줄바꿈",
   },
   "pt-BR": {
+    formChecked: "Marcado",
+    formChooseOption: "Escolha uma opção",
+    formDescription:
+      "Responda às perguntas abaixo para adicionar uma página a este banco de dados.",
+    formEditorAccessRequired:
+      "É necessário acesso de editor para enviar este formulário.",
+    formLongAnswerPlaceholder: "Digite uma resposta detalhada...",
+    formMoveQuestionDown: "Mover {{name}} para baixo",
+    formMoveQuestionUp: "Mover {{name}} para cima",
+    formName: "Nome",
+    formNotChecked: "Desmarcado",
+    formOnePerLinePlaceholder: "Digite um valor por linha",
+    formQuestions: "Perguntas",
+    formQuestionsDescription:
+      "Escolha as perguntas exibidas, marque as obrigatórias e defina a ordem.",
+    formRequired: "Obrigatório",
+    formRequiredError: "Esta pergunta é obrigatória.",
+    formShowQuestion: "Mostrar",
+    formSubmit: "Enviar",
+    formSubmitFailed: "Não foi possível enviar o formulário.",
+    formSubmitted: "Resposta enviada",
+    formSubmittedDescription: "A nova página do banco de dados está pronta.",
+    formSubmitting: "Enviando...",
     addARowTo: "Adicionar uma linha a…",
     addASource: "Adicionar uma fonte",
     aField: "um campo",
@@ -1523,6 +1733,8 @@ const databaseMessagesByLocale = {
     addProperty: "Adicionar propriedade",
     back: "Voltar",
     builderSpace: "Espaço do Builder",
+    connectNotionFirst: "Conecte o Notion primeiro",
+    connected: "Conectado",
     builderBulkUpdateNotStaged: "Atualização em massa do Builder não preparada",
     builderBulkUpdateStaged: "Atualização em massa do Builder preparada",
     builderUpdateFailed: "Falha na atualização do Builder",
@@ -1531,6 +1743,8 @@ const databaseMessagesByLocale = {
     closeSearch: "Fechar busca",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "As linhas do banco e propriedades locais foram mantidas.",
+    failedToAttachSource: "Falha ao anexar fonte",
+    failedToCreateRow: "Falha ao criar linha",
     failedToDeleteRow: "Falha ao excluir linha",
     failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
     failedToDuplicateEverySelectedRow:
@@ -1584,6 +1798,7 @@ const databaseMessagesByLocale = {
     previousMonth: "Mês anterior",
     previousTimelineRange: "Intervalo anterior da linha do tempo",
     propertyVisibility: "Visibilidade da propriedade",
+    refreshSource: "Atualizar fonte",
     resizeNameColumn: "Redimensionar coluna Nome",
     search: "Buscar",
     saveForEveryone: "Salvar para todos",
@@ -1606,6 +1821,26 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Quebrar todo o conteúdo",
   },
   "hi-IN": {
+    formChecked: "चयनित",
+    formChooseOption: "एक विकल्प चुनें",
+    formDescription: "इस डेटाबेस में पेज जोड़ने के लिए नीचे दिए सवाल भरें।",
+    formEditorAccessRequired: "यह फ़ॉर्म जमा करने के लिए संपादक पहुँच आवश्यक है।",
+    formLongAnswerPlaceholder: "विस्तृत उत्तर लिखें...",
+    formMoveQuestionDown: "{{name}} को नीचे ले जाएँ",
+    formMoveQuestionUp: "{{name}} को ऊपर ले जाएँ",
+    formName: "नाम",
+    formNotChecked: "चयनित नहीं",
+    formOnePerLinePlaceholder: "हर पंक्ति में एक मान लिखें",
+    formQuestions: "सवाल",
+    formQuestionsDescription: "दिखने वाले और आवश्यक सवाल चुनें और उनका क्रम तय करें।",
+    formRequired: "आवश्यक",
+    formRequiredError: "यह सवाल आवश्यक है।",
+    formShowQuestion: "दिखाएँ",
+    formSubmit: "जमा करें",
+    formSubmitFailed: "फ़ॉर्म जमा नहीं हो सका।",
+    formSubmitted: "उत्तर जमा हुआ",
+    formSubmittedDescription: "नया डेटाबेस पेज तैयार है।",
+    formSubmitting: "जमा हो रहा है...",
     addARowTo: "पंक्ति यहाँ जोड़ें…",
     addASource: "स्रोत जोड़ें",
     aField: "एक फ़ील्ड",
@@ -1692,6 +1927,8 @@ const databaseMessagesByLocale = {
     addProperty: "प्रॉपर्टी जोड़ें",
     back: "वापस",
     builderSpace: "Builder स्पेस",
+    connectNotionFirst: "पहले Notion कनेक्ट करें",
+    connected: "कनेक्टेड",
     builderBulkUpdateNotStaged: "Builder बल्क अपडेट स्टेज नहीं हुआ",
     builderBulkUpdateStaged: "Builder बल्क अपडेट स्टेज हुआ",
     builderUpdateFailed: "Builder अपडेट विफल रहा",
@@ -1700,6 +1937,8 @@ const databaseMessagesByLocale = {
     closeSearch: "खोज बंद करें",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "डेटाबेस पंक्तियां और स्थानीय प्रॉपर्टीज़ सुरक्षित रहीं।",
+    failedToAttachSource: "स्रोत संलग्न करने में विफल",
+    failedToCreateRow: "पंक्ति बनाने में विफल",
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
     failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
@@ -1749,6 +1988,7 @@ const databaseMessagesByLocale = {
     previousMonth: "पिछला महीना",
     previousTimelineRange: "पिछला टाइमलाइन रेंज",
     propertyVisibility: "प्रॉपर्टी दृश्यता",
+    refreshSource: "स्रोत रीफ़्रेश करें",
     resizeNameColumn: "नाम कॉलम का आकार बदलें",
     search: "खोजें",
     saveForEveryone: "सभी के लिए सहेजें",
@@ -1771,6 +2011,26 @@ const databaseMessagesByLocale = {
     wrapAllContent: "सभी सामग्री रैप करें",
   },
   "ar-SA": {
+    formChecked: "محدد",
+    formChooseOption: "اختر خيارا",
+    formDescription: "أجب عن الأسئلة أدناه لإضافة صفحة إلى قاعدة البيانات هذه.",
+    formEditorAccessRequired: "يلزم وصول المحرر لإرسال هذا النموذج.",
+    formLongAnswerPlaceholder: "أدخل إجابة مفصلة...",
+    formMoveQuestionDown: "نقل {{name}} إلى أسفل",
+    formMoveQuestionUp: "نقل {{name}} إلى أعلى",
+    formName: "الاسم",
+    formNotChecked: "غير محدد",
+    formOnePerLinePlaceholder: "أدخل قيمة واحدة في كل سطر",
+    formQuestions: "الأسئلة",
+    formQuestionsDescription: "اختر الأسئلة الظاهرة والإجابات المطلوبة ورتبها.",
+    formRequired: "مطلوب",
+    formRequiredError: "هذا السؤال مطلوب.",
+    formShowQuestion: "إظهار",
+    formSubmit: "إرسال",
+    formSubmitFailed: "تعذر إرسال النموذج.",
+    formSubmitted: "تم إرسال الرد",
+    formSubmittedDescription: "صفحة قاعدة البيانات الجديدة جاهزة.",
+    formSubmitting: "جار الإرسال...",
     addARowTo: "إضافة صف إلى…",
     addASource: "إضافة مصدر",
     aField: "حقل",
@@ -1856,6 +2116,8 @@ const databaseMessagesByLocale = {
     addProperty: "إضافة خاصية",
     back: "رجوع",
     builderSpace: "مساحة Builder",
+    connectNotionFirst: "وصّل Notion أولاً",
+    connected: "متصل",
     builderBulkUpdateNotStaged: "لم يتم تجهيز تحديث Builder المجمع",
     builderBulkUpdateStaged: "تم تجهيز تحديث Builder المجمع",
     builderUpdateFailed: "فشل تحديث Builder",
@@ -1864,6 +2126,8 @@ const databaseMessagesByLocale = {
     closeSearch: "إغلاق البحث",
     databaseRowsAndLocalPropertiesWereKeptIntact:
       "تم الاحتفاظ بصفوف قاعدة البيانات والخصائص المحلية.",
+    failedToAttachSource: "فشل إرفاق المصدر",
+    failedToCreateRow: "فشل إنشاء الصف",
     failedToDeleteRow: "فشل حذف الصف",
     failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
     failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",
@@ -1914,6 +2178,7 @@ const databaseMessagesByLocale = {
     previousMonth: "الشهر السابق",
     previousTimelineRange: "نطاق المخطط الزمني السابق",
     propertyVisibility: "رؤية الخصائص",
+    refreshSource: "تحديث المصدر",
     resizeNameColumn: "تغيير حجم عمود الاسم",
     search: "بحث",
     saveForEveryone: "حفظ للجميع",
@@ -1958,6 +2223,9 @@ const editorPropertiesMessages = {
   deleteProperty: "Delete property",
   deletePropertyDescription:
     'This removes "{{name}}" and its values from every document in this workspace.',
+  deletePropertyDescriptionPrefix: 'This removes "',
+  deletePropertyDescriptionSuffix:
+    '" and its values from every document in this workspace.',
   deletePropertyQuestion: "Delete property?",
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
@@ -2460,6 +2728,8 @@ const enUS = {
     couldNotSaveLocalFile: "Could not save local file",
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
+    liveDocumentSaveBeforeSyncFailed:
+      "The live document could not be saved before syncing.",
     documentTitle: "Document title",
     builderBodySyncing: "Content is still syncing from Builder",
     builderBodySyncingDescription:
@@ -4840,6 +5110,7 @@ const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
     collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
+    liveDocumentSaveBeforeSyncFailed: "实时文档无法在同步前保存。",
     builderBodySyncing: "内容仍在从 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
@@ -4978,6 +5249,8 @@ const editorMessagesByLocale = {
       deleteProperty: "删除属性",
       deletePropertyDescription:
         '这将从该工作区中的每个文档中删除"{{name}}"及其值。',
+      deletePropertyDescriptionPrefix: '这将从该工作区中的每个文档中删除"',
+      deletePropertyDescriptionSuffix: '"及其值。',
       deletePropertyQuestion: "删除属性？",
       duplicateProperty: "重复的属性",
       editEndDate: "编辑 {{name}} 结束日期",
@@ -5164,6 +5437,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Ningún documento seleccionado",
     collabConnectingReadOnly:
       "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
+    liveDocumentSaveBeforeSyncFailed:
+      "No se pudo guardar el documento activo antes de sincronizarlo.",
     builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
     builderBodySyncingDescription:
       "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
@@ -5304,6 +5579,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eliminar propiedad",
       deletePropertyDescription:
         'Esto elimina "{{name}}" y sus valores de todos los documentos de este espacio de trabajo.',
+      deletePropertyDescriptionPrefix: 'Esto elimina "',
+      deletePropertyDescriptionSuffix:
+        '" y sus valores de todos los documentos de este espacio de trabajo.',
       deletePropertyQuestion: "¿Eliminar propiedad?",
       duplicateProperty: "Propiedad duplicada",
       editEndDate: "Editar fecha de finalización de {{name}}",
@@ -5498,6 +5776,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Aucun document sélectionné",
     collabConnectingReadOnly:
       "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Le document actif n’a pas pu être enregistré avant la synchronisation.",
     builderBodySyncing:
       "Le contenu est encore en cours de synchronisation depuis Builder",
     builderBodySyncingDescription:
@@ -5641,6 +5921,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Supprimer la propriété",
       deletePropertyDescription:
         "Cela supprime « {{name}} » et ses valeurs de chaque document de cet espace de travail.",
+      deletePropertyDescriptionPrefix: "Cela supprime « ",
+      deletePropertyDescriptionSuffix:
+        " » et ses valeurs de chaque document de cet espace de travail.",
       deletePropertyQuestion: "Supprimer la propriété ?",
       duplicateProperty: "Propriété en double",
       editEndDate: "Modifier la date de fin de {{name}}",
@@ -5835,6 +6118,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Kein Dokument ausgewählt",
     collabConnectingReadOnly:
       "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Das aktive Dokument konnte vor der Synchronisierung nicht gespeichert werden.",
     builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
     builderBodySyncingDescription:
       "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
@@ -5978,6 +6263,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Eigenschaft löschen",
       deletePropertyDescription:
         'Dadurch werden „{{name}}" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
+      deletePropertyDescriptionPrefix: "Dadurch werden „",
+      deletePropertyDescriptionSuffix:
+        '" und seine Werte aus jedem Dokument in diesem Arbeitsbereich entfernt.',
       deletePropertyQuestion: "Eigenschaft löschen?",
       duplicateProperty: "Doppelte Eigenschaft",
       editEndDate: "{{name}}-Enddatum bearbeiten",
@@ -6176,6 +6464,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "ドキュメントが選択されていません",
     collabConnectingReadOnly:
       "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
+    liveDocumentSaveBeforeSyncFailed:
+      "同期前にライブドキュメントを保存できませんでした。",
     builderBodySyncing: "コンテンツはまだ Builder から同期中です",
     builderBodySyncingDescription:
       "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
@@ -6315,6 +6605,9 @@ const editorMessagesByLocale = {
       deleteProperty: "プロパティの削除",
       deletePropertyDescription:
         "これにより、このワークスペース内のすべてのドキュメントから「{{name}}」とその値が削除されます。",
+      deletePropertyDescriptionPrefix:
+        "これにより、このワークスペース内のすべてのドキュメントから「",
+      deletePropertyDescriptionSuffix: "」とその値が削除されます。",
       deletePropertyQuestion: "プロパティを削除しますか?",
       duplicateProperty: "重複したプロパティ",
       editEndDate: "{{name}} の終了日を編集",
@@ -6507,6 +6800,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "선택한 문서가 없습니다.",
     collabConnectingReadOnly:
       "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
+    liveDocumentSaveBeforeSyncFailed:
+      "동기화하기 전에 실시간 문서를 저장하지 못했습니다.",
     builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
     builderBodySyncingDescription:
       "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
@@ -6645,6 +6940,9 @@ const editorMessagesByLocale = {
       deleteProperty: "속성 삭제",
       deletePropertyDescription:
         '이렇게 하면 이 작업공간의 모든 문서에서 "{{name}}"와 해당 값이 제거됩니다.',
+      deletePropertyDescriptionPrefix:
+        '이렇게 하면 이 작업공간의 모든 문서에서 "',
+      deletePropertyDescriptionSuffix: '"와 해당 값이 제거됩니다.',
       deletePropertyQuestion: "속성을 삭제하시겠습니까?",
       duplicateProperty: "중복된 속성",
       editEndDate: "{{name}} 종료일 수정",
@@ -6837,6 +7135,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "Nenhum documento selecionado",
     collabConnectingReadOnly:
       "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
+    liveDocumentSaveBeforeSyncFailed:
+      "Não foi possível salvar o documento ativo antes da sincronização.",
     builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
     builderBodySyncingDescription:
       "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
@@ -6978,6 +7278,9 @@ const editorMessagesByLocale = {
       deleteProperty: "Excluir propriedade",
       deletePropertyDescription:
         'Isso remove "{{name}}" e seus valores de todos os documentos nesta área de trabalho.',
+      deletePropertyDescriptionPrefix: 'Isso remove "',
+      deletePropertyDescriptionSuffix:
+        '" e seus valores de todos os documentos nesta área de trabalho.',
       deletePropertyQuestion: "Excluir propriedade?",
       duplicateProperty: "Propriedade duplicada",
       editEndDate: "Editar data de término do {{name}}",
@@ -7173,6 +7476,8 @@ const editorMessagesByLocale = {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
     collabConnectingReadOnly:
       "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
+    liveDocumentSaveBeforeSyncFailed:
+      "सिंक करने से पहले लाइव दस्तावेज़ सहेजा नहीं जा सका।",
     builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
     builderBodySyncingDescription:
       "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
@@ -7311,6 +7616,8 @@ const editorMessagesByLocale = {
       deleteProperty: "संपत्ति हटाएं",
       deletePropertyDescription:
         'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "{{name}}" और उसके मानों को हटा देता है।',
+      deletePropertyDescriptionPrefix: 'यह इस कार्यक्षेत्र के प्रत्येक दस्तावेज़ से "',
+      deletePropertyDescriptionSuffix: '" और उसके मानों को हटा देता है।',
       deletePropertyQuestion: "संपत्ति हटाएं?",
       duplicateProperty: "डुप्लिकेट संपत्ति",
       editEndDate: "{{name}} समाप्ति तिथि संपादित करें",
@@ -7500,6 +7807,7 @@ const editorMessagesByLocale = {
     noDocumentSelected: "لم يتم تحديد أي مستند",
     collabConnectingReadOnly:
       "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
+    liveDocumentSaveBeforeSyncFailed: "تعذّر حفظ المستند المباشر قبل المزامنة.",
     builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
     builderBodySyncingDescription:
       "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
@@ -7638,6 +7946,9 @@ const editorMessagesByLocale = {
       deleteProperty: "حذف الممتلكات",
       deletePropertyDescription:
         'يؤدي هذا إلى إزالة "{{name}}" وقيمه من كل مستند في مساحة العمل هذه.',
+      deletePropertyDescriptionPrefix: 'يؤدي هذا إلى إزالة "',
+      deletePropertyDescriptionSuffix:
+        '" وقيمه من كل مستند في مساحة العمل هذه.',
       deletePropertyQuestion: "هل تريد حذف الخاصية؟",
       duplicateProperty: "خاصية مكررة",
       editEndDate: "تحرير تاريخ انتهاء {{name}}",

@@ -3,7 +3,7 @@
  *
  * Security gates (in order):
  *  1. assertAccess: the caller must have editor access to the design.
- *  2. File extension: only .html, .htm, and .css files are allowed.
+ *  2. File safety: secret-looking and known binary paths are rejected.
  *  3. verifyWriteGrant: a valid (non-expired) user-approved write-consent grant
  *     must exist. The agent CANNOT bypass this check.
  *  4. Path confinement: assertPathInside ensures the target stays inside
@@ -18,44 +18,49 @@
  *     and re-grant write consent.
  */
 
-import path from "node:path";
-
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
 
-/**
- * Text/code file extensions the agent is permitted to write via the bridge.
- * Mirrors ALLOWED_WRITE_EXTENSIONS in the core design-connect bridge, which
- * enforces the same list plus a secret-path blocklist on its side.
- */
-const ALLOWED_EXTENSIONS = new Set([
-  ".html",
-  ".htm",
-  ".css",
-  ".scss",
-  ".less",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".mjs",
-  ".cjs",
-  ".json",
-  ".md",
-  ".mdx",
-  ".vue",
-  ".svelte",
-  ".astro",
-  ".txt",
-  ".yml",
-  ".yaml",
-  ".svg",
+const SHA256_VERSION_HASH = /^[a-f0-9]{64}$/i;
+
+const BLOCKED_BINARY_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".zip",
+  ".gz",
+  ".tar",
+  ".pdf",
+  ".wasm",
+  ".fig",
+  ".sketch",
+  ".exe",
+  ".dll",
+  ".dylib",
+  ".so",
+  ".class",
+  ".jar",
 ]);
 
 /**
@@ -78,17 +83,18 @@ function isBlockedSecretPath(relPath: string): boolean {
   return false;
 }
 
-function assertAllowedExtension(relPath: string): void {
+function assertSafeWritePath(relPath: string): void {
   if (isBlockedSecretPath(relPath)) {
     throw new Error(
       `File "${relPath}" looks like a secret or VCS-internal file and may not be written through the bridge.`,
     );
   }
-  const ext = path.extname(relPath).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(ext)) {
+  const basename = relPath.split(/[\\/]+/).pop() ?? "";
+  const extensionMatch = basename.match(/(\.[^.]+)$/);
+  const ext = extensionMatch?.[1]?.toLowerCase() ?? "";
+  if (BLOCKED_BINARY_EXTENSIONS.has(ext)) {
     throw new Error(
-      `File "${relPath}" has extension "${ext}" which is not allowed. ` +
-        "Only text and code files (HTML, CSS, JS/TS, JSON, Markdown, and similar) may be written through the bridge.",
+      `File "${relPath}" is a known binary file type and may not be written through the code editor.`,
     );
   }
 }
@@ -204,6 +210,14 @@ export default defineAction({
           "version-conflict error if the file changed on disk since that " +
           "hash was read.",
       ),
+    requireExpectedVersionHash: z
+      .boolean()
+      .optional()
+      .describe(
+        "Set true for semantic/compiled-source edits. The bridge rejects the " +
+          "write unless expectedVersionHash is present and still exact. Leave " +
+          "false only for legacy writes or deliberate new-file creation.",
+      ),
   }),
   run: async ({
     designId,
@@ -212,21 +226,25 @@ export default defineAction({
     content,
     patch,
     expectedVersionHash,
+    requireExpectedVersionHash,
   }) => {
     // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId() ?? null;
 
-    // --- Gate 2: extension whitelist ---
-    assertAllowedExtension(relPath);
+    // --- Gate 2: reject secrets and known binary files. The local bridge
+    // performs the final byte-level text check against the actual file. ---
+    assertSafeWritePath(relPath);
 
     // --- Gate 3: valid write-consent grant ---
     const grant = await verifyWriteGrant({
       designId,
       connectionId,
       ownerEmail,
+      orgId,
       targetPath: relPath,
     });
 
@@ -241,6 +259,14 @@ export default defineAction({
         "content and patch are mutually exclusive. Provide one or the other.",
       );
     }
+    if (
+      requireExpectedVersionHash &&
+      (!expectedVersionHash || !SHA256_VERSION_HASH.test(expectedVersionHash))
+    ) {
+      throw new Error(
+        "A SHA-256 expectedVersionHash is required when requireExpectedVersionHash is true. Re-read the file through the current local Design bridge before retrying.",
+      );
+    }
 
     // --- Resolve bridge URL + current token ---
     const db = getDb();
@@ -248,12 +274,16 @@ export default defineAction({
       .select({
         bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        rootPath: schema.designLocalhostConnections.rootPath,
       })
       .from(schema.designLocalhostConnections)
       .where(
         and(
           eq(schema.designLocalhostConnections.id, connectionId),
           eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+          orgId
+            ? eq(schema.designLocalhostConnections.orgId, orgId)
+            : isNull(schema.designLocalhostConnections.orgId),
         ),
       )
       .limit(1);
@@ -262,6 +292,14 @@ export default defineAction({
       throw new Error(
         `No bridge URL found for connection "${connectionId}". ` +
           "Ensure the design bridge is running (npx @agent-native/core@latest design connect).",
+      );
+    }
+    if (!connection.rootPath || connection.rootPath !== grant.rootPath) {
+      throw Object.assign(
+        new Error(
+          "The localhost write-consent grant no longer matches the connected local folder. Re-grant write consent for the current folder before saving.",
+        ),
+        { statusCode: 428 },
       );
     }
 
@@ -281,7 +319,12 @@ export default defineAction({
       const res = await fetch(`${bridgeUrl}/write-file`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ relPath, content, expectedVersionHash }),
+        body: JSON.stringify({
+          relPath,
+          content,
+          expectedVersionHash,
+          requireExpectedVersionHash,
+        }),
       });
       if (!res.ok) {
         if (res.status === 409) {
@@ -313,6 +356,7 @@ export default defineAction({
           search: patch!.search,
           replace: patch!.replace,
           expectedVersionHash,
+          requireExpectedVersionHash,
         }),
       });
       if (!applyRes.ok) {

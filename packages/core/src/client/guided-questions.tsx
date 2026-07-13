@@ -4,12 +4,17 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { setClientAppState } from "./application-state.js";
+import { useChangeVersions } from "./use-change-version.js";
 import { cn } from "./utils.js";
 
 export type GuidedQuestionType =
@@ -978,7 +983,7 @@ export function useGuidedQuestionFlow({
   stateKey = "show-questions",
   browserTabId,
   queryKey = ["show-questions"],
-  refetchInterval = 2_000,
+  refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
   skipMessage = "Skip the questions — decide for me.",
   buildSubmitContext,
@@ -997,11 +1002,19 @@ export function useGuidedQuestionFlow({
   const scopedKey = normalizedBrowserTabId
     ? `${stateKey}:${normalizedBrowserTabId}`
     : stateKey;
+  const stateVersionSources = useMemo(
+    () =>
+      normalizedBrowserTabId
+        ? [`app-state:${scopedKey}`, `app-state:${stateKey}`]
+        : [`app-state:${stateKey}`],
+    [normalizedBrowserTabId, scopedKey, stateKey],
+  );
+  const stateVersion = useChangeVersions(stateVersionSources);
   // Match the queryKey to the scope so two tabs polling different scoped keys
   // don't share a cache entry.
   const resolvedQueryKey = useMemo(
-    () => [...queryKey, normalizedBrowserTabId ?? "global"],
-    [queryKey, normalizedBrowserTabId],
+    () => [...queryKey, normalizedBrowserTabId ?? "global", stateVersion],
+    [queryKey, normalizedBrowserTabId, stateVersion],
   );
 
   const resolvedRefetchInterval =
@@ -1042,6 +1055,10 @@ export function useGuidedQuestionFlow({
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
+    // A matching app-state event changes the query key. Preserve the existing
+    // payload while the replacement read is in flight so full-canvas question
+    // forms do not unmount and flash during routine sync updates.
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
@@ -1050,7 +1067,8 @@ export function useGuidedQuestionFlow({
         if (
           prev &&
           guidedQuestionsFingerprint(prev.questions) ===
-            guidedQuestionsFingerprint(data.questions)
+            guidedQuestionsFingerprint(data.questions) &&
+          prev.clientResolveId === data.clientResolveId
         ) {
           return prev;
         }

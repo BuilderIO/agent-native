@@ -62,6 +62,8 @@ function absoluteAppUrl(path: string): string {
 export interface ShareRecordingPopoverProps {
   recordingId: string;
   recordingTitle?: string;
+  initialVisibility?: Visibility | null;
+  initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
@@ -90,6 +92,8 @@ type ShareRecordingDialogProps = Omit<
 export function ShareRecordingPopover({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -108,6 +112,8 @@ export function ShareRecordingPopover({
         <ShareRecordingContent
           recordingId={recordingId}
           recordingTitle={recordingTitle}
+          initialVisibility={initialVisibility}
+          initialRole={initialRole}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
@@ -125,6 +131,8 @@ export function ShareRecordingPopover({
 export function ShareRecordingDialog({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -143,6 +151,8 @@ export function ShareRecordingDialog({
         <ShareRecordingContent
           recordingId={recordingId}
           recordingTitle={recordingTitle}
+          initialVisibility={initialVisibility}
+          initialRole={initialRole}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
@@ -156,6 +166,8 @@ export function ShareRecordingDialog({
 function ShareRecordingContent({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -163,6 +175,8 @@ function ShareRecordingContent({
 }: {
   recordingId: string;
   recordingTitle?: string;
+  initialVisibility?: Visibility | null;
+  initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
@@ -175,7 +189,12 @@ function ShareRecordingContent({
   });
 
   const data = sharesQuery.data;
-  const canManage = data?.role === "owner" || data?.role === "admin";
+  const role = data?.role ?? initialRole;
+  const canManage = role === "owner" || role === "admin";
+  const visibility =
+    (data?.visibility as Visibility | null | undefined) ??
+    initialVisibility ??
+    null;
 
   // Attribution `via` must be a stable non-PII id, never an email. The only
   // owner id available client-side is the *current* session's userId, which is
@@ -226,6 +245,7 @@ function ShareRecordingContent({
             recordingId={recordingId}
             shareUrl={shareUrl}
             sharesQuery={sharesQuery}
+            visibility={visibility}
             canManage={canManage}
             videoUrl={videoUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
@@ -247,6 +267,7 @@ function ShareRecordingContent({
           <ClipsEmbedConfigurator
             recordingId={recordingId}
             sharesQuery={sharesQuery}
+            visibility={visibility}
             canManage={canManage}
             ownerViaId={ownerViaId}
           />
@@ -264,6 +285,7 @@ function LinkTab({
   recordingId,
   shareUrl,
   sharesQuery,
+  visibility,
   canManage,
   videoUrl,
   animatedThumbnailUrl,
@@ -272,6 +294,7 @@ function LinkTab({
   recordingId: string;
   shareUrl: string;
   sharesQuery: SharesQuery;
+  visibility: Visibility | null;
   canManage: boolean;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -283,11 +306,9 @@ function LinkTab({
     recordingId,
     sharesQuery,
   );
-  const data = sharesQuery.data;
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const sharesLoaded = data !== undefined;
+  const sharesLoaded = visibility !== null;
+  const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
@@ -355,25 +376,34 @@ function LinkTab({
 
   return (
     <div className="space-y-4">
-      <GeneralAccessSelect
-        visibility={visibility}
-        canManage={canManage}
-        isPending={isPending}
-        onChange={(next) => setResourceVisibility(next)}
-        publicDescription={t("shareDialog.publicDescription")}
-      />
+      {visibility ? (
+        <GeneralAccessSelect
+          visibility={visibility}
+          canManage={canManage}
+          isPending={visibilityPending}
+          onChange={(next) => setResourceVisibility(next)}
+          publicDescription={t("shareDialog.publicDescription")}
+        />
+      ) : (
+        <div className="space-y-2" aria-hidden>
+          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-12 w-full animate-pulse rounded bg-muted" />
+        </div>
+      )}
 
       <CopyField
         label={t("shareDialog.shareLink")}
         value={shareUrl}
-        disabled={isPending || (!isPublic && canManage)}
+        disabled={
+          visibilityPending || !sharesLoaded || (!isPublic && canManage)
+        }
       />
 
       {/* Public links unfurl into a playable video in Slack; surface that here
           (and a connect link) instead of leaving it buried in Settings. */}
       {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
-      {!isPublic ? (
+      {sharesLoaded && !isPublic ? (
         <Collapsible open={agentShareOpen} onOpenChange={setAgentShareOpen}>
           <CollapsibleTrigger asChild>
             <Button
@@ -431,7 +461,7 @@ function LinkTab({
         </Collapsible>
       ) : null}
 
-      {!isPublic && canManage ? (
+      {sharesLoaded && !isPublic && canManage ? (
         <MakePublicCard
           isPending={isPending}
           onMakePublic={() =>
@@ -468,7 +498,7 @@ function LinkTab({
                   {t("shareDialog.openPlayer")}
                 </>
               ) : (
-                t("shareDialog.downloadMp4")
+                t("recordRoute.downloadRecording")
               )}
             </Button>
           ) : null}
@@ -485,11 +515,13 @@ function LinkTab({
 function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
+  visibility,
   canManage,
   ownerViaId,
 }: {
   recordingId: string;
   sharesQuery: SharesQuery;
+  visibility: Visibility | null;
   canManage: boolean;
   ownerViaId?: string;
 }) {
@@ -500,11 +532,10 @@ function ClipsEmbedConfigurator({
   const [width, setWidth] = useState(640);
   const [height, setHeight] = useState(360);
 
-  const data = sharesQuery.data;
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const visibilityLabel = t(`shareUi.visibility.${visibility}.label`);
+  const visibilityLabel = visibility
+    ? t(`shareUi.visibility.${visibility}.label`)
+    : "";
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
     "recording",
     recordingId,
@@ -528,6 +559,15 @@ function ClipsEmbedConfigurator({
     mode === "responsive"
       ? `<div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden"><iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;overflow:hidden"></iframe></div>`
       : `<iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" width="${width}" height="${height}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="display:block;max-width:100%;border:0;background:#000;overflow:hidden"></iframe>`;
+
+  if (!visibility) {
+    return (
+      <div className="space-y-2" aria-hidden>
+        <div className="h-16 w-full animate-pulse rounded bg-muted" />
+        <div className="h-24 w-full animate-pulse rounded bg-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

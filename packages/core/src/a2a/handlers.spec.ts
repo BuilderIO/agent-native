@@ -40,6 +40,7 @@ vi.mock("./task-store.js", () => {
         artifacts: [],
         metadata,
         ownerEmail: ownerEmail ?? null,
+        createdAt: Date.now(),
         updatedAt: Date.now(),
       };
       tasks[id] = task;
@@ -72,6 +73,23 @@ vi.mock("./task-store.js", () => {
       }
       return task;
     },
+    async settleProcessingA2ATask(id: string, update: any) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return null;
+      task.status = {
+        state: update.state,
+        message: update.message ?? task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      if (update.message && task.history) {
+        task.history.push(update.message);
+      }
+      if (update.artifacts) {
+        task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+      }
+      return task;
+    },
     async claimA2ATaskForProcessing(id: string) {
       const task = tasks[id];
       if (!task) return null;
@@ -95,6 +113,10 @@ vi.mock("./task-store.js", () => {
           typeof task.metadata?.testUpdatedAt === "number"
             ? task.metadata.testUpdatedAt
             : task.updatedAt,
+        createdAt:
+          typeof task.metadata?.testCreatedAt === "number"
+            ? task.metadata.testCreatedAt
+            : task.createdAt,
       };
     },
     async touchQueuedA2ATaskDispatch() {
@@ -112,6 +134,22 @@ vi.mock("./task-store.js", () => {
     async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
       const task = tasks[id];
       if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: reason }],
+        },
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      return true;
+    },
+    async failStuckQueuedA2ATask(id: string, _cutoff: number, reason: string) {
+      const task = tasks[id];
+      if (!task || !["submitted", "working"].includes(task.status.state)) {
+        return false;
+      }
       task.status = {
         state: "failed",
         message: {
@@ -183,6 +221,7 @@ describe("handleJsonRpc", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -553,6 +592,247 @@ describe("handleJsonRpc", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("fails a queued async task that never leaves submitted/working past the lifetime cap", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 3-minute A2A_QUEUED_LIFETIME_MAX_MS default — dispatch
+            // never got the task out of submitted/working.
+            testCreatedAt: Date.now() - 3 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.state).toBe("working");
+    const taskId = result.result.id;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "dispatch kept failing",
+    );
+  });
+
+  it("fails a processing async task past the processing lifetime cap even though the heartbeat kept it fresh", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      return new Promise<never>(() => {});
+    });
+    const sideEffectConfig: A2AConfig = {
+      ...customHandler,
+      handler,
+    };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Fresh heartbeat (well under the 5-minute stale check) but past
+            // the 30-minute A2A_PROCESSING_LIFETIME_MAX_MS default — a hung
+            // await inside an otherwise-alive process.
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      sideEffectConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    void processA2ATaskFromQueue(taskId, sideEffectConfig);
+    await startedPromise;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      sideEffectConfig,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the lifetime failure terminal when the original processor later completes", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    let release: (value: unknown) => void = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      await gate;
+      return {
+        message: {
+          role: "agent" as const,
+          parts: [{ type: "text" as const, text: "late success" }],
+        },
+      };
+    });
+    const config: A2AConfig = { ...customHandler, handler };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = result.result.id;
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const processorPromise = processA2ATaskFromQueue(taskId, config);
+    await startedPromise;
+
+    const timedOut = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(timedOut.result.status.state).toBe("failed");
+
+    release(undefined);
+    await processorPromise;
+    const afterLateCompletion = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(afterLateCompletion.result.status.state).toBe("failed");
+    expect(afterLateCompletion.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(afterLateCompletion.result.history).not.toContainEqual({
+      role: "agent",
+      parts: [{ type: "text", text: "late success" }],
+    });
+  });
+
+  it("returns false without an unhandled rejection when refire dispatch keeps throwing", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 10s queued-dispatch-stuck threshold, but well under
+            // the 3-minute lifetime cap — should attempt one refire.
+            testUpdatedAt: Date.now() - 11_000,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    // Every dispatch attempt (including the initial one above) fails from
+    // here on — mirrors a persistently missing background function or bad
+    // A2A secret.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    // No throw out of handleJsonRpc (no unhandled rejection) and the task is
+    // left exactly as it was — still working, not incorrectly marked failed.
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("working");
+  });
+
   it("refuses async message/send on hosted runtimes without A2A auth config", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousNetlify = process.env.NETLIFY;
@@ -690,6 +970,100 @@ describe("handleJsonRpc", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://app.test/docs/_agent-native/a2a/_process-task",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("routes env-opted-in async A2A tasks through the Netlify durable background worker", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("APP_BASE_PATH", "/docs");
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.test/.netlify/functions/server-agent-background",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          taskId: result.result.id,
+          __agentNativeProcessor: "a2a",
+        }),
+      }),
+    );
+  });
+
+  it("falls back to the portable processor when the durable worker rejects dispatch", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response("accepted"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, durableBackgroundRuns: true },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://app.test/.netlify/functions/server-agent-background",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://app.test/_agent-native/a2a/_process-task",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 

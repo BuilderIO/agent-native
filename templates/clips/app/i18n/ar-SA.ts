@@ -47,6 +47,7 @@ const messages = {
   navigation: {
     brand: "المقاطع",
     library: "المكتبة",
+    sharedWithMe: "تمت مشاركته معي",
     spaces: "المساحات",
     meetings: "الاجتماعات",
     dictate: "إملاء",
@@ -80,6 +81,10 @@ const messages = {
       title: "مكتبتك فارغة",
       body: "التقط أول تسجيل شاشة وسيظهر هنا جاهزًا للمشاركة.",
       cta: "سجّل أول Clip لك",
+    },
+    shared: {
+      title: "لم تتم مشاركة أي مقاطع معك بعد",
+      body: "ستظهر هنا المقاطع التي يشاركها زملاؤك معك.",
     },
     folder: {
       title: "هذا المجلد فارغ",
@@ -291,6 +296,7 @@ const messages = {
     insights: "الرؤى",
     downloadForMac: "تحميل Mac",
     downloadForWindows: "تحميل Windows",
+    downloadForLinux: "تحميل Linux",
     downloadDesktopApp: "تنزيل تطبيق سطح المكتب",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "هو بديل مجاني،",
@@ -379,6 +385,7 @@ const messages = {
     searchPlaceholder: "نص البحث",
     copyTranscript: "نسخ النص",
     downloadSrt: "تحميل .srt",
+    regenerate: "إعادة إنشاء النص",
     cleanupRunning: "تنظيف النص في الخلفية.",
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
@@ -546,7 +553,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "تحميل Clips Desktop",
     description:
-      "سجل شاشتك من شريط القائمة. التحديث التلقائي لتطبيق سطح المكتب لـ macOS وWindows.",
+      "سجل شاشتك من شريط النظام. تطبيق سطح مكتب بتحديث تلقائي لأنظمة macOS وWindows وLinux.",
     macSublabel: "عالمي (Apple Silicon + Intel)",
     windowsSublabel: "المثبت 64 بت MSI",
     downloadFor: "تحميل {{platform}}",

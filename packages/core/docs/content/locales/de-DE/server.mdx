@@ -94,8 +94,7 @@ server/routes/
 
 Jede Route exportiert einen `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -135,8 +134,7 @@ Verwenden Sie die `http`-Option der action, um direkten HTTP-Zugriff zu formen: 
 
 Für einen schreibgeschützten Status-endpoint behalten Sie ihn als action bei:
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -169,8 +167,7 @@ was passiert ist. Für schmale serverseitige Transformationen, die absichtlich n
 Tools, Chat-Verlauf oder Ausführungsstatus verwenden `completeText()` als expliziten Escape
 Luke.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -235,8 +232,7 @@ Actions, das vom Framework bereitgestellt wird, wird automatisch mit dem Anforde
 
 Plugins leben in `server/plugins/` und werden beim Start ausgeführt. Verwenden Sie sie für Migrationen, Anbietereinrichtung, wiederkehrende Jobs, Integrationsadapter und Framework-Plugin-Konfiguration.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -414,8 +410,12 @@ Eingehender webhooks sollte überprüft werden, bestehen bleiben und schnell zur
 
 </Diagram>
 
-> [!WARNING]
-> Verlassen Sie sich nicht auf unerwartete Versprechen, nachdem Sie eine Antwort zurückgegeben haben – serverlose Hosts frieren die Ausführung ein. Informationen zur kanonischen Integrationswarteschlange finden Sie unter [Messaging](/docs/messaging).
+<Callout tone="warning">
+  Verlassen Sie sich nicht auf unerwartete Versprechen, nachdem Sie eine Antwort
+  zurückgegeben haben – serverlose Hosts frieren die Ausführung ein.
+  Informationen zur kanonischen Integrationswarteschlange finden Sie unter
+  [Messaging](/docs/messaging).
+</Callout>
 
 ## Fortgeschritten: Fluchtluken {#advanced-escape-hatches}
 
@@ -457,3 +457,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## Wie geht es weiter?
+
+- [**Actions**](/docs/actions) – die Standardoberfläche für Operationen; verwenden Sie eine benutzerdefinierte Route nur, wenn sie dort nicht passt
+- [**Datenbank**](/docs/database) – das `getDb()`/`schema`-Muster, das benutzerdefinierte Routen und Actions importieren
+- [**Sicherheit**](/docs/security#access-guards) – `accessFilter`/`assertAccess` und das vollständige Datenscoping-Modell
+- [**Messaging**](/docs/messaging) – das kanonische Muster für die Integrationswarteschlange eingehender Webhooks
+- [**MCP-Protokoll**](/docs/mcp-protocol) – der `/_agent-native/mcp`-Endpunkt, den dieser Server automatisch einbindet

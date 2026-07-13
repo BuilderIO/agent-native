@@ -68,6 +68,7 @@ function dashboard() {
 function createBrowser(
   options: {
     waitForFails?: boolean;
+    gotoError?: Error;
     captureBox?: { width: number; height: number };
   } = {},
 ) {
@@ -86,7 +87,9 @@ function createBrowser(
     setDefaultTimeout: vi.fn(),
     emulateMedia: vi.fn(async () => {}),
     addInitScript: vi.fn(async () => {}),
-    goto: vi.fn(async () => {}),
+    goto: vi.fn(async () => {
+      if (options.gotoError) throw options.gotoError;
+    }),
     locator: vi.fn(() => locator),
     waitForFunction: vi.fn(async () => {}),
     evaluate: vi.fn(async () => {}),
@@ -170,7 +173,7 @@ describe("dashboard report email", () => {
     expect(emailArgs.text).toContain("reportSettings=1");
   });
 
-  it("fits tall dashboard captures beyond the old viewport cap", async () => {
+  it("captures tall dashboards without expanding the Chromium render surface", async () => {
     const tall = createBrowser({ captureBox: { width: 960, height: 8200 } });
     mocks.launch.mockResolvedValueOnce(tall.browser);
 
@@ -181,13 +184,25 @@ describe("dashboard report email", () => {
       screenshotAttached: true,
       screenshotMode: "full",
     });
-    expect(tall.page.setViewportSize).toHaveBeenCalledWith({
-      width: 1440,
-      height: 8264,
+    expect(tall.page.setViewportSize).not.toHaveBeenCalled();
+    expect(tall.locator.screenshot).toHaveBeenCalledWith({
+      type: "png",
+      animations: "disabled",
     });
-    expect(tall.page.setViewportSize).not.toHaveBeenCalledWith(
-      expect.objectContaining({ height: 7000 }),
-    );
+  });
+
+  it("only expands wide captures while preserving the bounded viewport height", async () => {
+    const wide = createBrowser({ captureBox: { width: 1600, height: 8200 } });
+    mocks.launch.mockResolvedValueOnce(wide.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(wide.page.setViewportSize).toHaveBeenCalledOnce();
+    expect(wide.page.setViewportSize).toHaveBeenCalledWith({
+      width: 1664,
+      height: 1800,
+    });
+    expect(wide.locator.screenshot).toHaveBeenCalledOnce();
   });
 
   it("still sends the report email without a screenshot when browser capture fails", async () => {
@@ -209,6 +224,44 @@ describe("dashboard report email", () => {
         html: expect.stringContaining("dashboard image was unavailable"),
         text: expect.stringContaining("Dashboard image unavailable"),
       }),
+    );
+  });
+
+  it("allows enough time for full serverless dashboards to become ready", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const serverless = createBrowser();
+    mocks.launch.mockResolvedValueOnce(serverless.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(serverless.page.setDefaultTimeout).toHaveBeenCalledWith(90_000);
+    expect(serverless.page.waitForFunction).toHaveBeenCalledWith(
+      expect.any(String),
+      undefined,
+      { timeout: 90_000 },
+    );
+  });
+
+  it("redacts embed tokens from screenshot errors", async () => {
+    const navigationError = new Error(
+      "page.goto failed at https://analytics.example.test/dashboards/example?__an_embed_token=example-signed-token&embedded=1",
+    );
+    const first = createBrowser({ gotoError: navigationError });
+    const second = createBrowser({ gotoError: navigationError });
+    mocks.launch
+      .mockResolvedValueOnce(first.browser)
+      .mockResolvedValueOnce(second.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result.screenshotError).toContain(
+      "__an_embed_token=[REDACTED]&embedded=1",
+    );
+    expect(result.screenshotError).not.toContain("example-signed-token");
+    expect(mocks.sendEmail).toHaveBeenCalledOnce();
+    expect(console.error).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("example-signed-token"),
     );
   });
 

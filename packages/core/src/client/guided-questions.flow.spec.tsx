@@ -11,6 +11,10 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+import {
+  bumpChangeVersion,
+  _resetChangeVersionStoreForTests,
+} from "./use-change-version.js";
 
 // The agent's `ask-question` action writes the guided-questions payload to a
 // per-tab application-state key (`guided-questions:<tabId>`) whenever the run
@@ -51,6 +55,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    _resetChangeVersionStoreForTests();
     sendToAgentChatMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -64,6 +69,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    _resetChangeVersionStoreForTests();
   });
 
   async function flush() {
@@ -153,6 +159,70 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
     expect(requestedKeys).toContain("guided-questions");
     expect(requestedKeys).not.toContain("guided-questions:undefined");
+  });
+
+  it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
+    let hasQuestion = false;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(hasQuestion ? JSON.stringify(payload) : "", {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+    expect(result.current().questions).toBeNull();
+    const initialReads = fetchMock.mock.calls.length;
+
+    hasQuestion = true;
+    await act(async () => {
+      bumpChangeVersion("app-state:guided-questions", 10);
+      await Promise.resolve();
+    });
+    for (let i = 0; i < 20 && !result.current().questions; i += 1) {
+      await flush();
+    }
+
+    expect(result.current().questions?.length).toBe(1);
+    expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
+  });
+
+  it("keeps active questions visible while a DB-sync refresh is pending", async () => {
+    let reads = 0;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = vi.fn(() => {
+      reads += 1;
+      if (reads === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload)));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveRefresh = () => resolve(new Response(JSON.stringify(payload)));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:guided-questions", 10);
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current().questions).toEqual(payload.questions);
+
+    await act(async () => {
+      resolveRefresh?.();
+      await Promise.resolve();
+    });
   });
 
   it("DELETEs the scoped key on clear so the card does not reappear", async () => {

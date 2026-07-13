@@ -19,8 +19,16 @@ describe("recording share popover", () => {
   it("keeps agent sharing private-only and lazy", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain("{!isPublic ? (");
+    expect(shareDialogSource).toContain("{sharesLoaded && !isPublic ? (");
     expect(shareDialogSource).toContain("if (!isPublic && agentShareOpen)");
     expect(shareDialogSource).toContain("{isPublic ? <SlackShareHint");
+  });
+
+  it("uses known recording access while share details load", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain("data?.role ?? initialRole");
+    expect(shareDialogSource).toContain("initialVisibility ??");
+    expect(shareDialogSource).not.toContain('?? "private"');
   });
 });

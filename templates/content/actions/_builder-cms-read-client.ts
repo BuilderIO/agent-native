@@ -56,12 +56,78 @@ type BuilderMcpToolResult = {
 };
 
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
-const BUILDER_CMS_MAX_READ_LIMIT = 1000;
+const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_READ_RETRIES = 2;
-const BUILDER_CMS_METADATA_ENTRY_FIELDS =
-  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image";
-const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},data.blocks,data.blocksString`;
+const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
+  "id",
+  "name",
+  "published",
+  "lastUpdated",
+  "createdDate",
+  "data.title",
+  "data.handle",
+  "data.url",
+  "data.slug",
+  "data.date",
+  "data.description",
+  "data.status",
+  "data.author",
+  "data.image",
+] as const;
+const BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS = new Set(
+  BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS.filter(
+    (fieldPath) => !fieldPath.startsWith("data."),
+  ).map((fieldPath) => fieldPath.toLowerCase()),
+);
+const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
+  "data.blocks",
+  "data.blocksString",
+] as const;
+const BUILDER_CMS_FIELD_PATH_PATTERN =
+  /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
+
+function normalizeBuilderCmsListFieldPath(fieldPath: string) {
+  const trimmed = fieldPath.trim();
+  if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
+  const normalized = trimmed.includes(".")
+    ? trimmed
+    : BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(trimmed.toLowerCase())
+      ? trimmed
+      : `data.${trimmed}`;
+  const lower = normalized.toLowerCase();
+  if (
+    BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.some((heavyFieldPath) => {
+      const heavyLower = heavyFieldPath.toLowerCase();
+      return lower === heavyLower || lower.startsWith(`${heavyLower}.`);
+    })
+  ) {
+    return null;
+  }
+  if (
+    normalized.includes(".") &&
+    !normalized.toLowerCase().startsWith("data.")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
+  const fields = new Map<string, string>();
+  for (const fieldPath of [
+    ...BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS,
+    ...fieldPaths,
+  ]) {
+    const normalized = normalizeBuilderCmsListFieldPath(fieldPath);
+    if (!normalized) continue;
+    if (!fields.has(normalized)) fields.set(normalized, normalized);
+  }
+  return Array.from(fields.values()).join(",");
+}
+
+const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
+const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
 
 function builderContentApiHost() {
   return (
@@ -444,6 +510,7 @@ async function initializeBuilderMcp(args: {
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -464,17 +531,16 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       ? Math.max(0, Math.floor(args.offset))
       : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
+  const fields = builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + contentEntries.length < limit;
+    contentEntries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
-    const pageLimit = readPageLimit(
-      limit - startOffset - contentEntries.length,
-    );
+    const pageLimit = readPageLimit(limit - contentEntries.length);
     const contentResult = await postBuilderMcp({
       endpoint,
       privateKey: args.privateKey,
@@ -490,7 +556,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields: BUILDER_CMS_METADATA_ENTRY_FIELDS,
+            fields,
             enrich: true,
           },
         },
@@ -507,10 +573,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageEntries,
     );
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit &&
-      appended > 0 &&
-      contentEntries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -527,7 +590,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         nextOffset: startOffset + contentEntries.length,
         fetchedEntryCount: startOffset + contentEntries.length,
         hasMore,
-        partial: hasMore && Boolean(args.maxPages),
+        partial: hasMore,
         readMode: "mcp",
       },
     };
@@ -549,7 +612,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         pageSize: BUILDER_CMS_PAGE_SIZE,
         startOffset,
         nextOffset: startOffset,
-        fetchedEntryCount: 0,
+        fetchedEntryCount: startOffset,
         hasMore: false,
         partial: false,
         readMode: "mcp",
@@ -600,7 +663,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields: BUILDER_CMS_METADATA_ENTRY_FIELDS,
+            fields,
             enrich: true,
           },
         },
@@ -633,6 +696,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -650,7 +714,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   // bare reference id.
   url.searchParams.set("enrich", "true");
   url.searchParams.set("noCache", "true");
-  url.searchParams.set("fields", BUILDER_CMS_METADATA_ENTRY_FIELDS);
+  url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
 
   const limit = readLimit(args.limit);
   const startOffset =
@@ -663,11 +727,11 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + entries.length < limit;
+    entries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
     const pageUrl = new URL(url);
-    const pageLimit = readPageLimit(limit - startOffset - entries.length);
+    const pageLimit = readPageLimit(limit - entries.length);
     pageUrl.searchParams.set("limit", String(pageLimit));
     pageUrl.searchParams.set("offset", String(offset));
 
@@ -724,8 +788,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit && appended > 0 && entries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -742,7 +805,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       nextOffset: startOffset + entries.length,
       fetchedEntryCount: startOffset + entries.length,
       hasMore,
-      partial: hasMore && Boolean(args.maxPages),
+      partial: hasMore,
       readMode: "builder-api",
     },
   };
@@ -902,7 +965,10 @@ export async function readBuilderCmsModelFields(args: {
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsModelFieldSummary[]> {
   const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
-  if (models.state !== "live") return [];
+  if (models.state === "unconfigured") return [];
+  if (models.state === "error") {
+    throw new Error(models.message ?? "Builder CMS model discovery failed.");
+  }
   const modelName = args.model.trim().toLowerCase();
   return (
     models.models.find((model) => {
@@ -917,6 +983,7 @@ export async function readBuilderCmsModelFields(args: {
 
 export async function readBuilderCmsContentEntries(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -929,6 +996,7 @@ export async function readBuilderCmsContentEntries(args: {
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
+      fieldPaths: args.fieldPaths,
       limit: args.limit,
       maxPages: args.maxPages,
       offset: args.offset,
@@ -945,6 +1013,7 @@ export async function readBuilderCmsContentEntries(args: {
     try {
       return await readBuilderCmsContentEntriesViaMcp({
         model: args.model,
+        fieldPaths: args.fieldPaths,
         limit: args.limit,
         maxPages: args.maxPages,
         offset: args.offset,

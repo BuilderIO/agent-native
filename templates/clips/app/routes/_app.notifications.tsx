@@ -3,7 +3,7 @@ import {
   useActionMutation,
   useT,
 } from "@agent-native/core/client";
-import { IconSend } from "@tabler/icons-react";
+import { IconAlertTriangle, IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -39,7 +39,13 @@ export default function NotificationsRoute() {
   const [replyText, setReplyText] = useState("");
 
   const qc = useQueryClient();
-  const { data: aggregated, isLoading } = useActionQuery<{
+  const {
+    data: aggregated,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery<{
     items: NotificationItem[];
   }>("list-notifications", { days: 30 } as any, { retry: false });
 
@@ -119,6 +125,21 @@ export default function NotificationsRoute() {
           {isLoading ? (
             <div className="py-16 text-center text-sm text-muted-foreground">
               {t("notificationsRoute.loading")}
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <IconAlertTriangle className="size-9 text-destructive" />
+              <p className="text-sm font-medium">
+                {t("libraryGrid.loadFailedTitle")}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+              >
+                {t("libraryGrid.retry")}
+              </Button>
             </div>
           ) : (
             <NotificationsList items={filtered} onReply={setReplyFor} />

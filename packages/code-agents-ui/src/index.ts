@@ -1,6 +1,8 @@
 export { default as CodeAgentsApp } from "./CodeAgentsApp.js";
 export type {
   CodeAgentsAppProps,
+  CodeAgentComputerSetupAction,
+  CodeAgentComputerSetupResult,
   CodeAgentsHost,
   CodeAgentsRenderAppSurface,
 } from "./CodeAgentsApp.js";

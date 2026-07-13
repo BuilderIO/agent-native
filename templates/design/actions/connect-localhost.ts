@@ -5,7 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -91,6 +91,17 @@ function stableConnectionId(
   return `localhost_${hash}`;
 }
 
+const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+
+/** One-way compatibility derivation shared with the core design-connect CLI. */
+export function derivePreviewToken(bridgeToken: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(PREVIEW_TOKEN_DOMAIN)
+    .update(bridgeToken)
+    .digest("hex");
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -132,6 +143,12 @@ export default defineAction({
       .optional()
       .describe(
         "The bridge's real auth token minted at bridge start. Stored on the connection so grant-localhost-write-consent can read it without minting its own.",
+      ),
+    previewToken: z
+      .string()
+      .optional()
+      .describe(
+        "Distinct read-only token for browser preview, snapshots, and live-edit bridge registration. Omit when passing bridgeToken to derive the compatible token automatically.",
       ),
     status: z
       .enum(["connected", "detected", "manual", "error"])
@@ -181,6 +198,12 @@ export default defineAction({
         operation,
         status: "available" as const,
       }));
+    const ownerOrgScope = and(
+      eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+      orgId
+        ? eq(schema.designLocalhostConnections.orgId, orgId)
+        : isNull(schema.designLocalhostConnections.orgId),
+    );
 
     // The id may already be taken by a DIFFERENT user (legacy ids were derived
     // from devServerUrl + rootPath without user scoping, so two users on the
@@ -189,15 +212,21 @@ export default defineAction({
     const existing = await db
       .select({
         ownerEmail: schema.designLocalhostConnections.ownerEmail,
+        orgId: schema.designLocalhostConnections.orgId,
+        previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
       })
       .from(schema.designLocalhostConnections)
       .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
 
-    if (existing[0] && existing[0].ownerEmail !== ownerEmail) {
+    if (
+      existing[0] &&
+      (existing[0].ownerEmail !== ownerEmail ||
+        (existing[0].orgId ?? null) !== orgId)
+    ) {
       throw new Error(
-        `Connection id "${id}" already belongs to another user. ` +
+        `Connection id "${id}" already belongs to another user or organization. ` +
           "Omit id so a per-user connection id is derived instead.",
       );
     }
@@ -209,6 +238,13 @@ export default defineAction({
       explicitToken ||
       existing[0]?.bridgeToken ||
       crypto.randomBytes(32).toString("hex");
+    const explicitPreviewToken =
+      args.previewToken?.trim() ||
+      (explicitToken ? derivePreviewToken(nextBridgeToken) : undefined);
+    const nextPreviewToken =
+      explicitPreviewToken ||
+      existing[0]?.previewToken ||
+      derivePreviewToken(nextBridgeToken);
     const baseValues = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
@@ -232,7 +268,12 @@ export default defineAction({
     // conflict a no-op.
     await db
       .insert(schema.designLocalhostConnections)
-      .values({ ...baseValues, bridgeToken: nextBridgeToken, createdAt: now })
+      .values({
+        ...baseValues,
+        previewToken: nextPreviewToken,
+        bridgeToken: nextBridgeToken,
+        createdAt: now,
+      })
       .onConflictDoUpdate({
         target: schema.designLocalhostConnections.id,
         set: {
@@ -240,24 +281,27 @@ export default defineAction({
           bridgeToken: explicitToken
             ? nextBridgeToken
             : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
+          previewToken: explicitPreviewToken
+            ? nextPreviewToken
+            : sql`coalesce(${schema.designLocalhostConnections.previewToken}, excluded.preview_token)`,
         },
-        setWhere: eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+        setWhere: ownerOrgScope,
       });
 
     // Return the token the row actually holds (owner-scoped, so a cross-user
     // no-op never leaks another user's token), not the one we minted — so
     // concurrent callers converge on the winner (no 401 on a lost race).
     const [stored] = await db
-      .select({ bridgeToken: schema.designLocalhostConnections.bridgeToken })
+      .select({
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        previewToken: schema.designLocalhostConnections.previewToken,
+      })
       .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, id),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-        ),
-      )
+      .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
       .limit(1);
     const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
+    const effectivePreviewToken =
+      stored?.previewToken ?? derivePreviewToken(effectiveBridgeToken);
 
     return {
       id,
@@ -271,6 +315,8 @@ export default defineAction({
       capabilities,
       status: args.status,
       lastSeenAt: now,
+      // Safe for Design browser previews. It cannot authorize filesystem calls.
+      previewToken: effectivePreviewToken,
       // Returned so the caller can start the bridge with
       // `design connect --bridge-token <this>`, matching this row.
       bridgeToken: effectiveBridgeToken,

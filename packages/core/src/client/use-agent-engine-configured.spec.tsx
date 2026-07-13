@@ -150,7 +150,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
   });
 
-  it("keeps setup state unknown when provider status checks are partial", async () => {
+  it("uses the canonical engine status when legacy status checks are partial", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
@@ -167,7 +167,7 @@ describe("useAgentEngineConfigured", () => {
 
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
-    ).resolves.toBe("unknown");
+    ).resolves.toBe("missing");
   });
 
   it("returns unknown when every status check times out", async () => {

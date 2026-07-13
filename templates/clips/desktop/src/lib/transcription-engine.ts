@@ -119,7 +119,7 @@ export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
   captureSystem: boolean = true,
-  voiceProcessing: boolean = true,
+  voiceProcessing: boolean = false,
 ): Promise<void> {
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
@@ -151,14 +151,15 @@ export async function startTranscriptionEngine(opts: {
   /** Capture + transcribe system audio (whisper). Default true. */
   captureSystem?: boolean;
   /**
-   * Enable Apple's voice-processing input mode for the Whisper mic tap. Native
-   * recordings disable this so the transcription tap does not reconfigure the
-   * shared microphone before ScreenCaptureKit opens it.
+   * Enable Apple's voice-processing input mode for the Whisper mic tap.
+   * Meeting and recording capture leave this off at the renderer boundary.
+   * The native meeting runtime may allocate VoiceProcessingIO in bypass mode
+   * only when combined ScreenCaptureKit capture is unavailable or fails.
    */
   voiceProcessing?: boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
-  const voiceProcessing = opts.voiceProcessing ?? true;
+  const voiceProcessing = opts.voiceProcessing ?? false;
   try {
     await restartTranscriptionEngine(
       "whisper",

@@ -274,11 +274,19 @@ export type ContentDatabaseViewType =
   | "list"
   | "gallery"
   | "calendar"
-  | "timeline";
+  | "timeline"
+  | "form";
 
 export type ContentDatabaseRowDensity = "compact" | "default" | "comfortable";
 export type ContentDatabaseFilterMode = "and" | "or";
 export type ContentDatabaseOpenPagesIn = "preview" | "full_page";
+
+export interface ContentDatabaseFormQuestion {
+  /** "name" is the row page title; every other key is a property definition id. */
+  key: string;
+  enabled: boolean;
+  required: boolean;
+}
 
 export interface ContentDatabaseView {
   id: string;
@@ -299,6 +307,7 @@ export interface ContentDatabaseView {
   wrapCells?: boolean;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
+  formQuestions?: ContentDatabaseFormQuestion[];
 }
 
 export interface ContentDatabaseViewConfig {
@@ -388,7 +397,8 @@ export interface ContentDatabaseSourceOverlay {
 export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
-  | "local-table";
+  | "local-table"
+  | "notion-database";
 export type ContentDatabaseSourceSyncState =
   | "idle"
   | "linked"
@@ -618,6 +628,7 @@ export interface ContentDatabaseSource {
     lastReadPartial?: boolean;
     lastReadHasMore?: boolean;
     lastReadNextOffset?: number;
+    lastReadSuspiciousEmpty?: boolean;
     sourceFetchState?: "idle" | "fetching" | "error";
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
@@ -660,6 +671,20 @@ export interface BuilderCmsModelsResponse {
   models: BuilderCmsModelSummary[];
   fetchedAt: string;
   message: string | null;
+}
+
+export interface NotionDatabaseSourceSummary {
+  id: string;
+  name: string;
+  url: string | null;
+}
+
+export interface NotionDatabaseSourcesResponse {
+  connected: boolean;
+  workspaceName: string | null;
+  sources: NotionDatabaseSourceSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 export interface ContentDatabaseResponse {
@@ -732,6 +757,23 @@ export interface AddDatabaseItemRequest {
   databaseId: string;
   title?: string;
   propertyValues?: Record<string, DocumentPropertyValue>;
+}
+
+export interface SubmitContentDatabaseFormRequest {
+  databaseId: string;
+  viewId?: string;
+  title?: string;
+  propertyValues?: Record<string, unknown>;
+}
+
+export interface SubmitContentDatabaseFormResponse {
+  databaseId: string;
+  viewId: string;
+  createdItemId: string;
+  createdDocumentId: string;
+  urlPath: string;
+  deepLink: string;
+  verified: true;
 }
 
 export interface DuplicateDatabaseItemRequest {

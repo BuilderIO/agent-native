@@ -59,7 +59,15 @@ export {
 } from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
 export * from "./runtime.js";
-export { sendToAgentChat, type AgentChatMessage } from "../agent-chat.js";
+export {
+  sendToAgentChat,
+  sendToAgentChatAndConfirm,
+  reportAgentChatSubmitResult,
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  type AgentChatMessage,
+  type AgentChatSubmitResult,
+  type SendToAgentChatAndConfirmResult,
+} from "../agent-chat.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
@@ -143,5 +151,11 @@ export {
   type ChatThreadShareState,
   type UseChatThreadsOptions,
 } from "../use-chat-threads.js";
+export {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+  type ChatHistoryListProps,
+} from "./ChatHistoryList.js";
 export * from "../composer/index.js";
 export * from "../conversation/index.js";

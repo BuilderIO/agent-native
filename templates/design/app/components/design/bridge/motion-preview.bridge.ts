@@ -66,6 +66,26 @@
   var touchedProps: Record<string, string[]> = {};
   // Map of nodeId -> property -> original inline style value.
   var originalInlineValues: Record<string, Record<string, string>> = {};
+  // Map of nodeId -> resolved element, so applyPreview's per-track lookup
+  // during scrub/playback (driven by the parent's own rAF loop — one
+  // "motion-preview" message per frame) does one attribute-selector
+  // querySelector per node ONCE instead of once per track on every single
+  // frame. Invalidated (falls through to a fresh querySelector) whenever the
+  // cached element is no longer in the document — e.g. a host-applied edit
+  // replaced the node — so a stale reference never silently no-ops a track.
+  // Reset alongside the other per-load state in clearPreview so a reload
+  // after the previewed screen's DOM changes always re-resolves.
+  var elementCache: Record<string, HTMLElement | null> = {};
+
+  function resolveTrackElement(nodeId: string): HTMLElement | null {
+    var cached = elementCache[nodeId];
+    if (cached && document.contains(cached)) return cached;
+    var el = document.querySelector(
+      '[data-agent-native-node-id="' + nodeId + '"]',
+    ) as HTMLElement | null;
+    elementCache[nodeId] = el;
+    return el;
+  }
 
   function camelizeProp(prop: string): string {
     return String(prop).replace(/-([a-z])/g, function (_m: string, c: string) {
@@ -673,9 +693,7 @@
   function applyPreview(t: number): void {
     for (var i = 0; i < loadedTracks.length; i++) {
       var track = loadedTracks[i];
-      var el = document.querySelector(
-        '[data-agent-native-node-id="' + track.targetNodeId + '"]',
-      ) as HTMLElement | null;
+      var el = resolveTrackElement(track.targetNodeId);
       if (!el) continue;
       var value = interpolate(track.keyframes, trackLocalT(track, t));
       if (value === "") continue;
@@ -700,9 +718,7 @@
   function clearPreview(): void {
     var nodeIds = Object.keys(touchedProps);
     for (var i = 0; i < nodeIds.length; i++) {
-      var el = document.querySelector(
-        '[data-agent-native-node-id="' + nodeIds[i] + '"]',
-      ) as HTMLElement | null;
+      var el = resolveTrackElement(nodeIds[i]);
       if (!el) continue;
       var props = touchedProps[nodeIds[i]];
       for (var j = 0; j < props.length; j++) {
@@ -718,6 +734,7 @@
     loadedTracks = [];
     loadedDefaultEase = "ease";
     loadedTimelineDurationMs = null;
+    elementCache = {};
   }
 
   // Last previewed playhead position, so reloading the track list (which

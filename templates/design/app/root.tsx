@@ -175,9 +175,18 @@ function RootContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const sessionBypass =
+    location.pathname === "/visual-edit" ||
+    location.pathname === "/design" ||
+    location.pathname.startsWith("/design/");
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        sessionBypass={sessionBypass}
+        i18n={{ catalog: i18nCatalog }}
+      >
         <RootContent />
       </AppProviders>
     </AppToolkitProvider>

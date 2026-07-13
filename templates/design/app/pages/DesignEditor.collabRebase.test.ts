@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolveScreenCollabSyncTarget,
+  shouldApplyRemotePreviewContent,
   shouldRebaseCollabDocFromStoredContent,
-} from "./DesignEditor";
+} from "./design-editor/collab-sync";
+import {
+  shouldAdoptExternalReconcileContent,
+  shouldCheckpointAgentContent,
+} from "./design-editor/editor-session";
 
 const OLD_HTML =
   '<!doctype html><html><body><div data-agent-native-node-id="an-1">old</div></body></html>';
@@ -139,5 +144,150 @@ describe("resolveScreenCollabSyncTarget (§gesture-persistence per-screen collab
         overviewDocConnected: false,
       }),
     ).toEqual({ writeLiveDoc: false, syncCollab: true });
+  });
+});
+
+describe("shouldApplyRemotePreviewContent (flash-free reconcile routing)", () => {
+  it("does not touch the preview for a local transaction", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: true,
+        previousContent: OLD_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not touch the preview for a same-content remote acknowledgement echo", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: NEW_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(false);
+  });
+
+  it("applies a genuinely different remote snapshot through the live replacement path", () => {
+    expect(
+      shouldApplyRemotePreviewContent({
+        isLocalEdit: false,
+        previousContent: OLD_HTML,
+        nextContent: NEW_HTML,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldAdoptExternalReconcileContent (same-millisecond tie-break fix)", () => {
+  it("always adopts when there's no established watermark yet (fresh file load)", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: null,
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("adopts when the DB content is strictly newer than the applied watermark", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.100Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not adopt strictly-older DB content", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.100Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("adopts a same-millisecond tie when the agent is NOT active — the dropped-write fix", () => {
+    // Reached only once the caller's own "already reflecting this content"
+    // checks have ruled out dbContent matching what's rendered, so a tied
+    // timestamp here always represents a genuinely different write that
+    // landed in the same millisecond as the one already applied. A strict
+    // `>` used to silently drop this.
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT adopt a same-millisecond tie while the agent is active — defers to the debounced self-echo recovery timer instead", () => {
+    // Forcing immediate adoption here too would skip
+    // staleAgentEchoPossible's 1200ms debounced recheck and reintroduce the
+    // live self-echo race that debounce exists to prevent.
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: "2026-07-05T10:05:00.000Z",
+        agentActive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not adopt when dbUpdatedAt is missing but a watermark is already established", () => {
+    expect(
+      shouldAdoptExternalReconcileContent({
+        appliedUpdatedAt: "2026-07-05T10:05:00.000Z",
+        dbUpdatedAt: null,
+        agentActive: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldCheckpointAgentContent (attachment/design undo boundary)", () => {
+  it("checkpoints an agent replacement so Cmd+Z can restore the pre-run design", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: false,
+        previousContent: "<main>Attachment design</main>",
+        nextContent: "<main>Agent redesign</main>",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not put human peer transactions into this user's undo history", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: false,
+        isLocalEdit: false,
+        previousContent: "before",
+        nextContent: "peer change",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not duplicate local edits or no-op agent echoes", () => {
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: true,
+        previousContent: "before",
+        nextContent: "local change",
+      }),
+    ).toBe(false);
+    expect(
+      shouldCheckpointAgentContent({
+        agentActive: true,
+        isLocalEdit: false,
+        previousContent: "same",
+        nextContent: "same",
+      }),
+    ).toBe(false);
   });
 });

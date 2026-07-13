@@ -4,19 +4,23 @@ import {
   clampOverviewDisplayZoom,
   clampZoom,
   computeFitCameraForFrames,
+  computeIframeLocalCanvasPoint,
+  readOverviewZoomPercentFromTransform,
   DEFAULT_OVERVIEW_ZOOM,
   getAllScreenFrameEntries,
   getNextZoomStepDown,
   getNextZoomStepUp,
+  getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewZoomScale,
   MAX_SANE_SCREEN_ENTRY_ZOOM,
   MIN_RENDERABLE_OVERVIEW_DISPLAY_ZOOM,
   resolveOverviewZoomBasisScreenId,
   resolveScreenEntryZoom,
+  shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
-} from "./DesignEditor";
+} from "./design-editor/overview-camera";
 
 describe("clampZoom", () => {
   it("clamps to the shared canvas zoom range by default", () => {
@@ -127,15 +131,29 @@ describe("getAllScreenFrameEntries", () => {
     expect(Number.isFinite(b.geometry.y)).toBe(true);
   });
 
-  it("includes the board frame when provided and not already a screen", () => {
+  it("includes actual board content bounds when provided and not already a screen", () => {
     const entries = getAllScreenFrameEntries({
       overviewScreens: [],
       canvasFrameGeometryById: {},
       boardFileId: "board-1",
-      boardFrameGeometry: { x: -1000, y: -1000, width: 2000, height: 2000 },
+      boardContentBounds: { x: 120, y: 80, width: 240, height: 160 },
     });
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.id).toBe("board-1");
+    expect(entries[0]).toEqual({
+      id: "board-1",
+      geometry: { x: 120, y: 80, width: 240, height: 160 },
+    });
+  });
+
+  it("does not include an empty board in fit or placement entries", () => {
+    expect(
+      getAllScreenFrameEntries({
+        overviewScreens: [],
+        canvasFrameGeometryById: {},
+        boardFileId: "board-1",
+        boardContentBounds: null,
+      }),
+    ).toEqual([]);
   });
 
   it("returns an empty list for no screens and no board", () => {
@@ -474,6 +492,133 @@ describe("shouldResetExplicitOverviewZoomOnBasisChange — basis-identity invali
   });
 });
 
+describe("shouldDeferOverviewZoomCommand — zoom-hydration compounding fix", () => {
+  it("defers a zoom-bearing overview command until files have loaded", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("applies immediately once files have loaded", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("never defers a command with no zoom", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: false,
+        targetView: "overview",
+        filesLoaded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("never defers a single-screen zoom command (no canvas/display scale conversion involved)", () => {
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "single",
+        filesLoaded: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("overview zoom hydration is idempotent across reloads (regression: compounding zoom bug)", () => {
+  // Reproduces the field bug end to end using the real conversion helpers:
+  // a persisted DISPLAY zoom must survive N reload/hydration passes
+  // unchanged when no user interaction happens in between. The bug applied
+  // the persisted display zoom -> canvas-zoom conversion against the
+  // pre-load fallback scale (files not loaded yet: frameWidth/sourceWidth
+  // both fall back, scale = 320/1280 = 0.25), then displayed the result
+  // through the REAL scale once resolved — a different, inflated value that
+  // got re-persisted, compounding every reload by a factor of
+  // (realScale / fallbackScale).
+  const FALLBACK_SCALE = getOverviewZoomScale({
+    frameWidth: undefined,
+    sourceWidth: undefined,
+  });
+  const REAL_SCALE = getOverviewZoomScale({
+    frameWidth: 1123,
+    sourceWidth: 1280,
+  }); // an arbitrary real screen frame/source ratio, deliberately far from 0.25
+
+  /** Old (buggy) hydration: converts against whatever scale is live at the
+   *  moment the persisted display zoom is applied — the fallback, since this
+   *  ran before files loaded. */
+  function hydrateWithoutDeferral(persistedDisplayZoom: number): number {
+    const canvasZoomUnderFallback = getOverviewCanvasZoom(
+      persistedDisplayZoom,
+      FALLBACK_SCALE,
+    );
+    // The pin then displays through the REAL scale once screens load.
+    return getOverviewDisplayZoom(canvasZoomUnderFallback, REAL_SCALE);
+  }
+
+  /** Fixed hydration: shouldDeferOverviewZoomCommand withholds the
+   *  conversion until files (and therefore the real scale) are loaded, so
+   *  the conversion only ever runs once, against REAL_SCALE on both sides. */
+  function hydrateWithDeferral(persistedDisplayZoom: number): number {
+    const filesLoaded = true; // the retried application always waits for this
+    expect(
+      shouldDeferOverviewZoomCommand({
+        hasZoomCommand: true,
+        targetView: "overview",
+        filesLoaded,
+      }),
+    ).toBe(false);
+    const canvasZoom = getOverviewCanvasZoom(persistedDisplayZoom, REAL_SCALE);
+    return getOverviewDisplayZoom(canvasZoom, REAL_SCALE);
+  }
+
+  it("demonstrates the bug: without deferral, repeated hydration compounds the displayed zoom", () => {
+    let zoom = 100;
+    const history = [zoom];
+    for (let i = 0; i < 4; i++) {
+      zoom = hydrateWithoutDeferral(zoom);
+      history.push(zoom);
+    }
+    // Each pass multiplies by the same (realScale / fallbackScale) factor —
+    // this is the exact mechanism behind the field report's 100 -> 351 ->
+    // 1211 -> 7088 -> 17152 style growth.
+    const factor = REAL_SCALE / FALLBACK_SCALE;
+    expect(factor).toBeGreaterThan(1);
+    for (let i = 1; i < history.length; i++) {
+      expect(history[i]).toBeCloseTo(history[i - 1] * factor, 5);
+    }
+    expect(history[history.length - 1]).toBeGreaterThan(history[0] * 10);
+  });
+
+  it("fix: with deferral, N reload/hydration passes leave the persisted zoom unchanged", () => {
+    const persisted = 100;
+    let zoom = persisted;
+    for (let i = 0; i < 6; i++) {
+      zoom = hydrateWithDeferral(zoom);
+      expect(zoom).toBeCloseTo(persisted, 9);
+    }
+  });
+
+  it("fix: idempotent for an arbitrary already-legitimate persisted zoom too, not just the default", () => {
+    for (const persisted of [37.5, 60, 256.25, 800]) {
+      let zoom = persisted;
+      for (let i = 0; i < 4; i++) {
+        zoom = hydrateWithDeferral(zoom);
+      }
+      expect(zoom).toBeCloseTo(persisted, 9);
+    }
+  });
+});
+
 describe("clampOverviewDisplayZoom — final displayed-zoom sanity net", () => {
   it("falls back to the default overview zoom for non-finite or non-positive products", () => {
     expect(clampOverviewDisplayZoom(NaN)).toBe(DEFAULT_OVERVIEW_ZOOM);
@@ -552,5 +697,90 @@ describe("computeFitCameraForFrames", () => {
     });
     expect(camera).not.toBeNull();
     expect(camera!.zoom).toBeLessThanOrEqual(25600);
+  });
+});
+
+describe("computeIframeLocalCanvasPoint — PASTE-HERE-IN-CONTENT", () => {
+  // handleIframeContextMenu opens the canvas context menu imperatively via a
+  // ref, bypassing CanvasContextMenu's own onContextMenuCapture (the only
+  // place that normally attaches canvasX/canvasY to the menu's point). This
+  // is the shared math both paths now use so "Paste here" lands under the
+  // cursor whether the right-click hit the canvas background or actual
+  // rendered screen content.
+  it("converts a viewport point to iframe-local document coordinates at 100% zoom", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 220,
+        iframeRect: { left: 50, top: 100 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 100, y: 120 });
+  });
+
+  it("divides by the zoom factor so a zoomed-out iframe still maps to the correct document point", () => {
+    // 50% zoom means 1 document px renders as 0.5 screen px, so a 100px
+    // on-screen offset from the iframe's origin is 200 document px.
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 150,
+        clientY: 100,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 50,
+      }),
+    ).toEqual({ x: 200, y: 100 });
+  });
+
+  it("clamps negative offsets (click above/left of the iframe origin) to zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 50, top: 50 },
+        zoomPercent: 100,
+      }),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
+  it("returns null when there is no iframe rect to measure against", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: null,
+        zoomPercent: 100,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for a non-positive zoom percent instead of dividing by zero", () => {
+    expect(
+      computeIframeLocalCanvasPoint({
+        clientX: 10,
+        clientY: 10,
+        iframeRect: { left: 0, top: 0 },
+        zoomPercent: 0,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("readOverviewZoomPercentFromTransform", () => {
+  it("reads the live scale written during an unsettled overview gesture", () => {
+    expect(
+      readOverviewZoomPercentFromTransform(
+        "translate(42px, -18px) scale(0.375)",
+        100,
+      ),
+    ).toBe(37.5);
+  });
+
+  it("falls back for missing, malformed, zero, or negative scales", () => {
+    expect(readOverviewZoomPercentFromTransform("", 64)).toBe(64);
+    expect(
+      readOverviewZoomPercentFromTransform("translate(1px, 2px)", 64),
+    ).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(0)", 64)).toBe(64);
+    expect(readOverviewZoomPercentFromTransform("scale(-2)", 64)).toBe(64);
   });
 });

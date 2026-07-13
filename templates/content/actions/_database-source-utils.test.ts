@@ -26,6 +26,7 @@ import {
   normalizeSourceFreshness,
   serializeBuilderCmsSourceReadMetadataRecord,
   serializeSourceMetadataRecord,
+  sourceSnapshotValuesJsonProjectionSql,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -127,6 +128,24 @@ describe("database source helpers", () => {
     ).toBe(values);
   });
 
+  it("strips heavy Builder bodies in the database snapshot projection", () => {
+    const sqliteProjection = sourceSnapshotValuesJsonProjectionSql("sqlite");
+    const postgresProjection =
+      sourceSnapshotValuesJsonProjectionSql("postgres");
+
+    expect(sqliteProjection).toContain("json_remove");
+    expect(postgresProjection).toContain("::jsonb");
+    for (const key of [
+      BUILDER_CMS_BODY_CONTENT_KEY,
+      BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+      BUILDER_CMS_BODY_READABLE_MAP_KEY,
+      BUILDER_CMS_BODY_SIDECARS_KEY,
+    ]) {
+      expect(sqliteProjection).toContain(key);
+      expect(postgresProjection).toContain(key);
+    }
+  });
+
   it("drops stored federation metadata with unsafe regex formulas", () => {
     expect(
       normalizeSourceFederation({
@@ -176,6 +195,27 @@ describe("database source helpers", () => {
       lastReadHasMore: true,
       lastReadNextOffset: 100,
       sourceFetchState: "fetching",
+    });
+  });
+
+  it("records suspicious empty Builder reads without calling them healthy", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "blog-article",
+          readState: "live",
+          entryCount: 0,
+          matchedRowCount: 0,
+          suspiciousEmpty: true,
+          sourceFetchState: "error",
+        }),
+      ),
+    ).toMatchObject({
+      liveReadConfigured: true,
+      lastReadEntryCount: 0,
+      lastReadSuspiciousEmpty: true,
+      sourceFetchState: "error",
+      activeReadSourceRowIds: [],
     });
   });
 
@@ -762,6 +802,247 @@ describe("database source helpers", () => {
 
     expect(pending).toHaveLength(0);
   });
+
+  it("does not diff Builder option labels from equivalent local IDs or multi-select order", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({
+            "data.status": "In review",
+            "data.topics": ["Headless CMS", "Agent workflows"],
+          }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        [
+          "doc-1",
+          new Map([
+            ["prop-status", "in-review"],
+            ["prop-topics", ["agent-workflows", "headless-cms"]],
+          ]),
+        ],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-status",
+          localFieldKey: "prop-status",
+          sourceFieldKey: "data.status",
+          sourceFieldLabel: "Status",
+          propertyType: "select",
+          propertyOptions: {
+            options: [{ id: "in-review", name: "In review", color: "blue" }],
+          },
+        },
+        {
+          propertyId: "prop-topics",
+          localFieldKey: "prop-topics",
+          sourceFieldKey: "data.topics",
+          sourceFieldLabel: "Topics",
+          propertyType: "multi_select",
+          propertyOptions: {
+            options: [
+              { id: "headless-cms", name: "Headless CMS", color: "blue" },
+              {
+                id: "agent-workflows",
+                name: "Agent workflows",
+                color: "green",
+              },
+            ],
+          },
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(0);
+  });
+
+  it("still diffs real Builder select and multi-select edits after option canonicalization", () => {
+    const [changeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({
+            "data.status": "Draft",
+            "data.topics": ["Headless CMS"],
+          }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        [
+          "doc-1",
+          new Map([
+            ["prop-status", "published"],
+            ["prop-topics", ["headless-cms", "agent-workflows"]],
+          ]),
+        ],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-status",
+          localFieldKey: "prop-status",
+          sourceFieldKey: "data.status",
+          sourceFieldLabel: "Status",
+          propertyType: "select",
+          propertyOptions: {
+            options: [
+              { id: "draft", name: "Draft", color: "gray" },
+              { id: "published", name: "Published", color: "green" },
+            ],
+          },
+        },
+        {
+          propertyId: "prop-topics",
+          localFieldKey: "prop-topics",
+          sourceFieldKey: "data.topics",
+          sourceFieldLabel: "Topics",
+          propertyType: "multi_select",
+          propertyOptions: {
+            options: [
+              { id: "headless-cms", name: "Headless CMS", color: "blue" },
+              {
+                id: "agent-workflows",
+                name: "Agent workflows",
+                color: "green",
+              },
+            ],
+          },
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(changeSet.fieldChanges).toMatchObject([
+      {
+        propertyName: "Status",
+        currentValue: "draft",
+        proposedValue: "published",
+      },
+      {
+        propertyName: "Topics",
+        currentValue: ["headless-cms"],
+        proposedValue: ["headless-cms", "agent-workflows"],
+      },
+    ]);
+  });
+
+  it.each([
+    {
+      label: "select",
+      propertyType: "select" as const,
+      propertyId: "prop-status",
+      sourceFieldKey: "data.status",
+      sourceFieldLabel: "Status",
+      sourceValue: "Draft",
+      localValue: "published",
+      storedCurrentValue: "Draft",
+      storedProposedValue: "Published",
+      options: [
+        { id: "draft", name: "Draft", color: "gray" },
+        { id: "published", name: "Published", color: "green" },
+      ],
+    },
+    {
+      label: "multi-select",
+      propertyType: "multi_select" as const,
+      propertyId: "prop-topics",
+      sourceFieldKey: "data.topics",
+      sourceFieldLabel: "Topics",
+      sourceValue: ["Headless CMS"],
+      localValue: ["headless-cms", "agent-workflows"],
+      storedCurrentValue: ["Headless CMS"],
+      storedProposedValue: ["Agent workflows", "Headless CMS"],
+      options: [
+        { id: "headless-cms", name: "Headless CMS", color: "blue" },
+        {
+          id: "agent-workflows",
+          name: "Agent workflows",
+          color: "green",
+        },
+      ],
+    },
+  ])(
+    "does not duplicate legacy label-based Builder $label reviews",
+    ({
+      propertyType,
+      propertyId,
+      sourceFieldKey,
+      sourceFieldLabel,
+      sourceValue,
+      localValue,
+      storedCurrentValue,
+      storedProposedValue,
+      options,
+    }) => {
+      const pending = buildBuilderLocalOutboundChangeSets({
+        source: { sourceType: "builder-cms" },
+        rowRows: [
+          {
+            id: "row-source",
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            sourceDisplayKey: "Same title",
+            sourceValuesJson: JSON.stringify({
+              [sourceFieldKey]: sourceValue,
+            }),
+          },
+        ],
+        documentTitleById: new Map([["doc-1", "Same title"]]),
+        localValuesByDocument: new Map([
+          ["doc-1", new Map([[propertyId, localValue]])],
+        ]),
+        writableFields: [
+          {
+            propertyId,
+            localFieldKey: propertyId,
+            sourceFieldKey,
+            sourceFieldLabel,
+            propertyType,
+            propertyOptions: { options },
+          },
+        ],
+        storedChangeSets: [
+          {
+            id: "legacy-pending-1",
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            kind: "field_update",
+            direction: "outbound",
+            state: "pending_push",
+            pushMode: "autosave",
+            localOnly: true,
+            summary: "Pending local Builder CMS changes.",
+            fieldChanges: [
+              {
+                propertyId,
+                propertyName: sourceFieldLabel,
+                localFieldKey: propertyId,
+                sourceFieldKey,
+                currentValue: storedCurrentValue,
+                proposedValue: storedProposedValue,
+              },
+            ],
+            bodyChange: null,
+            createdAt: "2026-07-10T00:00:00.000Z",
+            updatedAt: "2026-07-10T00:00:00.000Z",
+          },
+        ],
+      } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+      expect(pending).toHaveLength(0);
+    },
+  );
 
   it("treats duplicate Builder natural keys as ambiguous rather than guessing a row link", () => {
     const entries = [

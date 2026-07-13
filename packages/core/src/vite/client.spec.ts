@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
+  _debounceNitroFullReloadHotUpdate,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
@@ -466,7 +467,7 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("externalizes native sqlite deps for production SSR builds", async () => {
+  it("externalizes singleton and native deps for production SSR builds", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
@@ -479,6 +480,7 @@ describe("agentNative Vite plugin preset", () => {
       { command: "build", mode: "production" },
     )) as any;
 
+    expect(config.ssr.external).toContain("yjs");
     expect(config.ssr.external).toContain("better-sqlite3");
     expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
@@ -509,7 +511,7 @@ describe("app changelog raw imports", () => {
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-07-01-new-thing.md"),
-      "---\ntype: added\ndate: 2026-07-01\n---\n\nNew visible thing.\n",
+      "---\ntype: added\n---\n\nNew visible thing.\n",
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-06-23-same-day.md"),
@@ -550,6 +552,7 @@ describe("app changelog raw imports", () => {
         "2026-07-01",
         "2026-06-23",
       ]);
+      expect(entries.map((entry) => entry.title)).not.toContain("Unreleased");
       expect(entries[0].body).toContain("New visible thing.");
       expect(entries[1].body).toContain("Same-day fix.");
       expect(entries[1].body).toContain("Seed entry.");
@@ -879,6 +882,180 @@ describe("Vite connection reset noise", () => {
   });
 });
 
+describe("Nitro dev full-reload debounce", () => {
+  // These fakes mirror the shape nitro's own `hotUpdate` hook actually uses
+  // (see nitro/dist/vite.mjs): `this.environment.moduleGraph.invalidateModule`
+  // for every changed module, followed by `this.environment.hot.send({ type:
+  // "full-reload" })`. We only need enough of that shape to exercise the
+  // wrapper, not a real Vite dev server.
+  function fakeNitroMainPlugin(
+    handler: (
+      this: { environment: any },
+      options: { modules: string[] },
+    ) => void,
+  ) {
+    return { name: "nitro:main", hotUpdate: handler } as any;
+  }
+
+  it("coalesces a burst of full-reload sends into exactly one after quiescence", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      for (let i = 0; i < 5; i++) {
+        plugin.hotUpdate.call(context, { modules: [] });
+      }
+
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(299);
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ type: "full-reload" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reloads after a single isolated change, just delayed by the debounce window", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      plugin.hotUpdate.call(context, { modules: [] });
+      expect(send).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes non full-reload hot messages through immediately, unbatched", () => {
+    const send = vi.fn();
+    const plugin = _debounceNitroFullReloadHotUpdate(
+      fakeNitroMainPlugin(function () {
+        this.environment.hot.send({ type: "custom", event: "an:ping" });
+      }),
+    );
+    const context = { environment: { name: "ssr", hot: { send } } };
+
+    plugin.hotUpdate.call(context, { modules: [] });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "custom", event: "an:ping" });
+  });
+
+  it("never delays module-graph invalidation, only the reload broadcast", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const invalidateModule = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function (options) {
+          for (const mod of options.modules) {
+            this.environment.moduleGraph.invalidateModule(mod);
+          }
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = {
+        environment: {
+          name: "ssr",
+          hot: { send },
+          moduleGraph: { invalidateModule },
+        },
+      };
+
+      plugin.hotUpdate.call(context, { modules: ["a.ts", "b.ts"] });
+
+      expect(invalidateModule).toHaveBeenCalledTimes(2);
+      expect(invalidateModule).toHaveBeenCalledWith("a.ts");
+      expect(invalidateModule).toHaveBeenCalledWith("b.ts");
+      // The reload itself is still debounced.
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps debounce timers independent per Vite environment", () => {
+    vi.useFakeTimers();
+    try {
+      const sendSsr = vi.fn();
+      const sendWorker = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+
+      plugin.hotUpdate.call(
+        { environment: { name: "ssr", hot: { send: sendSsr } } },
+        { modules: [] },
+      );
+      vi.advanceTimersByTime(150);
+      plugin.hotUpdate.call(
+        { environment: { name: "worker", hot: { send: sendWorker } } },
+        { modules: [] },
+      );
+
+      // 300ms after the "ssr" call, but only 150ms after "worker"'s call.
+      vi.advanceTimersByTime(150);
+      expect(sendSsr).toHaveBeenCalledTimes(1);
+      expect(sendWorker).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(150);
+      expect(sendWorker).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supports object-form ({ handler }) hotUpdate hooks", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const handler = vi.fn(function (this: { environment: any }) {
+        this.environment.hot.send({ type: "full-reload" });
+      });
+      const plugin = _debounceNitroFullReloadHotUpdate({
+        name: "nitro:main",
+        hotUpdate: { order: "post", handler },
+      } as any);
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      expect((plugin.hotUpdate as any).order).toBe("post");
+      (plugin.hotUpdate as any).handler.call(context, { modules: [] });
+      vi.advanceTimersByTime(300);
+
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves plugins without a hotUpdate hook unchanged", () => {
+    const plugin = { name: "nitro:env" } as any;
+    expect(_debounceNitroFullReloadHotUpdate(plugin)).toBe(plugin);
+  });
+});
+
 describe("Vite CSS build defaults", () => {
   it("keeps standard backdrop-filter declarations in production CSS", () => {
     const config = defineConfig();
@@ -917,6 +1094,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
+    expect(code).toContain("export const useMessagePartReasoning = stub;");
   });
 });
 
@@ -945,6 +1123,8 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@paper-design/shaders-react": "0.0.76",
+          html2canvas: "^1.4.1",
           "react-router": "^8.0.1",
         },
       }),
@@ -953,10 +1133,26 @@ describe("local-core dev aliases and router dedupe", () => {
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
     expect(deps).not.toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@assistant-ui/react");
-    expect(deps).toContain("@tiptap/react");
-    expect(deps).toContain("@xterm/xterm");
-    expect(deps).toContain("shiki/core");
+    expect(deps).toContain("@agent-native/core > @assistant-ui/react");
+    expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
+    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).toContain(
+      "@agent-native/core > @shadcn/react/message-scroller",
+    );
+    expect(deps).toContain("@agent-native/core > @tiptap/react");
+    expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
+    expect(deps).toContain("@agent-native/core > @xterm/xterm");
+    expect(deps).toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/core > shiki/core");
+    expect(deps).toContain("@paper-design/shaders-react");
+    expect(deps).not.toContain(
+      "@agent-native/core > @paper-design/shaders-react",
+    );
+    expect(deps).toContain("html2canvas");
+    expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-router");
+    expect(deps).not.toContain("@agent-native/core > react-router");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

@@ -1,7 +1,7 @@
 name: Clips Desktop Build Check
 
-# Verifies the Clips Tauri menu-bar app still builds on both macOS and
-# Windows whenever its code (or shared app config) changes on a PR. Does
+# Verifies the Clips Tauri menu-bar app still builds on macOS, Windows, and
+# Linux whenever its code (or shared app config) changes on a PR. Does
 # NOT sign, notarize, draft a release, or publish anything — purely a
 # compile-time gate so we catch breakages before they hit the release
 # workflow (`clips-desktop-release.yml`).
@@ -31,9 +31,15 @@ jobs:
           - os: macos-latest
             target: universal-apple-darwin
             rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            bundles: ""
           - os: windows-latest
             target: ""
             rust-targets: ""
+            bundles: ""
+          - os: ubuntu-22.04
+            target: ""
+            rust-targets: ""
+            bundles: "appimage,deb,rpm"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -44,6 +50,22 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
+            gstreamer1.0-pipewire
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -57,6 +79,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run typecheck
+
+      - name: Test
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run test
 
       - name: Build frontend
         working-directory: ${{ env.TAURI_APP_PATH }}
@@ -72,8 +102,12 @@ jobs:
         # signing belongs to the release workflow, not the PR gate.
         run: |
           CONFIG_OVERRIDE='{"bundle":{"createUpdaterArtifacts":false}}'
+          BUNDLE_ARGS=()
+          if [ -n "${{ matrix.bundles }}" ]; then
+            BUNDLE_ARGS=(--bundles "${{ matrix.bundles }}")
+          fi
           if [ -n "${{ matrix.target }}" ]; then
-            pnpm exec tauri build --target ${{ matrix.target }} --ci --config "$CONFIG_OVERRIDE"
+            pnpm exec tauri build --target "${{ matrix.target }}" "${BUNDLE_ARGS[@]}" --ci --config "$CONFIG_OVERRIDE"
           else
-            pnpm exec tauri build --ci --config "$CONFIG_OVERRIDE"
+            pnpm exec tauri build "${BUNDLE_ARGS[@]}" --ci --config "$CONFIG_OVERRIDE"
           fi

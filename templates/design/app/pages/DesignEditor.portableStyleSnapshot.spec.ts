@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { isEditorInternalCssVar } from "./DesignEditor";
+import { isEditorInternalCssVar } from "./design-editor/portable-style";
 
 describe("isEditorInternalCssVar", () => {
   it("flags every known --design-editor-* chrome variable", () => {

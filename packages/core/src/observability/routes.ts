@@ -30,6 +30,7 @@ import {
 
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { track } from "../tracking/registry.js";
 import {
   getObservabilityOverview,
   getTraceSummaries,
@@ -47,6 +48,7 @@ import {
   updateExperiment,
   getExperimentResults,
 } from "./store.js";
+import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { FeedbackType, ExperimentStatus } from "./types.js";
 
 function nanoid(size = 21): string {
@@ -67,6 +69,18 @@ async function resolveOwner(event: H3Event): Promise<string> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   return session.email;
+}
+
+function canManageExperiments(ownerEmail: string): boolean {
+  // Local development keeps the built-in dashboard usable without additional
+  // setup. Hosted deployments fail closed unless the operator supplies an
+  // explicit allowlist, because experiments affect every user in the app.
+  if (process.env.NODE_ENV !== "production") return true;
+  const admins = (process.env.AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return admins.includes(ownerEmail.trim().toLowerCase());
 }
 
 function parseSince(q: Record<string, any>): number {
@@ -193,6 +207,40 @@ export function createObservabilityHandler() {
         userId: owner,
         createdAt: Date.now(),
       });
+      // Emit one content-free analytics event for the explicit thumb itself.
+      // Category follow-ups intentionally do not emit: a thumbs-down followed
+      // by a category would otherwise double-count the same negative signal.
+      if (feedbackType === "thumbs_up" || feedbackType === "thumbs_down") {
+        const runId = body.runId ? String(body.runId) : null;
+        let model: string | undefined;
+        if (runId) {
+          try {
+            const summary = await getTraceSummary(runId, { userId: owner });
+            model = summary?.model || undefined;
+          } catch {
+            // Feedback persistence is authoritative; analytics enrichment is
+            // best-effort and must never make the submission fail.
+          }
+        }
+
+        const threadId = body.threadId ? String(body.threadId) : null;
+        track(
+          "$ai_feedback",
+          {
+            ...trackingIdentityProperties(),
+            source: "agent_observability",
+            sentiment: feedbackType === "thumbs_up" ? "positive" : "negative",
+            feedback_type: feedbackType,
+            run_id: runId,
+            thread_id: threadId,
+            model,
+            $ai_trace_id: runId ?? undefined,
+            $ai_session_id: threadId ?? undefined,
+            $ai_model: model,
+          },
+          { userId: owner },
+        );
+      }
       // Fire-and-forget: recompute satisfaction score for the thread.
       if (body.threadId) {
         import("./feedback.js")
@@ -234,6 +282,11 @@ export function createObservabilityHandler() {
     ) {
       const q = getQuery(event);
       return getEvalStats(parseSince(q), { userId: owner });
+    }
+
+    if (parts[0] === "experiments" && !canManageExperiments(owner)) {
+      setResponseStatus(event, 403);
+      return { error: "Experiment administrator access required" };
     }
 
     // POST /experiments — create experiment. Records the calling user as

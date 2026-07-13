@@ -35,6 +35,22 @@ export { default } from "@agent-native/scheduling/actions/create-booking";
 
 Override by replacing the stub body with a full `defineAction(...)`.
 
+## Package lifecycle
+
+Scheduling publishes a static, versioned `agent-native.package.json`. Inspect
+its contributions without executing package code, preview installation, or
+eject the published source into a local workspace package:
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Add and eject are dry-run unless `--apply` is explicit. The CLI refuses file
+collisions and unsupported layouts and rolls back if dependency installation
+fails.
+
 ## Docs for your AI
 
 Expose the package docs to your AI coding tool via `llms.txt`:

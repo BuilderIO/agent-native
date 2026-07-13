@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
  * reads go through `accessFilter` so an org-scoped key surfaces its issues to
  * the whole org exactly like session recordings.
  */
+import { appStateGet } from "@agent-native/core/application-state";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -25,6 +26,7 @@ import {
   and,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   notInArray,
@@ -1072,8 +1074,60 @@ export interface ListErrorIssuesFilters {
   status?: IssueStatus | "all";
   query?: string;
   app?: string;
+  sessionRecordingId?: string;
+  userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
+}
+
+export const ERROR_REPORTING_ANONYMOUS_EMAIL = "anonymous@builder.io";
+const ERROR_REPORTING_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+/**
+ * Error reports contain emails in identity fields, messages, stacks, URLs,
+ * tags, extra context, and breadcrumbs. Redact every string at this owning
+ * read seam so demo mode never depends on browser interception timing.
+ */
+export function anonymizeErrorReportingEmails<T>(value: T): T {
+  if (typeof value === "string") {
+    return value.replace(
+      ERROR_REPORTING_EMAIL_PATTERN,
+      ERROR_REPORTING_ANONYMOUS_EMAIL,
+    ) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => anonymizeErrorReportingEmails(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    if (value instanceof Date) return value;
+    const output: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      output[key] = anonymizeErrorReportingEmails(entry);
+    }
+    return output as T;
+  }
+  return value;
+}
+
+async function isErrorDemoModeEnabled(
+  userEmail?: string | null,
+): Promise<boolean> {
+  if (process.env.DEMO_MODE === "true") return true;
+  if (!userEmail) return false;
+  try {
+    // Keep demo state tied to the caller whose issues are being read.
+    const state = await appStateGet(userEmail, "demo-mode");
+    return state?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function anonymizeErrorReportingEmailsInDemoMode<T>(
+  value: T,
+  enabled: boolean,
+): T {
+  return enabled ? anonymizeErrorReportingEmails(value) : value;
 }
 
 export interface ErrorIssueSummary {
@@ -1148,6 +1202,7 @@ export async function listErrorIssues(
   scope: ErrorReadScope,
   filters: ListErrorIssuesFilters = {},
 ): Promise<ErrorIssueSummary[]> {
+  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const limit = Math.min(
     MAX_ISSUE_LIMIT,
@@ -1158,6 +1213,41 @@ export async function listErrorIssues(
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
+  const sessionRecordingId = filters.sessionRecordingId?.trim();
+  const userId = filters.userId?.trim();
+  if (sessionRecordingId || userId) {
+    const occurrenceConditions: any[] = [
+      eq(schema.errorEvents.issueId, schema.errorIssues.id),
+      // Keep the child occurrence in the same tenant as its parent issue even
+      // when the issue is visible through an org share.
+      eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
+      or(
+        eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
+        and(isNull(schema.errorEvents.orgId), isNull(schema.errorIssues.orgId)),
+      ),
+    ];
+    if (sessionRecordingId) {
+      occurrenceConditions.push(
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      );
+    }
+    if (userId) {
+      occurrenceConditions.push(
+        or(
+          eq(schema.errorEvents.userId, userId),
+          eq(schema.errorEvents.userKey, userId),
+        ),
+      );
+    }
+    conditions.push(
+      exists(
+        db
+          .select({ id: schema.errorEvents.id })
+          .from(schema.errorEvents)
+          .where(and(...occurrenceConditions)),
+      ),
+    );
+  }
   const query = filters.query?.trim();
   if (query) {
     conditions.push(
@@ -1184,7 +1274,7 @@ export async function listErrorIssues(
     .limit(limit);
 
   const sparklines = await sparklinesForIssues(rows.map((row: any) => row.id));
-  return rows.map((row: any) => ({
+  const issues = rows.map((row: any) => ({
     id: row.id,
     fingerprint: row.fingerprint,
     type: row.type,
@@ -1203,6 +1293,7 @@ export async function listErrorIssues(
     template: row.template ?? null,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
+  return anonymizeErrorReportingEmailsInDemoMode(issues, await demoModeEnabled);
 }
 
 export interface ErrorEventDetail {
@@ -1294,6 +1385,7 @@ export async function getErrorIssue(
   issueId: string,
   options: { eventsLimit?: number } = {},
 ): Promise<ErrorIssueDetail> {
+  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const [issueRow] = await db
     .select()
@@ -1419,7 +1511,14 @@ export async function getErrorIssue(
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
-  return { issue, events, sessions: Array.from(sessions.values()) };
+  return anonymizeErrorReportingEmailsInDemoMode(
+    {
+      issue,
+      events,
+      sessions: Array.from(sessions.values()),
+    },
+    await demoModeEnabled,
+  );
 }
 
 export interface UpdateErrorIssueInput {

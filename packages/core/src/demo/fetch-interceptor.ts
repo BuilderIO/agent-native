@@ -46,10 +46,36 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/runs",
 ];
 
+// Raw rrweb payloads are playback data, not ordinary app UI records. Skipping
+// these is not just a perf optimization that avoids walking/cloning huge
+// DOM/event trees on the main thread: demo number
+// redaction previously ran over this exact raw replay JSON and faked any
+// integer >= 1000 it found — Meta/ViewportResize widths, pointer x/y
+// coordinates, and numeric values inside `_cssText` and SVG attributes. That
+// was the root cause of the 2026-07 "ultra-wide replay" bugs (stages
+// rendered thousands of pixels wide, frozen/teleporting cursors, giant
+// icons) even though every stored recording was always geometrically sane —
+// the corruption happened at *view* time, not at capture/storage time. Small
+// list/summary/manifest responses stay eligible so rendered visitor identities
+// are still anonymized. NEVER remove the raw payload skips or broaden them to
+// metadata endpoints that the UI renders directly.
+const RAW_REPLAY_PAYLOAD_RE =
+  /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events)(?:[/?#]|$)/;
+const RAW_AGENT_REPLAY_EVENTS_RE =
+  /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
+
+export function shouldSkipDemoResponseRedaction(url: string): boolean {
+  return (
+    SKIP_SUBSTRINGS.some((substring) => url.includes(substring)) ||
+    RAW_REPLAY_PAYLOAD_RE.test(url) ||
+    RAW_AGENT_REPLAY_EVENTS_RE.test(url)
+  );
+}
+
 let installed = false;
-let pollTimer: ReturnType<typeof setInterval> | null = null;
 let demoEnabled = false;
 let originalFetch: typeof fetch | null = null;
+let refreshPromise: Promise<void> | null = null;
 
 // Set once the first demo-status check completes. We DO NOT block requests on
 // it — if status isn't known yet a response is simply passed through
@@ -105,8 +131,21 @@ async function refreshDemoFlag(): Promise<void> {
   }
 }
 
+/** Refresh demo mode after the shared DB-sync stream reports a real change. */
+export function refreshDemoModeFetchInterceptor(): Promise<void> {
+  if (!installed) return Promise.resolve();
+  if (!refreshPromise) {
+    refreshPromise = refreshDemoFlag().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 /**
- * Install the demo-mode fetch interceptor and start polling demo status.
+ * Install the demo-mode fetch interceptor and read demo status once. Later
+ * changes are driven by the shared DB-sync transport instead of a separate
+ * fixed polling loop.
  * Idempotent and browser-only — safe to call from any hook that runs in
  * every template root (we call it from `useDbSync`). A no-op until demo
  * mode is actually on.
@@ -135,7 +174,7 @@ export function ensureDemoModeFetchInterceptor(): void {
 
     try {
       const url = urlOf(input);
-      if (SKIP_SUBSTRINGS.some((s) => url.includes(s))) return res;
+      if (shouldSkipDemoResponseRedaction(url)) return res;
 
       // Only buffered, finite JSON. SSE / streaming / chunked-forever bodies
       // never reach `redactDemoData`: streaming content-types are excluded,
@@ -154,7 +193,13 @@ export function ensureDemoModeFetchInterceptor(): void {
       if (res.bodyUsed) return res;
 
       const data = await withTimeout(res.clone().json(), 3_000);
-      const redacted = redactDemoData(data);
+      // Frontend reads only need identity privacy. Dashboard charts apply
+      // their purpose-built demo trend transform at render time, so mutating
+      // every numeric field in every JSON response is unnecessary work.
+      const redacted = redactDemoData(data, {
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      });
 
       const headers = new Headers(res.headers);
       // Body is re-serialized — these would be wrong now.
@@ -173,13 +218,5 @@ export function ensureDemoModeFetchInterceptor(): void {
     }
   };
 
-  void refreshDemoFlag();
-  pollTimer = setInterval(() => void refreshDemoFlag(), 4_000);
-  if (typeof pollTimer === "object" && "unref" in pollTimer) {
-    try {
-      (pollTimer as unknown as { unref: () => void }).unref();
-    } catch {
-      // unref unavailable in the browser — fine, interval is cheap.
-    }
-  }
+  void refreshDemoModeFetchInterceptor();
 }

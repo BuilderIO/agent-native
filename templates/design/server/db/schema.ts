@@ -12,6 +12,12 @@ export const designs = table("designs", {
   title: text("title").notNull(),
   description: text("description"),
   data: text("data").notNull(),
+  // Monotonic per-client sequence numbers for path-addressed data writes.
+  // Kept outside `data` so editor/export payloads stay free of transport
+  // bookkeeping while late keepalive requests can be rejected atomically.
+  dataOperationRevisions: text("data_operation_revisions")
+    .notNull()
+    .default("{}"),
   projectType: text("project_type").notNull().default("prototype"),
   designSystemId: text("design_system_id"),
   createdAt: text("created_at").default(now()),
@@ -20,6 +26,50 @@ export const designs = table("designs", {
 });
 
 export const designShares = createSharesTable("design_shares");
+
+/**
+ * Reusable starting points captured from a Design project. Template metadata
+ * stays light enough for the gallery list; the full design data and file
+ * contents load only when a template is instantiated.
+ */
+export const designTemplates = table("design_templates", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category", {
+    enum: [
+      "ad",
+      "one-pager",
+      "landing-page",
+      "social",
+      "presentation",
+      "other",
+    ],
+  })
+    .notNull()
+    .default("other"),
+  sourceDesignId: text("source_design_id"),
+  designSystemId: text("design_system_id"),
+  data: text("data").notNull().default("{}"),
+  width: integer("width"),
+  height: integer("height"),
+  lockedLayerCount: integer("locked_layer_count").notNull().default(0),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const designTemplateShares = createSharesTable("design_template_shares");
+
+export const designTemplateFiles = table("design_template_files", {
+  id: text("id").primaryKey(),
+  templateId: text("template_id").notNull(),
+  filename: text("filename").notNull(),
+  content: text("content").notNull(),
+  fileType: text("file_type").notNull().default("html"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+});
 
 export const designSystems = table("design_systems", {
   id: text("id").primaryKey(),
@@ -43,6 +93,12 @@ export const designFiles = table("design_files", {
   designId: text("design_id").notNull(),
   filename: text("filename").notNull(),
   content: text("content").notNull(),
+  // Last accepted browser content-save operation. This transport metadata
+  // stays beside (rather than inside) the document so a late unload
+  // keepalive can be rejected without parsing or rewriting user content.
+  contentOperationSource: text("content_operation_source"),
+  contentOperationRevision: integer("content_operation_revision"),
+  contentOperationResultHash: text("content_operation_result_hash"),
   fileType: text("file_type").notNull().default("html"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
@@ -75,6 +131,10 @@ export const designLocalhostConnections = table(
       .notNull()
       .default("connected"),
     lastSeenAt: text("last_seen_at"),
+    /** Read-only credential used by browser preview/bridge-registration calls.
+     * It is one-way derived from the filesystem token when not supplied by a
+     * newer bridge, so leaking it cannot grant source-file access. */
+    previewToken: text("preview_token"),
     bridgeToken: text("bridge_token"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),

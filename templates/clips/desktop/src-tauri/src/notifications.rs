@@ -64,7 +64,8 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let win = WebviewWindowBuilder::new(
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
         app,
         MEETING_NOTIFICATION_LABEL,
         build_overlay_url("meeting-notif"),
@@ -77,9 +78,14 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     .resizable(false)
     .shadow(false)
     .visible(false)
-    .focused(false)
-    .build()
-    .map_err(|e| {
+    .focused(false);
+    // The reminder remains non-activating, but its first click should still
+    // reach the webview instead of only activating the window.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
         eprintln!("[clips-tray] meeting notification build failed: {e}");
         e.to_string()
     })?;

@@ -49,6 +49,8 @@ import {
   sectionInputSchema,
 } from "../server/plans.js";
 import {
+  agentPlanContentPatchesSchema,
+  agentPlanContentSchema,
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
@@ -403,67 +405,81 @@ function contentPatchDetails(input: {
   });
 }
 
+const CONTENT_DESCRIPTION =
+  "Full structured content replacement. Prefer contentPatches for targeted edits; use this only for broad restructuring.";
+const CONTENT_PATCHES_DESCRIPTION =
+  "Targeted structured content edits addressed by stable id. For live plans this is the preferred edit path; patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.";
+
+// Named so `agentInputSchema` below can `.extend()` it with compact
+// `content`/`contentPatches` fields instead of duplicating every other key.
+const updateVisualPlanSchema = z.object({
+  planId: z.string().describe("Plan ID"),
+  title: z.string().optional().describe("Plan title."),
+  brief: z
+    .string()
+    .optional()
+    .describe("One-line plan summary shown under the title."),
+  status: planStatusSchema
+    .optional()
+    .describe(
+      'Plan status. Setting "approved" also records approvedAt timestamp.',
+    ),
+  currentFocus: z
+    .string()
+    .optional()
+    .describe("Current agent focus label shown in the review surface."),
+  html: z
+    .string()
+    .optional()
+    .describe(
+      "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
+    ),
+  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  contentPatches: planContentPatchesSchema
+    .optional()
+    .default([])
+    .describe(CONTENT_PATCHES_DESCRIPTION),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Legacy markdown source. Prefer content blocks."),
+  sections: z
+    .array(sectionInputSchema)
+    .optional()
+    .default([])
+    .describe("Legacy section array. Prefer content blocks."),
+  comments: z
+    .array(commentInputSchema)
+    .optional()
+    .default([])
+    .describe(
+      "Legacy comment array. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
+    ),
+  consumedCommentIds: z
+    .array(z.string())
+    .optional()
+    .default([])
+    .describe("Prefer consume-plan-feedback for marking feedback consumed."),
+  note: z
+    .string()
+    .optional()
+    .describe("Short label saved as the version-history snapshot label."),
+});
+
 export default defineAction({
   description:
     "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed — to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
-  schema: z.object({
-    planId: z.string().describe("Plan ID"),
-    title: z.string().optional().describe("Plan title."),
-    brief: z
-      .string()
-      .optional()
-      .describe("One-line plan summary shown under the title."),
-    status: planStatusSchema
-      .optional()
-      .describe(
-        'Plan status. Setting "approved" also records approvedAt timestamp.',
-      ),
-    currentFocus: z
-      .string()
-      .optional()
-      .describe("Current agent focus label shown in the review surface."),
-    html: z
-      .string()
-      .optional()
-      .describe(
-        "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
-      ),
-    content: planContentSchema
-      .optional()
-      .describe(
-        "Full structured content replacement. Prefer contentPatches for targeted edits; use this only for broad restructuring.",
-      ),
-    contentPatches: planContentPatchesSchema
+  schema: updateVisualPlanSchema,
+  // ADVERTISED-ONLY: same top-level shape, but `content`/`contentPatches`
+  // swap the deep per-block-type union for a compact `type`-enum stand-in.
+  // Runtime validation always runs the full schema above — see the `actions`
+  // skill.
+  agentInputSchema: updateVisualPlanSchema.extend({
+    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+    contentPatches: agentPlanContentPatchesSchema
       .optional()
       .default([])
-      .describe(
-        "Targeted structured content edits addressed by stable id. For live plans this is the preferred edit path; patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.",
-      ),
-    markdown: z
-      .string()
-      .optional()
-      .describe("Legacy markdown source. Prefer content blocks."),
-    sections: z
-      .array(sectionInputSchema)
-      .optional()
-      .default([])
-      .describe("Legacy section array. Prefer content blocks."),
-    comments: z
-      .array(commentInputSchema)
-      .optional()
-      .default([])
-      .describe(
-        "Legacy comment array. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
-      ),
-    consumedCommentIds: z
-      .array(z.string())
-      .optional()
-      .default([])
-      .describe("Prefer consume-plan-feedback for marking feedback consumed."),
-    note: z
-      .string()
-      .optional()
-      .describe("Short label saved as the version-history snapshot label."),
+      .describe(CONTENT_PATCHES_DESCRIPTION),
   }),
   publicAgent: {
     expose: true,
@@ -774,13 +790,14 @@ export default defineAction({
       });
     }
 
-    // The local better-sqlite3 driver rejects async transaction callbacks
-    // ("Transaction function cannot return a promise"), so the multi-statement
-    // write runs sequentially rather than inside `db.transaction`. The leading
-    // optimistic-lock UPDATE still guards concurrent writes; the libsql (prod)
-    // driver executes these awaits identically. (A driver-aware atomic helper is
-    // the proper long-term fix.)
-    await (async (tx: typeof db) => {
+    // Async transactions are safe on every driver here: better-sqlite3's
+    // normally-sync-only transaction() is patched to support async callbacks
+    // in packages/core/src/db/create-get-db.ts (patchBetterSqliteTransactions,
+    // wired into createGetDb for local sqlite urls), matching libsql/Postgres.
+    // See restore-plan-version.ts for the same pattern. The leading
+    // optimistic-lock UPDATE still guards concurrent writes; a thrown error
+    // (e.g. the zero-rows-affected conflict below) rolls back the whole block.
+    await db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
       //
@@ -959,7 +976,7 @@ export default defineAction({
         createdBy: onlyReviewerCommentWork ? "human" : "agent",
         createdAt: now,
       });
-    })(db);
+    });
 
     // Make an agent content edit visible on the plan-presence doc: light the AI
     // avatar in the header PresenceBar and glow the patched block(s) for ~6s.

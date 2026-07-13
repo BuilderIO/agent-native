@@ -298,7 +298,10 @@ function appendFinalTranscript(session: VoiceSession, text: string): void {
   } else if (clean === committed || clean.startsWith(`${committed} `)) {
     // Some recognizers send the whole dictation as their final result.
     session.finalTranscriptParts = [clean];
-  } else if (session.finalTranscriptParts.at(-1) !== clean) {
+  } else if (
+    session.finalTranscriptParts[session.finalTranscriptParts.length - 1] !==
+    clean
+  ) {
     session.finalTranscriptParts.push(clean);
   }
   session.interimTranscript = "";
@@ -1254,6 +1257,9 @@ export function installDesktopVoiceDictation(
         micDeviceId: concreteMediaDeviceId(micDeviceId) || null,
         micDeviceLabel: micDeviceLabel || null,
         captureSystem: false,
+        // Short, standalone dictation sessions benefit from Apple's AEC/AGC.
+        // Meeting and recording capture explicitly keep this disabled.
+        voiceProcessing: true,
         owner: "dictation",
       });
       console.log("[voice-dictation] audio_transcription_start ok");

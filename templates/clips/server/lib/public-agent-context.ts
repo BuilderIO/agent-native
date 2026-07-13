@@ -28,6 +28,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { verifySharePassword } from "./share-password.js";
 
@@ -313,9 +314,16 @@ export async function loadAgentTranscript(
     fullText: transcript?.fullText,
     durationMs,
   });
+  const presentation = resolveTranscriptPresentation(transcript);
 
   return {
-    transcript: transcript ?? null,
+    transcript: transcript
+      ? {
+          ...transcript,
+          status: presentation.stalePending ? "failed" : transcript.status,
+          failureReason: presentation.failureReason,
+        }
+      : null,
     segments: normalized,
     agentSegments: toAgentTranscriptSegments(normalized),
   };

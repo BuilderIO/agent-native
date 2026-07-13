@@ -1,0 +1,20 @@
+---
+title: पैकेज जीवनचक्र
+description: मैनिफ़ेस्ट से संचालित Agent Native पैकेज को सुरक्षित रूप से जाँचें, जोड़ें और बाहर निकालें।
+---
+
+# पैकेज जीवनचक्र
+
+दोबारा उपयोग होने वाले पैकेज संस्करणयुक्त स्थिर `agent-native.package.json`
+प्रकाशित कर सकते हैं। जाँच के समय CLI केवल यह JSON पढ़ता है और पैकेज कोड नहीं चलाता।
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+जोड़ना और बाहर निकालना डिफ़ॉल्ट रूप से केवल पूर्वावलोकन है। `--apply` लिखने और पैकेज
+मैनेजर चलाने की अनुमति देता है। टकराव या अनजान लेआउट अस्वीकार होते हैं और इंस्टॉल विफल
+होने पर फ़ाइलें व लॉकफ़ाइल वापस रखी जाती हैं। अभी केवल Scheduling समर्थित है; Pinpoint
+बाद के लिए स्थगित है।

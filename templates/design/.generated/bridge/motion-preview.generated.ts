@@ -11,6 +11,16 @@ export const motionPreviewBridgeScript: string = `"use strict";
     var loadedTimelineDurationMs = null;
     var touchedProps = {};
     var originalInlineValues = {};
+    var elementCache = {};
+    function resolveTrackElement(nodeId) {
+      var cached = elementCache[nodeId];
+      if (cached && document.contains(cached)) return cached;
+      var el = document.querySelector(
+        '[data-agent-native-node-id="' + nodeId + '"]'
+      );
+      elementCache[nodeId] = el;
+      return el;
+    }
     function camelizeProp(prop) {
       return String(prop).replace(/-([a-z])/g, function(_m, c) {
         return c.toUpperCase();
@@ -477,9 +487,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
     function applyPreview(t) {
       for (var i = 0; i < loadedTracks.length; i++) {
         var track = loadedTracks[i];
-        var el = document.querySelector(
-          '[data-agent-native-node-id="' + track.targetNodeId + '"]'
-        );
+        var el = resolveTrackElement(track.targetNodeId);
         if (!el) continue;
         var value = interpolate(track.keyframes, trackLocalT(track, t));
         if (value === "") continue;
@@ -500,9 +508,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
     function clearPreview() {
       var nodeIds = Object.keys(touchedProps);
       for (var i = 0; i < nodeIds.length; i++) {
-        var el = document.querySelector(
-          '[data-agent-native-node-id="' + nodeIds[i] + '"]'
-        );
+        var el = resolveTrackElement(nodeIds[i]);
         if (!el) continue;
         var props = touchedProps[nodeIds[i]];
         for (var j = 0; j < props.length; j++) {
@@ -515,6 +521,7 @@ export const motionPreviewBridgeScript: string = `"use strict";
       loadedTracks = [];
       loadedDefaultEase = "ease";
       loadedTimelineDurationMs = null;
+      elementCache = {};
     }
     var lastPreviewT = null;
     window.addEventListener("message", function(e) {

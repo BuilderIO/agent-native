@@ -5,7 +5,13 @@ description: "Agent-to-agent communication via JSON-RPC: discovery, messaging, s
 
 # A2A Protocol
 
-Agent-to-agent communication over HTTP. Agents discover each other, send messages, and receive structured results.
+A2A lets agents talk to each other directly over HTTP: they discover each other's capabilities, send messages, and get back structured results — no shared database or hand-wired API needed.
+
+<Callout tone="info">
+
+**A2A vs MCP.** A2A is for **agent-to-agent** delegation — one agent-native app's agent handing work to another app's agent, which reasons over it with its own LLM loop. [MCP](/docs/mcp-protocol) is for **tool-to-agent** access — an external host like Claude or Cursor calling your app's actions directly as tools, with no extra agent reasoning in between. Use A2A when the receiving side should think; use MCP when it should just execute. See [MCP Server — MCP vs A2A](/docs/mcp-protocol#mcp-vs-a2a) for the full comparison table.
+
+</Callout>
 
 ## Overview {#overview}
 
@@ -159,7 +165,7 @@ All methods are called via `POST /_agent-native/a2a` with JSON-RPC 2.0 format:
 | `tasks/get`      | Fetch a task by ID — used to poll an async task to completion                                                         | `id`                          |
 | `tasks/cancel`   | Cancel a running task                                                                                                 | `id`                          |
 
-<Endpoint id="doc-block-a6g596" title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown." method="POST" path="/_agent-native/a2a" summary="Send a message and wait for the completed task" auth="JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)" params={[
+<Endpoint id="doc-block-a6g596" title="Primary A2A endpoint" summary="All JSON-RPC methods are POSTed here. message/send shown." method="POST" path="/_agent-native/a2a" auth="JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -272,9 +278,11 @@ When `message/send` is called with `async: true`, the JSON-RPC handler enqueues 
 
 </Diagram>
 
-> [!IMPORTANT]
-> **Serverless Webhook & Gateway Timeouts:**
-> Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Pages) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
+<Callout tone="warning">
+
+**Serverless webhook and gateway timeouts.** Hosted environment gateways (such as Netlify, Vercel, or Cloudflare Pages) impose strict execution limits (often 10 to 30 seconds) on public-facing HTTP routes. Because agent loops can take significant time to run queries, fetch context, and execute tools, you **must use `async: true`** when calling A2A endpoints or handling external webhooks. This immediately returns a `working` status to the API gateway, keeping the connection open only for a few milliseconds, while the self-fired `/process-task` POST executes the agent loop in the background. Do not block the primary HTTP request waiting for the agent loop to finish.
+
+</Callout>
 
 Messages contain typed parts — text, structured data, and files can all travel in one message:
 
@@ -436,6 +444,18 @@ This boundary matters because the agent loop accepts free-form input from a remo
 
 JWT verification (`verifyA2AToken` in `server.ts`) accepts tokens signed with either the global `A2A_SECRET` or an org-scoped secret looked up from SQL via the token's `org_domain` claim, and enforces the token's own `aud`/`iss` claims when present.
 
+### Organization secret sync {#organization-secret-sync}
+
+The **Organization → Cross-app authentication** setting manages the org-scoped secret used to authenticate delegation between separately deployed apps in the same organization. It is not a user sign-in or Cross-App SSO setting. The secret supplements a deployment's `A2A_SECRET`: an A2A JWT with an `org_domain` claim can be verified against the matching organization's secret.
+
+An organization owner should give every participating app the same allowed email domain and the same org-scoped secret:
+
+1. In the first app, generate or reveal the secret in **Organization → Cross-app authentication**.
+2. In each additional app, choose **Paste secret from another app** and paste that value. This manual step is required for the first connection: an app that does not already have the secret cannot verify a remote sync request.
+3. Once apps share the secret, use **Sync to apps** to push future updates to connected, discovered apps. The result reports any app that could not be updated.
+
+When you **Regenerate** the secret, the settings UI immediately syncs it and signs the update with the previous secret so already connected apps can verify the change. If an app misses that sync, paste the new secret there manually, then sync again. Treat this secret like any other credential: do not put it in client-side code, logs, or a third-party client configuration.
+
 ## Continuations {#continuations}
 
 When an agent calls a remote A2A peer that doesn't return immediately, the framework polls `tasks/get` until the task settles. This is wired through `A2AClient.sendAndWait`, which is the default mode used by the `callAgent()` helper.
@@ -522,3 +542,11 @@ export default defineAction({
 ```
 
 The analytics agent receives the message, runs the query via its handler, and returns the result. The mail action gets the text response back. No shared database, no direct API calls — just agent-to-agent communication.
+
+## What's next {#whats-next}
+
+- [**MCP Server**](/docs/mcp-protocol#mcp-vs-a2a) — the sibling protocol for external tools calling your app directly
+- [**Dispatch**](/docs/dispatch) — the app that routes inbound messages to the right A2A peer
+- [**Messaging**](/docs/messaging) — reaching agents from Slack, email, Telegram, and WhatsApp
+- [**Agent Mentions**](/docs/agent-mentions) — `@`-mentioning a connected agent in chat, which calls A2A under the hood
+- [**Multi-App Workspaces**](/docs/multi-app-workspace) — same-origin workspace A2A with auto-signed credentials

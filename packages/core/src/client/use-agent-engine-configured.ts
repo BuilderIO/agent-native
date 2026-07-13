@@ -30,6 +30,7 @@ export interface UseAgentEngineConfiguredOptions {
 }
 
 const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 2500;
+const UNKNOWN_STATUS_RETRY_MS = 2000;
 
 async function fetchStatusJson(
   path: string,
@@ -129,9 +130,15 @@ export async function fetchAgentEngineConfiguredState(
     (builderStatusKnown && builderStatus.configured) ||
     (engineStatusKnown && engineStatus.configured);
   if (anyConfigured) return "configured";
-  return envKeysKnown && builderStatusKnown && engineStatusKnown
-    ? "missing"
-    : "unknown";
+
+  // The engine status route is the canonical readiness check: it resolves
+  // Builder, scoped BYOK secrets, deployment credentials, and custom engines.
+  // Once it has answered `configured: false`, a slow legacy env/Builder status
+  // request must not leave the composer permissively stuck in `unknown`.
+  if (engineStatusKnown) return "missing";
+
+  // Compatibility fallback for older hosts without the canonical route.
+  return envKeysKnown && builderStatusKnown ? "missing" : "unknown";
 }
 
 /**
@@ -149,16 +156,22 @@ export function useAgentEngineConfigured(
 
   useEffect(() => {
     let cancelled = false;
+    let retryId: ReturnType<typeof setTimeout> | undefined;
     // Monotonic call counter: overlapping checks (mount + a
     // `agent-engine:configured-changed` fired right after a key is saved) can
     // resolve out of order; only the latest call may write state, or a slow
     // stale "missing" response would overwrite the fresh "configured" one.
     let requestSeq = 0;
     const check = async (options?: { missingFallback?: boolean }) => {
+      if (retryId !== undefined) {
+        clearTimeout(retryId);
+        retryId = undefined;
+      }
       const seq = ++requestSeq;
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
       if (nextState === "unknown") {
+        retryId = setTimeout(() => void check(), UNKNOWN_STATUS_RETRY_MS);
         return;
       }
       setState(nextState);
@@ -185,6 +198,7 @@ export function useAgentEngineConfigured(
     window.addEventListener("agent-chat:missing-api-key", onMissing);
     return () => {
       cancelled = true;
+      if (retryId !== undefined) clearTimeout(retryId);
       window.removeEventListener(
         "agent-engine:configured-changed",
         onConfiguredChanged,

@@ -37,6 +37,10 @@ import {
   type DesktopShortcutRegistration,
 } from "@shared/desktop-shortcuts";
 import {
+  canOpenDesktopExternalUrl,
+  isAllowedMacPrivacySettingsUrl,
+} from "@shared/external-navigation";
+import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
@@ -72,14 +76,17 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopAppContextAction,
+  type DesktopAppCreationSettings,
+  type DesktopAppRuntimeStatus,
+  type DesktopCreateAppRequest,
+  type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
-  type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
-  type DesktopContentFilesClearFolderRequest,
   type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
@@ -88,19 +95,17 @@ import {
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
-  type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolder,
-  type DesktopPlanFilesFolderRequest,
   type DesktopPlanFilesReadRequest,
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
-  type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
   app,
   BrowserWindow,
   clipboard,
+  desktopCapturer,
   dialog,
   globalShortcut,
   ipcMain,
@@ -108,6 +113,7 @@ import {
   Notification,
   session,
   shell,
+  systemPreferences,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -128,6 +134,31 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
+import { installBrowserNativeHost } from "./browser-control/native-host";
+import {
+  ComputerControlBroker,
+  DesktopComputerMcpBridge,
+  EphemeralScreenObserver,
+  getComputerPermissionStatus,
+  requestAccessibilityPermission,
+  runComputerSetupAction,
+  SwiftDesktopHelperClient,
+} from "./computer-control";
+import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { registerAppsIpc } from "./ipc/apps";
+import { registerCodeAgentsIpc } from "./ipc/code-agents";
+import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerFrameIpc } from "./ipc/frame";
+import { registerInterAppIpc } from "./ipc/inter-app";
+import { registerPlanFilesIpc } from "./ipc/plan-files";
+import { registerShortcutsIpc } from "./ipc/shortcuts";
+import {
+  checkForAppUpdates,
+  getCurrentUpdateStatus,
+  registerUpdatesIpc,
+} from "./ipc/updates";
+import { registerWindowIpc } from "./ipc/window";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -196,6 +227,10 @@ if (IS_DEV) {
 
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
+let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
+let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
+let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
@@ -208,11 +243,12 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
-const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
-const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
-const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+export const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL =
+  "code-agents:transcript-events";
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -257,7 +293,7 @@ interface DesktopBackgroundAgentController {
   ): Promise<DesktopBackgroundAgentControlResult>;
 }
 
-interface CodeAgentTranscriptSubscriptionBatch {
+export interface CodeAgentTranscriptSubscriptionBatch {
   subscriptionId: string;
   status: CodeAgentTranscriptResult["status"];
   runId: string;
@@ -267,7 +303,7 @@ interface CodeAgentTranscriptSubscriptionBatch {
   error?: string;
 }
 
-interface CodeAgentTranscriptSubscription {
+export interface CodeAgentTranscriptSubscription {
   id: string;
   runId: string;
   senderId: number;
@@ -828,94 +864,6 @@ app.on("open-url", (event, url) => {
   }
 });
 
-// ---------- Auto-updates ----------
-//
-// In production, electron-updater pulls release metadata from the
-// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
-// GitHub repo). We auto-download in the background, surface progress and
-// readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
-// installs queued updates automatically on quit.
-//
-// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
-// so we report an "unsupported" status and skip all autoUpdater calls.
-
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
-const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
-const DESKTOP_UPDATE_FEED_URL = (
-  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
-  DEFAULT_DESKTOP_UPDATE_FEED_URL
-).replace(/\/+$/, "");
-
-let currentUpdateStatus: UpdateStatus = IS_DEV
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
-  : { state: "idle" };
-let updateCheckInFlight: Promise<unknown> | null = null;
-let lastUpdateCheckStartedAt = 0;
-let notifiedUpdateVersion: string | null = null;
-
-function broadcastUpdateStatus(status: UpdateStatus) {
-  currentUpdateStatus = status;
-  refreshApplicationMenu();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
-    }
-  }
-}
-
-async function checkForAppUpdates(): Promise<UpdateStatus> {
-  if (IS_DEV) return currentUpdateStatus;
-  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
-
-  if (!updateCheckInFlight) {
-    lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = autoUpdater
-      .checkForUpdates()
-      .catch((err) => {
-        broadcastUpdateStatus({
-          state: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => {
-        updateCheckInFlight = null;
-      });
-  }
-
-  await updateCheckInFlight;
-  return currentUpdateStatus;
-}
-
-function maybeCheckForAppUpdates() {
-  if (IS_DEV) return;
-  if (currentUpdateStatus.state === "downloaded") return;
-  if (
-    updateCheckInFlight ||
-    Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
-  ) {
-    return;
-  }
-  void checkForAppUpdates();
-}
-
-function showUpdateReadyNotification(version: string) {
-  if (!Notification.isSupported()) return;
-  if (notifiedUpdateVersion === version) return;
-  notifiedUpdateVersion = version;
-
-  const notification = new Notification({
-    title: "Agent Native update ready",
-    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
-  });
-  notification.on("click", (_event) => {
-    focusMainWindow();
-  });
-  notification.show();
-}
-
 // --------------- Run completion / attention notifications ---------------
 
 /** True when the main window is hidden or unfocused. */
@@ -978,98 +926,11 @@ app.on("browser-window-focus", () => {
   updateDockBadge();
 });
 
-if (!IS_DEV) {
-  // The GitHub provider reads the repository-wide latest release feed, which
-  // also contains npm package releases and Clips desktop releases. Use the
-  // Agent Native feed that filters the shared repo down to desktop assets.
-  autoUpdater.setFeedURL({
-    provider: "generic",
-    url: DESKTOP_UPDATE_FEED_URL,
-  });
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on("checking-for-update", () => {
-    broadcastUpdateStatus({ state: "checking" });
-  });
-
-  autoUpdater.on("update-available", (info) => {
-    broadcastUpdateStatus({
-      state: "available",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-  });
-
-  autoUpdater.on("update-not-available", (info) => {
-    broadcastUpdateStatus({
-      state: "not-available",
-      currentVersion: info.version ?? app.getVersion(),
-    });
-  });
-
-  autoUpdater.on("download-progress", (progress) => {
-    broadcastUpdateStatus({
-      state: "downloading",
-      percent: Math.round(progress.percent ?? 0),
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total,
-    });
-  });
-
-  autoUpdater.on("update-downloaded", (info) => {
-    broadcastUpdateStatus({
-      state: "downloaded",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-    showUpdateReadyNotification(info.version);
-  });
-
-  autoUpdater.on("error", (err) => {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err?.message ?? String(err),
-    });
-  });
-
-  app.whenReady().then(() => {
-    void checkForAppUpdates();
-    setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
-  });
-
-  app.on("browser-window-focus", maybeCheckForAppUpdates);
-  app.on("activate", maybeCheckForAppUpdates);
-}
-
-ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
-
-ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-  return checkForAppUpdates();
-});
-
-ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-  if (IS_DEV) return currentUpdateStatus;
-  try {
-    await autoUpdater.downloadUpdate();
-  } catch (err) {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return currentUpdateStatus;
-});
-
-ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-  if (IS_DEV) return;
-  // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-  // app relaunches after the update completes.
-  autoUpdater.quitAndInstall(false, true);
-});
+// ---------- IPC: Auto-updates ----------
+// See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
+// update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
+// (imported above) are also used by the application menu below.
+registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1107,6 +968,8 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  desktopDesignPreviewManager?.destroy();
+  desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
@@ -1125,6 +988,8 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    desktopDesignPreviewManager?.destroy();
+    desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
   });
 
@@ -1283,6 +1148,8 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
+  if (appId !== "design") desktopDesignPreviewManager?.clearOwner();
+  void ensureManagedDesktopAppRunning(appId);
 });
 
 ipcMain.on(
@@ -1306,13 +1173,33 @@ ipcMain.on(
 
 ipcMain.on(
   IPC.SET_ACTIVE_WEBVIEW,
-  (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
+  (event: IpcMainEvent, target: ActiveWebviewTarget) => {
+    if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    if (target.active === false) {
+      desktopDesignPreviewManager?.clearOwner(target.webContentsId);
+      if (activeWebviewContentsId === target.webContentsId) {
+        activeWebviewContentsId = undefined;
+      }
+      return;
+    }
     activeAppId = target.appId;
     activeWebviewContentsId = target.webContentsId;
     setSentryWebContentsMetadata(target.webContentsId, {
       role: "app-webview",
       appId: target.appId,
     });
+    desktopDesignPreviewManager?.registerOwner(
+      target.webContentsId,
+      target.appId,
+      target.hostBounds,
+    );
+  },
+);
+
+ipcMain.on(
+  IPC.DESIGN_PREVIEW_REQUEST,
+  (event: IpcMainEvent, request: unknown) => {
+    desktopDesignPreviewManager?.handleRequest(event.sender, request);
   },
 );
 
@@ -1632,7 +1519,7 @@ const REMOTE_DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
 const REMOTE_CONNECTOR_INITIAL_BACKOFF_MS = 2_000;
 const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
-let remoteConnectorEnabled = true;
+let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
@@ -1888,6 +1775,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
   const invocation = resolveRemoteConnectorCliInvocation();
   const args = [...invocation.args, "code", "serve", "--relay-url", relayUrl];
   try {
+    const computerEnv = remoteConnectorComputerEnv();
     const child = spawn(invocation.command, args, {
       cwd: invocation.cwd,
       detached: false,
@@ -1896,6 +1784,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         ...invocation.env,
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+        ...computerEnv,
       },
     });
     remoteConnectorProcess = child;
@@ -1909,6 +1798,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       if (text) console.error(`[remote-code-agent] ${text}`);
     });
     child.on("exit", (code, signal) => {
+      revokeRemoteConnectorComputerControl();
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       remoteConnectorLastExitAt = new Date().toISOString();
       remoteConnectorLastExitCode = code;
@@ -1918,6 +1808,7 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
     child.on("error", (err) => {
+      revokeRemoteConnectorComputerControl();
       remoteConnectorError = err instanceof Error ? err.message : String(err);
       if (remoteConnectorProcess === child) remoteConnectorProcess = null;
       if (!appIsQuitting && remoteConnectorEnabled) {
@@ -1925,20 +1816,9 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
       }
     });
   } catch (err) {
+    revokeRemoteConnectorComputerControl();
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
-  }
-  return getRemoteConnectorStatus();
-}
-
-function getRemoteConnectorStatusForUserRequest(): CodeAgentRemoteConnectorStatus {
-  if (
-    remoteConnectorEnabled &&
-    !appIsQuitting &&
-    !remoteConnectorProcess?.pid &&
-    !remoteConnectorNextRestartAt
-  ) {
-    return startRemoteCodeAgentConnector();
   }
   return getRemoteConnectorStatus();
 }
@@ -2678,6 +2558,10 @@ function normalizeCodeAgentTranscriptEvent(
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
   if (fallback.source) metadata.source = fallback.source;
+  // Prefer the structured signal the executor stamps on credential-gap
+  // events; carry it through so the renderer can detect the condition
+  // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
+  const signal = row.signal === "credential-gap" ? "credential-gap" : undefined;
 
   return {
     id:
@@ -2693,6 +2577,7 @@ function normalizeCodeAgentTranscriptEvent(
     artifactPath,
     artifactUrl,
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    ...(signal ? { signal } : {}),
   };
 }
 
@@ -3161,6 +3046,136 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 
+function desktopComputerHelperPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "native", "agent-native-computer-helper")
+    : path.resolve(__dirname, "../../native/bin/agent-native-computer-helper");
+}
+
+async function initializeDesktopComputerMcpBridge(): Promise<void> {
+  if (process.platform !== "darwin" || desktopComputerMcpBridge) return;
+  const helperPath = desktopComputerHelperPath();
+  if (!fs.existsSync(helperPath)) {
+    console.warn("[computer-control] bundled macOS helper is unavailable.");
+    return;
+  }
+  const helper = new SwiftDesktopHelperClient(helperPath);
+  const broker = new ComputerControlBroker({
+    helper,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const screenObserver = new EphemeralScreenObserver({
+    desktopCapturer,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+  });
+  const browserBridge = new BrowserControlLoopbackBridge();
+  const browserHost = await browserBridge.start();
+  desktopBrowserControlBridge = browserBridge;
+  const hostEntryPath = app.isPackaged
+    ? path.join(
+        process.resourcesPath,
+        "app.asar",
+        "out/main/browser-control-host.js",
+      )
+    : path.resolve(__dirname, "browser-control-host.js");
+  const extensionPath = getBundledChromeExtensionPath();
+  try {
+    browserNativeHostManifestPath = installBrowserNativeHost({
+      ...browserHost,
+      executablePath: process.execPath,
+      hostEntryPath,
+      stateDirectory: path.join(app.getPath("userData"), "browser-control"),
+    }).manifestPath;
+  } catch (error) {
+    await browserBridge.close();
+    desktopBrowserControlBridge = null;
+    broker.close();
+    console.warn(
+      "[browser-control] Chrome native host installation failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return;
+  }
+  const bridge = new DesktopComputerMcpBridge({
+    broker,
+    permissionStatus: () => getComputerPermissionStatus(systemPreferences),
+    screenObserver,
+    browserBridge,
+    browserNativeHostInstalled: () =>
+      Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+    browserExtensionPath: () =>
+      fs.existsSync(extensionPath) ? extensionPath : undefined,
+  });
+  try {
+    await bridge.start();
+    desktopComputerMcpBridge = bridge;
+  } catch (error) {
+    await browserBridge.close();
+    desktopBrowserControlBridge = null;
+    broker.close();
+    console.warn(
+      "[computer-control] authenticated loopback bridge could not start:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+function desktopComputerChildEnv(
+  runId: string,
+  permissionMode: CodeAgentPermissionMode,
+): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerRun(
+      runId,
+      permissionMode,
+    );
+    return {
+      AGENT_NATIVE_DESKTOP_CHILD: "1",
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL: registration.url,
+      AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN: registration.bearerToken,
+    };
+  } catch (error) {
+    console.warn(
+      "[computer-control] task registration failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return {};
+  }
+}
+
+function revokeDesktopComputerRun(runId: string): void {
+  void desktopComputerMcpBridge?.revokeRun(runId).catch(() => undefined);
+}
+
+function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
+  if (!desktopComputerMcpBridge) return {};
+  try {
+    const registration = desktopComputerMcpBridge.registerConnector();
+    return {
+      AGENT_NATIVE_COMPUTER_BRIDGE_URL: registration.url,
+      AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN: registration.bearerToken,
+      AGENT_NATIVE_COMPUTER_CAPABILITIES: JSON.stringify({
+        browser: {
+          observe: true,
+          control: true,
+          provider: "chrome-extension",
+          version: "1",
+        },
+      }),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function revokeRemoteConnectorComputerControl(): void {
+  revokeDesktopComputerRun("__remote_connector__");
+}
+
 function signalCodeAgentProcess(pid: number, signal: NodeJS.Signals): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   if (process.platform !== "win32") {
@@ -3183,6 +3198,7 @@ function pauseActiveCodeAgentProcessesForShutdown(): void {
   for (const [runId, active] of activeCodeAgentProcesses) {
     if (active.pid) signalCodeAgentProcess(active.pid, "SIGTERM");
     reconcileInterruptedCodeAgentRun(runId, "shutdown");
+    revokeDesktopComputerRun(runId);
     activeCodeAgentProcesses.delete(runId);
   }
 }
@@ -3258,6 +3274,10 @@ function spawnCodeAgentRunner(
         runId,
       ];
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3266,6 +3286,7 @@ function spawnCodeAgentRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3298,6 +3319,7 @@ function spawnCodeAgentRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       codeAgentAssistantDeltaSeq.delete(runId);
       appendCodeAgentStatusEvent(
@@ -3333,6 +3355,7 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     appendCodeAgentStatusEvent(
       runId,
       "Could not start Agent-Native Code process.",
@@ -3408,6 +3431,10 @@ function spawnCodeAgentApprovalRunner(
       ];
 
   try {
+    const computerEnv = desktopComputerChildEnv(
+      runId,
+      normalizedPermissionMode,
+    );
     const child = spawn(command, args, {
       cwd: repoRoot,
       detached: true,
@@ -3416,6 +3443,7 @@ function spawnCodeAgentApprovalRunner(
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...computerEnv,
       },
     });
     const runnerStartedAt = new Date().toISOString();
@@ -3455,6 +3483,7 @@ function spawnCodeAgentApprovalRunner(
       });
     });
     child.on("exit", (code, signal) => {
+      revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       appendCodeAgentStatusEvent(
         runId,
@@ -3494,6 +3523,7 @@ function spawnCodeAgentApprovalRunner(
       message: "Approval command started.",
     };
   } catch (err) {
+    revokeDesktopComputerRun(runId);
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
       source: "desktop-approval-runner",
@@ -3668,6 +3698,7 @@ async function controlDesktopCodeBackgroundAgentRun(
   }
 
   if (input.command === "stop") {
+    revokeDesktopComputerRun(input.runId);
     const active = activeCodeAgentProcesses.get(input.runId);
     const status = getRecordString(runRecord, "status");
     const phase = getRecordString(runRecord, "phase");
@@ -4847,6 +4878,415 @@ async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
   };
 }
 
+const managedDesktopAppProcesses = new Map<string, ChildProcess>();
+const managedDesktopAppRetryTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const managedDesktopAppStarts = new Set<string>();
+const managedDesktopAppStartAttempts = new Map<string, number>();
+
+function desktopAppCreationSettings(): DesktopAppCreationSettings {
+  return {
+    appsRoot: AppStore.loadDesktopAppPreferences().appsRoot,
+  };
+}
+
+function normalizeDesktopAppsRoot(value: unknown): string | null {
+  const expanded =
+    typeof value === "string" ? expandPathCandidate(value.trim()) : "";
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  return isFilesystemRoot(resolved) ? null : resolved;
+}
+
+function appFolderSlug(prompt: string): string {
+  const normalized = prompt
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .filter(Boolean)
+    .slice(0, 5)
+    .join("-");
+  return normalized || "new-app";
+}
+
+function uniqueDesktopAppFolder(
+  root: string,
+  baseSlug: string,
+): {
+  name: string;
+  path: string;
+} {
+  for (let index = 1; index < 10_000; index += 1) {
+    const name = index === 1 ? baseSlug : `${baseSlug}-${index}`;
+    const candidate = path.join(root, name);
+    if (!fs.existsSync(candidate)) return { name, path: candidate };
+  }
+  const name = `${baseSlug}-${randomUUID().slice(0, 8)}`;
+  return { name, path: path.join(root, name) };
+}
+
+function titleizeAppFolder(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function nextDesktopManagedAppPort(apps: AppConfig[]): number {
+  const used = new Set(
+    apps
+      .map((candidate) => candidate.devPort)
+      .filter((port) => Number.isInteger(port) && port > 0),
+  );
+  for (let port = 5180; port <= 5999; port += 1) {
+    if (!used.has(port)) return port;
+  }
+  return 6000 + Math.floor(Math.random() * 1000);
+}
+
+function buildDesktopCreateAppAgentPrompt(input: {
+  userPrompt: string;
+  folderName: string;
+  targetPath: string;
+  port: number;
+}): string {
+  return `${input.userPrompt.trim()}
+
+Build this as a polished, working Agent Native app at ${input.targetPath}.
+
+Start by running this non-interactive scaffold command from the current directory:
+npx --yes @agent-native/core@latest create ${input.folderName} --template chat
+
+Then work only inside ${input.targetPath}. Follow the generated AGENTS.md and the Agent Native architecture contract: actions are the shared UI/agent operation surface, app state describes navigation and selection, and all AI work goes through the agent chat. Implement the requested UI and behavior, install dependencies, and run the relevant typecheck/tests. The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`;
+}
+
+async function createDesktopAppFromPrompt(
+  input: DesktopCreateAppRequest,
+): Promise<DesktopCreateAppResult> {
+  const prompt = typeof input?.prompt === "string" ? input.prompt.trim() : "";
+  const currentApps = AppStore.loadApps();
+  if (!prompt) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Describe the app you want to build.",
+      error: "Missing prompt.",
+    };
+  }
+  if (prompt.length > 8_000) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Keep the first app prompt under 8,000 characters.",
+      error: "Prompt is too long.",
+    };
+  }
+
+  const appsRoot = normalizeDesktopAppsRoot(
+    input.appsRoot ?? AppStore.loadDesktopAppPreferences().appsRoot,
+  );
+  if (!appsRoot) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Choose a valid folder for new apps.",
+      error: "Invalid apps folder.",
+    };
+  }
+
+  try {
+    fs.mkdirSync(appsRoot, { recursive: true });
+    AppStore.saveDesktopAppPreferences({ appsRoot });
+  } catch (err) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Desktop could not prepare the apps folder.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  const folder = uniqueDesktopAppFolder(appsRoot, appFolderSlug(prompt));
+  const port = nextDesktopManagedAppPort(currentApps);
+  const appId = `local-${folder.name}-${randomUUID().slice(0, 8)}`;
+  const agentPrompt = buildDesktopCreateAppAgentPrompt({
+    userPrompt: prompt,
+    folderName: folder.name,
+    targetPath: folder.path,
+    port,
+  });
+  const runResult = await createCodeAgentRun({
+    goalId: "task",
+    prompt: agentPrompt,
+    cwd: appsRoot,
+    permissionMode: "full-auto",
+    metadata: {
+      kind: "desktop-create-app",
+      appId,
+      appPath: folder.path,
+      userPrompt: prompt,
+    },
+  });
+  if (!runResult.ok || !runResult.run) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: runResult.message,
+      error: runResult.error,
+    };
+  }
+
+  const generatedName = runResult.run.title?.trim();
+  const appConfig: AppConfig = {
+    id: appId,
+    name:
+      generatedName &&
+      generatedName !== "Coding task" &&
+      generatedName.length <= 48 &&
+      !generatedName.endsWith("...")
+        ? generatedName
+        : titleizeAppFolder(folder.name),
+    icon: "Code",
+    description: prompt.replace(/\s+/g, " ").slice(0, 180),
+    url: "",
+    devPort: port,
+    devUrl: `http://localhost:${port}`,
+    devCommand: `pnpm exec agent-native dev --port ${port} --host 127.0.0.1`,
+    localPath: folder.path,
+    isBuiltIn: false,
+    enabled: true,
+    mode: "dev",
+  };
+  const apps = AppStore.addApp(appConfig);
+  AppStore.markDesktopManagedApp(appId, appsRoot);
+  scheduleManagedDesktopAppStart(appId, 1_500);
+  refreshDesktopShortcutBindings();
+  return {
+    ok: true,
+    apps,
+    app: appConfig,
+    run: runResult.run,
+    message: `Building ${appConfig.name}.`,
+  };
+}
+
+function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(IPC.APP_STATUS, status);
+}
+
+async function desktopAppUrlIsReachable(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(1_500),
+    });
+    return response.status > 0;
+  } catch {
+    return false;
+  }
+}
+
+function clearManagedDesktopAppRetry(appId: string): void {
+  const timer = managedDesktopAppRetryTimers.get(appId);
+  if (timer) clearTimeout(timer);
+  managedDesktopAppRetryTimers.delete(appId);
+}
+
+function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
+  if (appIsQuitting || activeAppId !== appId) return;
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppRetryTimers.set(
+    appId,
+    setTimeout(() => {
+      managedDesktopAppRetryTimers.delete(appId);
+      void ensureManagedDesktopAppRunning(appId);
+    }, delay),
+  );
+}
+
+async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
+  if (
+    appIsQuitting ||
+    !AppStore.isDesktopManagedApp(appId) ||
+    managedDesktopAppStarts.has(appId)
+  ) {
+    return;
+  }
+  const appConfig = AppStore.loadApps().find(
+    (candidate) =>
+      candidate.id === appId &&
+      candidate.enabled !== false &&
+      candidate.mode === "dev",
+  );
+  if (!appConfig?.localPath || !appConfig.devUrl || !appConfig.devCommand) {
+    return;
+  }
+  if (managedDesktopAppProcesses.get(appId)?.pid) return;
+
+  managedDesktopAppStarts.add(appId);
+  try {
+    if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
+      emitDesktopAppRuntimeStatus({ appId, state: "running" });
+      return;
+    }
+    if (
+      !fs.existsSync(appConfig.localPath) ||
+      !fs.existsSync(path.join(appConfig.localPath, "package.json"))
+    ) {
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "waiting",
+        message: "The coding agent is creating this app.",
+      });
+      scheduleManagedDesktopAppStart(appId);
+      return;
+    }
+
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "starting",
+      message: `Starting ${appConfig.name}.`,
+    });
+    managedDesktopAppStartAttempts.set(
+      appId,
+      (managedDesktopAppStartAttempts.get(appId) ?? 0) + 1,
+    );
+    const child = spawn(appConfig.devCommand, {
+      cwd: appConfig.localPath,
+      env: {
+        ...process.env,
+        BROWSER: "none",
+      },
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    managedDesktopAppProcesses.set(appId, child);
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.log(`[desktop-app:${appId}] ${text}`);
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString().trim();
+      if (text) console.error(`[desktop-app:${appId}] ${text}`);
+    });
+    child.once("error", (err) => {
+      if (managedDesktopAppProcesses.get(appId) === child) {
+        managedDesktopAppProcesses.delete(appId);
+      }
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
+    child.once("exit", (code, signal) => {
+      if (managedDesktopAppProcesses.get(appId) === child) {
+        managedDesktopAppProcesses.delete(appId);
+      }
+      if (appIsQuitting) return;
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: code === 0 ? "stopped" : "error",
+        message:
+          code === 0
+            ? `${appConfig.name} stopped.`
+            : `${appConfig.name} exited (${signal ?? code ?? "unknown"}).`,
+      });
+      if (
+        activeAppId === appId &&
+        (managedDesktopAppStartAttempts.get(appId) ?? 0) < 20
+      ) {
+        scheduleManagedDesktopAppStart(appId, 3_000);
+      }
+    });
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
+        managedDesktopAppStartAttempts.delete(appId);
+        emitDesktopAppRuntimeStatus({ appId, state: "running" });
+        return;
+      }
+      if (child.exitCode !== null || child.killed) return;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  } catch (err) {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    managedDesktopAppStarts.delete(appId);
+  }
+}
+
+function stopManagedDesktopApp(appId: string): void {
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppStartAttempts.delete(appId);
+  const child = managedDesktopAppProcesses.get(appId);
+  if (!child) return;
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  } else {
+    child.kill("SIGTERM");
+  }
+  managedDesktopAppProcesses.delete(appId);
+}
+
+function showDesktopAppContextMenu(
+  appId: string,
+): Promise<DesktopAppContextAction | null> {
+  const apps = AppStore.loadApps();
+  const index = apps.findIndex((candidate) => candidate.id === appId);
+  const appConfig = apps[index];
+  if (!appConfig) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    let selected: DesktopAppContextAction | null = null;
+    const choose = (action: DesktopAppContextAction) => {
+      selected = action;
+    };
+    const menu = Menu.buildFromTemplate([
+      { label: "Edit App…", click: () => choose("edit") },
+      { type: "separator" },
+      {
+        label: "Move Up",
+        enabled: index > 0,
+        click: () => choose("move-up"),
+      },
+      {
+        label: "Move Down",
+        enabled: index < apps.length - 1,
+        click: () => choose("move-down"),
+      },
+      { type: "separator" },
+      {
+        label: appConfig.isBuiltIn
+          ? "Hide from Sidebar"
+          : "Remove from Sidebar",
+        click: () => choose("remove"),
+      },
+    ]);
+    menu.popup({
+      window: mainWindow ?? undefined,
+      callback: () => resolve(selected),
+    });
+  });
+}
+
 const CONTENT_FILES_STORE_FILE = "content-file-sync.json";
 const CONTENT_SOURCE_ROOT = "content";
 const CONTENT_SOURCE_EXTENSIONS = [".md", ".mdx"] as const;
@@ -5037,7 +5477,7 @@ async function collectLocalControlResources(
   return resources;
 }
 
-interface ContentFilesGrant {
+export interface ContentFilesGrant {
   id: string;
   path: string;
   sourcePrefix?: string;
@@ -5103,8 +5543,10 @@ function normalizeContentFilesGrant(
   grants: Record<string, ContentFilesGrant>,
 ): ContentFilesGrant | null {
   if (!isObject(value)) return null;
-  const folder = resolveUsableContentFolder(firstStringValue(value.path));
-  if (!folder) return null;
+  const storedPath = firstStringValue(value.path)?.trim();
+  if (!storedPath || storedPath.includes("\0")) return null;
+  const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
+  if (isFilesystemRoot(folder)) return null;
   const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
@@ -5794,7 +6236,7 @@ const PLAN_ASSETS_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const PLAN_ASSET_FILENAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpe?g|gif|webp|svg)$/i;
 
-interface PlanFilesGrant {
+export interface PlanFilesGrant {
   path: string;
   title?: string;
   updatedAt?: string;
@@ -6478,8 +6920,10 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
-  const storedCredentials = AppStore.loadCodeAgentProviderCredentials();
   const codex = getLocalCodexCliStatus();
+  const configuredCredentialKeys = new Set(
+    settings.providers.flatMap((provider) => provider.configuredKeys),
+  );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
@@ -6491,7 +6935,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     label: configuredProviders[0],
     configuredProviders,
     missingEnvVars: CODE_AGENT_PROVIDER_SETTING_KEYS.filter(
-      (key) => !process.env[key] && !storedCredentials[key],
+      (key) => !process.env[key] && !configuredCredentialKeys.has(key),
     ),
   };
 }
@@ -6511,8 +6955,7 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
   if (process.env.OPENAI_API_KEY) return true;
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return Boolean(
-    (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) ||
-    AppStore.getCodeAgentProviderSettingsStatus().configured,
+    process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
   );
 }
 
@@ -6617,6 +7060,7 @@ function withLocalCodexProviderStatus(
     missingKeys: [] as CodeAgentProviderCredentialKey[],
     savedKeys: [] as CodeAgentProviderCredentialKey[],
     source: codex.authenticated ? ("local-codex" as const) : undefined,
+    error: codex.error,
   };
   const providers = [
     provider,
@@ -6627,9 +7071,7 @@ function withLocalCodexProviderStatus(
     configured: providers.some((item) => item.configured),
     configuredProviders: providers
       .filter((item) => item.configured)
-      .map((item) =>
-        item.id === "codex" && codex.authMode ? codex.label : item.label,
-      ),
+      .map((item) => item.label),
     providers,
   };
 }
@@ -6828,6 +7270,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
         available: fs.existsSync(cliEntry),
       },
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: true,
@@ -6855,6 +7298,7 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       runsDir: codeAgentRunsDir(),
       transcriptsDir: codeAgentEventsDir(),
       llmProvider: getCodeAgentLlmProviderStatus(),
+      computerControl: getDesktopComputerControlMetadata(),
       capabilities: {
         fileBackedRuns: true,
         nativeTaskRunner: false,
@@ -6868,6 +7312,35 @@ function getCodeAgentHostMetadata(): CodeAgentHostMetadata {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function getDesktopComputerControlMetadata(): NonNullable<
+  CodeAgentHostMetadata["computerControl"]
+> {
+  const permissions =
+    process.platform === "darwin"
+      ? getComputerPermissionStatus(systemPreferences)
+      : { accessibility: false, screenRecording: "unknown" as const };
+  const extensionPath = getBundledChromeExtensionPath();
+  return {
+    available: Boolean(desktopComputerMcpBridge),
+    desktop: permissions,
+    browser: {
+      nativeHostInstalled: Boolean(
+        browserNativeHostManifestPath &&
+        fs.existsSync(browserNativeHostManifestPath),
+      ),
+      extensionBundled: fs.existsSync(extensionPath),
+      connected:
+        desktopBrowserControlBridge?.status().nativeHostConnected ?? false,
+    },
+  };
+}
+
+function getBundledChromeExtensionPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
 }
 
 function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
@@ -7085,247 +7558,43 @@ async function controlCodeAgentRun(
   };
 }
 
-ipcMain.handle(
-  IPC.CLIPBOARD_WRITE_TEXT,
-  (_event: IpcMainInvokeEvent, text: unknown): boolean => {
-    if (typeof text !== "string" || text.length === 0) return false;
-    clipboard.writeText(text);
-    return true;
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_RUNS,
-  (
-    _event: IpcMainInvokeEvent,
-    goalId?: string,
-  ): Promise<CodeAgentRunListResult> => {
-    const goal = getCodeAgentGoal(goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task");
-    if (!goal) {
-      return Promise.resolve({
-        status: "unavailable",
-        goalId,
-        runs: [],
-        error: `Unknown Agent-Native Code goal: ${goalId}`,
-      });
-    }
-    const runs = listDesktopCodeAgentRuns(goal.id);
-    return Promise.resolve({
-      status: "ok",
-      goalId: goal.id,
-      runs,
-    });
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CREATE_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MODELS,
-  (): CodeAgentModelListResult => getCodeAgentModelList(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_READ_TRANSCRIPT,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentTranscriptResult =>
-    readCodeAgentTranscript(input),
-);
-
-ipcMain.on(
-  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (event: IpcMainEvent, input: unknown) => {
-    const payload = isObject(input) ? input : {};
-    const subscriptionId =
-      firstStringValue(payload.subscriptionId) ??
-      `subscription-${timestampSlug(new Date().toISOString())}-${randomUUID().slice(0, 8)}`;
-    const request = isObject(payload.request) ? payload.request : payload;
-    const runId = normalizeCodeAgentRunId(request.runId);
-    if (!runId) {
-      event.sender.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
-        subscriptionId,
-        status: "unavailable",
-        runId: "",
-        events: [],
-        error: "Missing or invalid run id.",
-      } satisfies CodeAgentTranscriptSubscriptionBatch);
-      return;
-    }
-
-    removeCodeAgentTranscriptSubscription(subscriptionId);
-    const subscription: CodeAgentTranscriptSubscription = {
-      id: subscriptionId,
-      runId,
-      senderId: event.sender.id,
-      knownEventKeys: new Set(),
-    };
-    const result = initializeCodeAgentTranscriptSubscriptionKeys(subscription);
-    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription);
-    watchCodeAgentTranscriptSubscription(subscription);
-    event.sender.once("destroyed", () => {
-      removeCodeAgentTranscriptSubscription(subscriptionId);
-    });
-    if (result.status !== "ok" || result.error) {
-      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
-        status: result.status,
-        runId: result.runId ?? runId,
-        events: [],
-        eventFile: result.eventFile,
-        reason: "subscribe",
-        error: result.error,
-      });
-    }
-  },
-);
-
-ipcMain.on(
-  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (_event: IpcMainEvent, input: unknown) => {
-    const subscriptionId = isObject(input)
-      ? firstStringValue(input.subscriptionId)
-      : firstStringValue(input);
-    if (subscriptionId) removeCodeAgentTranscriptSubscription(subscriptionId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentFollowUpResult> => appendCodeAgentFollowUp(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_UPDATE_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentUpdateRunResult =>
-    updateCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RETRY_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRetryRunResult =>
-    retryCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RERUN_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): Promise<CodeAgentRerunResult> =>
-    rerunCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CONTROL_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentControlResult> => controlCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_GET_HOST_METADATA,
-  (): CodeAgentHostMetadata => getCodeAgentHostMetadata(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
-  (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): CodeAgentProviderSettingsUpdateResult =>
-    updateCodeAgentProviderSettings(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
-  (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-    connectDesktopBuilderProvider(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_CODE_PACKS,
-  (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentCodePackResult =>
-    listCodeAgentProjectPacks(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_PROJECTS,
-  (): CodeAgentProjectListResult => listCodeAgentProjects(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_SELECT_PROJECT,
-  (
-    _event: IpcMainInvokeEvent,
-    folderPath: unknown,
-  ): CodeAgentProjectSelectResult => {
-    if (typeof folderPath === "string")
-      return upsertCodeAgentProject(folderPath);
-    const state = readCodeAgentProjectsState();
-    return {
-      ok: false,
-      projects: state.projects,
-      selectedPath: state.selectedPath,
-      error: "Missing project folder.",
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CHOOSE_PROJECT,
-  (): Promise<CodeAgentProjectSelectResult> => chooseCodeAgentProject(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MIGRATION_RUNS,
-  (): Promise<CodeAgentRunListResult> =>
-    Promise.resolve({
-      status: "ok",
-      goalId: "migrate",
-      runs: listDesktopCodeAgentRuns("migrate"),
-    }),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_OPEN_TERMINAL,
-  (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
-    return openTerminalForCodeAgents(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus =>
-    getRemoteConnectorStatusForUserRequest(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED,
-  (
-    _event: IpcMainInvokeEvent,
-    enabled: unknown,
-  ): CodeAgentRemoteConnectorControlResult =>
-    setRemoteConnectorEnabled(Boolean(enabled)),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentRemoteConnectorPairResult> =>
-    pairRemoteCodeAgentConnector(input),
-);
+// ---------- IPC: Clipboard + Agent-Native Code (background code agents) ----------
+// See main/ipc/code-agents.ts.
+registerCodeAgentsIpc({
+  isObject,
+  firstStringValue,
+  timestampSlug,
+  normalizeCodeAgentRunId,
+  listDesktopCodeAgentRuns,
+  createCodeAgentRun,
+  getCodeAgentModelList,
+  readCodeAgentTranscript,
+  removeCodeAgentTranscriptSubscription,
+  initializeCodeAgentTranscriptSubscriptionKeys,
+  watchCodeAgentTranscriptSubscription,
+  setCodeAgentTranscriptSubscription: (subscriptionId, subscription) =>
+    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
+  sendCodeAgentTranscriptSubscriptionBatch,
+  appendCodeAgentFollowUp,
+  updateCodeAgentRun,
+  retryCodeAgentRun,
+  rerunCodeAgentRun,
+  controlCodeAgentRun,
+  getCodeAgentHostMetadata,
+  getBundledChromeExtensionPath,
+  getCodeAgentProviderSettings,
+  updateCodeAgentProviderSettings,
+  connectDesktopBuilderProvider,
+  listCodeAgentProjectPacks,
+  listCodeAgentProjects,
+  upsertCodeAgentProject,
+  readCodeAgentProjectsState,
+  chooseCodeAgentProject,
+  openTerminalForCodeAgents,
+  getRemoteConnectorStatus,
+  setRemoteConnectorEnabled,
+  pairRemoteCodeAgentConnector,
+});
 
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
@@ -7333,22 +7602,8 @@ ipcMain.handle(
 
 const contextMenuContents = new WeakSet<Electron.WebContents>();
 
-function canOpenExternalUrl(url: string): boolean {
-  try {
-    const protocol = new URL(url).protocol;
-    return (
-      protocol === "http:" ||
-      protocol === "https:" ||
-      protocol === "mailto:" ||
-      protocol === "tel:"
-    );
-  } catch {
-    return false;
-  }
-}
-
 function openExternalUrl(url: string) {
-  if (!canOpenExternalUrl(url)) return;
+  if (!canOpenDesktopExternalUrl(url, process.platform)) return;
   if (process.platform !== "darwin" || !/^https?:/i.test(url)) {
     shell.openExternal(url).catch(() => {});
     return;
@@ -7420,7 +7675,7 @@ function buildContextMenuTemplate(
     template.push(
       {
         label: "Open Link in Browser",
-        enabled: canOpenExternalUrl(params.linkURL),
+        enabled: canOpenDesktopExternalUrl(params.linkURL, process.platform),
         click: () => openExternalUrl(params.linkURL),
       },
       {
@@ -7544,302 +7799,66 @@ function installContextMenu(contents: Electron.WebContents) {
 }
 
 // ---------- IPC: Window controls ----------
-
-ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize();
-});
-
-ipcMain.on(IPC.WINDOW_MAXIMIZE, (event: IpcMainEvent) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  win.isMaximized() ? win.restore() : win.maximize();
-});
-
-ipcMain.on(IPC.WINDOW_CLOSE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.close();
-});
-
-ipcMain.handle(
-  IPC.WINDOW_IS_MAXIMIZED,
-  (event: IpcMainInvokeEvent): boolean => {
-    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
-  },
-);
+// See main/ipc/window.ts.
+registerWindowIpc();
 
 // ---------- IPC: App config management ----------
-
-ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
-  return AppStore.loadApps();
+// See main/ipc/apps.ts.
+registerAppsIpc({
+  getManagedDesktopAppIds: () => Array.from(managedDesktopAppProcesses.keys()),
+  stopManagedDesktopApp,
+  refreshDesktopShortcutBindings,
+  chooseLocalAppFolder,
+  desktopAppCreationSettings,
+  normalizeDesktopAppsRoot,
+  createDesktopAppFromPrompt,
+  showDesktopAppContextMenu,
 });
 
-ipcMain.handle(
-  IPC.APPS_ADD,
-  (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
-    const apps = AppStore.addApp(app);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
-    const apps = AppStore.removeApp(id);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    id: string,
-    updates: Partial<AppConfig>,
-  ): AppConfig[] => {
-    const apps = AppStore.updateApp(id, updates);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
-  const apps = AppStore.resetToDefaults();
-  refreshDesktopShortcutBindings();
-  return apps;
+// See main/ipc/plan-files.ts.
+registerPlanFilesIpc({
+  requirePlanFilesWebviewAccess,
+  normalizePlanFilesRequestPlanId,
+  getPlanFilesGrant,
+  planFilesFolderInfo,
+  collectLocalControlResources,
+  choosePlanFilesFolder,
+  writePlanFilesForRequest,
+  readPlanFilesForRequest,
+  clearPlanFilesGrant,
 });
 
-ipcMain.handle(
-  IPC.APPS_CHOOSE_LOCAL_FOLDER,
-  (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    const grant = getPlanFilesGrant(planId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: planFilesFolderInfo(planId, grant),
-      controlResources: await collectLocalControlResources(grant.path),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CHOOSE_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesChooseFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return choosePlanFilesFolder(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesWriteRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writePlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesReadRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readPlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesClearFolderRequest,
-  ): DesktopPlanFilesResult => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    return clearPlanFilesGrant(planId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    const grants = getContentFilesGrants();
-    const grant = getContentFilesGrant(request.folderId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: contentFilesFolderInfo(grant),
-      folders: contentFilesFoldersInfo(grants),
-      controlResources: await collectLocalControlResources(grant.path),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CHOOSE_FOLDER,
-  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return chooseContentFilesFolder();
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_DELETE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileDeleteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return deleteContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_REVEAL_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileRevealRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return revealContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesClearFolderRequest = {},
-  ): DesktopContentFilesResult => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    return clearContentFilesGrant(request.folderId);
-  },
-);
+// See main/ipc/content-files.ts.
+registerContentFilesIpc({
+  requireContentFilesWebviewAccess,
+  getContentFilesGrants,
+  getContentFilesGrant,
+  contentFilesFolderInfo,
+  contentFilesFoldersInfo,
+  chooseContentFilesFolder,
+  writeContentFilesForRequest,
+  writeContentFileForRequest,
+  deleteContentFileForRequest,
+  readContentFilesForRequest,
+  revealContentFileForRequest,
+  clearContentFilesGrant,
+});
 
 // ---------- IPC: Frame settings ----------
-
-ipcMain.handle(IPC.FRAME_LOAD, () => {
-  return AppStore.loadFrameSettings();
-});
-
-ipcMain.handle(
-  IPC.FRAME_UPDATE,
-  (_event: IpcMainInvokeEvent, settings: Partial<AppStore.FrameSettings>) => {
-    return AppStore.saveFrameSettings(settings);
-  },
-);
+// See main/ipc/frame.ts.
+registerFrameIpc();
 
 // ---------- IPC: Local app-launch shortcuts ----------
-
-ipcMain.handle(IPC.SHORTCUTS_LOAD, (): DesktopShortcutSettings => {
-  return getDesktopShortcutSettings();
+// See main/ipc/shortcuts.ts.
+registerShortcutsIpc({
+  getDesktopShortcutSettings,
+  registerDesktopShortcutBindings,
 });
-
-ipcMain.handle(
-  IPC.SHORTCUTS_UPSERT,
-  (
-    _event: IpcMainInvokeEvent,
-    request: DesktopShortcutUpsertRequest,
-  ): DesktopShortcutUpdateResult => {
-    const result = AppStore.upsertDesktopShortcutBinding(request);
-    if (!result.ok) {
-      return {
-        ok: false,
-        settings: getDesktopShortcutSettings(),
-        error: result.error,
-      };
-    }
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
-
-ipcMain.handle(
-  IPC.SHORTCUTS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): DesktopShortcutUpdateResult => {
-    AppStore.removeDesktopShortcutBinding(id);
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
 
 // ---------- IPC: Inter-app message relay ----------
-// Routes messages from one app to all renderer windows so webviews can forward them.
-
-ipcMain.on(IPC.INTER_APP_SEND, (_event: IpcMainEvent, msg: InterAppMessage) => {
-  BrowserWindow.getAllWindows().forEach((win) => {
-    win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
-  });
-});
+// Routes messages from one app to all renderer windows so webviews can forward
+// them. See main/ipc/inter-app.ts.
+registerInterAppIpc();
 
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
@@ -8108,7 +8127,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       server.on("request", handleCallbackRequest);
       const callbackUrl = `http://127.0.0.1:${address.port}/_agent-native/desktop-builder/callback`;
       const authUrl = buildDesktopBuilderCliAuthUrl(callbackUrl);
-      if (!canOpenExternalUrl(authUrl)) {
+      if (!canOpenDesktopExternalUrl(authUrl, process.platform)) {
         finish({
           ok: false,
           settings: getCodeAgentProviderSettings(),
@@ -8509,7 +8528,7 @@ function shouldOpenWebviewNavigationExternally(
   url: string,
   sourceContents: Electron.WebContents,
 ): boolean {
-  if (!canOpenExternalUrl(url)) return false;
+  if (!canOpenDesktopExternalUrl(url, process.platform)) return false;
   let next: URL;
   try {
     next = new URL(url);
@@ -8540,7 +8559,11 @@ function handleWindowOpenForContents(
 
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    if (
+      parsed.protocol !== "https:" &&
+      parsed.protocol !== "http:" &&
+      !canOpenDesktopExternalUrl(url, process.platform)
+    ) {
       return { action: "deny" as const };
     }
     const provider = matchOAuthProvider(url, {
@@ -8578,6 +8601,11 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
     if (openOAuthFromWebviewNavigation(url, contents)) {
       event.preventDefault();
+      return;
+    }
+    if (process.platform === "darwin" && isAllowedMacPrivacySettingsUrl(url)) {
+      event.preventDefault();
+      openExternalUrl(url);
       return;
     }
     if (
@@ -8736,6 +8764,8 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       enabled: false,
     };
   }
+
+  const currentUpdateStatus = getCurrentUpdateStatus();
 
   if (currentUpdateStatus.state === "downloaded") {
     return {
@@ -8896,9 +8926,24 @@ function configurePermissionHandlers(
       );
     },
   );
+
+  if (targetAppId === "clips") {
+    sess.setDisplayMediaRequestHandler(
+      (_request, callback) => {
+        // The handler is only reached when Electron cannot provide the trusted
+        // system picker. Never choose a display without explicit user selection.
+        callback({});
+      },
+      {
+        // Electron currently supports its native display picker on macOS 15+.
+        useSystemPicker: process.platform === "darwin",
+      },
+    );
+  }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -9004,7 +9049,12 @@ app.whenReady().then(() => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
+  // Pairing details persist, but background access is opt-in per launch.
+  // A read-only status check must never spawn a process or unlock Keychain.
+  remoteConnectorEnabled = false;
+  if (AppStore.loadRemoteConnectorSettings().enabled) {
+    AppStore.saveRemoteConnectorSettings({ enabled: false });
+  }
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
@@ -9100,6 +9150,9 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   appIsQuitting = true;
+  for (const appId of managedDesktopAppProcesses.keys()) {
+    stopManagedDesktopApp(appId);
+  }
   pauseActiveCodeAgentProcessesForShutdown();
   if (remoteConnectorRestartTimer) {
     clearTimeout(remoteConnectorRestartTimer);
@@ -9107,6 +9160,9 @@ app.on("before-quit", () => {
   }
   remoteConnectorProcess?.kill("SIGTERM");
   remoteConnectorProcess = null;
+  void desktopComputerMcpBridge?.close();
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
 });
 
 app.on("will-quit", () => {

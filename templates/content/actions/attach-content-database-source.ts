@@ -15,6 +15,7 @@ import {
   type BuilderCmsReadResult,
 } from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
+import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   databaseSourceExistsForTable,
   enqueueBuilderBodyHydrationForItems,
@@ -32,6 +33,7 @@ import {
   sourceSetupPayload,
   storeSecondarySourceRows,
   updateBuilderCmsSourceReadMetadata,
+  updateReadOnlySourceMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -41,18 +43,46 @@ import {
 } from "./_local-table-source.js";
 
 const sourceTypeSchema = z
-  .enum(["mock-local", "builder-cms", "local-table"])
+  .enum(["mock-local", "builder-cms", "local-table", "notion-database"])
   .default("mock-local");
 const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
 
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
   readEntries: typeof readBuilderCmsContentEntries = readBuilderCmsContentEntries,
+  fieldPaths: readonly string[] = [],
 ) {
   return readEntries({
     model: sourceTable,
+    fieldPaths,
     maxPages: BUILDER_CMS_ATTACH_INITIAL_PAGES,
   });
+}
+
+export async function readInitialBuilderCmsAttachSource(
+  sourceTable: string,
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  let modelFields: BuilderCmsModelFieldSummary[] = [];
+  let modelFieldsError: unknown = null;
+  try {
+    modelFields = await readModelFields({ model: sourceTable });
+  } catch (error) {
+    modelFieldsError = error;
+  }
+  const read = await readInitialBuilderCmsAttachEntries(
+    sourceTable,
+    readEntries,
+    modelFields.map((field) => `data.${field.name}`),
+  );
+  if (modelFieldsError) throw modelFieldsError;
+  return { read, modelFields };
 }
 
 function builderReadHasMore(read: BuilderCmsReadResult | null | undefined) {
@@ -209,14 +239,23 @@ export default defineAction({
     const now = new Date().toISOString();
     const sourceType = (args.sourceType ??
       "mock-local") as ContentDatabaseSourceType;
+    if (sourceType === "notion-database" && !args.sourceTable?.trim()) {
+      throw new Error(
+        "sourceTable must be a Notion data-source ID returned by list-notion-database-sources.",
+      );
+    }
     const sourceName =
       args.sourceName?.trim() ||
-      (sourceType === "builder-cms" ? "Builder CMS" : "Mock local source");
+      (sourceType === "builder-cms"
+        ? "Builder CMS"
+        : sourceType === "notion-database"
+          ? "Notion database"
+          : "Mock local source");
     const sourceTable =
       args.sourceTable?.trim() ||
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
-    const existingSource = await getExistingSource(database.id);
+    let existingSource = await getExistingSource(database.id);
     if (sourceType === "local-table") {
       if (sourceTable === database.id) {
         throw new Error("A database can't be added as a source of itself.");
@@ -226,6 +265,41 @@ export default defineAction({
 
     const relationshipMode =
       args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
+
+    // A normal local Content database has rows but no explicit source record.
+    // Bootstrap that local snapshot before attaching a read-only details source
+    // so Notion federation works without forcing users to attach Builder first.
+    if (
+      sourceType === "notion-database" &&
+      relationshipMode === "details" &&
+      !existingSource
+    ) {
+      const setup = await sourceSetupPayload(database.id);
+      const localSourceId = await replaceSourceMetadata({
+        database,
+        source: null,
+        sourceType: "mock-local",
+        sourceName: "Local Content database",
+        sourceTable: database.id,
+        now,
+      });
+      await seedMockSourceFields({
+        sourceId: localSourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType: "mock-local",
+        properties: setup.properties,
+        now,
+      });
+      await seedMockSourceRows({
+        sourceId: localSourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType: "mock-local",
+        sourceTable: database.id,
+        items: setup.response.items,
+        now,
+      });
+      existingSource = await getExistingSource(database.id);
+    }
 
     // Adding a SECOND source as details: relate it onto the primary on the
     // canonical key. Read-only overlay — the secondary's entries are NOT
@@ -237,16 +311,35 @@ export default defineAction({
       let entries: BuilderCmsSourceEntry[];
       let modelFields: BuilderCmsModelFieldSummary[];
       let builderRead: BuilderCmsReadResult | null = null;
-      if (sourceType === "builder-cms") {
-        builderRead = await readInitialBuilderCmsAttachEntries(sourceTable);
-        entries = builderRead.state === "live" ? builderRead.entries : [];
-        modelFields = await readBuilderCmsModelFields({ model: sourceTable });
-      } else if (sourceType === "local-table") {
-        // sourceTable carries the target database id for a local-table source.
-        ({ entries, modelFields } = await readLocalTableEntries(sourceTable, {
+      let adapterMetadata: Record<string, unknown> | undefined;
+      let adapterFetchedAt = now;
+      let adapterMessage: string | null = null;
+      const adapter = getContentDatabaseSourceAdapter(sourceType);
+      if (adapter) {
+        const read = await adapter.read({
+          sourceTable,
           limit: args.limit,
           offset: args.offset,
-        }));
+        });
+        entries = read.state === "live" ? read.entries : [];
+        modelFields = read.fields;
+        adapterMetadata = read.metadata;
+        adapterFetchedAt = read.fetchedAt;
+        adapterMessage = read.message;
+        if (sourceType === "builder-cms") {
+          builderRead = {
+            state: read.state,
+            entries: read.entries,
+            fetchedAt: read.fetchedAt,
+            message: read.message,
+            progress: read.progress!,
+          };
+        }
+      } else if (sourceType === "builder-cms") {
+        const initial = await readInitialBuilderCmsAttachSource(sourceTable);
+        modelFields = initial.modelFields;
+        builderRead = initial.read;
+        entries = builderRead.state === "live" ? builderRead.entries : [];
       } else {
         entries = [];
         modelFields = [];
@@ -270,6 +363,7 @@ export default defineAction({
       await seedSecondarySourceFields({
         sourceId: secondaryId,
         ownerEmail: database.ownerEmail,
+        sourceType,
         modelFields,
         sampleEntry: entries[0],
         now,
@@ -286,6 +380,17 @@ export default defineAction({
           message: builderRead.message,
           builderModelFields: modelFields,
           ...builderCmsAttachReadMetadata(builderRead),
+        });
+      }
+      if (sourceType === "notion-database") {
+        await updateReadOnlySourceMetadata({
+          sourceId: secondaryId,
+          sourceType,
+          sourceTable,
+          fetchedAt: adapterFetchedAt,
+          now,
+          message: adapterMessage,
+          metadata: adapterMetadata,
         });
       }
       await writeSourceFederation({
@@ -327,13 +432,12 @@ export default defineAction({
       if (await databaseSourceExistsForTable(database.id, sourceTable)) {
         throw new Error(`"${sourceTable}" is already attached as a source.`);
       }
-      const additionalRead =
-        await readInitialBuilderCmsAttachEntries(sourceTable);
+      const additionalInitial =
+        await readInitialBuilderCmsAttachSource(sourceTable);
+      const additionalModelFields = additionalInitial.modelFields;
+      const additionalRead = additionalInitial.read;
       const additionalEntries =
         additionalRead.state === "live" ? additionalRead.entries : [];
-      const additionalModelFields = await readBuilderCmsModelFields({
-        model: sourceTable,
-      });
       const additionalSourceId = await insertSecondarySource({
         database,
         sourceType,
@@ -430,12 +534,24 @@ export default defineAction({
     }
 
     if (relationshipMode === "items" && existingSource) {
-      throw new Error("Only Builder sources can add more items right now.");
+      throw new Error(
+        "Only Builder sources can add more items right now. Notion database sources are read-only detail sources in this pilot.",
+      );
+    }
+
+    if (sourceType === "notion-database") {
+      throw new Error(
+        "Notion database sources are read-only detail sources in this pilot. Attach a local or Builder source first, then add Notion details with a match key.",
+      );
     }
 
     const existingSourceRows = existingSource
       ? await getSourceRows(existingSource.id)
       : [];
+    const builderInitial =
+      sourceType === "builder-cms"
+        ? await readInitialBuilderCmsAttachSource(sourceTable)
+        : null;
     const sourceId = await replaceSourceMetadata({
       database,
       source: existingSource,
@@ -444,18 +560,10 @@ export default defineAction({
       sourceTable,
       now,
     });
-    const builderRead =
-      sourceType === "builder-cms"
-        ? await readInitialBuilderCmsAttachEntries(sourceTable)
-        : null;
+    const builderModelFields = builderInitial?.modelFields ?? [];
+    const builderRead = builderInitial?.read ?? null;
     const builderEntries =
       builderRead?.state === "live" ? builderRead.entries : [];
-    const builderModelFields =
-      sourceType === "builder-cms"
-        ? await readBuilderCmsModelFields({
-            model: sourceTable,
-          })
-        : [];
     let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
     if (builderRead?.state === "live") {
       const importResult = await importBuilderCmsEntriesAsDatabaseItems({

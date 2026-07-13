@@ -7,6 +7,7 @@ export const sampleBridgeScript: string = `"use strict";
   // app/components/design/bridge/sample.bridge.ts
   (function() {
     window.addEventListener("message", function(e) {
+      if (e.source !== window.parent) return;
       if (!e.data || e.data.type !== "agent-native:sample-ping") return;
       var correlationId = e.data.correlationId ?? "";
       try {

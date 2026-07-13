@@ -85,7 +85,22 @@ pnpm action create-event \
 ```
 
 Required: `--title`, `--start`, `--end` (all ISO datetime format).
-Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`.
+Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
+
+When multiple Google accounts are connected, choose the destination account's
+primary calendar with `--accountEmail`:
+
+```bash
+pnpm action create-event \
+  --title "Team standup" \
+  --start 2026-04-03T09:00:00 \
+  --end 2026-04-03T09:30:00 \
+  --accountEmail secondary@example.com
+```
+
+Creating without `accountEmail` is only unambiguous when one Google account is
+connected. The action does not support arbitrary non-primary Google calendar
+IDs.
 
 When attendees are invited and no video link/provider is supplied, Calendar
 automatically adds a Google Meet link by default. Pass `--addGoogleMeet=false`
@@ -113,11 +128,25 @@ pnpm action create-event \
 # Working location
 pnpm action create-event \
   --title "Working from home" \
-  --start 2026-04-03T09:00:00 \
-  --end 2026-04-03T17:00:00 \
+  --start 2026-04-03 \
+  --end 2026-04-04 \
+  --allDay true \
   --eventType workingLocation \
   --workingLocationType homeOffice
 ```
+
+Working-location events sync from Google with `workingLocationProperties` and
+render as native working locations in the UI instead of generic all-day events.
+They are transparent/non-blocking for availability. Google allows timed working
+locations or single-day all-day working locations; multi-day all-day ranges must
+be represented as separate daily working-location events.
+
+For a visible occurrence in a recurring working-location series, default to
+`scope: "single"` and pass the occurrence's event `id`, not its
+`recurringEventId`. Use `scope: "all"` only when the user explicitly asks to
+change every day in the series. Keep office building/floor/desk metadata when
+editing an office label, and clear incompatible location labels when changing
+between Home, Office, and Other.
 
 Do not use `eventType` for Tasks or appointment schedules. Google Calendar
 Tasks are a separate product/API surface, and appointment schedules should use
@@ -179,10 +208,12 @@ location, attendees, reminders, attachments, color, and video provider.
 
 ### update-event
 
-Update an existing Google Calendar event. Use the event `id` from `list-events`, `search-events`, or `get-event`. If the event includes `accountEmail`, pass it through so multi-account calendars update the right connected account.
+Update an existing Google Calendar event. Use the event `id` from `list-events`,
+`search-events`, or `get-event`. Always preserve the event's `accountEmail` on
+the update so multi-account calendars use the right connected account.
 
 ```bash
-pnpm action update-event --id google-event-id --title "New title"
+pnpm action update-event --id google-event-id --accountEmail secondary@example.com --title "New title"
 pnpm action update-event --id google-event-id --start 2026-04-03T10:00:00 --end 2026-04-03T10:30:00
 
 # Replace attendee list (Google sends invites to anyone newly added)
@@ -208,6 +239,12 @@ pnpm action update-event --id google-event-id --attendees "alice@example.com" --
 pnpm action update-event --id google-event-id --addGoogleMeet=true
 pnpm action update-event --id google-event-id --addZoom=true
 
+# Update an existing working-location event's native metadata
+pnpm action update-event \
+  --id google-working-location-id \
+  --workingLocationType officeLocation \
+  --workingLocationLabel "Pier 57"
+
 # Add multiple alerts, a Google event color, and an attachment
 pnpm action update-event \
   --id google-event-id \
@@ -219,6 +256,15 @@ pnpm action update-event \
 `--attendees` REPLACES the entire attendee list — to add someone, prefer `addAttendees` so existing RSVP notes/statuses are preserved. To change whether a guest is optional or required after the fact, fetch the current list via `get-event` and pass the full `attendees` array with `optional: true` or omit/false for required. Pass an empty string to clear all attendees.
 
 For "add Zoom to this meeting", fetch or use the visible event id and call `update-event --addZoom=true`. Do not create an extension for Zoom; Zoom is a first-party calendar integration handled by the event actions and the Settings page.
+
+Google Calendar does not allow changing an existing event's `eventType`; use
+`workingLocationType` and `workingLocationLabel` only on events that already
+have `eventType: "workingLocation"`.
+
+Google Calendar API v3 currently documents working locations on Events, but the
+Settings API/discovery document does not expose working-hours settings. Treat
+working-hours overlays or Find a Time constraints as a follow-up only after a
+real provider data path exists.
 
 For recurring events, pass a Google Calendar RRULE in `--recurrence`. Example: to make a daily event weekdays only, use:
 
@@ -232,10 +278,25 @@ pnpm action update-event \
 
 Delete an event if the user is the organizer, or remove it from their own calendar with `--removeOnly true` when they are not. For recurring events, use `--scope single`, `--scope all`, or `--scope thisAndFollowing`.
 
+Pass the event's `accountEmail` on deletes, including recurring-series choices
+and attendee removals, so the operation uses the account that owns the event.
+
 ```bash
-pnpm action delete-event --id google-event-id --scope single
+pnpm action delete-event --id google-event-id --accountEmail secondary@example.com --scope single
 pnpm action delete-event --id google-event-id --scope thisAndFollowing
 pnpm action delete-event --id google-event-id --removeOnly true
+```
+
+### rsvp-event
+
+Accept, decline, or tentatively accept an invitation with the event's
+`accountEmail`. Preserve it for recurring RSVP scope as well:
+
+```bash
+pnpm action rsvp-event \
+  --id google-event-id \
+  --accountEmail secondary@example.com \
+  --status accepted
 ```
 
 ## Date Patterns

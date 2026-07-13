@@ -1,10 +1,45 @@
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
+import {
+  isValidDesignClipboardManagedStyleSnapshot,
+  type DesignClipboardManagedStyleSnapshot,
+} from "./design-clipboard-managed-styles";
+
+export interface FigmaFidelityReport {
+  exactCount: number;
+  approximated: Array<{
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+    notes: string[];
+  }>;
+  imageFallbacks: Array<{
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+    notes: string[];
+  }>;
+}
+
 export interface ImportResult {
   designId?: string;
   files?: Array<{ id: string; filename: string }>;
   warnings?: string[];
   error?: string;
+  /** Set by import-figma-clipboard: which path actually produced the screen(s). */
+  strategy?: "restNodes" | "htmlFallback";
+  /** Set by import-figma-clipboard when it fell back because no Figma token is configured. */
+  figmaApiKeyMissing?: boolean;
+  /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
+  matchStatus?: "matched" | "ambiguous" | "none" | "error";
+  fidelityReport?: FigmaFidelityReport;
+  guidance?: string;
+}
+
+export interface ImportResultNotification {
+  variant: "success" | "warning";
+  title: string;
+  description?: string;
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =
@@ -14,8 +49,11 @@ export const VISUAL_EDIT_INSTALL_COMMAND =
   "npx @agent-native/core@latest skills add visual-edit";
 
 export function hasFigmaClipboardPayload(value: string): boolean {
-  return /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
-    value,
+  return (
+    /\((figmeta|figma)\)[\s\S]*?\(\/(figmeta|figma)\)/i.test(value) ||
+    /<[^>]+\sdata-(metadata|buffer)=["'][^"']*\((figmeta|figma)\)[^"']*["']/i.test(
+      value,
+    )
   );
 }
 
@@ -44,6 +82,40 @@ export function importResultSummary(
   if (count === 0) return fallback;
   if (count === 1) return `Imported ${result!.files![0]!.filename}.`;
   return `Imported ${count} screens.`;
+}
+
+function isGenericFigFormatCaveat(warning: string): boolean {
+  return /Figma's \.fig format is proprietary and undocumented/i.test(warning);
+}
+
+/**
+ * Builds one import notification instead of stacking a success toast and a
+ * warning toast. The generic experimental `.fig` caveat is already disclosed
+ * beside the upload control, so only actionable conversion warnings belong in
+ * the transient result notification.
+ */
+export function importResultNotification(
+  result: ImportResult | undefined,
+  fallback: string,
+  options?: { fidelityWarnings?: string[] },
+): ImportResultNotification {
+  const title = importResultSummary(result, fallback);
+  const actionableWarnings = [
+    ...(result?.warnings ?? []).filter(
+      (warning) => !isGenericFigFormatCaveat(warning),
+    ),
+    ...(options?.fidelityWarnings ?? []),
+  ].slice(0, 3);
+
+  if (actionableWarnings.length === 0) {
+    return { variant: "success", title };
+  }
+
+  return {
+    variant: "warning",
+    title,
+    description: actionableWarnings.join("\n"),
+  };
 }
 
 // --- R83: safe fetch-response parsing for the file upload path ---
@@ -135,6 +207,7 @@ export interface DesignClipboardLayerEntry {
   rootNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
 export interface DesignClipboardScreenEntry {
@@ -156,6 +229,129 @@ export interface DesignClipboardPayload {
 }
 
 const CLIPBOARD_MARKER_PREFIX = "agent-native-clipboard-v1:";
+const MAX_CLIPBOARD_MARKER_DATA_CHARS = 16_000_000;
+const MAX_CLIPBOARD_CONTENT_CHARS = 8_000_000;
+const MAX_CLIPBOARD_LAYER_ENTRIES = 1_000;
+const MAX_CLIPBOARD_SCREEN_ENTRIES = 100;
+
+function clipboardString(value: unknown, max = 1_024): value is string {
+  return typeof value === "string" && value.length <= max;
+}
+
+function isPortableClipboardStyleSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.version !== 1 || !Array.isArray(snapshot.nodes)) return false;
+  if (snapshot.nodes.length > 5_000) return false;
+  if (
+    snapshot.rootSourceId !== undefined &&
+    !clipboardString(snapshot.rootSourceId)
+  ) {
+    return false;
+  }
+  return snapshot.nodes.every((rawNode) => {
+    if (!rawNode || typeof rawNode !== "object" || Array.isArray(rawNode)) {
+      return false;
+    }
+    const node = rawNode as Record<string, unknown>;
+    if (node.sourceId !== undefined && !clipboardString(node.sourceId)) {
+      return false;
+    }
+    if (
+      !Array.isArray(node.path) ||
+      node.path.length > 128 ||
+      !node.path.every((part) => Number.isInteger(part) && Number(part) >= 0)
+    ) {
+      return false;
+    }
+    if (!node.styles || typeof node.styles !== "object") return false;
+    const styles = Object.entries(node.styles as Record<string, unknown>);
+    return (
+      styles.length <= 256 &&
+      styles.every(
+        ([property, value]) =>
+          clipboardString(property, 256) && clipboardString(value, 16_384),
+      )
+    );
+  });
+}
+
+function validateDesignClipboardPayload(
+  value: unknown,
+): DesignClipboardPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  if (payload.version !== 1 || !Array.isArray(payload.entries)) return null;
+  if (payload.entries.length > MAX_CLIPBOARD_LAYER_ENTRIES) return null;
+  const screens = payload.screens;
+  if (
+    screens !== undefined &&
+    (!Array.isArray(screens) || screens.length > MAX_CLIPBOARD_SCREEN_ENTRIES)
+  ) {
+    return null;
+  }
+  let contentChars = 0;
+  for (const rawEntry of payload.entries) {
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
+      return null;
+    }
+    const entry = rawEntry as Record<string, unknown>;
+    if (
+      !clipboardString(entry.html, MAX_CLIPBOARD_CONTENT_CHARS) ||
+      !clipboardString(entry.sourceFileId) ||
+      (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
+      (entry.portableStyleSnapshot !== undefined &&
+        !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
+      (entry.managedStyleSnapshot !== undefined &&
+        !isValidDesignClipboardManagedStyleSnapshot(entry.managedStyleSnapshot))
+    ) {
+      return null;
+    }
+    contentChars += entry.html.length;
+  }
+  for (const rawScreen of (screens as unknown[] | undefined) ?? []) {
+    if (
+      !rawScreen ||
+      typeof rawScreen !== "object" ||
+      Array.isArray(rawScreen)
+    ) {
+      return null;
+    }
+    const screen = rawScreen as Record<string, unknown>;
+    if (
+      !clipboardString(screen.filename, 512) ||
+      screen.filename.includes("..") ||
+      screen.filename.includes("/") ||
+      screen.filename.includes("\\") ||
+      !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
+      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+    ) {
+      return null;
+    }
+    if (screen.canvasFrame !== undefined) {
+      if (
+        !screen.canvasFrame ||
+        typeof screen.canvasFrame !== "object" ||
+        Array.isArray(screen.canvasFrame)
+      ) {
+        return null;
+      }
+      if (
+        Object.values(screen.canvasFrame as Record<string, unknown>).some(
+          (part) =>
+            typeof part !== "number" ||
+            !Number.isFinite(part) ||
+            Math.abs(part) > 10_000_000,
+        )
+      ) {
+        return null;
+      }
+    }
+    contentChars += screen.content.length;
+  }
+  if (contentChars > MAX_CLIPBOARD_CONTENT_CHARS) return null;
+  return value as DesignClipboardPayload;
+}
 
 function encodeClipboardMarkerData(payload: DesignClipboardPayload): string {
   // btoa is UTF-16-unsafe for non-Latin1 text; encodeURIComponent first so
@@ -166,18 +362,11 @@ function encodeClipboardMarkerData(payload: DesignClipboardPayload): string {
 function decodeClipboardMarkerData(
   data: string,
 ): DesignClipboardPayload | null {
+  if (data.length > MAX_CLIPBOARD_MARKER_DATA_CHARS) return null;
   try {
     const json = decodeURIComponent(atob(data));
     const parsed = JSON.parse(json) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      (parsed as { version?: unknown }).version !== 1 ||
-      !Array.isArray((parsed as { entries?: unknown }).entries)
-    ) {
-      return null;
-    }
-    return parsed as DesignClipboardPayload;
+    return validateDesignClipboardPayload(parsed);
   } catch {
     return null;
   }
@@ -190,8 +379,10 @@ function decodeClipboardMarkerData(
 export function serializeDesignClipboardPayload(
   visibleText: string,
   payload: DesignClipboardPayload,
+  trustToken?: string,
 ): string {
-  const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${encodeClipboardMarkerData(payload)}-->`;
+  const trustedPrefix = trustToken ? `${trustToken}.` : "";
+  const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;
 }
 
@@ -202,6 +393,7 @@ export function serializeDesignClipboardPayload(
  */
 export function parseDesignClipboardMarker(
   text: string | null | undefined,
+  expectedTrustToken?: string | null,
 ): DesignClipboardPayload | null {
   if (!text) return null;
   const markerIndex = text.lastIndexOf(`<!--${CLIPBOARD_MARKER_PREFIX}`);
@@ -209,5 +401,22 @@ export function parseDesignClipboardMarker(
   const start = markerIndex + 4 + CLIPBOARD_MARKER_PREFIX.length;
   const end = text.indexOf("-->", start);
   if (end === -1) return null;
-  return decodeClipboardMarkerData(text.slice(start, end));
+  const markerData = text.slice(start, end);
+  const separator = markerData.indexOf(".");
+  if (expectedTrustToken === null) return null;
+  if (expectedTrustToken !== undefined) {
+    if (
+      separator <= 0 ||
+      markerData.slice(0, separator) !== expectedTrustToken
+    ) {
+      return null;
+    }
+    return decodeClipboardMarkerData(markerData.slice(separator + 1));
+  }
+  // The low-level parser remains able to inspect legacy markers for migration
+  // and tests. Browser paste paths always provide the per-installation trust
+  // token and therefore reject unauthenticated clipboard HTML.
+  return decodeClipboardMarkerData(
+    separator > 0 ? markerData.slice(separator + 1) : markerData,
+  );
 }

@@ -10,7 +10,9 @@
 //! Capture is reused from the existing modules:
 //!   - mic    → `native_speech::macos::start_raw_mic_capture` (AVAudioEngine +
 //!              optional VoiceProcessingIO AEC, other-audio ducking off)
-//!   - system → `system_audio::macos::start_raw_system_capture` (ScreenCaptureKit)
+//!   - meetings on macOS 15+ → one ScreenCaptureKit stream with independent
+//!              microphone + system-audio outputs
+//!   - legacy system audio → `system_audio::macos::start_raw_system_capture`
 //!
 use tauri::AppHandle;
 
@@ -107,8 +109,13 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-    use crate::native_speech::macos::{start_raw_mic_capture, RawMicCapture};
-    use crate::system_audio::macos::{start_raw_system_capture, RawSystemCapture};
+    use crate::native_speech::macos::{
+        start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
+    };
+    use crate::system_audio::macos::{
+        start_raw_meeting_capture, start_raw_system_capture, supports_sck_microphone_capture,
+        RawSckAudioCapture,
+    };
     use crate::whisper_model::{ensure_model, model_file};
 
     /// One transcript segment with real timestamps from whisper, already
@@ -571,11 +578,49 @@ mod macos {
         }
     }
 
+    fn should_use_combined_sck_capture(
+        owner: SessionOwner,
+        microphone_capture_supported: bool,
+    ) -> bool {
+        owner == SessionOwner::Meeting && microphone_capture_supported
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct SplitMicCaptureOptions {
+        voice_processing: MicVoiceProcessingMode,
+        reuse_voice_processing_engine: bool,
+    }
+
+    fn split_mic_capture_options(
+        owner: SessionOwner,
+        capture_system: bool,
+        requested_voice_processing: bool,
+    ) -> SplitMicCaptureOptions {
+        let voice_processing = match owner {
+            // If SCK microphone capture is unavailable or fails, keep a VPIO
+            // allocation so Zoom/Meet/Teams cannot starve Clips of mic buffers,
+            // but bypass its uplink processing to preserve call volume/quality.
+            SessionOwner::Meeting => MicVoiceProcessingMode::Bypassed,
+            SessionOwner::Dictation if requested_voice_processing => {
+                MicVoiceProcessingMode::Enabled
+            }
+            SessionOwner::Dictation => MicVoiceProcessingMode::Disabled,
+        };
+        SplitMicCaptureOptions {
+            voice_processing,
+            reuse_voice_processing_engine: owner == SessionOwner::Dictation
+                && !capture_system
+                && voice_processing == MicVoiceProcessingMode::Enabled,
+        }
+    }
+
     struct Session {
-        mic_cap: RawMicCapture,
+        // macOS 15+ meetings use a combined SCK capture, so there is no
+        // competing AVAudioEngine / VoiceProcessingIO mic input to stop.
+        mic_cap: Option<RawMicCapture>,
         // System capture is optional — skipped when the user turns system
         // audio off, so neither the recording nor the transcript include it.
-        sys_cap: Option<RawSystemCapture>,
+        sys_cap: Option<RawSckAudioCapture>,
         mic: Arc<WhisperStream>,
         sys: Option<Arc<WhisperStream>>,
         /// Who started this session — see `SessionOwner`.
@@ -644,8 +689,10 @@ mod macos {
         let _ = language;
         let lang: Option<String> = None;
 
-        // Mic stream + capture. The real hardware rate is read back from the
-        // capture handle and pushed into the stream (default 48 kHz until then).
+        // Create both Whisper streams first. On macOS 15+ meetings, one
+        // ScreenCaptureKit stream feeds both callbacks without opening a
+        // competing VoiceProcessingIO mic input. Older macOS versions (and a
+        // failed SCK start) keep the existing split-capture fallback.
         let session_start = Instant::now();
         let mic_stream = WhisperStream::new(
             app.clone(),
@@ -655,50 +702,92 @@ mod macos {
             ctx.clone(),
             session_start,
         );
-        let mic_for_cb = mic_stream.clone();
-        let reuse_voice_processing_engine = owner == SessionOwner::Dictation && !capture_system;
-        let mic_cap = start_raw_mic_capture(
-            app.clone(),
-            mic_device_id,
-            mic_device_label,
-            voice_processing,
-            reuse_voice_processing_engine,
-            Arc::new(move |s: &[f32]| mic_for_cb.push(s)),
-        )
-        .map_err(|e| {
-            mic_stream.stop();
-            format!("mic capture failed: {e}")
-        })?;
-        mic_stream.set_src_rate(mic_cap.sample_rate());
-
-        // System stream + capture (SCK delivers 48 kHz). Skipped entirely when
-        // system audio is off.
-        let (sys_stream, sys_cap) = if capture_system {
-            let sys_stream = WhisperStream::new(
+        let sys_stream = capture_system.then(|| {
+            WhisperStream::new(
                 app.clone(),
                 "system",
                 48000.0,
                 lang.clone(),
                 ctx.clone(),
                 session_start,
-            );
-            let sys_for_cb = sys_stream.clone();
-            let sys_cap = match start_raw_system_capture(
+            )
+        });
+        let mic_for_cb = mic_stream.clone();
+        let mic_callback: Arc<dyn Fn(&[f32]) + Send + Sync> =
+            Arc::new(move |samples: &[f32]| mic_for_cb.push(samples));
+        let system_callback: Option<Arc<dyn Fn(&[f32]) + Send + Sync>> =
+            sys_stream.as_ref().map(|stream| {
+                let stream = stream.clone();
+                Arc::new(move |samples: &[f32]| stream.push(samples))
+                    as Arc<dyn Fn(&[f32]) + Send + Sync>
+            });
+
+        let combined_cap = if should_use_combined_sck_capture(
+            owner,
+            supports_sck_microphone_capture(),
+        ) {
+            match start_raw_meeting_capture(
                 app.clone(),
-                Arc::new(move |s: &[f32]| sys_for_cb.push(s)),
+                mic_device_id.clone(),
+                mic_device_label.clone(),
+                capture_system,
+                mic_callback.clone(),
+                system_callback.clone(),
             ) {
-                Ok(cap) => cap,
-                Err(e) => {
-                    // Roll back the mic side so we don't leave a half-open meeting.
-                    sys_stream.stop();
-                    mic_stream.stop();
-                    mic_cap.stop();
-                    return Err(format!("system capture failed: {e}"));
+                Ok(cap) => {
+                    eprintln!("[whisper] using combined ScreenCaptureKit mic + system capture");
+                    Some(cap)
                 }
-            };
-            (Some(sys_stream), Some(sys_cap))
+                Err(e) => {
+                    eprintln!(
+                        "[whisper] combined ScreenCaptureKit meeting capture failed: {e}; falling back to split capture"
+                    );
+                    None
+                }
+            }
         } else {
-            (None, None)
+            None
+        };
+
+        let (mic_cap, sys_cap) = if let Some(combined_cap) = combined_cap {
+            // Both SCK outputs are configured at 48 kHz.
+            mic_stream.set_src_rate(48000.0);
+            (None, Some(combined_cap))
+        } else {
+            let mic_options = split_mic_capture_options(owner, capture_system, voice_processing);
+            let mic_cap = start_raw_mic_capture(
+                app.clone(),
+                mic_device_id,
+                mic_device_label,
+                mic_options.voice_processing,
+                mic_options.reuse_voice_processing_engine,
+                mic_callback,
+            )
+            .map_err(|e| {
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                format!("mic capture failed: {e}")
+            })?;
+            mic_stream.set_src_rate(mic_cap.sample_rate());
+
+            let sys_cap = if let Some(system_callback) = system_callback {
+                match start_raw_system_capture(app.clone(), system_callback) {
+                    Ok(cap) => Some(cap),
+                    Err(e) => {
+                        if let Some(sys_stream) = &sys_stream {
+                            sys_stream.stop();
+                        }
+                        mic_stream.stop();
+                        mic_cap.stop();
+                        return Err(format!("system capture failed: {e}"));
+                    }
+                }
+            } else {
+                None
+            };
+            (Some(mic_cap), sys_cap)
         };
 
         let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
@@ -750,7 +839,9 @@ mod macos {
             sys.stop();
         }
         // Stop captures so no more samples arrive while workers flush.
-        session.mic_cap.stop();
+        if let Some(mic_cap) = session.mic_cap {
+            mic_cap.stop();
+        }
         if let Some(sys_cap) = session.sys_cap {
             sys_cap.stop();
         }
@@ -768,5 +859,67 @@ mod macos {
             std::thread::sleep(Duration::from_millis(50));
         }
         eprintln!("[whisper] meeting transcription stopped");
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{should_use_combined_sck_capture, split_mic_capture_options, SessionOwner};
+        use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn combined_sck_capture_is_only_selected_for_supported_meetings() {
+            assert!(should_use_combined_sck_capture(SessionOwner::Meeting, true));
+            assert!(!should_use_combined_sck_capture(
+                SessionOwner::Meeting,
+                false
+            ));
+            assert!(!should_use_combined_sck_capture(
+                SessionOwner::Dictation,
+                true
+            ));
+        }
+
+        #[test]
+        fn meeting_split_capture_uses_bypassed_voice_processing() {
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Meeting, true, false),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Bypassed,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Meeting, false, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Bypassed,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+        }
+
+        #[test]
+        fn dictation_split_capture_preserves_requested_processing() {
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, false, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Enabled,
+                    reuse_voice_processing_engine: true,
+                }
+            );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, true, false),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Disabled,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+            assert_eq!(
+                split_mic_capture_options(SessionOwner::Dictation, true, true),
+                super::SplitMicCaptureOptions {
+                    voice_processing: MicVoiceProcessingMode::Enabled,
+                    reuse_voice_processing_engine: false,
+                }
+            );
+        }
     }
 }

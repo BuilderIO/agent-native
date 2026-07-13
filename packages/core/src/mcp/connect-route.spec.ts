@@ -316,7 +316,7 @@ describe("handleMcpConnect", () => {
       expect(verified).toMatchObject({
         userEmail: "u@example.com",
         clientId: "agent-native-connect",
-        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+        scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
@@ -609,7 +609,7 @@ describe("handleMcpConnect", () => {
         orgId: "org-7",
         orgDomain: "builder.io",
         clientId: "agent-native-connect",
-        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+        scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,

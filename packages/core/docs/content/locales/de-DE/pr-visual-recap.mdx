@@ -123,6 +123,28 @@ Referenzdateien, mit denen der Skill geliefert wird. Wenn Ihr Repo absichtlich a
 pinnen den festgeschriebenen `visual-recap`-Ordner an und legen die Repository-Variable fest
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Runner-Auswahl
+
+Standardmäßig wird der Workflow auf von GitHub gehosteten `ubuntu-latest`-Runnern ausgeführt. Um einen anderen gehosteten Runner oder einen eigenen selbst gehosteten Runner zu verwenden, setzen Sie die Repository- oder Organisationsvariable `VISUAL_RECAP_RUNS_ON` auf eine gültige JSON-Zeichenfolge oder ein JSON-Array mit Runner-Labels:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+Die JSON-Anführungszeichen sind erforderlich. Dieser Wert wählt den Runner für den vollständigen `recap`-Job. Übergeben Sie zur Konfiguration während der geführten Einrichtung denselben JSON-Wert an `--runs-on` und prüfen Sie anschließend den Workflow und die Verfügbarkeit des Runners mit `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+Das einfache Gate verwendet separat `ubuntu-latest`. Repositorys ohne von GitHub gehostete Runner können `VISUAL_RECAP_GATE_RUNS_ON` auf ein einzelnes Klartext-Label ohne JSON setzen oder `--gate-runs-on visual-recap-gate` verwenden. Das benutzerdefinierte Label gilt nur für `OWNER`-, `MEMBER`- oder `COLLABORATOR`-Autoren desselben Repositorys; Forks und andere Autoren werden auf `ubuntu-latest` gezwungen und können ohne GitHub-gehostete Runner ungeplant bleiben. Nutzen Sie einen dedizierten, möglichst kurzlebigen Runner: Das Standard-Gate checkt den PR-Baum nicht aus und wertet Workflow-Logik sowie PR-Metadaten aus.
+
+`recap doctor` lehnt fehlerhaftes oder nicht unterstütztes JSON ab und meldet, wenn GitHub keinen Online-Runner bereitstellt, der alle konfigurierten Labels erfüllt. Registrierung, Installation, Upgrades, Kapazität und Wartung des Runners liegen weiterhin in Ihrer Verantwortung; Agent Native wählt die Labels aus, stellt oder betreibt den Runner jedoch nicht.
+
+**Sicherheit:** Bevorzugen Sie kurzlebige selbst gehostete Runner. Persistente selbst gehostete Runner sollten nur privaten Repositorys mit vertrauenswürdigen Mitwirkenden dienen. Der Workflow bricht ab, bevor selbst gehostete Arbeit für nicht vertrauenswürdige Autoren öffentlicher oder Fork-PRs eingeplant wird, doch eine persistente Maschine behält zwischen Jobs weiterhin Arbeitsbereichs- und Prozesszustand. Schwächen Sie dieses Gate nicht ab und leiten Sie keine nicht vertrauenswürdigen Beiträge an einen persistenten Runner weiter.
+
 ## Backend-Auswahl
 
 Wählen Sie mit der Repository-Variable `VISUAL_RECAP_AGENT` aus, welcher Codierungsagent den Skill ausführt:
@@ -138,11 +160,11 @@ Wenn die Variable nicht gesetzt ist, verwendet die Aktion `claude`.
 
 Über das Backend hinaus optimieren zwei Repository-Variablen, _wie_ der Agent ausgeführt wird:
 
-- **`VISUAL_RECAP_MODEL`** pinnt das an CLI (`--model`) übergebene Modell – zum Beispiel `gpt-5.5` für Codex oder eine Claude-Modell-ID. Lassen Sie es deaktiviert, um das eigene Standardmodell des CLI zu verwenden.
+- **`VISUAL_RECAP_MODEL`** pinnt das an CLI (`--model`) übergebene Modell – zum Beispiel `gpt-5.6-sol` für Codex oder eine Claude-Modell-ID. Lassen Sie es deaktiviert, um das eigene Standardmodell des CLI zu verwenden.
 - **`VISUAL_RECAP_REASONING`** legt die Argumentationstiefe fest: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Es gilt für das Codex-Backend; Die Argumentation von Claude ist modellgesteuert, daher wird diese Variable dort ignoriert.
 - **`VISUAL_RECAP_SKILL_SOURCE`** steuert die Aktualität der Eingabeaufforderung: `auto`/unset verwendet die neueste gebündelte Skill-Anleitung, während `repo` an den festgeschriebenen Repository-lokalen `visual-recap`-Skill-Ordner angeheftet wird.
 
-Um beispielsweise die Zusammenfassung auf Codex mit GPT-5.5 bei hoher Argumentation auszuführen, legen Sie die Repository-Variablen `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5` und `VISUAL_RECAP_REASONING=high` fest.
+Um beispielsweise die Zusammenfassung auf Codex mit GPT-5.6 Sol bei hoher Argumentation auszuführen, legen Sie die Repository-Variablen `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` und `VISUAL_RECAP_REASONING=high` fest.
 
 ## Geheimnisse und Variablen
 
@@ -191,7 +213,7 @@ echtes Token.
 | ------------------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                                 | Geheimnis. Zusammen mit `VISUAL_RECAP_AGENT=codex` einstellen, um die Zusammenfassung stattdessen mit Codex auszuführen.                                    |
 | `VISUAL_RECAP_AGENT`     | `claude`                          | Variable. Wählt das Coding-Agent-Backend (`claude` oder `codex`) aus.                                                                                       |
-| `VISUAL_RECAP_MODEL`     | die Standardeinstellung jedes CLI | Variable. Steckt das Modell fest – z.B. `gpt-5.5` für Codex oder eine Claude-Modell-ID. Unset verwendet die eigene Standardeinstellung von CLI.             |
+| `VISUAL_RECAP_MODEL`     | die Standardeinstellung jedes CLI | Variable. Steckt das Modell fest – z.B. `gpt-5.6-sol` für Codex oder eine Claude-Modell-ID. Unset verwendet die eigene Standardeinstellung von CLI.         |
 | `VISUAL_RECAP_REASONING` | Standardeinstellung jedes Modells | Variable. Argumentationstiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                         |
 | `RECAP_CLI_VERSION`      | `latest`                          | Variable. Pinnt die `@agent-native/core` CLI-Version, die der Workflow installiert – z. B. `1.5.0`. Siehe [Version pinning](#version-pinning-copy-variant). |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`   | Geheimnis. Nur beim Selbsthosten der Plans-App an einem anderen Ursprung.                                                                                   |
@@ -460,10 +482,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Es gelten die gleichen Geheimnisse und Variablen wie in [Secrets and variables](#secrets-and-variables) beschrieben – legen Sie sie in Ihren Repo-Einstellungen auf die gleiche Weise fest wie für die Kopiervariante.
+Es gelten dieselben Geheimnisse und Variablen wie unter [Secrets and variables](#secrets-and-variables). Der wiederverwendbare Aufrufer leitet `VISUAL_RECAP_RUNS_ON` als `runs-on` für den vollständigen Job und `VISUAL_RECAP_GATE_RUNS_ON` als einfaches `gate-runs-on`-Label für das Gate weiter. Ohne Eingabe verwenden beide `ubuntu-latest`.
 
 ### Installation über CLI
 

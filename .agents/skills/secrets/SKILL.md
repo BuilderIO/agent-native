@@ -170,9 +170,13 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 - Values are stored in `app_secrets` (created on-demand; no migration
   needed).
 - Encrypted at rest with AES-256-GCM. Key material is derived from
-  `SECRETS_ENCRYPTION_KEY` (preferred) or `BETTER_AUTH_SECRET` (fallback).
-  If neither is set, the framework uses a machine-local fallback and logs a
-  one-time warning — set `SECRETS_ENCRYPTION_KEY` in production.
+  `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set (for example,
+  `ANALYTICS_SECRETS_ENCRYPTION_KEY`), then `SECRETS_ENCRYPTION_KEY`, then
+  `BETTER_AUTH_SECRET`. App-scoped keys are useful when a local multi-app
+  workspace connects one app to its production database without replacing the
+  shared local authentication secret. If none is set, the framework uses a
+  machine-local fallback and logs a one-time warning — set stable key material
+  in production and in every runtime that reads the same encrypted data.
 
 ## Ad-hoc Keys
 

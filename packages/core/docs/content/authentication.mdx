@@ -15,7 +15,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
-<Diagram id="doc-block-f8rmmq" title="Three ways in, one session" summary="Browser visitors, programmatic MCP clients, and custom providers all resolve to the same AuthSession that downstream scoping reads.">
+<Diagram id="doc-block-f8rmmq" title="Three ways in, one session" summary="Browser visitors, MCP hosts, and custom providers all resolve to the same AuthSession that downstream scoping reads.">
 
 ```html
 <div class="auth-modes">
@@ -285,7 +285,7 @@ Unauthenticated MCP requests return a `WWW-Authenticate` challenge pointing at `
 
 </Diagram>
 
-Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, and/or `mcp:apps` scopes, and are audience-bound to the exact MCP resource URL. Refresh tokens are stored only as hashes and rotate on every refresh. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
+Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access` scopes, and are audience-bound to the exact MCP resource URL. `offline_access` is advertised for hosts such as ChatGPT that require it before retaining refresh access. Refresh tokens are stored only as hashes and rotate on every refresh. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
 
 `npx @agent-native/core@latest connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `npx @agent-native/core@latest connect --token <token>` fallback to write an explicit bearer-token entry.
 
@@ -293,8 +293,7 @@ Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECR
 
 Pass a custom `getSession` callback to use any auth provider (Clerk, Auth0, Firebase, etc.):
 
-```ts
-// server/plugins/auth.ts
+```ts filename="server/plugins/auth.ts"
 import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
@@ -381,7 +380,7 @@ Templates with **public pages** (share links, embeds, marketing pages) often nee
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (any flow — token, email/password, or Google OAuth), the viewer is 302'd to `return`.
+When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (any flow — token, email/password, or Google OAuth), the browser returns to `return`.
 
 The `return` parameter is validated as a **same-origin path**. Network-path references (`//evil.com/...`), absolute URLs, `data:` / `javascript:` schemes, and embedded control characters all fall back to `/`. The validated path is reconstructed from the URL parser, not echoed back from the input.
 
@@ -402,7 +401,7 @@ function SignInCta() {
 
 ### Bookmarked private paths
 
-When an anonymous user navigates directly to a private path like `/dashboard`, the framework already serves the login page at that URL — after successful sign-in, the page reloads and the user lands on `/dashboard`. No special handling needed; this works for token, email/password, **and** Google OAuth.
+Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/_agent-native/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
 ### Behind the scenes: Google OAuth
 
@@ -443,3 +442,11 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | `ACCESS_TOKEN`                          | Static bearer fallback for MCP/connect clients; not browser auth                                                                             |
 | `ACCESS_TOKENS`                         | Comma-separated static bearer fallbacks for MCP/connect clients; not browser auth                                                            |
 | `A2A_SECRET`                            | Shared secret for JWT-signed A2A cross-app identity verification and, when present, MCP OAuth access-token signing                           |
+
+## What's next
+
+- [**Multi-Tenancy**](/docs/multi-tenancy) — the org-management surface built on top of `session.orgId`
+- [**Security — Data Scoping**](/docs/security#data-scoping) — the `session.orgId → AGENT_ORG_ID → SQL` pipeline and access guards
+- [**Cross-App SSO**](/docs/cross-app-sso) — sharing sign-in across first-party hosted apps that each have their own auth database
+- [**Sharing**](/docs/sharing) — sharing individual resources between authenticated users and orgs
+- [**MCP Protocol**](/docs/mcp-protocol) — the MCP surface that Remote MCP OAuth authenticates into

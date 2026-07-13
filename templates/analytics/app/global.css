@@ -149,6 +149,16 @@
   background-color: hsl(var(--background)) !important;
 }
 
+.analytics-chat-panel .agent-thread-content {
+  padding-top: 4.5rem;
+}
+
+.analytics-chat-panel
+  [data-agent-page-chat-scrolled]
+  [data-agent-page-chat-fade] {
+  opacity: 1;
+}
+
 @media (max-width: 767px) {
   .analytics-chat-panel [data-agent-page-new-chat] {
     display: none;
@@ -176,7 +186,7 @@
   .analytics-chat-intro {
   display: grid;
   width: 100%;
-  max-width: min(760px, 90%);
+  max-width: min(684px, 90%);
   gap: 0.5rem;
   margin: 0 auto 1rem;
   text-align: center;
@@ -213,12 +223,12 @@
   [data-agent-empty-state="centered"]
   .agent-plan-mode-callout {
   width: 100%;
-  max-width: min(760px, 90%);
+  max-width: min(684px, 90%);
   padding: 0;
 }
 
 .analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
-  min-height: 10.5rem;
+  min-height: 7.875rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
   background: hsl(var(--card));
@@ -235,70 +245,12 @@
   transform-origin: top left;
 }
 
-/* First-party visitor-cursor styles for rrweb playback. These are bundled
-   statically so the cursor stays visible even if the lazily imported
-   `@rrweb/replay/dist/style.css` sheet fails to load, and they replace the
-   default black arrow sprite with an app-styled indicator. The cursor lives
-   inside `.replayer-wrapper`, so it scales with the fit-to-stage transform. */
-.an-replay-stage-root .replayer-mouse {
-  position: absolute;
-  z-index: 2;
-  width: 1.125rem;
-  height: 1.5rem;
-  border-radius: 0;
-  background: transparent;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition:
-    left 80ms linear,
-    top 80ms linear;
-  pointer-events: none;
-}
-
-.an-replay-stage-root .replayer-mouse::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: hsl(0 0% 100%);
-  clip-path: polygon(0 0, 0 77%, 30% 57%, 48% 100%, 68% 92%, 50% 51%, 92% 51%);
-  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.95))
-    drop-shadow(0 1px 3px hsl(0 0% 0% / 0.35));
-}
-
+/* IMPORTANT: Keep rrweb's stock SVG arrow. Only suppress its permanently
+   visible purple ::after disc, which can otherwise read as the cursor itself
+   when the arrow is small. The stock .active animation still supplies the
+   brief click halo. Do not replace the arrow with an app-colored dot. */
 .an-replay-stage-root .replayer-mouse::after {
-  content: "";
-  position: absolute;
-  left: -0.5rem;
-  top: -0.5rem;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 9999px;
-  border: 2px solid hsl(217 91% 60%);
-  background: transparent;
   opacity: 0;
-}
-
-/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
-.an-replay-stage-root .replayer-mouse.active::after {
-  animation: an-replay-mouse-click 0.4s ease-out 1;
-}
-
-@keyframes an-replay-mouse-click {
-  0% {
-    opacity: 0.5;
-    transform: scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(3.5);
-  }
-}
-
-.an-replay-stage-root .replayer-mouse-tail {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {
@@ -378,7 +330,7 @@
 .analytics-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-prosemirror {
-  min-height: 6.75rem;
+  min-height: 5.0625rem;
   font-size: 1rem;
   line-height: 1.625rem;
 }
@@ -416,7 +368,7 @@
   .analytics-chat-panel
     [data-agent-empty-state="centered"]
     .agent-composer-root {
-    min-height: 9rem;
+    min-height: 6.75rem;
   }
 }
 
@@ -503,6 +455,11 @@
   overflow-wrap: anywhere;
 }
 
+.analytics-sessions-filter-search {
+  flex: 1 1 100%;
+  order: 4;
+}
+
 @container agent-native-main (min-width: 720px) {
   .analytics-sessions-page {
     padding-inline: 1.5rem;
@@ -510,6 +467,15 @@
 }
 
 @container analytics-sessions (min-width: 640px) {
+  .analytics-sessions-filter-bar {
+    flex-wrap: nowrap;
+  }
+
+  .analytics-sessions-filter-search {
+    flex: 1 1 0;
+    order: initial;
+  }
+
   .analytics-session-row {
     grid-template-columns: 104px minmax(0, 0.9fr) minmax(0, 1.15fr);
     align-items: center;
@@ -540,21 +506,6 @@
 
   .analytics-session-badges {
     justify-content: flex-end;
-  }
-
-  .analytics-sessions-filter-extra {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@container analytics-sessions (min-width: 920px) {
-  .analytics-sessions-filter-grid {
-    grid-template-columns: 150px minmax(260px, 1fr) 160px auto auto;
-    align-items: center;
-  }
-
-  .analytics-sessions-filter-label {
-    min-width: 0;
   }
 }
 
@@ -602,6 +553,7 @@
 .dashboard-grid-container {
   --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;
+  gap: 0;
 }
 
 .dashboard-grid {
@@ -632,6 +584,16 @@
 .dashboard-column-drop-slot {
   height: 1.5rem;
   margin-block: -0.75rem;
+}
+
+/* At compact widths, panels from the same dashboard row stack vertically.
+   Give the drop targets between those panels the same 1rem footprint as the
+   row drop targets so every adjacent chart has consistent spacing. */
+@container dashboard-grid (max-width: 767px) {
+  .dashboard-grid
+    > .dashboard-column-drop-slot:not(:first-child):not(:last-child) {
+    margin-block: -0.25rem;
+  }
 }
 
 .dashboard-row-drop-slot::after,

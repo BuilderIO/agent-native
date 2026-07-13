@@ -9,7 +9,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -124,7 +124,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const isSignedIn = !!currentUserEmail;
   const isSharePresentation = presentation === "share";
   const [draft, setDraft] = useState("");
+  const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const replyComposerRef = useRef<HTMLTextAreaElement>(null);
 
   const queryClient = useQueryClient();
 
@@ -295,51 +297,58 @@ export function CommentsPanel(props: CommentsPanelProps) {
     [threads],
   );
 
-  function submit() {
-    const text = draft.trim();
+  function submitDraft(value: string, target: Comment | null) {
+    const text = value.trim();
     if (!text) return;
     if (!isSignedIn && onUnauthenticated) {
       onUnauthenticated("comment");
       return;
     }
-    const vars = replyTo
+    const vars = target
       ? {
           recordingId,
           content: text,
-          videoTimestampMs: replyTo.videoTimestampMs,
-          threadId: replyTo.threadId,
-          parentId: replyTo.id,
+          videoTimestampMs: target.videoTimestampMs,
+          threadId: target.threadId,
+          parentId: target.id,
         }
       : { recordingId, content: text, videoTimestampMs: currentMs };
     // Clear composer state before firing the mutation so the UI feels instant —
     // the optimistic cache patch in onMutate puts the comment in the list.
-    setDraft("");
-    setReplyTo(null);
+    if (target) {
+      setReplyDraft("");
+      setReplyTo(null);
+    } else {
+      setDraft("");
+    }
     addComment.mutate(vars);
+  }
+
+  function openReply(root: Comment) {
+    if (!isSignedIn && onUnauthenticated) {
+      onUnauthenticated("comment");
+      return;
+    }
+    setReplyTo(root);
+    setTimeout(() => replyComposerRef.current?.focus(), 0);
   }
 
   const composer = (
     <CommentComposer
       draft={draft}
-      replyTo={replyTo}
       currentMs={currentMs}
       currentUserEmail={currentUserEmail}
       isSignedIn={isSignedIn}
       isSharePresentation={isSharePresentation}
       enableComments={enableComments}
       onDraftChange={setDraft}
-      onCancelReply={() => setReplyTo(null)}
-      onSubmit={submit}
+      onSubmit={() => submitDraft(draft, null)}
       onUnauthenticated={onUnauthenticated}
     />
   );
 
   return (
     <div className="flex h-full flex-col">
-      {isSharePresentation && enableComments ? (
-        <div className="border-b border-border px-4 py-4">{composer}</div>
-      ) : null}
-
       <div
         className={cn(
           "flex-1 overflow-y-auto",
@@ -362,13 +371,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                     comment={root}
                     currentUserEmail={currentUserEmail}
                     onSeek={onSeek}
-                    onReply={() => {
-                      if (!isSignedIn && onUnauthenticated) {
-                        onUnauthenticated("comment");
-                        return;
-                      }
-                      setReplyTo(root);
-                    }}
+                    onReply={() => openReply(root)}
                     onResolve={(id, resolved) =>
                       resolve.mutate({ id, resolved })
                     }
@@ -386,13 +389,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                             comment={r}
                             currentUserEmail={currentUserEmail}
                             onSeek={onSeek}
-                            onReply={() => {
-                              if (!isSignedIn && onUnauthenticated) {
-                                onUnauthenticated("comment");
-                                return;
-                              }
-                              setReplyTo(root);
-                            }}
+                            onReply={() => openReply(root)}
                             onResolve={(id, resolved) =>
                               resolve.mutate({ id, resolved })
                             }
@@ -407,6 +404,18 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       ))}
                     </ul>
                   ) : null}
+                  {replyTo?.threadId === root.threadId ? (
+                    <InlineReplyComposer
+                      draft={replyDraft}
+                      textareaRef={replyComposerRef}
+                      onDraftChange={setReplyDraft}
+                      onCancel={() => {
+                        setReplyDraft("");
+                        setReplyTo(null);
+                      }}
+                      onSubmit={() => submitDraft(replyDraft, replyTo)}
+                    />
+                  ) : null}
                 </li>
               );
             })}
@@ -414,7 +423,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
         )}
       </div>
 
-      {!isSharePresentation ? composer : null}
+      {isSharePresentation && enableComments ? (
+        <div className="border-t border-border px-4 py-4">{composer}</div>
+      ) : !isSharePresentation ? (
+        composer
+      ) : null}
     </div>
   );
 }
@@ -469,26 +482,22 @@ function EmptyCommentsState({
 
 function CommentComposer({
   draft,
-  replyTo,
   currentMs,
   currentUserEmail,
   isSignedIn,
   isSharePresentation,
   enableComments,
   onDraftChange,
-  onCancelReply,
   onSubmit,
   onUnauthenticated,
 }: {
   draft: string;
-  replyTo: Comment | null;
   currentMs: number;
   currentUserEmail?: string;
   isSignedIn: boolean;
   isSharePresentation: boolean;
   enableComments: boolean;
   onDraftChange: (value: string) => void;
-  onCancelReply: () => void;
   onSubmit: () => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
 }) {
@@ -547,19 +556,7 @@ function CommentComposer({
           : "space-y-2 border-t border-border p-3",
       )}
     >
-      {replyTo ? (
-        <div className="flex items-center justify-between rounded bg-accent/50 px-2 py-1 text-xs text-muted-foreground">
-          <span>
-            {t("commentsPanel.replyingTo")}{" "}
-            <span className="font-medium text-foreground">
-              {displayName(replyTo)}
-            </span>
-          </span>
-          <button onClick={onCancelReply} className="hover:text-foreground">
-            {t("common.cancel")}
-          </button>
-        </div>
-      ) : !isSharePresentation ? (
+      {!isSharePresentation ? (
         <div className="px-1 text-[11px] text-muted-foreground">
           {t("commentsPanel.commentAt")}{" "}
           <span className="font-mono">{msToClock(currentMs)}</span>
@@ -582,11 +579,7 @@ function CommentComposer({
         <Textarea
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
-          placeholder={
-            replyTo
-              ? t("commentsPanel.writeReply")
-              : t("commentsPanel.leaveComment")
-          }
+          placeholder={t("commentsPanel.leaveComment")}
           className={cn(
             "resize-none text-sm",
             isSharePresentation
@@ -608,6 +601,61 @@ function CommentComposer({
             "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90",
             isSharePresentation && "size-8",
           )}
+        >
+          <IconSend className="size-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function InlineReplyComposer({
+  draft,
+  textareaRef,
+  onDraftChange,
+  onCancel,
+  onSubmit,
+}: {
+  draft: string;
+  textareaRef: Ref<HTMLTextAreaElement>;
+  onDraftChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="ml-9 mt-2 rounded-lg border border-border bg-muted/20 p-2">
+      <Textarea
+        ref={textareaRef}
+        autoFocus
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder={t("commentsPanel.writeReply")}
+        className="min-h-16 resize-none bg-background text-sm"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          size="icon"
+          onClick={onSubmit}
+          disabled={!draft.trim()}
+          aria-label={t("commentsPanel.writeReply")}
+          className="size-8 bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <IconSend className="size-4" />
         </Button>
@@ -669,6 +717,8 @@ function CommentCard({
     return updatedReactions;
   }
 
+  const commentContent = linkifyCommentContent(comment.content);
+
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
@@ -699,7 +749,7 @@ function CommentCard({
           ) : null}
         </div>
         <p className="text-sm text-foreground whitespace-pre-wrap break-words mt-0.5">
-          {comment.content}
+          {commentContent}
         </p>
 
         <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
@@ -806,6 +856,101 @@ function CommentCard({
       </div>
     </div>
   );
+}
+
+const COMMENT_URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
+const ALWAYS_TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  "!",
+  "?",
+  ";",
+  ":",
+  "'",
+  '"',
+]);
+const PAIRED_TRAILING_PUNCTUATION: Record<string, string> = {
+  ")": "(",
+  "]": "[",
+  "}": "{",
+};
+
+function trimTrailingUrlPunctuation(value: string): {
+  url: string;
+  trailing: string;
+} {
+  let end = value.length;
+
+  while (end > 0) {
+    const lastCharacter = value[end - 1];
+    if (ALWAYS_TRAILING_PUNCTUATION.has(lastCharacter)) {
+      end -= 1;
+      continue;
+    }
+
+    const openingCharacter = PAIRED_TRAILING_PUNCTUATION[lastCharacter];
+    if (openingCharacter) {
+      const candidate = value.slice(0, end);
+      const openingCount = candidate.split(openingCharacter).length - 1;
+      const closingCount = candidate.split(lastCharacter).length - 1;
+      if (closingCount > openingCount) {
+        end -= 1;
+        continue;
+      }
+    }
+
+    break;
+  }
+
+  return {
+    url: value.slice(0, end),
+    trailing: value.slice(end),
+  };
+}
+
+function linkifyCommentContent(content: string): React.ReactNode[] {
+  const result: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(COMMENT_URL_PATTERN)) {
+    const matchIndex = match.index;
+    const matchedText = match[0];
+    const { url, trailing } = trimTrailingUrlPunctuation(matchedText);
+    const href = url.toLowerCase().startsWith("www.") ? `https://${url}` : url;
+
+    let isValidUrl = false;
+    try {
+      isValidUrl = Boolean(new URL(href).hostname);
+    } catch {
+      // Leave malformed URL-like text unlinked.
+    }
+
+    if (!isValidUrl) continue;
+
+    if (matchIndex > lastIndex) {
+      result.push(content.slice(lastIndex, matchIndex));
+    }
+    result.push(
+      <a
+        key={`${matchIndex}-${url}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary hover:underline"
+      >
+        {url}
+      </a>,
+    );
+    if (trailing) result.push(trailing);
+
+    lastIndex = matchIndex + matchedText.length;
+  }
+
+  if (lastIndex < content.length) {
+    result.push(content.slice(lastIndex));
+  }
+
+  return result;
 }
 
 function parseReactions(raw: string): Record<string, string[]> {

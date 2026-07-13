@@ -17,7 +17,6 @@ import type {
   PlanVersionListResponse,
 } from "@shared/types";
 import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import type { RefObject } from "react";
 import { toast } from "sonner";
 
 import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
@@ -337,23 +336,17 @@ export function localPlanBundleQueryKey(slug: string, path?: string | null) {
   ] as const;
 }
 
-export function usePlan(
-  id?: string,
-  pausePollRef?: RefObject<boolean> | { current: boolean },
-) {
+export function usePlan(id?: string) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
     planBundleQueryParams(id ?? ""),
     {
       enabled: !!id,
-      // Pause the 3-second poll while a comment mutation is in-flight so
-      // an optimistic comment inserted into the cache isn't evicted before
-      // the server write commits (Issue 4a).
-      refetchInterval: (query: { state: { status: string } }) => {
-        if (query.state.status === "error") return false;
-        if (pausePollRef?.current) return false;
-        return 3_000;
-      },
+      // Mutating actions and collaboration writes already arrive through the
+      // shared useDbSync SSE/poll transport, which invalidates active action
+      // reads. Keep the last bundle visible during that targeted refresh and
+      // avoid repeatedly downloading the full plan while nothing changed.
+      placeholderData: (previous) => previous,
     },
   );
 }

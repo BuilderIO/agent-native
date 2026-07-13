@@ -11,7 +11,7 @@ Actions est la source unique de vérité pour tout ce que fait votre application
 - **Hooks Typesafe React** — `useActionQuery("name")` et `useActionMutation("name")` sur le frontend, types déduits du schéma.
 - **Appels client impératifs** — `callAction("name", params)` lorsqu'un hook ne rentre pas.
 - **Framework transport** — monté automatiquement par le framework derrière ces hooks et disponible pour les clients HTTP externes.
-- **Un outil MCP** — exposé aux applications Claude, ChatGPT personnalisées MCP, Claude Desktop/Code, Cursor, Codex et tout autre client MCP.
+- **Un outil MCP** — exposé aux applications Claude, ChatGPT personnalisées MCP, Claude Desktop/Code, Cursor, Codex et tout autre hôte MCP.
 - **Un outil A2A** — appelé par d'autres applications natives d'agent via A2A.
 - **Une commande CLI** — `pnpm action <name>` pour les scripts et les boucles de développement.
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-Conservez `link` comme solution de secours pour les clients CLI et MCP non-UI ; c'est également la cible de lancement de l'intégration. Le pont d'intégration (session de démarrage d'intégration signée, rendu de transplantation ou d'image contrôlée, pont hôte `ui/*`, CSP et serrage en hauteur) appartient à [External Agents](/docs/external-agents#mcp-app-bridge).
+Conservez `link` comme solution de secours pour la CLI et les hôtes MCP sans interface utilisateur ; c'est également la cible de lancement de l'intégration. Le pont d'intégration (session de démarrage d'intégration signée, rendu de transplantation ou d'image contrôlée, pont hôte `ui/*`, CSP et serrage en hauteur) appartient à [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## actions standard {#standard-actions}
 

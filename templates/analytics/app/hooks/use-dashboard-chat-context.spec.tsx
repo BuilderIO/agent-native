@@ -5,12 +5,22 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
+  SIDEBAR_STATE_CHANGE_EVENT: "agent-panel:state-change",
+  agentContextItems: [] as Array<{
+    key: string;
+    title: string;
+    context: string;
+  }>,
   deleteClientAppState: vi.fn(async () => {}),
   getBrowserTabId: vi.fn(() => "test-tab"),
   readClientAppState: vi.fn(async () => null),
   removeAgentChatContextItem: vi.fn(),
   setAgentChatContextItem: vi.fn(),
   setClientAppState: vi.fn(async () => {}),
+  useAgentChatContext: vi.fn(() => ({
+    items: clientMocks.agentContextItems,
+    updatedAt: 0,
+  })),
 }));
 
 vi.mock("@agent-native/core/client", () => clientMocks);
@@ -28,12 +38,61 @@ function Harness({ id }: { id: string | null }) {
   return null;
 }
 
+function PanelHarness() {
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: "dash-1",
+    kind: "sql",
+    title: "Revenue",
+  });
+  return (
+    <>
+      <button
+        data-action="passive-select"
+        data-selected={selectedPanelId === "panel-1" ? "true" : "false"}
+        onClick={() =>
+          selectPanelForChat({
+            panelId: "panel-1",
+            panelTitle: "ARR by month",
+            panelKind: "chart",
+            chartType: "line",
+            source: "bigquery",
+          })
+        }
+      />
+      <button
+        data-action="open-chat"
+        onClick={() =>
+          selectPanelForChat(
+            {
+              panelId: "panel-1",
+              panelTitle: "ARR by month",
+              panelKind: "chart",
+              chartType: "line",
+              source: "bigquery",
+            },
+            { openSidebar: true, focus: true },
+          )
+        }
+      />
+    </>
+  );
+}
+
+function setSidebarOpen(open: boolean) {
+  window.dispatchEvent(
+    new CustomEvent(clientMocks.SIDEBAR_STATE_CHANGE_EVENT, {
+      detail: { open, source: "app", mode: "app" },
+    }),
+  );
+}
+
 describe("useDashboardChatContext", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clientMocks.agentContextItems = [];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -77,5 +136,145 @@ describe("useDashboardChatContext", () => {
       "selected-object",
     );
     expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "dashboard",
+      {
+        type: "dashboard",
+        id: "dash-2",
+        __agentNativeSelectedObjectSource: TAB_ID,
+      },
+    ],
+    [
+      "dashboard panel",
+      {
+        type: "dashboard-panel",
+        dashboardId: "dash-2",
+        panelId: "panel-2",
+        __agentNativeSelectedObjectSource: TAB_ID,
+      },
+    ],
+  ])(
+    "does not let old dashboard cleanup clear the next page's %s selection",
+    async (_selectionKind, currentSelection) => {
+      let resolveRead!: (value: Record<string, unknown>) => void;
+      clientMocks.readClientAppState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRead = resolve;
+          }) as any,
+      );
+
+      await act(async () => {
+        root.render(<Harness id="dash-1" />);
+      });
+      await act(async () => {
+        root.render(<Harness id="dash-2" />);
+      });
+      await act(async () => {
+        resolveRead(currentSelection);
+      });
+
+      expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
+    },
+  );
+
+  it("stages a selected panel for chat and app state", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+    await act(async () => setSidebarOpen(true));
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="passive-select"]',
+    );
+    await act(async () => {
+      button?.click();
+    });
+
+    expect(clientMocks.setAgentChatContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "analytics-selected-dashboard-panel",
+        title: "ARR by month",
+        context: expect.stringContaining("Panel id: panel-1"),
+        openSidebar: false,
+        focus: false,
+      }),
+    );
+    expect(clientMocks.setClientAppState).toHaveBeenCalledWith(
+      "selected-object",
+      expect.objectContaining({
+        type: "dashboard-panel",
+        dashboardId: "dash-1",
+        panelId: "panel-1",
+        panelKind: "chart",
+      }),
+      expect.objectContaining({ requestSource: TAB_ID }),
+    );
+  });
+
+  it("ignores passive chart selection while chat is closed", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="passive-select"]',
+    );
+    await act(async () => button?.click());
+
+    expect(clientMocks.setAgentChatContextItem).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "analytics-selected-dashboard-panel",
+      }),
+    );
+    expect(clientMocks.setClientAppState).not.toHaveBeenCalledWith(
+      "selected-object",
+      expect.objectContaining({ type: "dashboard-panel" }),
+      expect.anything(),
+    );
+  });
+
+  it("lets the explicit chat action open chat and stage the panel", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="open-chat"]',
+    );
+    await act(async () => button?.click());
+
+    expect(clientMocks.setAgentChatContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "analytics-selected-dashboard-panel",
+        openSidebar: true,
+        focus: true,
+      }),
+    );
+  });
+
+  it("reports the panel selected when its context chip is active", async () => {
+    clientMocks.agentContextItems = [
+      {
+        key: "analytics-selected-dashboard-panel",
+        title: "ARR by month",
+        context:
+          "Analytics panel selection: dashboard=dash-1; panel=panel-1\nPanel id: panel-1",
+      },
+    ];
+
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+    await act(async () => setSidebarOpen(true));
+
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-action="passive-select"]',
+      )?.dataset.selected,
+    ).toBe("true");
   });
 });

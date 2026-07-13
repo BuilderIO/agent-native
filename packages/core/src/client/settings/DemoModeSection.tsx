@@ -1,7 +1,7 @@
 /**
- * <DemoModeSection /> — toggle that replaces contact/free-text names, emails,
- * and numbers with realistic fake data everywhere (UI + what the agent sees)
- * while preserving labels, IDs, and structure so the app keeps working.
+ * <DemoModeSection /> — toggle that replaces emails and numbers with realistic
+ * fake data everywhere (UI + what the agent sees) while preserving names,
+ * free text, labels, IDs, and structure so the app keeps working.
  *
  * The toggle is stored in application_state under `demo-mode`
  * (`{ enabled: boolean }`) and written via `PUT
@@ -13,39 +13,18 @@
  */
 
 import { IconEyeOff } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useDemoModeStatus } from "../use-demo-mode-status.js";
 
-interface DemoStatus {
-  enabled?: boolean;
-  forced?: boolean;
-}
-
-const DEMO_STATUS_URL = agentNativePath("/_agent-native/demo/status");
 const DEMO_MODE_WRITE_URL = agentNativePath(
   "/_agent-native/application-state/demo-mode",
 );
 
 export function DemoModeSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
-
-  const { data } = useQuery({
-    queryKey: ["agent-native", "demo-mode"],
-    queryFn: async () => {
-      const res = await fetch(DEMO_STATUS_URL, {
-        credentials: "same-origin",
-      });
-      if (!res.ok) return null;
-      return (await res.json()) as DemoStatus | null;
-    },
-    refetchInterval: 4_000,
-    staleTime: 2_000,
-  });
-
-  const serverEnabled = data?.enabled;
-  const forced = data?.forced === true;
+  const { enabled: serverEnabled, forced, isLoading } = useDemoModeStatus();
 
   // Surface the server value once it arrives (and on subsequent polls), but
   // never clobber an in-flight optimistic toggle with a stale read. When
@@ -53,12 +32,10 @@ export function DemoModeSection() {
   useEffect(() => {
     if (forced) {
       setEnabled(true);
-    } else if (typeof serverEnabled === "boolean") {
+    } else if (!isLoading) {
       setEnabled((prev) => (prev === null ? serverEnabled : prev));
-    } else if (serverEnabled === undefined && data !== undefined) {
-      setEnabled((prev) => (prev === null ? false : prev));
     }
-  }, [serverEnabled, forced, data]);
+  }, [serverEnabled, forced, isLoading]);
 
   const toggle = async (next: boolean) => {
     if (forced) return;
@@ -87,9 +64,9 @@ export function DemoModeSection() {
           Enable demo mode
         </div>
         <p className="text-[10px] text-muted-foreground mt-0.5">
-          Replace contact/free-text names, emails, and numbers with realistic
-          fake data everywhere — in the UI and what the agent sees. Labels, IDs,
-          and structure are preserved so the app keeps working.
+          Anonymize emails in the UI and reshape supported dashboard charts for
+          presentations. Agent-visible emails and numbers are also anonymized.
+          Names, labels, IDs, and structure stay intact.
         </p>
         {forced && (
           <p className="text-[10px] text-muted-foreground mt-0.5">

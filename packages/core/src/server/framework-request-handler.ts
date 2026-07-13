@@ -17,6 +17,7 @@ import { setResponseHeader, setResponseStatus } from "h3";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
+import { createCsrfMiddleware } from "./csrf.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -163,6 +164,27 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
       prepend: true,
     });
+
+    // CSRF (see csrf.ts): registered here — synchronously, on the very
+    // first `getH3App()` call for this nitroApp — rather than inside
+    // createCoreRoutesPlugin's own async init chain. Real deployments mount
+    // core-routes and agent-chat as SEPARATE, independently-async-initialized
+    // Nitro plugin files with no explicit ordering between them; both
+    // eventually call `getH3App(nitroApp).use(...)` to register their own
+    // routes (CSRF, action routes) after their own async setup (DB reads,
+    // dynamic imports) resolves in unpredictable relative order. The
+    // readiness gate above only guarantees every tracked plugin has FINISHED
+    // registering by the time a gated request is released — it does NOT
+    // guarantee CSRF's registration call happens to `.push()` onto
+    // `~middleware` before an action route's does. If agent-chat's action
+    // route push happened to land first, that route would match and run
+    // before CSRF ever saw the request. Registering CSRF here instead makes
+    // it the first non-prepended middleware pushed onto the array for this
+    // nitroApp, full stop — every plugin's own route registrations reach
+    // `getH3App()` (and therefore run after this point) before they can
+    // register anything, regardless of which plugin's async chain resolves
+    // first.
+    registerMiddleware(nitroApp, "", createCsrfMiddleware());
 
     // Primary gate: Nitro bridges this `request` hook to h3's `config.onRequest`,
     // which h3 awaits BEFORE `handler()` snapshots middleware and resolves the
@@ -466,7 +488,18 @@ function registerMiddleware(
     let originalPathname: string | undefined;
     let originalEventPath: string | undefined;
     let hadEventPath = false;
+    // Only true once this specific middleware invocation has actually
+    // stripped a mount prefix (i.e. `path` was non-empty and matched).
+    // Global (`path === ""`) middleware never mutates event.path/pathname,
+    // so `restoreOriginalPath` must be a no-op for it — otherwise it would
+    // unconditionally `delete event.path` on every pass-through (hadEventPath
+    // defaults to false), corrupting the event for any middleware that runs
+    // later in the chain (a real bug: two or more global middlewares in
+    // sequence, e.g. security-headers + CORS + CSRF, would wipe event.path
+    // for everything downstream, including the final route handler).
+    let didStripPath = false;
     const restoreOriginalPath = () => {
+      if (!didStripPath) return;
       if (originalPathname !== undefined) {
         try {
           event.url.pathname = originalPathname;
@@ -502,6 +535,7 @@ function registerMiddleware(
       const eventAny = event as any;
       hadEventPath = "path" in eventAny;
       originalEventPath = eventAny.path;
+      didStripPath = true;
       try {
         originalPathname = event.url.pathname;
         // Save the full path in context so handlers that need the original URL

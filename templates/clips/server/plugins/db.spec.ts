@@ -141,6 +141,20 @@ describe("clips db.ts migration entries follow the naming convention", () => {
   });
 });
 
+describe("recording viewer identity migration", () => {
+  it("is named, additive, and safe to apply repeatedly", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*48,\s*name:\s*"recording-viewers-canonical-viewer-key"/,
+    );
+    expect(dbTsSource).toMatch(
+      /ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT/,
+    );
+    expect(dbTsSource).toMatch(
+      /CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers \(recording_id, viewer_key\)/,
+    );
+  });
+});
+
 /**
  * Belt-and-braces guard for the same bug class: even with the regression
  * guard above, a future column could still ship without a migration if

@@ -108,6 +108,16 @@ export interface AuditEvent {
   /** Denormalized owner used to scope reads (defaults to the actor). */
   ownerEmail: string | null;
   visibility: AuditVisibility;
+  runId?: string | null;
+  taskId?: string | null;
+  parentTaskId?: string | null;
+  sourceKind?: string | null;
+  sourcePlatform?: string | null;
+  sourceId?: string | null;
+  sourceUrl?: string | null;
+  networkProtocol?: string | null;
+  networkId?: string | null;
+  networkPeer?: string | null;
 }
 
 /** Filters for `queryAuditEvents`. */
@@ -120,6 +130,12 @@ export interface AuditQueryFilters {
   threadId?: string;
   turnId?: string;
   action?: string;
+  taskId?: string;
+  runId?: string;
+  sourcePlatform?: string;
   sinceMs?: number;
   limit?: number;
+  /** Skip this many matching rows before applying `limit` (0-based). Used by
+   *  `export-audit-events` to page past the per-call `MAX_LIMIT` clamp. */
+  offset?: number;
 }

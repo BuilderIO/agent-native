@@ -176,11 +176,26 @@ Remote A2A agents still use JSON manifests:
 }
 ```
 
----
+## Referencing files {#referencing-files}
+
+The `@` popover is not limited to agents. You can also reference:
+
+- **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
+- **Workspace resources** — reference files defined in the Workspace tab. These can be data files, configuration, or any other structured content.
+
+Selecting a file or resource resolves it into the agent's context when the message is sent, the same way an agent mention does.
+
+Skills use a separate trigger: type `/` instead of `@` to reference a skill. Skills provide structured instructions that guide how the agent approaches a task — see [Skills Guide](/docs/skills-guide) for the full authoring format.
+
+## Sub-agent selection {#sub-agent-selection}
+
+The main agent can also use custom agents when spawning sub-agents with `agent-teams` (action: "spawn").
+
+Pass the `agent` parameter to choose a profile from `agents/*.md`. That profile's instructions are added to the delegated run, and its `model` frontmatter can override the default model for that sub-agent.
 
 ## For developers: extending mentions {#extending-mentions}
 
-Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface:
+Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface: a `label` (the section heading shown in the `@` popover) plus a `search(query, event?)` function that returns up to a handful of `MentionProviderItem` matches (`id`, `label`, `description?`, `refType`, `refId?`, `refPath?`, `metadata?`).
 
 <AnnotatedCode
   id="doc-block-159gm13"
@@ -188,28 +203,23 @@ Templates can register custom mention providers to add domain-specific mentionab
   filename="server/mentions/contacts.ts"
   language="ts"
   code={
-    'import type { MentionProvider } from "@agent-native/core/server";\n\nconst contactsProvider: MentionProvider = {\n  id: "contacts",\n  label: "Contacts",\n\n  // Search for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: "contact",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: "context",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};'
+    'import type { MentionProvider } from "@agent-native/core/server";\nimport { like } from "drizzle-orm";\nimport { getDb, schema } from "../db/index.js";\n\nconst contactsProvider: MentionProvider = {\n  label: "Contacts",\n\n  // Runs as the user types after `@`. Return up to a handful of matches.\n  async search(query) {\n    const db = getDb();\n    const matches = await db\n      .select()\n      .from(schema.contacts)\n      .where(like(schema.contacts.name, `%${query}%`))\n      .limit(10);\n    return matches.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      refType: "contact",\n      refId: c.id,\n    }));\n  },\n};'
   }
   annotations={[
     {
-      lines: "4-5",
-      label: "Identity",
-      note: "`id` namespaces the provider; `label` is the section heading shown in the `@` popover.",
+      lines: "5",
+      label: "label",
+      note: "The section heading shown in the `@` popover for this provider's matches.",
     },
     {
-      lines: "8-9",
+      lines: "8-18",
       label: "search",
-      note: "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`.",
-    },
-    {
-      lines: "23-24",
-      label: "resolve",
-      note: 'Called when the message is sent. Turns a picked id into `{ type: "context", text }` that is injected into the agent\'s context.',
+      note: "Runs as the user types after `@`. Return matches as `MentionProviderItem`s — `id`, `label`, `description`, `refType`, `refId`.",
     },
   ]}
 />
 
-Register providers in the agent-chat plugin configuration:
+Register providers in the agent-chat plugin configuration, keyed by provider id:
 
 ```ts
 // server/plugins/agent-chat.ts
@@ -222,20 +232,12 @@ export default createAgentChatPlugin({
 });
 ```
 
-Custom mention providers appear alongside the built-in agent and file providers in the mention popover.
+Custom mention providers appear alongside the built-in agent and file providers in the mention popover. When the message is sent, a picked item is added to the agent's context as a compact reference line (`[contact] Jane Doe (id: ...)`), not a fully resolved document — put enough into `label`/`description` for the agent to act, or give it an action to look up the full record by `refId`.
 
-## Referencing files {#referencing-files}
+## What's next {#whats-next}
 
-The `@` popover is not limited to agents. You can also reference:
-
-- **Codebase files** — type `@` and search for a filename. The file contents are included in the agent's context so it can read, analyze, or modify the file.
-- **Workspace resources** — reference files defined in the Workspace tab. These can be data files, configuration, or any other structured content.
-- **Skills** — type `/` to reference a skill. Skills provide structured instructions that guide how the agent approaches a task.
-
-All reference types follow the same pattern: select from the popover, and the referenced content is resolved and injected into the agent's context when the message is sent.
-
-## Sub-agent selection {#sub-agent-selection}
-
-The main agent can also use custom agents when spawning sub-agents with `agent-teams` (action: "spawn").
-
-Pass the `agent` parameter to choose a profile from `agents/*.md`. That profile's instructions are added to the delegated run, and its `model` frontmatter can override the default model for that sub-agent.
+- [**Using Your Agent**](/docs/using-your-agent) — where mentions fit in the day-to-day loop with the agent
+- [**A2A Protocol**](/docs/a2a-protocol) — how connected-agent mentions are resolved over the wire
+- [**Agent Teams**](/docs/agent-teams) — spawn sub-agents and pass the `agent` profile parameter
+- [**Skills Guide**](/docs/skills-guide) — author the skills referenced with `/`
+- [**Workspace**](/docs/workspace#custom-agents) — the full custom-agent profile format

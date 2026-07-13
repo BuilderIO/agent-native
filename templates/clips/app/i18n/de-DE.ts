@@ -48,6 +48,7 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothek",
+    sharedWithMe: "Mit mir geteilt",
     spaces: "Bereiche",
     meetings: "Treffen",
     dictate: "Diktieren",
@@ -82,6 +83,10 @@ const messages = {
       title: "Deine Bibliothek ist leer",
       body: "Nimm deine erste Bildschirmaufnahme auf; sie erscheint hier und ist bereit zum Teilen.",
       cta: "Ersten Clip aufnehmen",
+    },
+    shared: {
+      title: "Noch keine Clips mit dir geteilt",
+      body: "Clips, die Teammitglieder mit dir teilen, erscheinen hier.",
     },
     folder: {
       title: "Dieser Ordner ist leer",
@@ -307,6 +312,7 @@ const messages = {
     insights: "Einblicke",
     downloadForMac: "Herunterladen für Mac",
     downloadForWindows: "Herunterladen für Windows",
+    downloadForLinux: "Für Linux herunterladen",
     downloadDesktopApp: "Laden Sie die Desktop-App herunter",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "ist eine kostenlose,",
@@ -388,6 +394,7 @@ const messages = {
     searchPlaceholder: "Transkript durchsuchen",
     copyTranscript: "Transkript kopieren",
     downloadSrt: "Laden Sie .srt herunter",
+    regenerate: "Transkript neu erstellen",
     cleanupRunning: "Bereinigen des Transkripts im Hintergrund.",
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
@@ -561,7 +568,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Laden Sie Clips Desktop herunter",
     description:
-      "Zeichnen Sie Ihren Bildschirm über die Menüleiste auf. Automatisch aktualisierende Desktop-App für macOS und Windows.",
+      "Zeichnen Sie Ihren Bildschirm über die Systemleiste auf. Automatisch aktualisierende Desktop-App für macOS, Windows und Linux.",
     macSublabel: "Universell (Apple Silicon + Intel)",
     windowsSublabel: "64-Bit-MSI-Installationsprogramm",
     downloadFor: "Herunterladen für {{platform}}",

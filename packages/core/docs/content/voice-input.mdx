@@ -17,7 +17,7 @@ The composer's voice button records audio in the browser, then picks a provider:
 2. **BYOK cloud providers.** Users can choose Google Gemini, Groq Whisper, or OpenAI Whisper from Settings. The route resolves user-scoped encrypted secrets before shared deployment credentials.
 3. **Browser Web Speech API (fallback).** If no server provider is available, the composer can use the browser's built-in speech recognition. Works in Chromium-based browsers (Chrome, Edge, Arc) and Safari. Less accurate; streams live.
 
-Provider choice is stored in application state under `voice-transcription-prefs` so the user can force `"auto"` (default — picks the best available provider), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"`, or `"browser"` in the sidebar settings.
+Provider choice is stored in application state under `voice-transcription-prefs` so the user can force `"auto"` (default — picks the best available provider), `"builder-gemini"`, `"gemini"`, `"groq"`, `"openai"`, or `"browser"` in the sidebar settings. `"builder"` is a legacy alias that resolves to `"builder-gemini"` — new code should write `"builder-gemini"` directly.
 
 <Diagram id="doc-block-1q55wvc" title="Voice transcription provider fallback" summary={"The composer records audio, then walks server providers in order, dropping to the browser Web Speech API only when no server provider is available."}>
 
@@ -122,6 +122,12 @@ The composer POSTs the recorded clip here; the route resolves a provider and ret
 </Endpoint>
 
 You don't need to call this directly — the composer does. If you're building a custom input surface, first reuse the shared composer/voice client pieces from `@agent-native/core/client`. Treat this route as the low-level transport boundary for custom helpers that need to send multipart audio.
+
+## Realtime speech mode {#realtime-speech-mode}
+
+Beyond one-shot dictation, the composer also offers a live, hands-free conversation mode. When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech requires a user-scoped `OPENAI_API_KEY` and connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation. The orb stays visible above the chat even if the chat opens automatically, and its compact waveform reacts to your voice and the assistant's voice.
+
+The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Only completed user and assistant text turns are appended to the original chat thread. Ending voice mode opens that chat so you can continue over text; audio and interim transcript fragments are never stored. A realtime session lasts at most 60 minutes.
 
 ## Customizing the provider {#customizing}
 

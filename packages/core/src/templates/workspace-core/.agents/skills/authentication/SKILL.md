@@ -13,13 +13,13 @@ metadata:
 
 ## Rule
 
-Auth is powered by **Better Auth** with account-first design. Every new user creates an account on first visit. Use `getSession(event)` to authenticate custom routes; actions are auto-protected.
+Auth is powered by **Better Auth** with account-first design. Every new user creates an account on first visit. Use `getSession(event)` to authenticate custom routes; actions are auto-protected. Normal app HTML and React Router page-data responses are one impersonal, public-cacheable shell for every visitor. The client decides whether to render private UI or redirect to sign-in.
 
 ## Auth Modes
 
 | Mode                      | Behavior                                                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in (credentials printed once to the console; disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
+| **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in without printing its credentials (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
 | **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
@@ -43,8 +43,9 @@ and `/.well-known/oauth-authorization-server`, dynamically register a public
 client, and complete authorization-code + PKCE at
 `/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
-identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
-stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
+identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
+advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
+Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
@@ -129,44 +130,41 @@ window.location.href =
   "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
 ```
 
-After successful sign-in (token / email-password / Google OAuth), the framework 302s to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
+After successful sign-in (token / email-password / Google OAuth), the framework redirects to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
 
-Bookmarked private paths already work _when the request reaches the server_ — the auth guard serves the login page at the requested URL and post-login reload returns the user there.
+Bookmarked private paths work through the client session gate: the shared shell hydrates, `AppProviders` redirects the signed-out visitor to the framework sign-in entrypoint with the current path as `return`, and successful sign-in sends them back.
 
 ## Gating the App Shell (avoid the logged-out infinite spinner)
 
-The server auth guard only protects requests that actually reach the Nitro
-function. A statically-served / CDN-cached SPA shell, or a client-side (React
-Router) navigation made after the session expired, never re-hits the guard — so
-the app boots with **no session**, every data query 401s, and the UI sticks on
-its loading state forever. Server-side protection alone is not enough; gate on
-the client too.
+Normal app HTML and React Router page-data responses deliberately bypass the
+server session guard. They are rendered impersonally and cached as one shared
+shell; APIs, actions, and framework data routes remain server-protected. The
+client session gate is therefore the authoritative decision point for whether
+private app UI renders.
 
-For a fully private app (every page requires auth, like mail), wrap the routed
-shell with the framework's `RequireSession`. It resolves the session on the
-client and redirects signed-out visitors to `/_agent-native/sign-in?return=…`
-instead of spinning:
+`AppProviders` applies `RequireSession` automatically on its private branch. It
+resolves the session on the client and redirects signed-out visitors to
+`/_agent-native/sign-in?return=…` before mounting the routed shell:
 
 ```tsx
-import { AppProviders, RequireSession } from "@agent-native/core/client";
+import { AppProviders } from "@agent-native/core/client";
 
 <AppProviders queryClient={queryClient}>
-  <RequireSession bypass={isMcpEmbedSurface()}>
-    <AppLayout>
-      <Outlet />
-    </AppLayout>
-  </RequireSession>
+  <AppLayout>
+    <Outlet />
+  </AppLayout>
 </AppProviders>;
 ```
 
-- Place it **inside** `AppProviders` (so the loading fallback is themed) and
-  **around** the layout/outlet — also around any always-mounted effects (poll,
-  automation trigger) so they don't fire 401s for logged-out visitors.
-- Pass `bypass` for surfaces that authenticate by another mechanism (embed /
-  popout iframes carrying their own token) so they are never bounced to sign-in.
-- Apps with public/anonymous routes (share pages) must **not** wrap the whole
-  app — gate only the private subtree, or use the `redirect={false}` +
-  `signedOut` props to render an inline call-to-action instead of redirecting.
+- Keep the layout/outlet and always-mounted effects (poll, automation trigger)
+  inside `AppProviders` so they do not fire 401s before the gate resolves.
+- Pass `sessionBypass` to `AppProviders` only for a private-looking surface that
+  authenticates by another mechanism (for example, an embed iframe carrying
+  its own scoped token).
+- Pass `isPublicPath` for public/anonymous and SEO routes. That branch does not
+  mount `RequireSession` and SSRs real content.
+- Use `RequireSession` directly only when a nested subtree needs custom
+  `redirect={false}` / `signedOut` behavior.
 
 ## Related Skills
 

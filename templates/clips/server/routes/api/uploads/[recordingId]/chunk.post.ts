@@ -17,7 +17,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -51,6 +50,7 @@ import {
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   allowsSqlRecordingChunkScratch,
@@ -696,7 +696,9 @@ async function handleResumableChunk(
   query: Record<string, unknown>,
   ownerEmail: string,
 ) {
-  const uploadProvider = getActiveFileUploadProvider();
+  const uploadProvider = await resolveResumableUploadProvider(
+    session.providerId,
+  );
   if (!uploadProvider?.resumable) {
     setResponseStatus(event, 502);
     return { ok: false, error: "Upload storage is not configured" };
@@ -737,6 +739,12 @@ async function handleResumableChunk(
         ok: false,
         error: `Resumable session close failed (${closeRes.status})`,
       };
+    }
+    if (closeRes.updatedMeta) {
+      await setResumableSession(recordingId, {
+        ...session,
+        meta: { ...session.meta, ...closeRes.updatedMeta },
+      });
     }
   } else {
     // Idempotent replay guard: a client retry (after a lost response) can
@@ -824,6 +832,57 @@ async function handleResumableChunk(
     return { ok: true, finalized: true, ...result };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);
+    const db = getDb();
+    const [committed] = await db
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+        durationMs: schema.recordings.durationMs,
+        width: schema.recordings.width,
+        height: schema.recordings.height,
+        hasAudio: schema.recordings.hasAudio,
+        hasCamera: schema.recordings.hasCamera,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+    if (committed?.status === "ready" && committed.videoUrl) {
+      console.warn(
+        `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "ready",
+        progress: 100,
+        videoUrl: committed.videoUrl,
+        finishedAt: new Date().toISOString(),
+      }).catch((stateErr) =>
+        console.warn(
+          `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
+          stateErr,
+        ),
+      );
+      return {
+        ok: true,
+        finalized: true,
+        recoveredAfterFinalizeError: true,
+        id: committed.id,
+        status: "ready",
+        videoUrl: committed.videoUrl,
+        durationMs: committed.durationMs,
+        width: committed.width,
+        height: committed.height,
+        hasAudio: committed.hasAudio,
+        hasCamera: committed.hasCamera,
+      };
+    }
+
     trackUploadBlockingFailure(ownerEmail, {
       stage: "finalize_recording",
       failureKind: "finalize_error",
@@ -831,10 +890,40 @@ async function handleResumableChunk(
       uploadMode: "resumable",
       errorMessage: err instanceof Error ? err.message : String(err),
     });
+    const failureReason =
+      err instanceof Error ? err.message : "Finalize failed";
+    const failedAt = new Date().toISOString();
+    await db
+      .update(schema.recordings)
+      .set({
+        status: "failed",
+        failureReason,
+        updatedAt: failedAt,
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+    const failedUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const failedUploadState =
+      failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+        ? (failedUploadStateRaw as Record<string, unknown>)
+        : {};
+    await writeAppState(`recording-upload-${recordingId}`, {
+      ...failedUploadState,
+      recordingId,
+      status: "failed",
+      failureReason,
+      updatedAt: failedAt,
+    });
     setResponseStatus(event, 500);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "Finalize failed",
+      error: failureReason,
     };
   }
 }

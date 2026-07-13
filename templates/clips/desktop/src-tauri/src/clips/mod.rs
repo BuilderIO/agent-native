@@ -46,6 +46,15 @@ const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
 const ONBOARDING_LABEL: &str = "onboarding";
+const OVERLAY_LABELS: &[&str] = &[
+    COUNTDOWN_LABEL,
+    TOOLBAR_LABEL,
+    BUBBLE_LABEL,
+    FINALIZING_LABEL,
+    FLOW_BAR_LABEL,
+    REGION_GUIDES_LABEL,
+    REGION_RECORD_BORDER_LABEL,
+];
 const ONBOARDING_WIDTH_LOGICAL: f64 = 560.0;
 const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 
@@ -449,48 +458,63 @@ fn stop_countdown_control_tracking() {
     COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
 }
 
-/// Full-screen transparent overlay that shows compact bottom-left progress
-/// while the recorder flushes its final chunks and awaits the server finalize.
-/// Rendered immediately after the user clicks Stop so they don't stare at a
-/// blank screen for a few seconds while `recorder.stop()` completes. Ignores
-/// cursor events so the progress card does not block the screen. Marked
-/// non-sharable for consistency with the other Clips overlays, even though
-/// the recording has already ended by the time this appears.
+/// Compact bottom-left status window shown while the recorder flushes its
+/// final chunks and awaits the server finalize. Keeping the native window near
+/// the card's bounds makes its open/dismiss controls clickable without placing
+/// an input-blocking transparent window over the whole monitor.
 #[tauri::command]
 pub async fn show_finalizing(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_finalizing invoked");
     if let Some(existing) = app.get_webview_window(FINALIZING_LABEL) {
         let _ = existing.close();
     }
-    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
-    dlog!("[clips-tray] finalizing target size {}x{} physical", mw, mh);
-    let win = WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
-        .title("Finalizing")
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(false)
-        .visible(false)
-        // Don't steal focus — same rationale as the countdown overlay.
-        .focused(false)
-        .build()
-        .map_err(|e| {
-            eprintln!("[clips-tray] finalizing build failed: {}", e);
-            e.to_string()
-        })?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
-    let _ = win.set_position(PhysicalPosition::new(mx, my));
-    let _ = win.set_ignore_cursor_events(true);
+    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let scale = overlay_scale_factor(&app);
+    let content_w: u32 = (336.0 * scale).round() as u32;
+    let content_h: u32 = (86.0 * scale).round() as u32;
+    let margin: i32 = (14.0 * scale).round() as i32;
+    let gutter = overlay_shadow_gutter_physical(&app);
+    let w = content_w + gutter * 2;
+    let h = content_h + gutter * 2;
+    let x = (mx + margin - gutter as i32).max(mx);
+    let y = (my + mh as i32 - h as i32 - margin).max(my);
+    dlog!("[clips-tray] finalizing target size {}x{} physical", w, h);
+    #[allow(unused_mut)]
+    let mut builder =
+        WebviewWindowBuilder::new(&app, FINALIZING_LABEL, build_overlay_url("finalizing"))
+            .title("Finalizing")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .visible(false)
+            // Don't steal focus — same rationale as the countdown overlay.
+            .focused(false);
+    // This window deliberately stays non-activating, but its Open and Dismiss
+    // controls must receive the activating click on macOS instead of requiring
+    // a second click after the window becomes key.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
+        eprintln!("[clips-tray] finalizing build failed: {}", e);
+        e.to_string()
+    })?;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_ignore_cursor_events(false);
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
-    let _ = win.show();
+    crate::util::show_without_activation(&win);
     dlog!("[clips-tray] finalizing shown");
     Ok(())
 }
 
-/// Close the finalizing spinner overlay. Called from the recorder stop path
-/// right after `openExternal` opens the browser to the recording URL.
+/// Close the finalizing spinner overlay after the recorder's durable
+/// backup/upload boundary settles.
 #[tauri::command]
 pub async fn hide_finalizing(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(FINALIZING_LABEL) {
@@ -952,19 +976,21 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
     Ok(())
 }
 
+fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
+    OVERLAY_LABELS
+        .iter()
+        .copied()
+        .filter(move |label| !preserve_finalizing || *label != FINALIZING_LABEL)
+}
+
 #[tauri::command]
-pub async fn hide_overlays(app: AppHandle) -> Result<(), String> {
+pub async fn hide_overlays(
+    app: AppHandle,
+    preserve_finalizing: Option<bool>,
+) -> Result<(), String> {
     stop_countdown_control_tracking();
     let _ = app.emit("clips:countdown-shortcuts-active", false);
-    for label in [
-        COUNTDOWN_LABEL,
-        TOOLBAR_LABEL,
-        BUBBLE_LABEL,
-        FINALIZING_LABEL,
-        FLOW_BAR_LABEL,
-        REGION_GUIDES_LABEL,
-        REGION_RECORD_BORDER_LABEL,
-    ] {
+    for label in overlay_labels_to_hide(preserve_finalizing.unwrap_or(false)) {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -1524,8 +1550,15 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
+        overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
+        TextInsertionStrategy, FINALIZING_LABEL,
     };
+
+    #[test]
+    fn overlay_cleanup_can_preserve_finalizing_progress() {
+        assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
+        assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
+    }
 
     #[test]
     fn uses_clipboard_paste_for_chrome() {

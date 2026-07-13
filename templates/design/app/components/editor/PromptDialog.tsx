@@ -296,13 +296,13 @@ interface PromptPopoverProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  onSkip?: () => void;
+  onSkip?: () => void | Promise<void>;
   skipLabel?: string;
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -319,6 +319,16 @@ interface PromptPopoverProps {
    */
   creationMode?: PromptCreationMode;
   onCreationModeChange?: (mode: PromptCreationMode) => void;
+  /**
+   * Scopes the composer's localStorage draft key so an abandoned draft in
+   * this popover never bleeds into a different popover instance (e.g. the
+   * "generate design" and "tweak" popovers both mount unscoped composers
+   * that would otherwise share the same global draft key). Defaults to a
+   * scope derived from `title`, which is already distinct across the
+   * current call sites; pass an explicit value (e.g. including a design id)
+   * for finer isolation between instances that share the same title.
+   */
+  draftScope?: string;
 }
 
 export interface PromptDesignSystemOption {
@@ -372,7 +382,7 @@ export default function PromptPopover({
   title,
   placeholder,
   onSkip,
-  skipLabel = "Skip prompt",
+  skipLabel,
   onSubmit,
   loading = false,
   anchorRef,
@@ -384,12 +394,35 @@ export default function PromptPopover({
   onCreateDesignSystem,
   creationMode,
   onCreationModeChange,
+  draftScope,
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [skipInFlight, setSkipInFlight] = useState(false);
+  const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
+  // Restores a typed prompt into the composer after a failed submit. The
+  // composer optimistically clears its text as soon as onSubmit is invoked
+  // (see TiptapComposer.submitComposer), so without this an upload failure or
+  // a rejected onSubmit would silently erase what the user wrote. Left
+  // `undefined` in the common case so the composer's normal mount behavior
+  // (restore the last localStorage draft for this scope) still applies —
+  // passing a defined `initialText` (even `""`) would short-circuit that.
+  const [restoredPromptText, setRestoredPromptText] = useState<
+    string | undefined
+  >(undefined);
+  const [restoredPromptKey, setRestoredPromptKey] = useState(0);
+  const restorePromptText = useCallback((text: string) => {
+    setRestoredPromptText(text);
+    setRestoredPromptKey((key) => key + 1);
+  }, []);
+  useEffect(() => {
+    if (open) return;
+    skipInFlightRef.current = false;
+    setSkipInFlight(false);
+  }, [open]);
   // While the nested design-system Select is open, Radix disables pointer
   // events on everything else and the click that closes the Select also
   // moves focus back to its trigger. That focus-return is itself reported to
@@ -428,6 +461,10 @@ export default function PromptPopover({
     setAssetsPickerOpen(false);
     setPickedAssets([]);
     setSelectedUploadFiles([]);
+    // Only sticks for the session immediately following a failed submit; a
+    // fresh open after a real close should fall back to the composer's own
+    // localStorage draft restore for this scope, not a stale failed prompt.
+    setRestoredPromptText(undefined);
   }, [open]);
 
   const uploadFiles = useCallback(
@@ -482,20 +519,39 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      let uploaded: UploadedFile[];
       try {
-        const uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
-        onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
-        setPickedAssets([]);
-        setSelectedUploadFiles([]);
+        uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
       } catch (error) {
+        restorePromptText(text);
         toast.error(
           error instanceof Error
             ? error.message
             : t("promptDialog.failedToUploadFile"),
         );
+        return;
+      }
+      try {
+        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        setPickedAssets([]);
+        setSelectedUploadFiles([]);
+      } catch (error) {
+        restorePromptText(text);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToSubmitPrompt"),
+        );
       }
     },
-    [onSubmit, pickedAssets, selectedUploadFiles, uploadFiles],
+    [
+      onSubmit,
+      pickedAssets,
+      restorePromptText,
+      selectedUploadFiles,
+      t,
+      uploadFiles,
+    ],
   );
 
   const handleAssetsPickerReady = useCallback(
@@ -667,6 +723,9 @@ export default function PromptPopover({
             disabled={loading || uploading}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
+            draftScope={draftScope ?? title}
+            initialText={restoredPromptText}
+            initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
                 disabled={loading || uploading}
@@ -779,13 +838,26 @@ export default function PromptPopover({
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
+              disabled={loading || skipInFlight}
               onClick={() => {
-                onSkip();
-                onOpenChange(false);
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    await onSkip();
+                    onOpenChange(false);
+                  } catch {
+                    // The caller owns error presentation. Keep the prompt open
+                    // and usable so the user can retry or submit a prompt.
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
               }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
+              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {skipLabel}
+              {skipLabel ?? t("promptDialog.skipPrompt")}
             </button>
           </div>
         )}

@@ -8,7 +8,8 @@
  * - It throws when the connection row is missing.
  * - It throws when the connection has no rootPath.
  * - It upserts a grant (insert on first call, update on second).
- * - The returned bridgeToken equals the one stored on the connection.
+ * - The unrestricted bridgeToken is persisted server-side but never returned
+ *   to the browser caller.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,8 +89,8 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
   schema: {
-    designLocalhostConnections: {},
-    designLocalhostWriteGrants: {},
+    designLocalhostConnections: { orgId: "connectionOrgId" },
+    designLocalhostWriteGrants: { orgId: "grantOrgId" },
   },
 }));
 
@@ -107,7 +108,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("grant-localhost-write-consent", () => {
-  it("uses bridgeToken from the connection row (not a minted token)", async () => {
+  it("persists the connection bridgeToken without returning it to the browser", async () => {
     mockConnection = {
       id: "conn_1",
       ownerEmail: "user@example.com",
@@ -120,8 +121,8 @@ describe("grant-localhost-write-consent", () => {
       connectionId: "conn_1",
     });
 
-    expect(result.bridgeToken).toBe("bridge_real_token_xyz");
-    // Ensure this is the same value persisted in the grant row.
+    expect(result).not.toHaveProperty("bridgeToken");
+    // The server-side grant still retains the token write-local-file needs.
     expect(insertedValues?.bridgeToken).toBe("bridge_real_token_xyz");
   });
 
@@ -207,7 +208,7 @@ describe("grant-localhost-write-consent", () => {
     expect(result.grantId).toBe("existing_grant_id");
   });
 
-  it("returns rootPath and grantedUntil alongside bridgeToken", async () => {
+  it("returns only non-secret grant metadata", async () => {
     mockConnection = {
       id: "conn_1",
       ownerEmail: "user@example.com",
@@ -223,6 +224,7 @@ describe("grant-localhost-write-consent", () => {
     const after = Date.now();
 
     expect(result.rootPath).toBe("/home/user/my-app");
+    expect(result).not.toHaveProperty("bridgeToken");
     const grantedUntilMs = new Date(result.grantedUntil).getTime();
     const eightHoursMs = 8 * 60 * 60 * 1000;
     expect(grantedUntilMs).toBeGreaterThanOrEqual(before + eightHoursMs);

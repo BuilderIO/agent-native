@@ -175,6 +175,13 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Structured marker for events that need special UI handling beyond
+   * free-text matching. `"credential-gap"` marks the status event reporting
+   * that no LLM provider key (or Codex CLI login) is available. Optional so
+   * older persisted transcripts without the field keep parsing unchanged.
+   */
+  signal?: "credential-gap";
 }
 
 export interface CodeAgentTranscriptRequest {

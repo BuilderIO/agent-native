@@ -4,12 +4,127 @@ import {
   type DesignClipboardPayload,
   getFigmaClipboardContent,
   hasFigmaClipboardPayload,
+  importResultNotification,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
   parseUploadResponse,
   serializeDesignClipboardPayload,
 } from "./design-import";
+
+describe("import result notifications", () => {
+  it("keeps a clean .fig import to one success notification", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Page-Frame.html" }],
+          warnings: [
+            "Figma's .fig format is proprietary and undocumented. Unsupported features may render differently.",
+          ],
+        },
+        "File imported",
+      ),
+    ).toEqual({
+      variant: "success",
+      title: "Imported Page-Frame.html.",
+    });
+  });
+
+  it("shows actionable warnings without the generic format caveat", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Page-Frame.html" }],
+          warnings: [
+            "Figma's .fig format is proprietary and undocumented. Unsupported features may render differently.",
+            "2 embedded images were omitted because file storage is unavailable.",
+          ],
+        },
+        "File imported",
+      ),
+    ).toEqual({
+      variant: "warning",
+      title: "Imported Page-Frame.html.",
+      description:
+        "2 embedded images were omitted because file storage is unavailable.",
+    });
+  });
+
+  it("surfaces complex Figma fallback and approximation counts instead of reporting a clean success", () => {
+    expect(
+      importResultNotification(
+        {
+          files: [{ id: "screen-1", filename: "Stress-Frame.html" }],
+          fidelityReport: {
+            exactCount: 40,
+            imageFallbacks: [
+              {
+                nodeId: "4:12",
+                nodeName: "Masked vector",
+                nodeType: "VECTOR",
+                notes: ["Mask subtree rendered by Figma."],
+              },
+              {
+                nodeId: "4:20",
+                nodeName: "Rich text",
+                nodeType: "TEXT",
+                notes: ["Advanced typography rendered by Figma."],
+              },
+            ],
+            approximated: [
+              {
+                nodeId: "4:30",
+                nodeName: "Diamond gradient",
+                nodeType: "ELLIPSE",
+                notes: ["CSS has no diamond-gradient primitive."],
+              },
+            ],
+          },
+        },
+        "Imported from Figma.",
+        {
+          fidelityWarnings: [
+            "Image fallbacks: 2. Appearance is preserved, but these layers are not fully editable.",
+            "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+          ],
+        },
+      ),
+    ).toEqual({
+      variant: "warning",
+      title: "Imported Stress-Frame.html.",
+      description:
+        "Image fallbacks: 2. Appearance is preserved, but these layers are not fully editable.\nApproximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+    });
+  });
+
+  it("keeps fidelity warnings bounded with existing import warnings", () => {
+    const notification = importResultNotification(
+      {
+        warnings: ["Storage warning", "Font warning", "Another warning"],
+        fidelityReport: {
+          exactCount: 0,
+          imageFallbacks: [
+            { nodeId: "1:1", nodeType: "VECTOR", notes: ["Fallback"] },
+          ],
+          approximated: [
+            { nodeId: "1:2", nodeType: "TEXT", notes: ["Approximation"] },
+          ],
+        },
+      },
+      "Imported from Figma.",
+      {
+        fidelityWarnings: [
+          "Image fallbacks: 1. Appearance is preserved, but these layers are not fully editable.",
+          "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+        ],
+      },
+    );
+
+    expect(notification.variant).toBe("warning");
+    expect(notification.description?.split("\n")).toHaveLength(3);
+    expect(notification.description).not.toContain("image fallback");
+  });
+});
 
 function clipboardData(values: Record<string, string>) {
   return {
@@ -24,6 +139,15 @@ describe("design import clipboard helpers", () => {
     expect(
       hasFigmaClipboardPayload('<div data-metadata="(figmeta)"></div>'),
     ).toBe(true);
+  });
+
+  it("detects current bare-comment Figma clipboard markers", () => {
+    const html =
+      '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
+    expect(hasFigmaClipboardPayload(html)).toBe(true);
+    expect(getFigmaClipboardContent(clipboardData({ "text/html": html }))).toBe(
+      html,
+    );
   });
 
   it("prefers Figma HTML over plain text", () => {
@@ -103,6 +227,43 @@ describe("design clipboard marker round-trip", () => {
     expect(parsed).toEqual(payload);
   });
 
+  it("round-trips bounded managed responsive and interaction rules", () => {
+    const responsivePayload: DesignClipboardPayload = {
+      version: 1,
+      entries: [
+        {
+          html: '<div data-agent-native-node-id="card">Card</div>',
+          rootNodeId: "card",
+          sourceFileId: "file-1",
+          managedStyleSnapshot: {
+            version: 1,
+            breakpoints: [
+              {
+                maxWidthPx: 809,
+                nodeId: "card",
+                property: "padding",
+                value: "16px",
+              },
+            ],
+            interactionStates: [
+              {
+                nodeId: "card",
+                state: "hover",
+                property: "color",
+                value: "red",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    expect(
+      parseDesignClipboardMarker(
+        serializeDesignClipboardPayload("Card", responsivePayload),
+      ),
+    ).toEqual(responsivePayload);
+  });
+
   it("keeps the visible text human-readable ahead of the marker", () => {
     const clipboardText = serializeDesignClipboardPayload(
       "<div>Hello</div>",
@@ -145,6 +306,51 @@ describe("design clipboard marker round-trip", () => {
         "<div>Hi</div>\n<!--agent-native-clipboard-v1:not-valid-base64!!!-->",
       ),
     ).toBeNull();
+  });
+
+  it("rejects an oversized marker before attempting to decode it", () => {
+    const oversizedData = "A".repeat(16_000_001);
+    expect(
+      parseDesignClipboardMarker(
+        `<!--agent-native-clipboard-v1:${oversizedData}-->`,
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects structurally invalid typed payloads", () => {
+    const invalid = {
+      version: 1,
+      entries: [{ html: 42, sourceFileId: "file-1" }],
+    };
+    const marker = btoa(encodeURIComponent(JSON.stringify(invalid)));
+    expect(
+      parseDesignClipboardMarker(`<!--agent-native-clipboard-v1:${marker}-->`),
+    ).toBeNull();
+  });
+
+  it("rejects cross-design screen payloads with unsafe filenames or geometry", () => {
+    for (const screen of [
+      {
+        filename: "../private.html",
+        content: "<main>nope</main>",
+      },
+      {
+        filename: "safe.html",
+        content: "<main>nope</main>",
+        canvasFrame: { x: Number.POSITIVE_INFINITY },
+      },
+    ]) {
+      const marker = btoa(
+        encodeURIComponent(
+          JSON.stringify({ version: 1, entries: [], screens: [screen] }),
+        ),
+      );
+      expect(
+        parseDesignClipboardMarker(
+          `<!--agent-native-clipboard-v1:${marker}-->`,
+        ),
+      ).toBeNull();
+    }
   });
 
   it("ignores an unrelated HTML comment that isn't our marker", () => {

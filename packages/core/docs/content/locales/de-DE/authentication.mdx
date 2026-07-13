@@ -15,7 +15,7 @@ Auth wird automatisch über `autoMountAuth(app)` im Authentifizierungsserver-Plu
 - **Remote MCP OAuth:** Standard OAuth 2.1 für MCP-Hosts wie Claude-Code und ChatGPT-Anschlüsse.
 - **Benutzerdefiniert:** Bringen Sie Ihre eigene Authentifizierung über den `getSession`-Rückruf mit.
 
-<Diagram id="doc-block-1hpxy2j" title="Drei Wege rein, eine Sitzung" summary={"Browserbesucher, programmatische MCP-Clients und benutzerdefinierte Anbieter werden alle in dieselbe AuthSession aufgelöst, die das Downstream-Scoping liest."}>
+<Diagram id="doc-block-1hpxy2j" title="Drei Wege rein, eine Sitzung" summary={"Browserbesucher, MCP-Hosts und benutzerdefinierte Anbieter werden alle in dieselbe AuthSession aufgelöst, die das Downstream-Scoping liest."}>
 
 ```html
 <div class="auth-modes">
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### Private Pfade mit Lesezeichen versehen
 
-Wenn ein anonymer Benutzer direkt zu einem privaten Pfad wie `/dashboard` navigiert, stellt das Framework bereits die Anmeldeseite unter diesem URL bereit – nach erfolgreicher Anmeldung wird die Seite neu geladen und der Benutzer landet auf `/dashboard`. Keine besondere Handhabung erforderlich; Dies funktioniert für Token, E-Mail/Passwort, **und** Google OAuth.
+Normale App-Seiten verwenden für alle Besucher dieselbe unpersönliche, öffentlich cachebare SSR-Shell. `AppProviders` prüft die Sitzung im Client und leitet anonyme Besucher auf privaten Pfaden wie `/dashboard` zu `/_agent-native/sign-in?return=%2Fdashboard` weiter, bevor private App-UI gerendert wird. Nach der Anmeldung kehren sie zu `/dashboard` zurück. Verwenden Sie `isPublicPath` für öffentliche/SEO-Routen oder `sessionBypass` für Oberflächen mit einem anderen begrenzten Authentifizierungsmechanismus, etwa einem MCP-Embed-Token.
 
 ### Hinter den Kulissen: Google OAuth
 
