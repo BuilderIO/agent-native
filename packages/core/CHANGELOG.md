@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.8
+
+### Patch Changes
+
+- 2065b5e: Deliver integration identity notices through the durable webhook queue, fail closed for anonymous Slack direct messages unless explicitly enabled, preserve verified identity through transient re-hydration failures, redact signed object URLs from replays, and bound retryable replay upload failures.
+
 ## 0.98.7
 
 ### Patch Changes
