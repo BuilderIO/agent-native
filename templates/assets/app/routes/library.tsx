@@ -1198,9 +1198,7 @@ function AllAssetsBrowser({
               onValueChange={(value) => setAssetTab(value as AssetTab)}
             >
               <TabsList className="h-9">
-                <TabsTrigger value="drafts">
-                  {t("library.drafts")}
-                </TabsTrigger>
+                <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
                 </TabsTrigger>
