@@ -2354,6 +2354,10 @@ fn spawn_capture_watchdog(
                     if let Ok(mut guard) = stream.lock() {
                         *guard = new_stream;
                     }
+                    // Discard any stop note the deliberate teardown of the old
+                    // stream raised; otherwise a later poll would consume it as
+                    // a fresh failure and rebuild the healthy stream again.
+                    let _ = watch.take_stream_stopped();
                     cooldown_until = Some(Instant::now() + CAPTURE_STALL_TIMEOUT);
                     eprintln!("[mixer] capture stream rebuilt; waiting for frames");
                 }

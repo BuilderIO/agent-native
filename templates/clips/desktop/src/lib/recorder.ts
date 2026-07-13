@@ -2143,11 +2143,10 @@ async function startNativeFullscreenRecording(
     await invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureAudioParams,
-      // Credentials for live upload (streaming chunks during recording). Omit
-      // for local-only recordings, which never upload to the server.
-      serverUrl: localOnly ? undefined : params.serverUrl,
-      authToken: localOnly ? undefined : (params.authToken ?? ""),
-      cookie: localOnly ? undefined : (params.cookie ?? ""),
+      // Live-upload credentials are read on the Rust side from the shared
+      // meetings-watcher session; only signal whether this is a local-only
+      // recording (which never uploads to the server).
+      localOnly,
       hasCamera: wantsCamera,
     });
     console.log(

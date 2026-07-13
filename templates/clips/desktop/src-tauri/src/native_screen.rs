@@ -932,11 +932,9 @@ pub async fn native_fullscreen_recording_begin(
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     capture_region: Option<NativeCaptureRegion>,
-    // Credentials for live upload (streaming chunks during recording). Optional
-    // so local-only recordings and older callers still work.
-    server_url: Option<String>,
-    auth_token: Option<String>,
-    cookie: Option<String>,
+    // Local-only recordings never upload, so their live-upload creds stay
+    // unresolved regardless of what the shared session holds.
+    local_only: Option<bool>,
     has_camera: Option<bool>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     #[cfg(not(target_os = "macos"))]
@@ -950,9 +948,7 @@ pub async fn native_fullscreen_recording_begin(
             mic_device_id,
             mic_device_label,
             capture_region,
-            server_url,
-            auth_token,
-            cookie,
+            local_only,
             has_camera,
         );
         return Err("Native full-screen recording is currently macOS-only.".into());
@@ -960,6 +956,25 @@ pub async fn native_fullscreen_recording_begin(
 
     #[cfg(target_os = "macos")]
     {
+        // Live-upload credentials (server URL + cookie + auth token) live in the
+        // shared session state the renderer keeps warm via
+        // `meetings_watcher_set_session`. Read them from there instead of taking
+        // them as command args. Local-only recordings never upload, so leave
+        // their creds `None` regardless of what the session currently holds.
+        let (server_url, auth_token, cookie) = if local_only.unwrap_or(false) {
+            (None, None, None)
+        } else {
+            let snapshot = app
+                .try_state::<crate::meetings_watcher::MeetingsWatcherState>()
+                .map(|s| s.session_snapshot())
+                .unwrap_or_default();
+            (
+                snapshot.server_url,
+                snapshot.auth_token,
+                snapshot.session_cookie,
+            )
+        };
+
         // Best-effort, non-blocking: keep the server-controlled feature flag
         // cache warm using the session creds this call already has. Never
         // delays recording start — a stale/default cache is used for THIS
@@ -1571,21 +1586,20 @@ pub async fn native_fullscreen_recording_pause(
     // there are no segments to concatenate and the upload is never interrupted.
     #[cfg(target_os = "macos")]
     {
-        let soft_paused = if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
-            resume,
-            writer,
-            ..
-        }) = session.backend.as_ref()
-        {
-            if writer.segmented() && writer.is_started() {
-                resume.pause();
-                true
+        let soft_paused =
+            if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
+                resume, writer, ..
+            }) = session.backend.as_ref()
+            {
+                if writer.segmented() && writer.is_started() {
+                    resume.pause();
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
-            }
-        } else {
-            false
-        };
+            };
         if soft_paused {
             session.paused_at = Some(Instant::now());
             eprintln!(
@@ -1657,21 +1671,20 @@ pub async fn native_fullscreen_recording_resume(
     #[cfg(target_os = "macos")]
     {
         let paused_for = paused_at.elapsed();
-        let soft_resumed = if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
-            resume,
-            writer,
-            ..
-        }) = session.backend.as_ref()
-        {
-            if writer.segmented() && writer.is_started() {
-                resume.resume(paused_for)?;
-                true
+        let soft_resumed =
+            if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
+                resume, writer, ..
+            }) = session.backend.as_ref()
+            {
+                if writer.segmented() && writer.is_started() {
+                    resume.resume(paused_for)?;
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
-            }
-        } else {
-            false
-        };
+            };
         if soft_resumed {
             session.paused_total = session
                 .paused_total
