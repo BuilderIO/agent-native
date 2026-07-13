@@ -11,9 +11,9 @@ import {
   IconFrame,
   IconLayersSubtract,
   IconLayersUnion,
+  IconLayoutGrid,
   IconLock,
   IconLockOpen,
-  IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
@@ -30,8 +30,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -1481,17 +1481,13 @@ function LayersPanelImpl(
 
         <div
           ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain py-2"
           onDragOver={handleRowsDragOver}
           onDrop={stopAutoScroll}
           onDragEnd={stopAutoScroll}
         >
           {visibleRows.length ? (
-            <div
-              className="w-max min-w-full px-2"
-              role="tree"
-              aria-label={labels.title}
-            >
+            <div className="w-full px-2" role="tree" aria-label={labels.title}>
               {visibleRows.map((row) => {
                 // Per-row primitives computed here (not inside LayerRow) so the
                 // row only receives booleans/strings it needs — no whole-tree
@@ -2047,7 +2043,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative min-w-full"
+          className="relative w-full min-w-0"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2087,7 +2083,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-8 w-full min-w-0 items-center gap-1 rounded-[5px] pr-1 text-[12px]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
