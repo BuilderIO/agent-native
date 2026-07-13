@@ -65,6 +65,9 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
       "detailed error text, stacks, request metadata",
     );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "In Plan mode, query-agent-native-analytics is intentionally unavailable",
+    );
   });
 
   it("routes data-dictionary lookup on demand with compact guidance", () => {
