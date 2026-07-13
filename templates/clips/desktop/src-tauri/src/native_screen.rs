@@ -109,7 +109,9 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 #[cfg(target_os = "macos")]
 mod custom_capture;
 #[cfg(target_os = "macos")]
-use custom_capture::{start_custom_screencapturekit_backend_at, CustomScreenCaptureWriter};
+use custom_capture::{
+    start_custom_screencapturekit_backend_at, CustomCaptureResume, CustomScreenCaptureWriter,
+};
 // Live chunk uploader: tails the fragmented MP4 and streams it during
 // recording; attached/finalized/abandoned from the session logic here.
 #[cfg(target_os = "macos")]
@@ -311,6 +313,11 @@ pub(crate) enum NativeFullscreenBackend {
         /// Signals the watchdog thread to stop supervising (and never rebuild
         /// the stream again) as the session is being torn down.
         watchdog_shutdown: Arc<AtomicBool>,
+        /// Handles for the soft pause/resume path: stop only the capture
+        /// source on pause and splice a fresh SCStream onto the same writer on
+        /// resume, keeping one continuous append-only file so live upload is
+        /// never interrupted.
+        resume: CustomCaptureResume,
     },
 }
 
@@ -1557,6 +1564,38 @@ pub async fn native_fullscreen_recording_pause(
         session.restart.segment_counter,
         session.current_segment_started_at.elapsed().as_millis()
     );
+
+    // Custom pipeline in live-upload (segmented) mode does a SOFT pause: stop
+    // only the capture source and keep the writer, file, and live uploader
+    // alive. Resume splices a fresh SCStream onto the same append-only file, so
+    // there are no segments to concatenate and the upload is never interrupted.
+    #[cfg(target_os = "macos")]
+    {
+        let soft_paused = if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
+            resume,
+            writer,
+            ..
+        }) = session.backend.as_ref()
+        {
+            if writer.segmented() && writer.is_started() {
+                resume.pause();
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if soft_paused {
+            session.paused_at = Some(Instant::now());
+            eprintln!(
+                "[clips-tray] soft-paused {} (writer/file/live upload kept alive)",
+                session.restart.safe_id
+            );
+            return Ok(());
+        }
+    }
+
     // Live upload assumes a single append-only file. Pausing makes the
     // recording multi-segment, so abandon the in-flight uploader; the stop path
     // resets the partial chunks and re-uploads the consolidated file.
@@ -1610,6 +1649,44 @@ pub async fn native_fullscreen_recording_resume(
         // Already running — nothing to do.
         return Ok(());
     };
+
+    // Soft-resume counterpart to the custom-pipeline soft pause: the backend
+    // was never torn down, so build a fresh SCStream onto the same writer and
+    // rebase its timestamps past the pause gap instead of starting a new
+    // segment file.
+    #[cfg(target_os = "macos")]
+    {
+        let paused_for = paused_at.elapsed();
+        let soft_resumed = if let Some(NativeFullscreenBackend::CustomScreenCaptureKit {
+            resume,
+            writer,
+            ..
+        }) = session.backend.as_ref()
+        {
+            if writer.segmented() && writer.is_started() {
+                resume.resume(paused_for)?;
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if soft_resumed {
+            session.paused_total = session
+                .paused_total
+                .checked_add(paused_for)
+                .unwrap_or(session.paused_total);
+            session.paused_at = None;
+            eprintln!(
+                "[clips-tray] soft-resumed {} after {}ms paused (single continuous file, paused_total={}ms)",
+                session.restart.safe_id,
+                paused_for.as_millis(),
+                session.paused_total.as_millis()
+            );
+            return Ok(());
+        }
+    }
 
     let restart = session.restart.clone();
     let next_counter = restart.segment_counter.saturating_add(1);

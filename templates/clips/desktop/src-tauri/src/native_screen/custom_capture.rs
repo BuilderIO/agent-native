@@ -57,6 +57,11 @@ pub(crate) struct CaptureWatch {
     /// Sharing", SCStreamError code -3817). The watchdog must treat this as
     /// a clean stop request, never as a failure to rebuild from.
     user_stopped: AtomicBool,
+    /// True between pause and resume. The capture source (SCStream) is
+    /// intentionally stopped while the writer/file/uploader stay alive, so
+    /// the watchdog must not read the silence as a stall and rebuild — resume
+    /// brings a fresh stream back and clears this.
+    paused: AtomicBool,
 }
 
 impl CaptureWatch {
@@ -65,6 +70,7 @@ impl CaptureWatch {
             last_activity: Mutex::new(Instant::now()),
             stream_stopped: Mutex::new(None),
             user_stopped: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
         }
     }
 
@@ -99,6 +105,14 @@ impl CaptureWatch {
 
     fn user_stopped(&self) -> bool {
         self.user_stopped.load(Ordering::SeqCst)
+    }
+
+    fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::SeqCst);
+    }
+
+    fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
     }
 }
 
@@ -246,6 +260,11 @@ pub(crate) struct CustomScreenCaptureWriter {
     /// Samples skipped because an AVAssetWriterInput wasn't ready; logged
     /// periodically so realtime backpressure is visible.
     dropped_samples: Arc<AtomicU64>,
+    /// Accumulated pause time (seconds, as f64 bits) to subtract from the
+    /// zero-based session timeline so a pause/resume leaves no gap in the
+    /// append-only file. Zero until the first resume. Read by the video
+    /// retime path and the live audio mixer.
+    pause_offset_bits: Arc<AtomicU64>,
 }
 
 /// The lock-guarded half of the writer: the retained AVFoundation objects
@@ -315,6 +334,7 @@ impl Clone for CustomScreenCaptureWriter {
             session_start_bits: Arc::clone(&self.session_start_bits),
             appends_closed: Arc::clone(&self.appends_closed),
             dropped_samples: Arc::clone(&self.dropped_samples),
+            pause_offset_bits: Arc::clone(&self.pause_offset_bits),
         }
     }
 }
@@ -561,8 +581,37 @@ impl CustomScreenCaptureWriter {
                 session_start_bits: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
                 appends_closed: Arc::new(AtomicBool::new(false)),
                 dropped_samples: Arc::new(AtomicU64::new(0)),
+                pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
             })
         }
+    }
+
+    /// Whether the writer runs the segmented (zero-based, append-only) output
+    /// used by live upload. Only that mode rebases sample timestamps, so it's
+    /// the only mode where a fresh SCStream can be spliced onto the same file.
+    pub(super) fn segmented(&self) -> bool {
+        self.inner.lock().map(|g| g.segmented).unwrap_or(false)
+    }
+
+    /// Whether the writer session has begun (first video frame appended).
+    pub(super) fn is_started(&self) -> bool {
+        self.started.load(Ordering::SeqCst)
+    }
+
+    /// Accumulated pause offset in seconds.
+    fn pause_offset_seconds(&self) -> f64 {
+        f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst))
+    }
+
+    /// Add `seconds` to the accumulated pause offset. Called on resume so
+    /// every subsequently appended sample skips the paused wall-clock gap.
+    pub(super) fn add_pause_offset(&self, seconds: f64) {
+        if seconds <= 0.0 {
+            return;
+        }
+        let next = self.pause_offset_seconds() + seconds;
+        self.pause_offset_bits
+            .store(next.to_bits(), Ordering::SeqCst);
     }
 
     /// Route one SCK sample buffer to the right writer input. Mixed-mode
@@ -620,7 +669,8 @@ impl CustomScreenCaptureWriter {
                 let Some(base) = guard.session_start_time else {
                     return;
                 };
-                match retimed_sample_copy(sample, &timing, base) {
+                let pause_offset = self.pause_offset_seconds();
+                match retimed_sample_copy(sample, &timing, base, pause_offset) {
                     Ok(copy) => {
                         self.append_sample_ptr(&mut guard, &input, copy.as_ptr());
                     }
@@ -665,6 +715,7 @@ impl CustomScreenCaptureWriter {
         let Ok(mut mixer_guard) = mixer.lock() else {
             return;
         };
+        mixer_guard.set_pause_offset(self.pause_offset_seconds());
         mixer_guard.push(source, &interleaved, pts_seconds);
         if !self.started.load(Ordering::SeqCst) {
             return;
@@ -1064,6 +1115,10 @@ struct LiveAudioMixer {
     rebase_output: bool,
     /// Session start in source seconds, recorded by `set_min_start`.
     session_start_seconds: Option<f64>,
+    /// Accumulated pause time (seconds) subtracted from every incoming source
+    /// PTS so a pause/resume leaves no gap on the audio timeline — mirrors the
+    /// video path's `pause_offset`.
+    pause_offset_seconds: f64,
     anchor_seconds: Option<f64>,
     out_pos: i64,
     system: MixerTimeline,
@@ -1110,6 +1165,7 @@ impl LiveAudioMixer {
             sample_rate,
             rebase_output,
             session_start_seconds: None,
+            pause_offset_seconds: 0.0,
             anchor_seconds: None,
             out_pos: 0,
             system: MixerTimeline::new(),
@@ -1126,6 +1182,11 @@ impl LiveAudioMixer {
         if frames == 0 {
             return;
         }
+        // Collapse the paused gap: pull post-resume audio back onto the
+        // continuous timeline so its frame positions abut the pre-pause data
+        // instead of leaving a silence hole (which `push` would otherwise cap
+        // at `max_gap` and desync from the video track).
+        let pts_seconds = pts_seconds - self.pause_offset_seconds;
         let anchor = *self.anchor_seconds.get_or_insert(pts_seconds);
         let frame_index =
             (((pts_seconds - anchor) * self.sample_rate as f64).round() as i64).max(0);
@@ -1152,6 +1213,12 @@ impl LiveAudioMixer {
         }
         timeline.samples.extend_from_slice(interleaved);
         timeline.last_push = Some(Instant::now());
+    }
+
+    /// Update the accumulated pause offset (seconds) applied to incoming
+    /// source PTS in `push`. Set from the writer's shared offset on resume.
+    fn set_pause_offset(&mut self, seconds: f64) {
+        self.pause_offset_seconds = seconds;
     }
 
     /// Advance the output cursor so we never emit audio earlier than the
@@ -1530,8 +1597,14 @@ struct ObjcCMSampleTimingInfo {
 }
 
 /// Rebase a timestamp onto the zero-based session timeline (subtract the
-/// first video frame's PTS). Invalid times pass through untouched.
-fn rebased_time(t: screencapturekit::cm::CMTime, base: (i64, i32)) -> ObjcCMTime {
+/// first video frame's PTS). `pause_offset_seconds` is additionally subtracted
+/// so time spent paused collapses to nothing — the file stays gapless across a
+/// pause/resume. Invalid times pass through untouched.
+fn rebased_time(
+    t: screencapturekit::cm::CMTime,
+    base: (i64, i32),
+    pause_offset_seconds: f64,
+) -> ObjcCMTime {
     const K_CMTIME_FLAG_VALID: u32 = 1;
     if t.flags & K_CMTIME_FLAG_VALID == 0 {
         return ObjcCMTime::from(t);
@@ -1544,8 +1617,10 @@ fn rebased_time(t: screencapturekit::cm::CMTime, base: (i64, i32)) -> ObjcCMTime
         (i128::from(base_value) * i128::from(t.timescale) / i128::from(base_timescale.max(1)))
             as i64
     };
+    // Convert the accumulated pause time into this timestamp's timescale.
+    let pause_in_t = (pause_offset_seconds * f64::from(t.timescale)).round() as i64;
     ObjcCMTime {
-        value: t.value - base_in_t,
+        value: t.value - base_in_t - pause_in_t,
         timescale: t.timescale,
         flags: t.flags,
         epoch: t.epoch,
@@ -1559,11 +1634,16 @@ fn retimed_sample_copy(
     sample: &screencapturekit::cm::CMSampleBuffer,
     timing: &screencapturekit::cm::CMSampleTimingInfo,
     base: (i64, i32),
+    pause_offset_seconds: f64,
 ) -> Result<screencapturekit::cm::CMSampleBuffer, String> {
     let new_timing = ObjcCMSampleTimingInfo {
         duration: ObjcCMTime::from(timing.duration),
-        presentation_time_stamp: rebased_time(timing.presentation_time_stamp, base),
-        decode_time_stamp: rebased_time(timing.decode_time_stamp, base),
+        presentation_time_stamp: rebased_time(
+            timing.presentation_time_stamp,
+            base,
+            pause_offset_seconds,
+        ),
+        decode_time_stamp: rebased_time(timing.decode_time_stamp, base, pause_offset_seconds),
     };
     let mut out: *mut std::ffi::c_void = std::ptr::null_mut();
     let status = unsafe {
@@ -1975,6 +2055,69 @@ struct RestartParams {
     height: u32,
 }
 
+/// Everything the pause/resume path needs to stop the capture source without
+/// tearing down the writer, and to splice a fresh SCStream onto the same
+/// (append-only) file on resume. Cheap to clone — all handles are `Arc`s or
+/// plain data — so it lives alongside the backend and shares the watchdog's
+/// stream/handler/watch.
+pub(crate) struct CustomCaptureResume {
+    stream: Arc<Mutex<SCStream>>,
+    handler: CustomScreenCaptureOutputHandler,
+    watch: Arc<CaptureWatch>,
+    params: RestartParams,
+}
+
+impl CustomCaptureResume {
+    /// Pause: stop only the capture source (SCStream). The writer, file, and
+    /// live uploader stay alive; mic/screen go cold. The watchdog is told to
+    /// hold so it never reads the silence as a stall and rebuilds.
+    pub(crate) fn pause(&self) {
+        self.watch.set_paused(true);
+        if let Ok(guard) = self.stream.lock() {
+            let _ = guard.stop_capture();
+        }
+        eprintln!("[mixer] capture paused; source stream stopped, writer/file kept open");
+    }
+
+    /// Resume: build a fresh SCStream wired to the SAME writer and start it,
+    /// after advancing the writer's pause offset by `paused_for` so the new
+    /// samples rebase past the pause gap. The result is one continuous
+    /// append-only file — the live uploader is never interrupted, exactly like
+    /// a watchdog stream rebuild.
+    pub(crate) fn resume(&self, paused_for: Duration) -> Result<(), String> {
+        self.handler
+            .writer
+            .add_pause_offset(paused_for.as_secs_f64());
+
+        let new_stream = build_custom_scstream(&self.params, &self.handler, &self.watch)
+            .and_then(|s| {
+                s.start_capture()
+                    .map(|()| s)
+                    .map_err(|e| format!("resume start_capture failed: {e:?}"))
+            })?;
+
+        // Stop any lingering paused stream, then swap the fresh one in under
+        // the same lock the watchdog uses so the two never feed at once.
+        if let Ok(guard) = self.stream.lock() {
+            let _ = guard.stop_capture();
+        }
+        if let Ok(mut guard) = self.stream.lock() {
+            *guard = new_stream;
+        }
+        // Discard the stop note our own pause/stop raised and reset the
+        // activity clock so the watchdog doesn't immediately treat the just-
+        // rebuilt stream as stalled, then hand supervision back.
+        let _ = self.watch.take_stream_stopped();
+        self.watch.note_activity();
+        self.watch.set_paused(false);
+        eprintln!(
+            "[mixer] capture resumed; fresh stream spliced onto same writer (paused {}ms)",
+            paused_for.as_millis()
+        );
+        Ok(())
+    }
+}
+
 /// Stream lifecycle delegate for the custom pipeline. ScreenCaptureKit calls
 /// this when it stops the stream (e.g. the captured display changed Spaces or a
 /// full-screen app took over). Without it those stops are invisible and the
@@ -2120,6 +2263,15 @@ fn spawn_capture_watchdog(
             // fresh from the first delivered buffer, so there is no false stall
             // when we start evaluating.
             if !recording_enabled.load(Ordering::SeqCst) || !writer.started.load(Ordering::SeqCst) {
+                continue;
+            }
+
+            // Paused: the capture source is intentionally stopped while the
+            // writer/file/uploader stay alive. Don't read the silence as a
+            // stall or rebuild — resume splices a fresh stream back in.
+            if watch.is_paused() {
+                restart_streak = 0;
+                cooldown_until = None;
                 continue;
             }
 
@@ -2295,6 +2447,15 @@ pub(super) fn start_custom_screencapturekit_backend_at(
 
     let stream = Arc::new(Mutex::new(stream));
     let watchdog_shutdown = Arc::new(AtomicBool::new(false));
+    // Snapshot the handles pause/resume needs before the watchdog consumes
+    // `handler` and `params`; the fresh stream it builds on resume feeds the
+    // same writer as the watchdog's own rebuilds.
+    let resume = CustomCaptureResume {
+        stream: Arc::clone(&stream),
+        handler: handler.clone(),
+        watch: Arc::clone(&watch),
+        params: params.clone(),
+    };
     spawn_capture_watchdog(
         app.clone(),
         Arc::clone(&stream),
@@ -2313,6 +2474,7 @@ pub(super) fn start_custom_screencapturekit_backend_at(
             mic_ready,
             recording_enabled,
             watchdog_shutdown,
+            resume,
         },
         Some(width),
         Some(height),
