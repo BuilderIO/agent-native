@@ -422,7 +422,6 @@ function CopyField({ label, value }: { label: string; value: string }) {
 
 function AccessTab({
   appName: appNameProp,
-  ..._props
 }: AgentPageTabProps & { appName?: string }) {
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);

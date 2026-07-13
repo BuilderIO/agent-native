@@ -283,6 +283,7 @@ export function Layout({ children }: LayoutProps) {
             openOnChatRunning={chatHomeHandoffActive && !isSessionsRoute}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.emptyState")}
+            agentPageHref="/agent"
             suggestions={[
               t("chat.suggestionArrGrowth"),
               t("chat.suggestionChurn"),
