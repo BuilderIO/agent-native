@@ -547,6 +547,27 @@ export interface RawExceptionInput {
   breadcrumbs: unknown[];
 }
 
+/**
+ * Browser request cancellation is expected during navigation and query
+ * invalidation. Keep the first-party issue store aligned with the client
+ * Sentry filter, while preserving other AbortError failures for triage.
+ */
+export function isBenignBrowserAbortException(
+  input: Pick<RawExceptionInput, "type" | "message">,
+): boolean {
+  const exceptionType = input.type.trim().toLowerCase();
+  const exceptionValue = input.message.trim().toLowerCase();
+  return (
+    exceptionValue === "the user aborted a request." ||
+    exceptionValue === "signal is aborted without reason" ||
+    exceptionValue === "aborterror: the user aborted a request." ||
+    exceptionValue === "aborterror: signal is aborted without reason" ||
+    (exceptionType === "aborterror" &&
+      (exceptionValue.includes("the user aborted a request") ||
+        exceptionValue.includes("signal is aborted without reason")))
+  );
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -930,11 +951,9 @@ export async function ingestAnalyticsExceptionEvents(
   let ingested = 0;
   for (const item of events) {
     try {
-      await ingestException(
-        scope,
-        extractExceptionInput(item.properties),
-        item.derived,
-      );
+      const raw = extractExceptionInput(item.properties);
+      if (isBenignBrowserAbortException(raw)) continue;
+      await ingestException(scope, raw, item.derived);
       ingested += 1;
     } catch (error) {
       console.warn("[error-capture] Failed to ingest exception event:", error);
