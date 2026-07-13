@@ -52,6 +52,15 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("does not waive the real-data requirement");
   });
 
+  it("discovers incident sessions without requiring a JavaScript error count", () => {
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "Do not require hasErrors=true for this initial lookup",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "agent_chat_stuck_detected",
+    );
+  });
+
   it("routes data-dictionary lookup on demand with compact guidance", () => {
     const context = analyticsDataDictionaryRoutingContext();
 
