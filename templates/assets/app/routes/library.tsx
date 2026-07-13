@@ -1108,8 +1108,24 @@ function AllAssetsBrowser({
 }) {
   const t = useT();
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const [assetTab, setAssetTab] = useState<AssetTab>("drafts");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  // The root Library view keeps its tab/search in the URL so deep links,
+  // refreshes, and agent `navigate` commands are honored (the framework's
+  // useNavigationState reads the same `?tab=`/`?q=` params). Absent a tab param,
+  // default to Drafts.
+  const urlAssetTab = useMemo<AssetTab>(() => {
+    const tab = new URLSearchParams(searchParamsKey).get("tab");
+    return tab === "drafts" || tab === "generated" || tab === "references"
+      ? tab
+      : "drafts";
+  }, [searchParamsKey]);
+  const urlQuery = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("q") ?? "",
+    [searchParamsKey],
+  );
+  const [query, setQuery] = useState(urlQuery);
+  const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
@@ -1185,14 +1201,47 @@ function AllAssetsBrowser({
     void copyStandaloneSelection(payload);
   }
 
+  // Keep local state in sync when the URL changes externally (back/forward,
+  // agent navigation, deep links) since the component stays mounted.
   useEffect(() => {
-    void writeClientAppState(`navigation:${getBrowserTabId()}`, {
-      view: "library",
-      selection: "all",
-      tab: assetTab,
-      search: query.trim() || undefined,
-    });
-  }, [assetTab, query]);
+    setAssetTab(urlAssetTab);
+  }, [urlAssetTab]);
+  useEffect(() => {
+    setQuery(urlQuery);
+  }, [urlQuery]);
+
+  const handleAssetTabChange = useCallback(
+    (value: AssetTab) => {
+      setAssetTab(value);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          // Drafts is the default, so keep it out of the URL for clean links.
+          if (value === "drafts") next.delete("tab");
+          else next.set("tab", value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      setQuery(value);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value.trim()) next.set("q", value);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -1201,7 +1250,7 @@ function AllAssetsBrowser({
           <div className="flex min-w-0 items-center gap-2">
             <Tabs
               value={assetTab}
-              onValueChange={(value) => setAssetTab(value as AssetTab)}
+              onValueChange={(value) => handleAssetTabChange(value as AssetTab)}
             >
               <TabsList className="h-9">
                 <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
@@ -1228,8 +1277,10 @@ function AllAssetsBrowser({
               <input
                 type="search"
                 value={query}
-                onInput={(event) => setQuery(event.currentTarget.value)}
-                onChange={(event) => setQuery(event.target.value)}
+                onInput={(event) =>
+                  handleQueryChange(event.currentTarget.value)
+                }
+                onChange={(event) => handleQueryChange(event.target.value)}
                 placeholder={t("library.searchAssets")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
@@ -1656,7 +1707,11 @@ function LibraryCandidateStage({
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
-  const { data: variants, isLoading: variantsLoading } = useQuery({
+  const {
+    data: variants,
+    isLoading: variantsLoading,
+    isError: variantsError,
+  } = useQuery({
     queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
     queryFn: ({ signal }) => {
       return readClientAppState<AssetVariantState>(
@@ -1674,12 +1729,15 @@ function LibraryCandidateStage({
     { id: activeLibraryId ?? "" } as any,
     { enabled: Boolean(activeLibraryId) } as any,
   ) as { data?: { library?: Library; assets?: Asset[]; folders?: any[] } };
-  const { data: allCandidateData, isLoading: allCandidatesLoading } =
-    useActionQuery(
-      "list-assets",
-      { includeCandidates: true, status: "candidate" } as any,
-      { enabled: isAllAssetsStage } as any,
-    ) as { data?: { assets?: Asset[] }; isLoading: boolean };
+  const {
+    data: allCandidateData,
+    isLoading: allCandidatesLoading,
+    isError: allCandidatesError,
+  } = useActionQuery(
+    "list-assets",
+    { includeCandidates: true, status: "candidate" } as any,
+    { enabled: isAllAssetsStage } as any,
+  ) as { data?: { assets?: Asset[] }; isLoading: boolean; isError: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
   const libraryAssets = isAllAssetsStage
@@ -1724,12 +1782,15 @@ function LibraryCandidateStage({
     [libraryAssets, liveAssetIds],
   );
   const totalCount = slots.length + draftAssets.length;
-  // Don't flash the empty state before the candidate sources have loaded.
+  // Don't flash the empty state before the candidate sources have resolved, and
+  // don't misreport a load failure as "no drafts".
   const candidatesLoading =
     variantsLoading || (isAllAssetsStage && allCandidatesLoading);
+  const candidatesError =
+    variantsError || (isAllAssetsStage && allCandidatesError);
 
   if (totalCount === 0) {
-    if (candidatesLoading) return null;
+    if (candidatesLoading || candidatesError) return null;
     return emptyState ? <>{emptyState}</> : null;
   }
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
