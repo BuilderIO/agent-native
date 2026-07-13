@@ -8,7 +8,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { getOrigin } from "../server/google-oauth.js";
+import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -79,16 +79,24 @@ function requestOriginFromEvent(event: any | undefined): string | undefined {
 }
 
 /**
- * Prefer the origin resolved from the receiving request. Metadata is only a
- * compatibility fallback for callers that invoke the handler without an H3
- * event (for example, direct unit/test harnesses); an actual HTTP request
- * must not be able to steer links or service-token URLs to another host.
+ * Prefer the origin resolved from the receiving request. A distinct public
+ * browser origin is allowed only when the receiver configured it explicitly;
+ * arbitrary caller metadata must not steer links or service-token URLs.
  */
 function requestOriginForContext(
   metadata: Record<string, unknown> | undefined,
   event: any | undefined,
 ): string | undefined {
-  return requestOriginFromEvent(event) ?? requestOriginFromMetadata(metadata);
+  if (!event) return undefined;
+  const receiverOrigin = requestOriginFromEvent(event);
+  const metadataOrigin = requestOriginFromMetadata(metadata);
+  if (
+    metadataOrigin &&
+    (metadataOrigin === receiverOrigin || isConfiguredAppOrigin(metadataOrigin))
+  ) {
+    return metadataOrigin;
+  }
+  return receiverOrigin;
 }
 
 function trustedA2AMetadata(

@@ -305,13 +305,68 @@ describe("handleJsonRpc", () => {
       }),
     };
 
+    for (const requestOrigin of [
+      "https://attacker.example.test",
+      "http://localhost:3000",
+      "http://169.254.169.254",
+      "file:///tmp/receiver",
+    ]) {
+      const result = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            metadata: { requestOrigin },
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+            },
+          },
+        },
+        event,
+        contextConfig,
+      );
+
+      expect(result.result.status.message.parts[0].text).toBe(
+        "https://target.example.test",
+      );
+    }
+  });
+
+  it("accepts a configured public origin distinct from the A2A transport", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_URL", "https://app.example.test");
+    vi.stubEnv("BETTER_AUTH_URL", "https://a2a.example.test");
+    const event = mockEvent();
+    event.req = {
+      headers: new Headers({
+        host: "a2a.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+
     const result = await handleJsonRpc(
       {
         jsonrpc: "2.0",
         id: 1,
         method: "message/send",
         params: {
-          metadata: { requestOrigin: "https://attacker.example.test" },
+          metadata: { requestOrigin: "https://app.example.test" },
           message: {
             role: "user",
             parts: [{ type: "text", text: "hi" }],
@@ -323,7 +378,7 @@ describe("handleJsonRpc", () => {
     );
 
     expect(result.result.status.message.parts[0].text).toBe(
-      "https://target.example.test",
+      "https://app.example.test",
     );
   });
 
