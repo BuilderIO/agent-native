@@ -11,8 +11,8 @@ export function buildDeleteEventMutationInput(
   options: DeleteEventOptions = {},
 ): DeleteEventMutationInput {
   return {
+    ...options,
     id: event.id,
     accountEmail: event.accountEmail,
-    ...options,
   };
 }

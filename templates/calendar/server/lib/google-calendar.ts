@@ -29,6 +29,7 @@ import {
   calendarInsertEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
+  calendarUpdateEvent,
   peopleGetProfile,
 } from "./google-api.js";
 import {
@@ -1122,12 +1123,15 @@ export async function createEvent(
     throw new Error("Out of office and focus time events must be timed.");
   }
 
-  const body: any = {
-    summary: event.title,
-    description: event.description,
-    location: event.location,
-    ...buildDateRange(event),
-  };
+  const body: any =
+    event.eventType === "workingLocation"
+      ? buildDateRange(event)
+      : {
+          summary: event.title,
+          description: event.description,
+          location: event.location,
+          ...buildDateRange(event),
+        };
   applyEventOptions(body, event);
   if (event.attachments !== undefined) {
     body.attachments = event.attachments;
@@ -1218,7 +1222,10 @@ export async function updateEvent(
   if (eventPatch.title !== undefined) requestBody.summary = eventPatch.title;
   if (eventPatch.description !== undefined)
     requestBody.description = eventPatch.description;
-  if (eventPatch.location !== undefined)
+  if (
+    eventPatch.location !== undefined &&
+    eventPatch.workingLocationProperties === undefined
+  )
     requestBody.location = eventPatch.location;
   if (eventPatch.start !== undefined) {
     requestBody.start = eventPatch.allDay
@@ -1260,18 +1267,41 @@ export async function updateEvent(
     requestBody.conferenceData = createGoogleMeetRequest();
   }
 
-  const response = await calendarPatchEvent(
-    client.accessToken,
-    "primary",
-    targetEventId,
-    requestBody,
-    {
-      sendUpdates: options?.sendUpdates,
-      conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
-      supportsAttachments:
-        eventPatch.attachments !== undefined ? true : undefined,
-    },
-  );
+  // Google validates status events as complete resources during updates. A
+  // partial PATCH can reject otherwise valid working-location changes because
+  // required eventType/start/end fields are absent from the request body.
+  const response = eventPatch.workingLocationProperties
+    ? await calendarUpdateEvent(
+        client.accessToken,
+        "primary",
+        targetEventId,
+        {
+          ...(await calendarGetEvent(
+            client.accessToken,
+            "primary",
+            targetEventId,
+          )),
+          ...requestBody,
+        },
+        {
+          sendUpdates: options?.sendUpdates,
+          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          supportsAttachments:
+            eventPatch.attachments !== undefined ? true : undefined,
+        },
+      )
+    : await calendarPatchEvent(
+        client.accessToken,
+        "primary",
+        targetEventId,
+        requestBody,
+        {
+          sendUpdates: options?.sendUpdates,
+          conferenceDataVersion: options?.addGoogleMeet ? 1 : undefined,
+          supportsAttachments:
+            eventPatch.attachments !== undefined ? true : undefined,
+        },
+      );
 
   return {
     htmlLink: response?.htmlLink || undefined,
