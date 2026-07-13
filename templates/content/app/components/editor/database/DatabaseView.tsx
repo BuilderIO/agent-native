@@ -48,7 +48,6 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
@@ -56,6 +55,7 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSourceWriteMode,
   type SourceJoinSuggestion,
   type ContentDatabasePersonalViewOverrides,
   type ContentDatabaseView,
@@ -173,9 +173,12 @@ import {
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import {
+  isDocumentUpdateConflict,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
+  usePreviewDocumentDraft,
+  useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
@@ -188,6 +191,7 @@ import {
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
   previewBodyHydrationIsTerminalError,
+  previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
 import {
@@ -225,7 +229,8 @@ import {
 import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
-  skippedPreviewDocumentSave,
+  deferredPreviewDocumentSave,
+  type PreviewDocumentSaveAdapter,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -288,6 +293,32 @@ export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 
 export type PersonalDatabaseViewOverrides =
   ContentDatabasePersonalViewOverrides;
+
+type BuilderSourceWriteSettingsInput = {
+  sourceId: string;
+  writeMode: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
+};
+
+export function previewDraftNeedsConflict(args: {
+  returnedDraft: { title: string; content: string };
+  pending: { title: string; content: string };
+}) {
+  return (
+    args.returnedDraft.title !== args.pending.title ||
+    args.returnedDraft.content !== args.pending.content
+  );
+}
+
+export function previewDraftMissingCasRecovery(args: {
+  operation: "upsert" | "delete";
+  allowCreateRetry: boolean;
+}) {
+  if (args.operation === "delete") return "converged" as const;
+  return args.allowCreateRetry
+    ? ("retry-create" as const)
+    : ("failed" as const);
+}
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
@@ -2080,6 +2111,7 @@ function DatabaseTable({
         panel={settingsPanel}
         documentId={document.id}
         canEdit={canEdit}
+        canManage={document.canManage === true}
         activeView={activeView}
         properties={orderedProperties}
         items={items}
@@ -2166,25 +2198,26 @@ function DatabaseTable({
           setBuilderReviewCheckedAt(null);
           setBuilderReviewOpen(true);
         }}
-        onSetBuilderLiveWrites={(enabled) =>
+        onSetBuilderLiveWrites={(settings) =>
           setSourceWriteMode.mutate(
             {
               documentId: document.id,
-              liveWritesEnabled: enabled,
-              allowedWriteModes: enabled ? ["autosave"] : [],
+              sourceId: settings.sourceId,
+              writeMode: settings.writeMode,
+              allowPublicationTransitions:
+                settings.writeMode === "publish_updates" &&
+                settings.allowPublicationTransitions === true,
             },
             {
               onSuccess: () => {
-                toast.success(
-                  enabled
-                    ? "Builder live writes enabled"
-                    : "Builder live writes disabled",
-                  {
-                    description: enabled
-                      ? "Only autosave writes to the Agent Native test collection can run."
-                      : "Push will return to local validation only.",
-                  },
-                );
+                toast.success(dbText("builderWriteModeUpdated"), {
+                  description:
+                    settings.writeMode === "publish_updates"
+                      ? "Approved updates can write through to Builder while preserving publication state."
+                      : settings.writeMode === "stage_only"
+                        ? "Approved updates will stage Builder autosave revisions."
+                        : "Builder writes are disabled for this source.",
+                });
               },
               onError: (error) => {
                 toast.error(dbText("builderWriteModeWasNotChanged"), {
@@ -2782,19 +2815,44 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
+  const { data: persistedPreviewDraft } = usePreviewDocumentDraft(
+    item.document.id,
+  );
+  const updatePreviewDraft = useUpdatePreviewDocumentDraft();
   const previewDocument = document ?? item.document;
   const previewTitle = databaseItemPreviewTitle(item);
+  const [bodyDraftConflict, setBodyDraftConflict] = useState<{
+    documentId: string;
+    serverPayload: {
+      title: string;
+      content: string;
+      loadedUpdatedAt?: string;
+      loadedContentWasEmpty?: boolean;
+    };
+  } | null>(null);
+  const activeBodyDraftConflict =
+    bodyDraftConflict?.documentId === item.document.id
+      ? bodyDraftConflict
+      : null;
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const bodyHydrationPending = previewBodyHydrationIsPending({
-    item,
-    document,
-  });
+  const sourceBackedPreview = Boolean(
+    item.bodyHydration ||
+    item.document.databaseMembership?.sourceId ||
+    document?.databaseMembership?.sourceId,
+  );
+  const bodyHydrationPending =
+    (sourceBackedPreview && (isLoading || !document)) ||
+    previewBodyHydrationIsPending({
+      item,
+      document,
+    });
   const bodyHydrationError = previewBodyHydrationIsTerminalError({
     item,
     document,
   });
-  const previewCanEdit = canEdit && !bodyHydrationPending;
+  const previewCanEdit =
+    canEdit && !bodyHydrationPending && !activeBodyDraftConflict;
   const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
   // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
@@ -2839,16 +2897,237 @@ function DatabaseItemPreview({
   queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
+  const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
+  const draftWriteChainsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const draftSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+  const updatePreviewDraftRef = useRef(updatePreviewDraft);
+  updatePreviewDraftRef.current = updatePreviewDraft;
   // Doc ids that have been deleted in this peek's lifetime. A pending save must
   // never resurrect a deleted document, so dispatch is suppressed for these.
   const deletedIdsRef = useRef<Set<string>>(new Set());
 
   const documentId = item.document.id;
 
-  // Build the factory for THIS row's controller. It closes over the stable
-  // component-scoped refs (updateDocument, queryClient, deletedIds), so the
-  // freshest mutation impl is always used while the controller's save TARGET
-  // (`documentId`) is fixed by the registry key.
+  function enqueueDraftWrite(
+    controller: ReturnType<typeof createPreviewDocumentSaveController>,
+    operation: "upsert" | "delete",
+    expectedPayload?: { title: string; content: string },
+    allowCreateRetry = true,
+  ) {
+    const snapshot = controller.draftSnapshot();
+    const previous =
+      draftWriteChainsRef.current.get(documentId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedVersion =
+          draftVersionsRef.current.get(documentId) ?? null;
+        if (operation === "delete") {
+          if (expectedVersion === null) return;
+          if (!expectedPayload) return;
+          const result = await updatePreviewDraftRef.current.mutateAsync({
+            operation: "delete",
+            documentId,
+            expectedVersion,
+            expectedTitle: expectedPayload.title,
+            expectedContent: expectedPayload.content,
+          });
+          if (result.status === "deleted")
+            draftVersionsRef.current.set(documentId, null);
+          else if (result.draft) {
+            draftVersionsRef.current.set(documentId, result.draft.version);
+            if (
+              previewDraftNeedsConflict({
+                returnedDraft: result.draft,
+                pending: controller.pending,
+              })
+            ) {
+              controller.notifyDraftConflict({
+                lastSaved: snapshot.lastSaved,
+                pending: {
+                  title: result.draft.title,
+                  content: result.draft.content,
+                  loadedUpdatedAt:
+                    result.draft.baseDocumentUpdatedAt ?? undefined,
+                  loadedContentWasEmpty:
+                    result.draft.loadedContentWasEmpty === 1,
+                },
+                deferredReason: "conflict",
+              });
+            }
+          } else {
+            // Another tab already removed the row. Treat the stale delete as
+            // converged instead of retaining a version that can never match.
+            draftVersionsRef.current.set(documentId, null);
+          }
+          return;
+        }
+        const result = await updatePreviewDraftRef.current.mutateAsync({
+          operation: "upsert",
+          documentId,
+          expectedVersion,
+          draft: {
+            title: snapshot.pending.title,
+            content: snapshot.pending.content,
+            baseDocumentUpdatedAt: snapshot.pending.loadedUpdatedAt ?? null,
+            loadedContentWasEmpty:
+              snapshot.pending.loadedContentWasEmpty === true,
+            deferredReason: snapshot.deferredReason,
+          },
+        });
+        if (result.status === "saved" && result.draft) {
+          draftVersionsRef.current.set(documentId, result.draft.version);
+        } else if (result.draft) {
+          draftVersionsRef.current.set(documentId, result.draft.version);
+          if (
+            previewDraftNeedsConflict({
+              returnedDraft: result.draft,
+              pending: controller.pending,
+            })
+          ) {
+            controller.notifyDraftConflict({
+              lastSaved: snapshot.lastSaved,
+              pending: {
+                title: result.draft.title,
+                content: result.draft.content,
+                loadedUpdatedAt:
+                  result.draft.baseDocumentUpdatedAt ?? undefined,
+                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
+              },
+              deferredReason: "conflict",
+            });
+          }
+        } else {
+          // A competing tab deleted the version we tried to update. Reset to
+          // create mode and enqueue the latest pending payload once; keeping
+          // the stale version would make every later upsert conflict forever.
+          draftVersionsRef.current.set(documentId, null);
+          const recovery = previewDraftMissingCasRecovery({
+            operation: "upsert",
+            allowCreateRetry,
+          });
+          if (recovery === "retry-create") {
+            enqueueDraftWrite(controller, "upsert", undefined, false);
+          } else {
+            toast.error(dbText("failedToSavePagePreview"), {
+              description: dbText("somethingWentWrong"),
+            });
+          }
+        }
+      });
+    draftWriteChainsRef.current.set(
+      documentId,
+      next.catch((error) => {
+        toast.error(dbText("failedToSavePagePreview"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : dbText("somethingWentWrong"),
+        });
+      }),
+    );
+  }
+
+  function scheduleDraftWrite(
+    controller: ReturnType<typeof createPreviewDocumentSaveController>,
+  ) {
+    const existing = draftSaveTimersRef.current.get(documentId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      draftSaveTimersRef.current.delete(documentId);
+      enqueueDraftWrite(controller, "upsert");
+    }, 250);
+    draftSaveTimersRef.current.set(documentId, timer);
+  }
+
+  // Adapters are replaced whenever a document is acquired. A controller can
+  // outlive one preview mount while its final flush settles, but it must never
+  // retain that old mount's hydration refs, mutation callback, or conflict UI.
+  const makeSaveAdapter = (): PreviewDocumentSaveAdapter => ({
+    save: (id, payload, baseline) =>
+      new Promise((resolve, reject) => {
+        // A just-deleted doc must not be re-dispatched (resurrection guard).
+        if (deletedIdsRef.current.has(id)) {
+          resolve(undefined);
+          return;
+        }
+        const titleChanged = payload.title !== baseline?.title;
+        const contentChanged = payload.content !== baseline?.content;
+        if (bodyHydrationPendingRef.current && contentChanged) {
+          resolve(deferredPreviewDocumentSave());
+          return;
+        }
+        updateDocumentRef.current.mutate(
+          {
+            id,
+            ...(titleChanged ? { title: payload.title } : {}),
+            ...(contentChanged
+              ? {
+                  content: payload.content,
+                  loadedUpdatedAt: payload.loadedUpdatedAt,
+                  loadedContentWasEmpty: payload.loadedContentWasEmpty,
+                }
+              : {}),
+            ...(contentChanged && payload.loadedUpdatedAt
+              ? { baseUpdatedAt: payload.loadedUpdatedAt }
+              : {}),
+          },
+          {
+            onSuccess: (result) => {
+              if (isDocumentUpdateConflict(result)) {
+                resolve(
+                  deferredPreviewDocumentSave("conflict", {
+                    lastSaved: baseline ?? payload,
+                    pending: {
+                      title: result.document.title,
+                      content: result.document.content,
+                      loadedUpdatedAt: result.document.updatedAt,
+                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                        result.document.content,
+                      ),
+                    },
+                    deferredReason: "conflict",
+                  }),
+                );
+                return;
+              }
+              resolve(undefined);
+            },
+            onError: reject,
+          },
+        );
+      }),
+    onSaved: (persistedPayload) => {
+      const controller = peekPreviewDocumentSaveController(documentId);
+      if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
+      void queryClientRef.current.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
+      });
+      void queryClientRef.current.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+    onError: (err) => {
+      toast.error(dbText("failedToSavePagePreview"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+    },
+    onDraftConflict: (snapshot) => {
+      setBodyDraftConflict({
+        documentId,
+        serverPayload: {
+          title: snapshot.pending.title,
+          content: snapshot.pending.content,
+          loadedUpdatedAt: snapshot.pending.loadedUpdatedAt,
+          loadedContentWasEmpty: snapshot.pending.loadedContentWasEmpty,
+        },
+      });
+    },
+  });
+
   const makeController = () =>
     createPreviewDocumentSaveController({
       documentId,
@@ -2860,42 +3139,7 @@ function DatabaseItemPreview({
           item.document.content,
         ),
       },
-      save: (id, payload) =>
-        new Promise((resolve, reject) => {
-          // A just-deleted doc must not be re-dispatched (resurrection guard).
-          if (deletedIdsRef.current.has(id)) {
-            resolve(undefined);
-            return;
-          }
-          if (bodyHydrationPendingRef.current) {
-            resolve(skippedPreviewDocumentSave());
-            return;
-          }
-          updateDocumentRef.current.mutate(
-            {
-              id,
-              title: payload.title,
-              content: payload.content,
-              loadedUpdatedAt: payload.loadedUpdatedAt,
-              loadedContentWasEmpty: payload.loadedContentWasEmpty,
-            },
-            { onSuccess: () => resolve(undefined), onError: reject },
-          );
-        }),
-      onSaved: () => {
-        void queryClientRef.current.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(databaseDocumentId),
-        });
-        void queryClientRef.current.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-      },
-      onError: (err) => {
-        toast.error(dbText("failedToSavePagePreview"), {
-          description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
-        });
-      },
+      ...makeSaveAdapter(),
     });
 
   // Acquire the controller for the current row, and release it on row-switch /
@@ -2929,8 +3173,21 @@ function DatabaseItemPreview({
     saveControllerRef.current = acquirePreviewDocumentSaveController(
       documentId,
       makeController,
+      (controller) => controller.replaceSaveAdapter(makeSaveAdapter()),
     );
     return () => {
+      const controller = saveControllerRef.current;
+      const draftTimer = draftSaveTimersRef.current.get(documentId);
+      if (draftTimer) {
+        clearTimeout(draftTimer);
+        draftSaveTimersRef.current.delete(documentId);
+      }
+      if (
+        controller &&
+        !previewPayloadsEqual(controller.pending, controller.lastSaved)
+      ) {
+        enqueueDraftWrite(controller, "upsert");
+      }
       saveControllerRef.current = null;
       releasePreviewDocumentSaveController(documentId);
     };
@@ -2939,6 +3196,58 @@ function DatabaseItemPreview({
     // (the registry key) is the only thing that should drive re-acquire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
+
+  useEffect(() => {
+    const draft = persistedPreviewDraft?.draft;
+    if (!draft) {
+      if (!draftVersionsRef.current.has(documentId)) {
+        draftVersionsRef.current.set(documentId, null);
+      }
+      return;
+    }
+    draftVersionsRef.current.set(documentId, draft.version);
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    const controllerDirty = !previewPayloadsEqual(
+      controller.pending,
+      controller.lastSaved,
+    );
+    const snapshot = {
+      lastSaved: controller.lastSaved,
+      pending: {
+        title: draft.title,
+        content: draft.content,
+        loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
+        loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+      },
+      deferredReason:
+        draft.deferredReason === "hydration" ||
+        draft.deferredReason === "conflict"
+          ? draft.deferredReason
+          : null,
+    } as const;
+    if (controllerDirty) {
+      if (
+        previewDraftNeedsConflict({
+          returnedDraft: draft,
+          pending: controller.pending,
+        })
+      ) {
+        controller.notifyDraftConflict(snapshot);
+      } else {
+        setBodyDraftConflict((current) =>
+          current?.documentId === documentId ? null : current,
+        );
+      }
+      return;
+    }
+    controller.restoreDraft(snapshot);
+    setLocalTitle(snapshot.pending.title);
+    setLocalContent(snapshot.pending.content);
+    if (snapshot.deferredReason === "conflict") {
+      controller.notifyDraftConflict(snapshot);
+    }
+  }, [documentId, persistedPreviewDraft?.draft]);
 
   // Sync displayed state to the current row, and adopt fresh server content
   // (e.g. an agent edit) as the controller's new confirmed baseline. mark()
@@ -2973,12 +3282,31 @@ function DatabaseItemPreview({
       controller.lastSaved.loadedContentWasEmpty === true &&
       isEffectivelyEmptyDocumentContent(controller.pending.content) &&
       !isEffectivelyEmptyDocumentContent(nextContent);
+    const hydratedBodyConflictsWithDraft =
+      !!controller &&
+      dirty &&
+      (controller.deferredReason === "conflict" ||
+        previewDraftConflictsWithHydratedBody({
+          loadedContent: controller.lastSaved.content,
+          loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
+          loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
+          pendingContent: controller.pending.content,
+          hydratedContent: nextContent,
+          hydratedUpdatedAt: nextLoadedUpdatedAt,
+        }));
     // Only adopt the server's title/content — into BOTH the displayed editor
     // state and the controller baseline — when the user hasn't typed something
     // newer on this row. If a dirty in-progress edit exists, preserve it: don't
     // clobber the visible text (the controller already holds the unsaved edit,
     // so nothing is lost, but the editor must keep showing what the user typed).
-    if (staleEmptyPendingOverFreshServer || (!dirty && !savedAheadOfServer)) {
+    if (hydratedBodyConflictsWithDraft) {
+      setBodyDraftConflict({ documentId, serverPayload });
+      setLocalTitle(controller.pending.title);
+      setLocalContent(controller.pending.content);
+    } else if (
+      staleEmptyPendingOverFreshServer ||
+      (!dirty && !savedAheadOfServer)
+    ) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
       controller?.mark(serverPayload);
@@ -3001,6 +3329,36 @@ function DatabaseItemPreview({
     item.document.updatedAt,
   ]);
 
+  // If hydration began after a keystroke, the controller deferred that save
+  // without discarding it. Retry once the authoritative document is ready —
+  // unless a non-empty Builder body arrived over an empty baseline. In that
+  // conflict case the draft remains dirty in the registry instead of silently
+  // overwriting either side; the update action's CAS is a final fail-closed
+  // guard if the source changed between this check and the write.
+  useEffect(() => {
+    if (bodyHydrationPending || !document) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller || controller.deferredReason !== "hydration") return;
+    if (
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: controller.lastSaved.content,
+        loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
+        loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
+        pendingContent: controller.pending.content,
+        hydratedContent: document.content,
+        hydratedUpdatedAt: document.updatedAt,
+      })
+    ) {
+      return;
+    }
+    void controller.flush();
+  }, [
+    bodyHydrationPending,
+    document?.content,
+    document?.updatedAt,
+    documentId,
+  ]);
+
   useEffect(() => {
     if (!focusTitle || !previewCanEdit || isLoading || !document) return;
 
@@ -3016,7 +3374,9 @@ function DatabaseItemPreview({
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
     if (!previewCanEdit || !document) return;
-    saveControllerRef.current?.changeTitle(nextTitle);
+    const controller = saveControllerRef.current;
+    controller?.changeTitle(nextTitle);
+    if (controller) scheduleDraftWrite(controller);
   }
 
   function handleContentChange(nextContent: string) {
@@ -3031,7 +3391,31 @@ function DatabaseItemPreview({
     }
     setLocalContent(nextContent);
     if (!previewCanEdit || !document) return;
-    saveControllerRef.current?.changeContent(nextContent);
+    const controller = saveControllerRef.current;
+    controller?.changeContent(nextContent);
+    if (controller) scheduleDraftWrite(controller);
+  }
+
+  function keepLocalBodyDraft() {
+    if (!activeBodyDraftConflict) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    controller.rebasePending(activeBodyDraftConflict.serverPayload);
+    setBodyDraftConflict(null);
+    void controller.flush();
+  }
+
+  function reloadBuilderBody() {
+    if (!activeBodyDraftConflict) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    const serverPayload = activeBodyDraftConflict.serverPayload;
+    const discardedPayload = controller.pending;
+    controller.mark(serverPayload);
+    enqueueDraftWrite(controller, "delete", discardedPayload);
+    setLocalTitle(serverPayload.title);
+    setLocalContent(serverPayload.content);
+    setBodyDraftConflict(null);
   }
 
   function handleIconChange(nextIcon: string | null) {
@@ -3326,6 +3710,37 @@ function DatabaseItemPreview({
 
                 return (
                   <div className="grid gap-4">
+                    {activeBodyDraftConflict ? (
+                      <div
+                        role="status"
+                        className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-4 text-sm"
+                      >
+                        <div className="flex items-center gap-2 font-medium text-foreground">
+                          <IconLock className="size-4 text-amber-600 dark:text-amber-400" />
+                          {dbText("builderDraftConflictTitle")}
+                        </div>
+                        <p className="mt-2 max-w-2xl leading-6 text-muted-foreground">
+                          {dbText("builderDraftConflictDescription")}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={keepLocalBodyDraft}
+                          >
+                            {dbText("keepLocalDraft")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={reloadBuilderBody}
+                          >
+                            {dbText("reloadBuilderBody")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     {bodyHydrationError ? (
                       <BuilderBodySyncingNotice
                         title={dbText("builderBodySyncFailedNotice")}
@@ -5453,6 +5868,7 @@ function DatabaseSettingsPanelSheet({
   panel,
   documentId,
   canEdit,
+  canManage,
   activeView,
   properties,
   items,
@@ -5486,6 +5902,7 @@ function DatabaseSettingsPanelSheet({
   panel: DatabaseSettingsPanel;
   documentId: string;
   canEdit: boolean;
+  canManage: boolean;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -5513,7 +5930,7 @@ function DatabaseSettingsPanelSheet({
   onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
@@ -5598,6 +6015,7 @@ function DatabaseSettingsPanelSheet({
             documentId={documentId}
             itemCount={items.length}
             canEdit={canEdit}
+            canManage={canManage}
             nav={sourceNavStack}
             onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
             onNavReplace={setSourceNavStack}
@@ -5766,22 +6184,61 @@ export function builderSourceLiveWriteControlState(
   source: ContentDatabaseSource | null,
 ) {
   const isBuilderSource = source?.sourceType === "builder-cms";
-  const safeTarget =
-    isBuilderSource && source?.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
-  const enabled = source?.capabilities.liveWritesEnabled === true;
+  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
+  const writeMode =
+    source?.metadata.writeMode ??
+    (source?.capabilities.liveWritesEnabled === true
+      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
+        ? "publish_updates"
+        : "stage_only"
+      : "read_only");
+  const enabled = writeMode !== "read_only";
   return {
-    safeTarget,
+    safeTarget: isBuilderSource,
     enabled,
-    showAction: safeTarget,
+    writeMode,
+    allowPublicationTransitions:
+      writeMode === "publish_updates" &&
+      source?.metadata.allowPublicationTransitions === true,
+    showAction: isBuilderSource,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
-      : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
-        : isBuilderSource
-          ? "Unavailable here; live writes are locked to the Agent Native test collection."
-          : "Live writes are not available for this source.",
+      ? writeMode === "publish_updates"
+        ? "Approved updates can write through to Builder while preserving publication state."
+        : "Approved updates can create Builder autosave revisions."
+      : isBuilderSource
+        ? "Off by default. An administrator can choose a guarded write tier for this source."
+        : "Live writes are not available for this source.",
   };
+}
+
+const BUILDER_WRITE_MODE_OPTIONS: Array<{
+  mode: ContentDatabaseSourceWriteMode;
+  labelKey: DatabaseMessageKey;
+  descriptionKey: DatabaseMessageKey;
+}> = [
+  {
+    mode: "read_only",
+    labelKey: "readOnly",
+    descriptionKey: "noBuilderWrites",
+  },
+  {
+    mode: "stage_only",
+    labelKey: "stageOnly",
+    descriptionKey: "savesDraftsNeverPublishes",
+  },
+  {
+    mode: "publish_updates",
+    labelKey: "publishUpdates",
+    descriptionKey: "writesUpdatesToLiveEntries",
+  },
+];
+
+function builderWriteModeSummary(mode: ContentDatabaseSourceWriteMode) {
+  return dbText(
+    BUILDER_WRITE_MODE_OPTIONS.find((option) => option.mode === mode)
+      ?.descriptionKey ?? "noBuilderWrites",
+  );
 }
 
 export function buildClientBuilderReviewPayload(
@@ -5903,6 +6360,7 @@ function DatabaseSettingsSourcePanel({
   documentId,
   itemCount,
   canEdit,
+  canManage,
   nav,
   onNavPush,
   onNavReplace,
@@ -5922,6 +6380,7 @@ function DatabaseSettingsSourcePanel({
   documentId: string;
   itemCount: number;
   canEdit: boolean;
+  canManage: boolean;
   nav: SourceNavStep[];
   onNavPush: (step: SourceNavStep) => void;
   onNavReplace: (stack: SourceNavStep[]) => void;
@@ -5943,7 +6402,7 @@ function DatabaseSettingsSourcePanel({
   onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
   onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
 }) {
   const outboundChangeSets =
@@ -6294,7 +6753,11 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // Attached model → the minimal read-only leaf panel.
+  const liveWriteControl = builderSourceLiveWriteControlState(source);
+  const builderWriteMode = liveWriteControl.writeMode;
+  const builderWriteModeDisabled = !canManage || sourceActionPending;
+
+  // Attached model → source details and guarded write policy.
   return (
     <div className="grid min-w-0 gap-4">
       <>
@@ -6373,6 +6836,88 @@ function DatabaseSettingsSourcePanel({
               `Local snapshot · ${source.freshness}`
             )}
           </div>
+          {isBuilderSource ? (
+            <div className="grid min-w-0 gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-foreground">
+                  {dbText("builderWriteMode")}
+                </span>
+                <span>{builderWriteModeSummary(builderWriteMode)}</span>
+              </div>
+              <div
+                className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
+                aria-label={dbText("builderWriteMode")}
+              >
+                {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
+                  const selected = builderWriteMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      aria-pressed={selected}
+                      title={dbText(option.descriptionKey)}
+                      disabled={builderWriteModeDisabled}
+                      className={cn(
+                        "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+                        selected
+                          ? "bg-[#2383e2] text-white shadow-sm"
+                          : "text-muted-foreground hover:bg-background hover:text-foreground",
+                      )}
+                      onClick={() =>
+                        onSetBuilderLiveWrites({
+                          sourceId: source.id,
+                          writeMode: option.mode,
+                          allowPublicationTransitions:
+                            option.mode === "publish_updates"
+                              ? liveWriteControl.allowPublicationTransitions
+                              : false,
+                        })
+                      }
+                    >
+                      <span className="block truncate">
+                        {dbText(option.labelKey)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {builderWriteMode === "publish_updates" ? (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={liveWriteControl.allowPublicationTransitions}
+                  disabled={builderWriteModeDisabled}
+                  className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+                  onClick={() =>
+                    onSetBuilderLiveWrites({
+                      sourceId: source.id,
+                      writeMode: "publish_updates",
+                      allowPublicationTransitions:
+                        !liveWriteControl.allowPublicationTransitions,
+                    })
+                  }
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
+                      liveWriteControl.allowPublicationTransitions
+                        ? "border-[#2383e2] bg-[#2383e2] text-white"
+                        : "border-muted-foreground/40 bg-background text-transparent",
+                    )}
+                  >
+                    {liveWriteControl.allowPublicationTransitions ? (
+                      <IconCheck className="size-3" />
+                    ) : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-foreground">
+                      {dbText("allowPublishUnpublishPerItem")}
+                    </span>
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {reviewableBuilderChangeSets.length > 0 ||

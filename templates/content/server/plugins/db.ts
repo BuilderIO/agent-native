@@ -635,6 +635,26 @@ const runContentMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
         CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
     },
+    {
+      version: 65,
+      name: "document-preview-drafts-private-cas",
+      sql: `CREATE TABLE IF NOT EXISTS document_preview_drafts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        document_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        base_document_updated_at TEXT,
+        loaded_content_was_empty INTEGER NOT NULL DEFAULT 0,
+        deferred_reason TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_unique ON document_preview_drafts (owner_email, org_id, document_id);
+      CREATE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_idx ON document_preview_drafts (owner_email, org_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

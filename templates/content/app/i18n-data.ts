@@ -43,6 +43,11 @@ const databaseMessages = {
   builderBodySyncing: "Content is still syncing from Builder",
   builderBodySyncingDescription:
     "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
+  builderDraftConflictTitle: "Builder content arrived while you were editing",
+  builderDraftConflictDescription:
+    "Your local draft is preserved. Keep it to replace the newly synced body locally, or reload the Builder body.",
+  keepLocalDraft: "Keep local draft",
+  reloadBuilderBody: "Reload Builder body",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
   builderReviewShowingRows:
     "Showing {{shown}} of {{total}} Builder rows for this review.",
@@ -8397,6 +8402,11 @@ export const messagesByLocale = {
       builderBodySyncing: "内容仍在从 Builder 同步",
       builderBodySyncingDescription:
         "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderDraftConflictTitle: "编辑期间收到了新的 Builder 内容",
+      builderDraftConflictDescription:
+        "你的本地草稿已保留。保留草稿可在本地替换新同步的正文，或重新加载 Builder 正文。",
+      keepLocalDraft: "保留本地草稿",
+      reloadBuilderBody: "重新加载 Builder 正文",
       builderReviewShowingRows:
         "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
       builderReviewShowMore: "显示更多",
@@ -8559,6 +8569,12 @@ export const messagesByLocale = {
         "El contenido aún se está sincronizando desde Builder",
       builderBodySyncingDescription:
         "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderDraftConflictTitle:
+        "El contenido de Builder llegó mientras editabas",
+      builderDraftConflictDescription:
+        "Tu borrador local se conserva. Consérvalo para reemplazar localmente el contenido recién sincronizado o vuelve a cargar el contenido de Builder.",
+      keepLocalDraft: "Conservar borrador local",
+      reloadBuilderBody: "Volver a cargar contenido de Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
       builderReviewShowMore: "Mostrar más",
@@ -8734,6 +8750,12 @@ export const messagesByLocale = {
         "Le contenu est encore en cours de synchronisation depuis Builder",
       builderBodySyncingDescription:
         "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderDraftConflictTitle:
+        "Le contenu Builder est arrivé pendant votre modification",
+      builderDraftConflictDescription:
+        "Votre brouillon local est conservé. Gardez-le pour remplacer localement le contenu récemment synchronisé, ou rechargez le contenu Builder.",
+      keepLocalDraft: "Garder le brouillon local",
+      reloadBuilderBody: "Recharger le contenu Builder",
       builderReviewShowingRows:
         "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
       builderReviewShowMore: "Afficher plus",
@@ -8910,6 +8932,12 @@ export const messagesByLocale = {
       builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
       builderBodySyncingDescription:
         "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderDraftConflictTitle:
+        "Während der Bearbeitung ist neuer Builder-Inhalt eingetroffen",
+      builderDraftConflictDescription:
+        "Ihr lokaler Entwurf bleibt erhalten. Behalten Sie ihn, um den neu synchronisierten Inhalt lokal zu ersetzen, oder laden Sie den Builder-Inhalt neu.",
+      keepLocalDraft: "Lokalen Entwurf behalten",
+      reloadBuilderBody: "Builder-Inhalt neu laden",
       builderReviewShowingRows:
         "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
       builderReviewShowMore: "Mehr anzeigen",
@@ -9087,6 +9115,12 @@ export const messagesByLocale = {
       builderBodySyncing: "コンテンツはまだ Builder から同期中です",
       builderBodySyncingDescription:
         "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderDraftConflictTitle:
+        "編集中に新しい Builder コンテンツが届きました",
+      builderDraftConflictDescription:
+        "ローカル下書きは保持されています。新しく同期された本文をローカルで置き換えるか、Builder 本文を再読み込みしてください。",
+      keepLocalDraft: "ローカル下書きを保持",
+      reloadBuilderBody: "Builder 本文を再読み込み",
       builderReviewShowingRows:
         "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
       builderReviewShowMore: "さらに表示",
@@ -9258,6 +9292,11 @@ export const messagesByLocale = {
       builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
       builderBodySyncingDescription:
         "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderDraftConflictTitle: "편집 중 새 Builder 콘텐츠가 도착했습니다",
+      builderDraftConflictDescription:
+        "로컬 초안이 보존되었습니다. 새로 동기화된 본문을 로컬에서 대체하려면 초안을 유지하고, 아니면 Builder 본문을 다시 불러오세요.",
+      keepLocalDraft: "로컬 초안 유지",
+      reloadBuilderBody: "Builder 본문 다시 불러오기",
       builderReviewShowingRows:
         "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
       builderReviewShowMore: "더 보기",
@@ -9422,6 +9461,12 @@ export const messagesByLocale = {
       builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
       builderBodySyncingDescription:
         "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderDraftConflictTitle:
+        "O conteúdo do Builder chegou enquanto você editava",
+      builderDraftConflictDescription:
+        "Seu rascunho local foi preservado. Mantenha-o para substituir localmente o conteúdo recém-sincronizado ou recarregue o conteúdo do Builder.",
+      keepLocalDraft: "Manter rascunho local",
+      reloadBuilderBody: "Recarregar conteúdo do Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
       builderReviewShowMore: "Mostrar mais",
@@ -9597,6 +9642,11 @@ export const messagesByLocale = {
       builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
       builderBodySyncingDescription:
         "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderDraftConflictTitle: "आपके संपादन के दौरान नया Builder कंटेंट आया",
+      builderDraftConflictDescription:
+        "आपका स्थानीय ड्राफ्ट सुरक्षित है। नए सिंक किए गए मुख्य भाग को स्थानीय रूप से बदलने के लिए इसे रखें, या Builder का मुख्य भाग फिर से लोड करें।",
+      keepLocalDraft: "स्थानीय ड्राफ्ट रखें",
+      reloadBuilderBody: "Builder का मुख्य भाग फिर से लोड करें",
       builderReviewShowingRows:
         "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
       builderReviewShowMore: "और दिखाएँ",
@@ -9758,6 +9808,11 @@ export const messagesByLocale = {
       builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
       builderBodySyncingDescription:
         "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderDraftConflictTitle: "وصل محتوى Builder جديد أثناء التحرير",
+      builderDraftConflictDescription:
+        "تم الاحتفاظ بالمسودة المحلية. احتفظ بها لاستبدال النص المتزامن حديثًا محليًا، أو أعد تحميل نص Builder.",
+      keepLocalDraft: "الاحتفاظ بالمسودة المحلية",
+      reloadBuilderBody: "إعادة تحميل نص Builder",
       builderReviewShowingRows:
         "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
       builderReviewShowMore: "عرض المزيد",

@@ -19,7 +19,56 @@ import {
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
   builderSourceRowFetchStatus,
+  previewDraftNeedsConflict,
+  previewDraftMissingCasRecovery,
 } from "./DatabaseView";
+
+describe("preview draft cleanup convergence", () => {
+  it("does not freeze when rejected C1 cleanup returns the pending C2 draft", () => {
+    expect(
+      previewDraftNeedsConflict({
+        returnedDraft: { title: "Builder row", content: "C2" },
+        pending: { title: "Builder row", content: "C2" },
+      }),
+    ).toBe(false);
+    expect(
+      previewDraftNeedsConflict({
+        returnedDraft: { title: "Builder row", content: "other tab" },
+        pending: { title: "Builder row", content: "C2" },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not freeze when an upsert race returns the same pending draft", () => {
+    expect(
+      previewDraftNeedsConflict({
+        returnedDraft: { title: "Builder row", content: "same draft" },
+        pending: { title: "Builder row", content: "same draft" },
+      }),
+    ).toBe(false);
+  });
+
+  it("recovers a stale missing-row CAS without retrying forever", () => {
+    expect(
+      previewDraftMissingCasRecovery({
+        operation: "delete",
+        allowCreateRetry: true,
+      }),
+    ).toBe("converged");
+    expect(
+      previewDraftMissingCasRecovery({
+        operation: "upsert",
+        allowCreateRetry: true,
+      }),
+    ).toBe("retry-create");
+    expect(
+      previewDraftMissingCasRecovery({
+        operation: "upsert",
+        allowCreateRetry: false,
+      }),
+    ).toBe("failed");
+  });
+});
 
 describe("Builder source row fetch status", () => {
   it("shows background refresh errors before stale partial progress", () => {

@@ -318,7 +318,7 @@ describe("execute Builder source execution", () => {
     );
   });
 
-  it("blocks non-test Builder models before any write", async () => {
+  it("executes an opted-in production Builder model through the guarded path", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
       liveWritesEnabled: true,
@@ -336,27 +336,19 @@ describe("execute Builder source execution", () => {
     });
     const deps = depsFor({ source: builderSource, execution });
 
-    await expect(
-      executeBuilderSourceExecutionWithDeps(
-        {
-          databaseId: "database-1",
-          changeSetId: approvedChangeSet.id,
-          pushModeConfirmation: "autosave",
-        },
-        deps,
-      ),
-    ).rejects.toThrow(
-      `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+    await executeBuilderSourceExecutionWithDeps(
+      {
+        databaseId: "database-1",
+        changeSetId: approvedChangeSet.id,
+        pushModeConfirmation: "autosave",
+      },
+      deps,
     );
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        executionId: execution.id,
-        state: "blocked",
-        lastError: `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-      }),
+    expect(deps.executeWrite).toHaveBeenCalledOnce();
+    expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({ executionId: execution.id }),
     );
-    expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
   it("rejects stale stored dry runs before the write client is invoked", async () => {

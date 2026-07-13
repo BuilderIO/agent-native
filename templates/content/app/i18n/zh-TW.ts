@@ -646,6 +646,11 @@ const messages = {
     builderBodySyncing: "內容仍在從 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
+    builderDraftConflictTitle: "你編輯期間收到了新的 Builder 內容",
+    builderDraftConflictDescription:
+      "你的本機草稿已保留。你可以保留草稿以在本機取代新同步的正文，或重新載入 Builder 正文。",
+    keepLocalDraft: "保留本機草稿",
+    reloadBuilderBody: "重新載入 Builder 正文",
     builderBodiesHydrated: "已同步 {{hydrated}} / {{total}} 個正文",
     builderReviewShowingRows:
       "此次審查顯示 {{total}} 個 Builder 列中的 {{shown}} 個。",

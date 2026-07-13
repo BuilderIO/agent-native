@@ -5,7 +5,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
   type ContentDatabaseResponse,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
@@ -747,20 +746,11 @@ export async function executeBuilderSourceExecutionWithDeps(
     throw new Error(message);
   }
 
-  if (
-    source.capabilities.liveWritesEnabled !== true ||
-    source.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL
-  ) {
-    const message =
-      source.capabilities.liveWritesEnabled === true
-        ? `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
-        : "Live Builder writes are disabled for this source.";
+  if (source.capabilities.liveWritesEnabled !== true) {
+    const message = "Live Builder writes are disabled for this source.";
     await deps.updateExecutionState({
       executionId: execution.id,
-      state:
-        source.capabilities.liveWritesEnabled === true
-          ? "blocked"
-          : "write_disabled",
+      state: "write_disabled",
       summary: `${plan.summary} Execution blocked before write.`,
       payload: validatedPayload,
       lastError: message,
@@ -922,7 +912,7 @@ export async function executeBuilderSourceExecutionWithDeps(
 
 export default defineAction({
   description:
-    "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, source capability, safe test model, and idempotency gates all pass.",
+    "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, per-source capability, validation, publication, and idempotency gates all pass.",
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),

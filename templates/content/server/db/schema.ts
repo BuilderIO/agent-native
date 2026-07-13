@@ -5,6 +5,8 @@ import {
   now,
   ownableColumns,
   createSharesTable,
+  index,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 export const documents = table("documents", {
@@ -34,6 +36,38 @@ export const documentVersions = table("document_versions", {
   content: text("content").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+export const documentPreviewDrafts = table(
+  "document_preview_drafts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    baseDocumentUpdatedAt: text("base_document_updated_at"),
+    loadedContentWasEmpty: integer("loaded_content_was_empty")
+      .notNull()
+      .default(0),
+    deferredReason: text("deferred_reason"),
+    version: integer("version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (draft) => [
+    uniqueIndex("document_preview_drafts_owner_org_document_unique").on(
+      draft.ownerEmail,
+      draft.orgId,
+      draft.documentId,
+    ),
+    index("document_preview_drafts_owner_org_document_idx").on(
+      draft.ownerEmail,
+      draft.orgId,
+      draft.documentId,
+    ),
+  ],
+);
 
 export const documentComments = table("document_comments", {
   id: text("id").primaryKey(),

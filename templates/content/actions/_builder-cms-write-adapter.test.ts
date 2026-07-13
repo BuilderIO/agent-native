@@ -602,7 +602,7 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("blocks live writes for Builder models outside the safe test collection", () => {
+  it("prepares opted-in production Builder models for guarded writes", () => {
     expect(
       buildBuilderCmsExecutionPlan({
         source: source(true, "blog_article"),
@@ -610,21 +610,19 @@ describe("Builder CMS write adapter plan", () => {
         pushModeConfirmation: "autosave",
       }),
     ).toMatchObject({
-      state: "blocked",
-      lastError: `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+      state: "ready",
+      lastError: null,
       payload: {
         safety: {
           liveWritesEnabled: true,
-          dryRunOnly: true,
-          blockers: [
-            `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-          ],
+          dryRunOnly: false,
+          blockers: [],
         },
       },
     });
   });
 
-  it("blocks publication transitions for Builder models outside the safe test collection", () => {
+  it("permits explicitly enabled publication transitions for production Builder models", () => {
     expect(
       buildBuilderCmsExecutionPlan({
         source: source(true, "blog_article", {
@@ -641,13 +639,11 @@ describe("Builder CMS write adapter plan", () => {
         publicationTransition: "publish",
       }),
     ).toMatchObject({
-      state: "blocked",
+      state: "ready",
       payload: {
         effect: "publish",
         safety: {
-          blockers: [
-            `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-          ],
+          blockers: [],
         },
       },
     });

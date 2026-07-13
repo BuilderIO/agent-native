@@ -396,14 +396,6 @@ function builderSafetyChecks(args: {
   if (allowedModes?.length && !allowedModes.includes(args.pushMode)) {
     blockers.push(`Push mode ${args.pushMode} is not allowed for this source.`);
   }
-  if (
-    args.source.capabilities.liveWritesEnabled === true &&
-    args.source.sourceTable !== SAFE_WRITE_MODEL
-  ) {
-    blockers.push(
-      `Live Builder writes are only allowed for ${SAFE_WRITE_MODEL}.`,
-    );
-  }
   if (args.source.capabilities.liveWritesEnabled !== true) {
     checks.push("Does not run while live Builder writes are disabled.");
     if (

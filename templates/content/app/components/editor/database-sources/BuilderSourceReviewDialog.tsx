@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
 import type {
   BuilderCmsPublicationTransitionIntent,
   BuilderCmsWriteEffect,
@@ -239,12 +238,8 @@ export function BuilderSourceReviewDialog({
 }) {
   const t = useT();
   const checked = !!checkedAt;
-  const safeModel =
-    source?.sourceType === "builder-cms" &&
-    source.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
   const writeMode = source?.metadata.writeMode;
   const allowPublicationTransitionControls =
-    safeModel &&
     writeMode === "publish_updates" &&
     source?.metadata.allowPublicationTransitions === true;
   const reviewRows = useMemo(() => review?.rows ?? [], [review]);
@@ -311,14 +306,12 @@ export function BuilderSourceReviewDialog({
     review?.result.status === "blocked" ||
     review?.result.status === "stale" ||
     batchHasIssues;
-  const unsafeLiveTarget = review?.liveWritesEnabled === true && !safeModel;
   const disabled =
     !canEdit ||
     pending ||
     (!retryable && checked) ||
     !review ||
     review.rows.length === 0 ||
-    unsafeLiveTarget ||
     hasUnconfirmedUnpublish;
   const rowTitleById = new Map(
     reviewRows.map((row) => [row.changeSetId, row.title]),
@@ -339,9 +332,7 @@ export function BuilderSourceReviewDialog({
       : "Checking…"
     : hasUnconfirmedUnpublish
       ? "Confirm unpublish on the selected rows first."
-      : unsafeLiveTarget
-        ? `Live pushes are limited to the ${BUILDER_CMS_SAFE_WRITE_MODEL} test model.`
-        : null;
+      : null;
   const effectiveEffects = new Set(
     reviewRows.map((row) =>
       builderReviewEffectiveRowEffect(

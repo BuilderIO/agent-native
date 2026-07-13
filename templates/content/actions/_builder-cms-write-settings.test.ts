@@ -22,7 +22,7 @@ const baseMetadata = JSON.stringify({
 });
 
 describe("Builder CMS write settings", () => {
-  it("enables live writes only with explicit modes for the safe test model", () => {
+  it("enables live writes with an explicit tier for an attached Builder model", () => {
     const next = buildBuilderCmsWriteModeJson({
       sourceType: "builder-cms",
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -89,18 +89,25 @@ describe("Builder CMS write settings", () => {
     ).toThrow("Publication transitions require publish updates mode.");
   });
 
-  it("blocks publish updates for non-test Builder models", () => {
-    expect(() =>
-      buildBuilderCmsWriteModeJson({
-        sourceType: "builder-cms",
-        sourceTable: "blog_article",
-        capabilitiesJson: sourceCapabilitiesForType("builder-cms"),
-        metadataJson: baseMetadata,
-        writeMode: "publish_updates",
+  it("allows publish updates for a production Builder model", () => {
+    const next = buildBuilderCmsWriteModeJson({
+      sourceType: "builder-cms",
+      sourceTable: "blog-article",
+      capabilitiesJson: sourceCapabilitiesForType("builder-cms"),
+      metadataJson: baseMetadata,
+      writeMode: "publish_updates",
+    });
+
+    expect(
+      builderCmsWriteSettingsFromJson({
+        capabilitiesJson: next.capabilitiesJson,
+        metadataJson: next.metadataJson,
       }),
-    ).toThrow(
-      `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-    );
+    ).toMatchObject({
+      writeMode: "publish_updates",
+      liveWritesEnabled: true,
+      allowedWriteModes: ["autosave", "publish"],
+    });
   });
 
   it("disabling clears live write eligibility and mode opt-ins", () => {
@@ -140,7 +147,7 @@ describe("Builder CMS write settings", () => {
     });
   });
 
-  it("preserves explicit safe-model enablement across Builder refresh metadata", () => {
+  it("preserves explicit enablement across Builder refresh metadata", () => {
     const enabled = buildBuilderCmsWriteModeJson({
       sourceType: "builder-cms",
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -183,7 +190,7 @@ describe("Builder CMS write settings", () => {
     });
   });
 
-  it("does not preserve enablement across refresh for non-test Builder models", () => {
+  it("preserves enablement across refresh for production Builder models", () => {
     const refreshed = mergeBuilderCmsWriteSettingsIntoJson({
       sourceTable: "blog_article",
       currentCapabilitiesJson: JSON.stringify({ liveWritesEnabled: true }),
@@ -199,8 +206,12 @@ describe("Builder CMS write settings", () => {
       builderCmsWriteSettingsFromJson({
         capabilitiesJson: refreshed.capabilitiesJson,
         metadataJson: refreshed.metadataJson,
-      }).liveWritesEnabled,
-    ).toBe(false);
+      }),
+    ).toMatchObject({
+      writeMode: "stage_only",
+      liveWritesEnabled: true,
+      allowedWriteModes: ["autosave"],
+    });
   });
 
   it("keeps legacy live-write requests working as stage-only", () => {

@@ -876,10 +876,11 @@ describe("Builder source settings helpers", () => {
     ).toEqual(["pending", "approved"]);
   });
 
-  it("shows the live-write enable action only for the safe Builder test collection", () => {
+  it("shows tiered write policy for every Builder collection", () => {
     expect(builderSourceLiveWriteControlState(builderSource())).toMatchObject({
       safeTarget: true,
       enabled: false,
+      writeMode: "read_only",
       showAction: true,
       actionLabel: "Enable",
     });
@@ -889,9 +890,31 @@ describe("Builder source settings helpers", () => {
         builderSource({ sourceTable: "blog_article" }),
       ),
     ).toMatchObject({
-      safeTarget: false,
+      safeTarget: true,
       enabled: false,
-      showAction: false,
+      writeMode: "read_only",
+      showAction: true,
+    });
+
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          sourceTable: "blog_article",
+          capabilities: {
+            ...builderSource().capabilities,
+            liveWritesEnabled: true,
+          },
+          metadata: {
+            ...builderSource().metadata,
+            writeMode: "publish_updates",
+            allowPublicationTransitions: true,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      enabled: true,
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
     });
   });
 

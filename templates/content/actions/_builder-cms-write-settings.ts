@@ -1,5 +1,4 @@
 import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
   type ContentDatabaseSourceCapabilities,
   type ContentDatabaseSourcePushMode,
   type ContentDatabaseSourceWriteMode,
@@ -178,11 +177,6 @@ export function buildBuilderCmsWriteModeJson(
         "Live writes can only be enabled for Builder CMS sources.",
       );
     }
-    if (args.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL) {
-      throw new Error(
-        `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-      );
-    }
   }
 
   if (
@@ -226,7 +220,6 @@ export function mergeBuilderCmsWriteSettingsIntoJson(args: {
   });
   if (
     currentSettings.liveWritesEnabled !== true ||
-    args.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL ||
     currentSettings.writeMode === "read_only"
   ) {
     return {
