@@ -512,28 +512,91 @@ function routePathFromOpenUrl(value: string): string | null {
  * `mcpApp.resource` (the resource path already strips them via
  * `mcpAppStructuredContent`).
  *
- * Depth-capped to avoid pathological / circular structures. Strings that
- * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
- * the URL) are replaced with `[hidden embed URL]`.
+ * Circular structures are replaced with a marker. Strings that embed an
+ * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
+ * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
+ * removed only inside an embed-signaled object/branch, so ordinary business
+ * fields from unrelated read actions remain faithful.
  */
-function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
-  if (depth > 5) return value;
+const EMBED_RESULT_SENSITIVE_KEYS = new Set([
+  "embedTargetPath",
+  "embedExpiresAt",
+  "embedTicket",
+]);
+
+function isEmbedCredentialKey(key: string): boolean {
+  return key === "ticket" || /Ticket$/.test(key);
+}
+
+function containsEmbedRoutingSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
+    seen.delete(value);
+    return result;
+  }
+  for (const [key, val] of Object.entries(value)) {
+    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
+      seen.delete(value);
+      return true;
+    }
+    if (containsEmbedRoutingSignal(val, seen)) {
+      seen.delete(value);
+      return true;
+    }
+  }
+  seen.delete(value);
+  return false;
+}
+
+function purgeEmbedStartUrls(
+  value: unknown,
+  seen = new WeakSet<object>(),
+  embedContext = false,
+): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    const out = value.map((item) =>
+      purgeEmbedStartUrls(
+        item,
+        seen,
+        embedContext || containsEmbedRoutingSignal(item),
+      ),
+    );
+    seen.delete(value);
+    return out;
   }
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    const entries = Object.entries(value as Record<string, unknown>);
+    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, val] of entries) {
+      if (
+        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+        (localEmbedContext && isEmbedCredentialKey(key))
+      ) {
+        continue;
+      }
       if (typeof val === "string" && isEmbedStartUrl(val)) {
         // Drop the key entirely for object-typed inputs so a tool result like
         // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, depth + 1);
+      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
     }
+    seen.delete(value);
     return out;
   }
   return value;
@@ -1195,11 +1258,12 @@ function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
+  const purged = purgeEmbedStartUrls(result);
   const out: Record<string, unknown> =
-    result && typeof result === "object" && !Array.isArray(result)
-      ? { ...(result as Record<string, unknown>) }
-      : primitiveValue(result)
-        ? { result }
+    purged && typeof purged === "object" && !Array.isArray(purged)
+      ? { ...(purged as Record<string, unknown>) }
+      : primitiveValue(purged)
+        ? { result: purged }
         : {};
   for (const key of ["embedStartUrl", "startUrl"]) {
     const value = out[key];
@@ -1213,17 +1277,6 @@ function mcpAppStructuredContent(
   // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
   // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
   // fields are single-use credentials. Drop all of them unconditionally.
-  for (const key of [
-    "embedTargetPath",
-    "embedExpiresAt",
-    "ticket",
-    "embedTicket",
-  ]) {
-    delete out[key];
-  }
-  for (const key of Object.keys(out)) {
-    if (/Ticket$/.test(key)) delete out[key];
-  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
@@ -1275,12 +1328,25 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   });
 }
 
-function conciseToolResultText(name: string, result: unknown): string {
+function conciseToolResultText(
+  name: string,
+  result: unknown,
+  options?: { preserveObjectResult?: boolean },
+): string {
   const purged = purgeEmbedStartUrls(result);
   if (typeof purged === "string") return truncateToolText(purged);
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
+    // Read-only actions are data reads, not mutations. Keep their object
+    // payload available to MCP clients in the text fallback too; the
+    // structuredContent branch below is the lossless path for clients that
+    // support it. Mutating/action-style results retain the concise status
+    // text so we do not unexpectedly dump write results into conversations.
+    if (options?.preserveObjectResult) {
+      const text = JSON.stringify(purged);
+      return text === undefined ? `${name} completed.` : truncateToolText(text);
+    }
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
       return truncateToolText(message.trim());
@@ -1711,10 +1777,17 @@ export async function createMCPServerForRequest(
               typeof rawResult === "object" &&
               !Array.isArray(rawResult)
             ? (rawResult as Record<string, unknown>)
-            : undefined;
+            : entry.readOnly === true &&
+                rawResult &&
+                typeof rawResult === "object" &&
+                !Array.isArray(rawResult)
+              ? mcpAppStructuredContent(rawResultForClient, responseMeta)
+              : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : conciseToolResultText(name, resultForClient);
+          : conciseToolResultText(name, resultForClient, {
+              preserveObjectResult: entry.readOnly === true,
+            });
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {
