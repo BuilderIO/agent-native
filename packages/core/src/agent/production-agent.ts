@@ -3124,6 +3124,7 @@ export async function runAgentLoop(opts: {
     for (let retry = 0; ; retry++) {
       assistantContent = undefined;
       streamedAssistantText = "";
+      streamedAssistantToolCalls.length = 0;
       terminalStopReason = undefined;
       toolCallErrors.clear();
       try {
