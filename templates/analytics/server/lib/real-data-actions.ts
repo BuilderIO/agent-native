@@ -16,6 +16,17 @@ export const DATA_QUERY_ACTIONS = new Set([
   "bigquery",
   "content-calendar",
   "content-calendar-schema",
+  // First-party observability reads are grounded data for incident triage,
+  // even though they are not provider queries. Keep the final-response guard
+  // from replacing valid session/error/replay evidence with the generic
+  // "connect a source" fallback.
+  "get-error-issue",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
+  "match-error-issues",
   "gcloud",
   "gong-calls",
   "grafana",

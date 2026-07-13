@@ -34,6 +34,17 @@ describe("real data action classification", () => {
     expect(hasDataQueryAttempt([{ name: "account-deep-dive" }])).toBe(true);
   });
 
+  it("treats first-party observability reads as grounded incident evidence", () => {
+    expect(
+      hasDataQueryAttempt([
+        { name: "list-session-recordings" },
+        { name: "list-error-issues" },
+        { name: "get-session-replay-summary" },
+        { name: "get-session-replay-timeline" },
+      ]),
+    ).toBe(true);
+  });
+
   it("treats connected MCP provider tools as real source evidence", () => {
     expect(
       hasDataQueryAttempt([
