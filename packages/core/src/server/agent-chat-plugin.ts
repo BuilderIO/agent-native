@@ -1371,6 +1371,13 @@ export function createAgentChatPlugin(
               availableTools: a2aToolSurface.availableTools,
               messages: a2aMessages,
               actions: a2aActions,
+              // A2A already establishes these values in request context. Pass
+              // them explicitly too so delegated tool execution and template
+              // final-response guards cannot lose the authenticated caller's
+              // scope when a processor hop or alternate runner is involved.
+              ownerEmail: userEmail,
+              orgId: getRequestOrgId() ?? null,
+              executionMode: "act",
               send: (event) => {
                 a2aEvents.push(event);
                 if (event.type === "tool_start") {
@@ -1640,6 +1647,9 @@ export function createAgentChatPlugin(
                   },
                 ],
                 actions: mcpActions,
+                ownerEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                executionMode: "act",
                 send: (event) => {
                   accumulatedText = applyAgentTextEventToBuffer(
                     accumulatedText,
