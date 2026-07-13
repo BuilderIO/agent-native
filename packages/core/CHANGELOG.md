@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.9
+
+### Patch Changes
+
+- 944c202: Preserve structured payloads from read-only MCP actions so external agents can inspect detailed records and replay data directly.
+
 ## 0.98.8
 
 ### Patch Changes
