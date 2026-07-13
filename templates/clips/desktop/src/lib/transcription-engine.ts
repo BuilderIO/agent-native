@@ -157,7 +157,8 @@ function isDuplicateTranscriptLine(
     const existingText = line.slice(separatorIndex + 1);
     const existingWords = transcriptWords(existingText);
     return (
-      normalizedTranscriptText(existingText) === normalizedTranscriptText(text) ||
+      normalizedTranscriptText(existingText) ===
+        normalizedTranscriptText(text) ||
       tokenOverlap(existingWords, words) >= DUPLICATE_TOKEN_OVERLAP
     );
   });
