@@ -254,15 +254,17 @@
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  width: 0.9rem;
-  height: 1.2rem;
+  /* Render at 2x locally, then downscale to the standard 0.9rem x 1.2rem
+     screen size. This keeps the small cursor's rounded outline smooth. */
+  width: 1.8rem;
+  height: 2.4rem;
   border-radius: 0;
   background: transparent;
   background-image: none;
   box-shadow: none;
   /* The stage is fit-to-container, but the recorded cursor should stay at a
      normal on-screen size. The stage supplies the inverse scale variable. */
-  transform: scale(var(--an-replay-cursor-scale, 1));
+  transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
   transform-origin: top left;
   transition:
     left 80ms linear,
