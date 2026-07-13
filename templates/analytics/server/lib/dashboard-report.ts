@@ -494,6 +494,8 @@ async function captureDashboardPng(
   let newPage = async (): Promise<any> => {
     throw new Error("Screenshot browser did not provide a page factory");
   };
+  let launchPromise: Promise<LaunchedScreenshotBrowser> | undefined;
+  let launchTimeout: ReturnType<typeof setTimeout> | undefined;
   let captureStage = "launching the screenshot browser";
   let attemptTimedOut = false;
   const attemptTimeout = attempt.totalTimeout
@@ -503,7 +505,22 @@ async function captureDashboardPng(
       }, attempt.totalTimeout)
     : null;
   try {
-    const launched = await launchScreenshotBrowser(attempt.viewport);
+    launchPromise = launchScreenshotBrowser(attempt.viewport);
+    const launched = attempt.totalTimeout
+      ? await Promise.race([
+          launchPromise,
+          new Promise<never>((_, reject) => {
+            launchTimeout = setTimeout(() => {
+              attemptTimedOut = true;
+              reject(
+                new Error(
+                  `${attempt.label} browser launch exceeded ${attempt.totalTimeout}ms`,
+                ),
+              );
+            }, attempt.totalTimeout);
+          }),
+        ])
+      : await launchPromise;
     browser = launched.browser;
     cleanup = launched.cleanup;
     newPage = launched.newPage;
@@ -558,6 +575,24 @@ async function captureDashboardPng(
     throw new Error(`${captureStage}: ${errorMessage(err)}`);
   } finally {
     if (attemptTimeout) clearTimeout(attemptTimeout);
+    if (launchTimeout) clearTimeout(launchTimeout);
+    if (!browser && launchPromise) {
+      void launchPromise.then(
+        async (lateBrowser) => {
+          await runBoundedBrowserCleanup(
+            "Failed to close late screenshot browser",
+            () => lateBrowser.browser.close(),
+          );
+          await runBoundedBrowserCleanup(
+            "Failed to clean late Chromium profile",
+            lateBrowser.cleanup,
+          );
+        },
+        () => {
+          // The launch rejection was already handled by the race above.
+        },
+      );
+    }
     if (browser) {
       await runBoundedBrowserCleanup("Failed to close screenshot browser", () =>
         browser.close(),

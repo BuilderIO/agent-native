@@ -209,9 +209,10 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
     let inner_for_supervisor = state.inner.clone();
     let app_for_supervisor = app.clone();
     let silence_window = Duration::from_millis(cfg.silence_ms);
+    let calendar_end_quiet_window = Duration::from_millis(cfg.call_ended_ms);
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(5));
-        let should_fire = {
+        let stop_reason = {
             let g = match inner_for_supervisor.lock() {
                 Ok(g) => g,
                 Err(_) => return,
@@ -220,7 +221,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
                 return; // session ended or replaced — exit
             }
             if g.silence_fired {
-                false
+                None
             } else {
                 let now = Instant::now();
                 let mic_silent = g
@@ -233,14 +234,39 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
                     .as_ref()
                     .map(|s| now.duration_since(s.last_loud_at) >= silence_window)
                     .unwrap_or(false);
-                mic_silent && system_silent
+                let mic_quiet_for_calendar_end = g
+                    .mic
+                    .as_ref()
+                    .map(|s| now.duration_since(s.last_loud_at) >= calendar_end_quiet_window)
+                    .unwrap_or(false);
+                let system_quiet_for_calendar_end = g
+                    .system
+                    .as_ref()
+                    .map(|s| now.duration_since(s.last_loud_at) >= calendar_end_quiet_window)
+                    .unwrap_or(false);
+                if calendar_end_stop_ready(
+                    g.scheduled_end_ms,
+                    unix_now_ms(),
+                    mic_quiet_for_calendar_end && system_quiet_for_calendar_end,
+                ) {
+                    Some("calendar")
+                } else if mic_silent && system_silent {
+                    Some("silence")
+                } else {
+                    None
+                }
             }
         };
-        if should_fire {
+        if let Some(reason) = stop_reason {
             if let Ok(mut g) = inner_for_supervisor.lock() {
                 g.silence_fired = true;
             }
-            let _ = app_for_supervisor.emit("meetings:silence-stop", ());
+            let event = if reason == "calendar" {
+                "meetings:call-ended"
+            } else {
+                "meetings:silence-stop"
+            };
+            let _ = app_for_supervisor.emit(event, ());
         }
     });
 
@@ -347,11 +373,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             loop {
                 std::thread::sleep(Duration::from_secs(10));
                 let state = app.state::<DetectorState>();
-                let (active, scheduled_end_ms) = state
-                    .inner
-                    .lock()
-                    .map(|g| (g.active, g.scheduled_end_ms))
-                    .unwrap_or((false, None));
+                let active = state.inner.lock().map(|g| g.active).unwrap_or(false);
                 if !active {
                     ever_seen_front = false;
                     last_front_at = None;
@@ -377,10 +399,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     continue;
                 }
 
-                let calendar_end_confirmed = scheduled_end_ms
-                    .map(|end_ms| scheduled_end_reached(Some(end_ms), unix_now_ms()))
-                    .unwrap_or(false)
-                    && audio_recently_silent(&state, threshold_ms);
                 let frontmost_call_ended = ever_seen_front
                     && last_front_at
                         .map(|t| {
@@ -394,7 +412,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     && (!last_front_was_generic_browser
                         || audio_recently_silent(&state, threshold_ms));
 
-                if calendar_end_confirmed || frontmost_call_ended {
+                if frontmost_call_ended {
                     let _ = app.emit("meetings:call-ended", ());
                     fired = true;
                 }
@@ -412,7 +430,10 @@ fn scheduled_end_reached(scheduled_end_ms: Option<u64>, now_ms: u64) -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(target_os = "macos")]
+fn calendar_end_stop_ready(scheduled_end_ms: Option<u64>, now_ms: u64, audio_quiet: bool) -> bool {
+    scheduled_end_reached(scheduled_end_ms, now_ms) && audio_quiet
+}
+
 fn unix_now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -449,7 +470,7 @@ fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: 
 
 #[cfg(test)]
 mod tests {
-    use super::scheduled_end_reached;
+    use super::{calendar_end_stop_ready, scheduled_end_reached};
 
     #[test]
     fn calendar_end_requires_a_known_end_and_allows_the_exact_boundary() {
@@ -457,5 +478,12 @@ mod tests {
         assert!(!scheduled_end_reached(Some(10_001), 10_000));
         assert!(scheduled_end_reached(Some(10_000), 10_000));
         assert!(scheduled_end_reached(Some(9_999), 10_000));
+    }
+
+    #[test]
+    fn calendar_end_stop_also_requires_quiet_audio() {
+        assert!(!calendar_end_stop_ready(Some(9_999), 10_000, false));
+        assert!(calendar_end_stop_ready(Some(9_999), 10_000, true));
+        assert!(!calendar_end_stop_ready(Some(10_001), 10_000, true));
     }
 }

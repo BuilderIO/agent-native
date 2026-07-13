@@ -126,7 +126,7 @@ describe("dashboard report sweep", () => {
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
       skipEmailWithoutScreenshot: true,
     });

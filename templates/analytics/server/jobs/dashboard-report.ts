@@ -54,7 +54,6 @@ export async function runDashboardReportsOnce(): Promise<{
             }),
         );
         if (!result.screenshotAttached) {
-          failed++;
           const message = result.screenshotError
             ? `Dashboard screenshot unavailable: ${result.screenshotError}`
             : "Dashboard screenshot unavailable";
@@ -71,6 +70,7 @@ export async function runDashboardReportsOnce(): Promise<{
             );
             continue;
           }
+          failed++;
           console.error(
             `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
             message,
