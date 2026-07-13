@@ -98,6 +98,22 @@ fn start_meeting_notification_hover_tracking(app: &AppHandle) {
             let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
                 break;
             };
+            // The window is reused across notifications (hidden/shown from
+            // the frontend, never destroyed), so this loop runs for the rest
+            // of the app session. Skip the cursor/frame queries entirely
+            // while hidden — no notification is on screen to hover — and
+            // back off to a slower idle tick until it's shown again.
+            if !win.is_visible().unwrap_or(false) {
+                if prev {
+                    prev = false;
+                    let _ = win.emit(
+                        "meetings:notification-hover",
+                        serde_json::json!({ "hovered": false }),
+                    );
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
             let inside = cursor_inside_notification_frame(&win);
             if inside != prev {
                 prev = inside;

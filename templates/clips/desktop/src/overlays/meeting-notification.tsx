@@ -162,7 +162,15 @@ export function MeetingNotification() {
 
   useEffect(() => {
     if (!data) {
+      // Dismissing doesn't guarantee mouseleave/hovered:false fires first
+      // (e.g. dismissed while the cursor is still over the card), so clear
+      // every hover source here — otherwise the next notification can
+      // inherit hovered === true and open with its close button already
+      // showing and auto-hide already cancelled.
       prevHoveredRef.current = false;
+      setDomHovered(false);
+      setPolledHovered(false);
+      setShowClose(false);
       return;
     }
     if (hovered === prevHoveredRef.current) return;
