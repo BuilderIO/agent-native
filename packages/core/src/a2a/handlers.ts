@@ -41,6 +41,7 @@ import type {
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
 // with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
+const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
@@ -124,6 +125,13 @@ async function fireProcessTaskDispatch(
       event,
       path: A2A_PROCESS_TASK_PATH,
       taskId,
+      // The caller is about to return after a failed background handoff.
+      // Await the portable route briefly so the request definitely leaves this
+      // invocation, but do not hold async message/send open for the full agent
+      // run. The target processor continues independently after this bounded
+      // client-side timeout if the handler takes longer.
+      awaitResponse: true,
+      responseTimeoutMs: PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS,
     });
   }
 }
@@ -542,11 +550,9 @@ async function handleSend(
     // detached dispatch fetch racing only a short settle timer can be killed
     // mid-flight when the serverless response is flushed WITHOUT rejecting —
     // see the `awaitResponse` doc on `fireInternalDispatch` in
-    // server/self-dispatch.ts. `awaitResponse: true` requests the stronger
-    // guarantee; `fireProcessTaskDispatch` only honors it for the Netlify
-    // background-worker path (fast 202 ack) and falls back to the settle
-    // race for the portable route, which holds its response open until the
-    // handler finishes.
+    // server/self-dispatch.ts. The durable worker path gets a fast 202
+    // acknowledgement; a stale-worker fallback uses a short bounded timeout
+    // because the portable route responds after processing the task.
     try {
       await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
