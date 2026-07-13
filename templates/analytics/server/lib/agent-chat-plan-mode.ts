@@ -3,6 +3,17 @@ import type { ActionEntry } from "@agent-native/core/server";
 export const INITIAL_TOOL_NAMES = [
   "view-screen",
   "data-source-status",
+  // Keep the first-party observability workflow on the initial surface so a
+  // named user's session/error question does not depend on an indirect
+  // tool-search round before the agent can inspect its evidence.
+  "create-session-replay-agent-link",
+  "get-error-issue",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
+  "match-error-issues",
   "list-analyses",
   "get-analysis",
   "save-analysis",
