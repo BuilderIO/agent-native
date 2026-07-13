@@ -184,6 +184,21 @@ function normalizedEmails(values: string[] | undefined): string[] {
   ).sort();
 }
 
+function mergeAccountErrors(
+  ...groups: Array<Array<{ email: string; error: string }>>
+): Array<{ email: string; error: string }> {
+  return Array.from(
+    new Map(
+      groups
+        .flat()
+        .map((entry) => [
+          `${entry.email.trim().toLowerCase()}\0${entry.error}`,
+          entry,
+        ]),
+    ).values(),
+  );
+}
+
 function normalizedOverlayEmails(value: string | string[] | undefined) {
   return normalizedEmails(
     Array.isArray(value)
@@ -637,7 +652,7 @@ export async function listCalendarEvents(
           email,
           { accountEmails: args.accountEmails },
         )
-      : Promise.resolve({ events: [], errors: [] });
+      : Promise.resolve({ events: [], errors: [], accountErrors: [] });
   const icalRead = sources.includes("ics")
     ? Promise.resolve(getUserSetting(email, "external-calendars")).then(
         async (setting) => {
@@ -661,7 +676,10 @@ export async function listCalendarEvents(
   const [googleResult, overlayResult, icalResult, rawBookingEvents] =
     await Promise.all([googleRead, overlayRead, icalRead, bookingRead]);
   googleEvents = [...googleResult.events, ...overlayResult.events];
-  errors = googleResult.errors;
+  errors = mergeAccountErrors(
+    googleResult.errors,
+    overlayResult.accountErrors,
+  );
   if (connected && includeOverlays && requestedOverlayEmails.length > 0) {
     overlaySources = requestedOverlayEmails.map((overlayEmail) => {
       const error = overlayResult.errors.find(
@@ -752,7 +770,10 @@ export async function listCalendarEvents(
     overlaySources,
     requestedAccounts,
     resolvedAccounts,
-    queriedAccounts: includeGoogle ? resolvedAccounts : [],
+    queriedAccounts:
+      includeGoogle || (includeOverlays && requestedOverlayEmails.length > 0)
+        ? resolvedAccounts
+        : [],
     sources,
   };
 }

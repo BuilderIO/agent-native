@@ -605,6 +605,7 @@ describe("calendar event listing", () => {
 
     expect(result.events[0]).toMatchObject({
       id: "overlay-host@example.com-overlay-1",
+      accountEmail: "steve@example.com",
       overlayEmail: "host@example.com",
       attendees: [
         {
@@ -624,6 +625,116 @@ describe("calendar event listing", () => {
         displayName: "Host Person",
       },
     });
+  });
+
+  it("falls back to another selected account when the first cannot read an overlay", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "alpha@example.com",
+        tokens: {
+          access_token: "alpha-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "zulu@example.com",
+        tokens: {
+          access_token: "zulu-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock
+      .mockRejectedValueOnce(new Error("403 Forbidden"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-1",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+          },
+        ],
+      });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["alpha@example.com", "zulu@example.com"] },
+    );
+
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "alpha-token",
+      "person@example.com",
+      expect.any(Object),
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "zulu-token",
+      "person@example.com",
+      expect.any(Object),
+    );
+    expect(result).toMatchObject({
+      errors: [],
+      accountErrors: [],
+      events: [
+        {
+          googleEventId: "overlay-1",
+          accountEmail: "zulu@example.com",
+          overlayEmail: "person@example.com",
+        },
+      ],
+    });
+  });
+
+  it("returns selected-account refresh failures separately from overlay coverage", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {
+          access_token: "expired-token",
+          refresh_token: "broken-refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+      {
+        accountId: "healthy@example.com",
+        tokens: {
+          access_token: "healthy-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    createOAuth2ClientMock.mockReturnValue({
+      refreshToken: vi
+        .fn()
+        .mockRejectedValue(new Error("Refresh token revoked")),
+    });
+    calendarListEventsMock.mockResolvedValue({ items: [] });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+      { accountEmails: ["broken@example.com", "healthy@example.com"] },
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.accountErrors).toEqual([
+      expect.objectContaining({
+        email: "broken@example.com",
+        error: expect.stringContaining("Refresh token revoked"),
+      }),
+    ]);
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "healthy-token",
+      "person@example.com",
+      expect.any(Object),
+    );
   });
 
   it("paginates overlay reads without losing later events", async () => {

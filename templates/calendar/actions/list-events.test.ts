@@ -533,6 +533,67 @@ describe("list-events inventory contract", () => {
     expect(listOverlayEventsMock).not.toHaveBeenCalled();
   });
 
+  it("reports selected-account refresh failures during an otherwise successful overlay read", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([
+      "broken@example.com",
+      "healthy@example.com",
+    ]);
+    listOverlayEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "overlay-person@example.com-overlay-1",
+          title: "Available through the healthy account",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "overlay-1",
+          accountEmail: "healthy@example.com",
+          overlayEmail: "person@example.com",
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+      accountErrors: [
+        { email: "broken@example.com", error: "Refresh token revoked" },
+      ],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["overlays"],
+        overlayEmails: ["person@example.com"],
+        format: "inventory",
+      },
+      { caller: "mcp" },
+    );
+
+    expect(result.accounts).toEqual([
+      expect.objectContaining({
+        accountEmail: "broken@example.com",
+        status: "error",
+        exhausted: false,
+        error: expect.objectContaining({ message: "Refresh token revoked" }),
+      }),
+      expect.objectContaining({
+        accountEmail: "healthy@example.com",
+        status: "ok",
+        count: 1,
+        exhausted: true,
+      }),
+    ]);
+    expect(result.sourceCoverage).toEqual([
+      { source: "overlay", id: "person@example.com", status: "ok" },
+    ]);
+    expect(result.coverageComplete).toBe(false);
+    expect(result.complete).toBe(false);
+  });
+
   it("binds inventory cursors to the owner and exact query", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [

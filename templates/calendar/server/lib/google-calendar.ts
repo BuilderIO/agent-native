@@ -1094,73 +1094,85 @@ export async function listOverlayEvents(
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  accountErrors: Array<{ email: string; error: string }>;
 }> {
   const { clients, errors: refreshErrors } =
     await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
-  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
+  const errors: Array<{ email: string; error: string }> = [];
   if (clients.length === 0) {
     const message =
       refreshErrors[0]?.error ?? "Google Calendar is not connected";
     return {
       events: [],
       errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: refreshErrors,
     };
   }
 
-  // Use the first available token to query other people's calendars
-  const { accessToken } = clients[0];
-
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {
-      try {
-        const events: any[] = [];
-        let pageToken: string | undefined;
-        do {
-          const response = await calendarListEvents(accessToken, overlayEmail, {
-            timeMin,
-            timeMax,
-            singleEvents: true,
-            orderBy: "startTime",
-            eventTypes: LIST_EVENT_TYPES,
-            pageToken,
-          });
-          events.push(...(response.items || []));
-          pageToken = response.nextPageToken;
-        } while (pageToken);
-        return events.map((event: any) => ({
-          id: `overlay-${overlayEmail}-${event.id}`,
-          title: event.summary || "Busy",
-          description: event.description || "",
-          start: event.start?.dateTime || event.start?.date || "",
-          end: event.end?.dateTime || event.end?.date || "",
-          startTimeZone: event.start?.timeZone || undefined,
-          endTimeZone: event.end?.timeZone || undefined,
-          location: event.location || "",
-          allDay: !event.start?.dateTime,
-          source: "google" as const,
-          googleEventId: event.id || undefined,
-          htmlLink: event.htmlLink || undefined,
-          eventType: event.eventType || "default",
-          accountEmail: undefined,
-          overlayEmail,
-          ...mapColor(event),
-          attendees: mapAttendees(event),
-          organizer: mapOrganizer(event),
-          createdAt: event.created || new Date().toISOString(),
-          updatedAt: event.updated || new Date().toISOString(),
-        }));
-      } catch (error: any) {
-        console.error(
-          `[listOverlayEvents] Error fetching ${overlayEmail}:`,
-          error.message,
-        );
-        errors.push({ email: overlayEmail, error: error.message });
-        return [];
+      const accessErrors: string[] = [];
+      for (const client of clients) {
+        try {
+          const events: any[] = [];
+          let pageToken: string | undefined;
+          do {
+            const response = await calendarListEvents(
+              client.accessToken,
+              overlayEmail,
+              {
+                timeMin,
+                timeMax,
+                singleEvents: true,
+                orderBy: "startTime",
+                eventTypes: LIST_EVENT_TYPES,
+                pageToken,
+              },
+            );
+            events.push(...(response.items || []));
+            pageToken = response.nextPageToken;
+          } while (pageToken);
+          return events.map((event: any) => ({
+            id: `overlay-${overlayEmail}-${event.id}`,
+            title: event.summary || "Busy",
+            description: event.description || "",
+            start: event.start?.dateTime || event.start?.date || "",
+            end: event.end?.dateTime || event.end?.date || "",
+            startTimeZone: event.start?.timeZone || undefined,
+            endTimeZone: event.end?.timeZone || undefined,
+            location: event.location || "",
+            allDay: !event.start?.dateTime,
+            source: "google" as const,
+            googleEventId: event.id || undefined,
+            htmlLink: event.htmlLink || undefined,
+            eventType: event.eventType || "default",
+            accountEmail: client.email,
+            overlayEmail,
+            ...mapColor(event),
+            attendees: mapAttendees(event),
+            organizer: mapOrganizer(event),
+            createdAt: event.created || new Date().toISOString(),
+            updatedAt: event.updated || new Date().toISOString(),
+          }));
+        } catch (error: any) {
+          const message = error?.message || "Unable to read overlay calendar";
+          console.error(
+            `[listOverlayEvents] Error fetching ${overlayEmail} via ${client.email}:`,
+            message,
+          );
+          accessErrors.push(`${client.email}: ${message}`);
+        }
       }
+
+      errors.push({
+        email: overlayEmail,
+        error: `No selected Google account could read this overlay (${accessErrors.join("; ")})`,
+      });
+      return [];
     }),
   );
 
-  return { events: allResults.flat(), errors };
+  return { events: allResults.flat(), errors, accountErrors: refreshErrors };
 }
 
 export async function getEvent(
