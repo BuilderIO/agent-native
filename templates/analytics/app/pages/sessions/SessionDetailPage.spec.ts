@@ -46,12 +46,38 @@ describe("session replay event normalization", () => {
       new URL("../../global.css", import.meta.url),
       "utf8",
     );
+    const cursorAsset = readFileSync(
+      new URL("../../assets/replay-cursor.svg", import.meta.url),
+      "utf8",
+    );
 
-    expect(pageSource).toContain('playing ? "cursor-none" : "cursor-pointer"');
+    expect(pageSource).toContain('"cursor-pointer"');
+    expect(pageSource).not.toContain('"cursor-none"');
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse::before",
     );
-    expect(globalStyles).toContain("clip-path: polygon(");
+    expect(pageSource).toContain("hideReplayCursorUntilPosition");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.has-position",
+    );
+    expect(globalStyles).toContain("visibility: hidden;");
+    expect(globalStyles).toContain("visibility: visible;");
+    expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
+    expect(globalStyles).toContain("drop-shadow(0 1px 1px");
+    expect(globalStyles).toContain("width: 1.44rem;");
+    expect(globalStyles).toContain("height: 1.92rem;");
+    expect(globalStyles).toContain(
+      "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
+    );
+    expect(pageSource).toContain(
+      '"--an-replay-cursor-scale": String(1 / fitScale)',
+    );
+    expect(cursorAsset).toContain('fill="#000000"');
+    expect(cursorAsset).toContain('stroke="#FFFFFF"');
+    expect(cursorAsset).toContain('stroke-width="4.35"');
+    expect(cursorAsset).toContain('stroke-linejoin="round"');
+    expect(cursorAsset).toContain('stroke-linecap="round"');
+    expect(cursorAsset).toContain('shape-rendering="geometricPrecision"');
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse.active::after",
     );

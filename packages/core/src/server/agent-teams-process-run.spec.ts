@@ -266,6 +266,10 @@ function fakeFilterInitialEngineTools(
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (actions: any) => actionsToEngineToolsMock(actions),
   filterInitialEngineTools: fakeFilterInitialEngineTools,
+  resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
+    model === "gpt-5.6" ? "medium" : undefined,
+  resolveMainChatMaxOutputTokens: (model: string) =>
+    model === "gpt-5.6" ? 32_000 : 4_096,
   appendAgentLoopContinuation: vi.fn(),
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
 }));
@@ -367,7 +371,7 @@ function resolveConfig() {
     baseSystemPrompt: "base",
     actions: {},
     engine: { name: "test", defaultModel: "m" } as any,
-    model: "m",
+    model: "gpt-5.6",
   };
 }
 
@@ -406,6 +410,10 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(res.ok).toBe(true);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(runAgentLoopMock.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: 32_000,
+      reasoningEffort: "medium",
+    });
     expect(requestContexts.some((ctx) => ctx.userEmail === OWNER)).toBe(true);
 
     const task = appState.get("agent-task:t1");

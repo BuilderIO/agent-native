@@ -72,6 +72,17 @@ describe("dedupeCollabUsersByEmail", () => {
       { name: "Real", email: "real@example.com", color: "#000" },
     ]);
   });
+
+  it("ignores malformed awareness user payloads", () => {
+    const users = dedupeCollabUsersByEmail([
+      { name: "Broken", email: undefined as unknown as string, color: "#fff" },
+      { name: "Real", email: "real@example.com", color: "#000" },
+    ]);
+
+    expect(users).toEqual([
+      { name: "Real", email: "real@example.com", color: "#000" },
+    ]);
+  });
 });
 
 describe("reconcileRemoteAwarenessStates", () => {

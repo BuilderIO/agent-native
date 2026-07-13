@@ -1846,12 +1846,38 @@ export async function saveDashboardView(
     orgId: ctx.orgId ?? undefined,
   });
   const db = getDb() as any;
-  const id = view.id ?? nanoidFallback();
+  let id = view.id ?? nanoidFallback();
+  let existing = false;
   if (view.id) {
+    const [existingRow] = await db
+      .select({
+        id: schema.dashboardViews.id,
+        dashboardId: schema.dashboardViews.dashboardId,
+      })
+      .from(schema.dashboardViews)
+      .where(eq(schema.dashboardViews.id, view.id))
+      .limit(1);
+    if (existingRow?.dashboardId === dashboardId) {
+      existing = true;
+    } else if (existingRow) {
+      // View ids are generated from names in the browser but remain globally
+      // primary-keyed for backwards compatibility. Avoid colliding with a
+      // same-named view on another dashboard instead of updating that row or
+      // returning a raw unique-constraint 500.
+      id = nanoidFallback();
+    }
+  }
+
+  if (existing) {
     await db
       .update(schema.dashboardViews)
       .set({ name: view.name, filters: JSON.stringify(view.filters) })
-      .where(eq(schema.dashboardViews.id, id));
+      .where(
+        and(
+          eq(schema.dashboardViews.id, id),
+          eq(schema.dashboardViews.dashboardId, dashboardId),
+        ),
+      );
   } else {
     await db.insert(schema.dashboardViews).values({
       id,
@@ -1864,7 +1890,15 @@ export async function saveDashboardView(
   const [row] = await db
     .select()
     .from(schema.dashboardViews)
-    .where(eq(schema.dashboardViews.id, id));
+    .where(
+      and(
+        eq(schema.dashboardViews.id, id),
+        eq(schema.dashboardViews.dashboardId, dashboardId),
+      ),
+    );
+  if (!row) {
+    throw new Error("Dashboard view was not persisted");
+  }
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(
@@ -1891,7 +1925,12 @@ export async function deleteDashboardView(
   const db = getDb() as any;
   await db
     .delete(schema.dashboardViews)
-    .where(eq(schema.dashboardViews.id, viewId));
+    .where(
+      and(
+        eq(schema.dashboardViews.id, viewId),
+        eq(schema.dashboardViews.dashboardId, dashboardId),
+      ),
+    );
   const dash = await getDashboard(dashboardId, ctx);
   if (dash) {
     recordScopedChange(

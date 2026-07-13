@@ -1069,6 +1069,104 @@ describe("runAgentLoop", () => {
     expect(seenTools[2]).toContain("hidden-tool");
   });
 
+  it("expands the full authorized tool surface for a guarded corrective retry", async () => {
+    const actions = attachToolSearch({
+      starter: actionEntry({
+        description: "Starter tool",
+        readOnly: true,
+      }),
+      "query-data": {
+        ...actionEntry({
+          description: "Query the real data source",
+          readOnly: true,
+        }),
+        run: async () => ({ rows: [{ count: 3 }] }),
+      },
+    });
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = filterInitialEngineTools(allTools, ["starter"]);
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield { type: "text-delta", text: "No data source was queried." };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "No data source was queried." },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "query-data-1",
+                name: "query-data",
+                input: { sql: "select count(*)" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "The real count is 3." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "The real count is 3." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.toolResults.some((result) => result.name === "query-data")
+        ? null
+        : {
+            retryMessage: "Query the real data source before answering.",
+            fallbackMessage: "No grounded result is available.",
+            maxRetries: 1,
+            expandToolSurface: true,
+          },
+    );
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+      finalResponseGuard: guard,
+    });
+
+    expect(seenTools[0]).not.toContain("query-data");
+    expect(seenTools[1]).toContain("query-data");
+    expect(streamCalls).toBe(3);
+    expect(guard).toHaveBeenCalledTimes(2);
+  });
+
   it("passes the central default max output token cap to the engine", async () => {
     let seenMaxOutputTokens: number | undefined;
     const engine: AgentEngine = {

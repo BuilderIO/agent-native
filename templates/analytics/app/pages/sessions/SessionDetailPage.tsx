@@ -34,6 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -711,6 +712,7 @@ function ReplayPlayer({
     if (!stageRootRef.current) return;
     let cancelled = false;
     let localReplayer: any = null;
+    let stopCursorVisibilityObserver = () => {};
 
     async function loadReplay() {
       const replayEvents = eventsRef.current;
@@ -761,6 +763,8 @@ function ReplayPlayer({
       // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
       // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
+      stopCursorVisibilityObserver =
+        hideReplayCursorUntilPosition(localReplayer);
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
@@ -827,6 +831,7 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       try {
@@ -977,22 +982,26 @@ function ReplayPlayer({
                 <div
                   ref={stageRootRef}
                   className="an-replay-stage-root absolute left-1/2 top-1/2"
-                  style={{
-                    width: playerWidth,
-                    height: playerHeight,
-                    transform: `translate(-50%, -50%) scale(${fitScale})`,
-                    transformOrigin: "center center",
-                  }}
+                  style={
+                    {
+                      width: playerWidth,
+                      height: playerHeight,
+                      "--an-replay-cursor-scale": String(1 / fitScale),
+                      transform: `translate(-50%, -50%) scale(${fitScale})`,
+                      transformOrigin: "center center",
+                    } as CSSProperties
+                  }
                 />
                 <button
                   type="button"
                   className={cn(
                     "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
-                    // INTENTIONAL — DO NOT REMOVE `cursor-none` while playing.
-                    // The recorded cursor is the meaningful pointer here;
-                    // hiding the viewer's stationary pointer keeps the
-                    // Mac-style replay cursor easy to follow.
-                    playing ? "cursor-none" : "cursor-pointer",
+                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
+                    // The recorded cursor is a separate overlay, while this
+                    // button owns the live hover target for pause/play. Do
+                    // not add `cursor-none`: it makes the user's cursor
+                    // disappear when they move over the preview.
+                    "cursor-pointer",
                   )}
                   disabled={disabled}
                   aria-label={
@@ -2276,6 +2285,32 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
     if (hasFullSnapshot && hasMeta) return true;
   }
   return false;
+}
+
+function hideReplayCursorUntilPosition(replayer: any): () => void {
+  const cursor = replayer?.mouse as HTMLElement | undefined;
+  if (!cursor || typeof MutationObserver === "undefined") return () => {};
+
+  let observer: MutationObserver | null = null;
+  const revealWhenPositioned = () => {
+    if (!cursor.style.left || !cursor.style.top) return;
+    cursor.classList.add("has-position");
+    observer?.disconnect();
+    observer = null;
+  };
+
+  cursor.classList.remove("has-position");
+  observer = new MutationObserver(revealWhenPositioned);
+  observer.observe(cursor, {
+    attributes: true,
+    attributeFilter: ["style"],
+  });
+  revealWhenPositioned();
+
+  return () => {
+    observer?.disconnect();
+    observer = null;
+  };
 }
 
 export function replayViewportDimensions(

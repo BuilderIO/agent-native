@@ -47,6 +47,7 @@ import {
   fingerprint,
   getErrorIssue,
   ingestException,
+  isBenignBrowserAbortException,
   listErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
@@ -376,6 +377,21 @@ describe("extractExceptionInput", () => {
     const input = extractExceptionInput({ level: "not-a-level" });
     expect(input.type).toBe("Error");
     expect(input.level).toBe("error");
+  });
+
+  it("recognizes expected browser request cancellations", () => {
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "signal is aborted without reason",
+      }),
+    ).toBe(true);
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "The request was aborted by the server",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -24,6 +24,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -1579,12 +1580,12 @@ function TableRenderer({
                       {replayHref ? (
                         <span className="inline-flex flex-col gap-0.5">
                           <span>{content}</span>
-                          <a
-                            href={replayHref}
+                          <Link
+                            to={replayHref}
                             className="text-xs font-medium text-primary hover:underline"
                           >
                             {t("sessions.watchReplay")}
-                          </a>
+                          </Link>
                         </span>
                       ) : (
                         content
