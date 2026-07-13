@@ -5572,6 +5572,65 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("runs the final-response guard when an engine only emits text deltas", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "text-delta",
+          text: streamCalls === 1 ? "unclear" : "grounded",
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.text === "unclear"
+        ? {
+            retryMessage: "Retry with grounded evidence.",
+            fallbackMessage: "No grounded result.",
+          }
+        : null,
+    );
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      finalResponseGuard: guard,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(guard).toHaveBeenCalledTimes(2);
+    expect(guard.mock.calls.map(([context]) => context.text)).toEqual([
+      "unclear",
+      "grounded",
+    ]);
+    expect(events).toEqual([
+      { type: "text", text: "unclear" },
+      { type: "clear" },
+      { type: "text", text: "grounded" },
+      { type: "done" },
+    ]);
+  });
+
   it("clears streamed final-answer text when the guard throws", async () => {
     const engine: AgentEngine = {
       name: "test",
