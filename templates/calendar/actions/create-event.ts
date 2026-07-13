@@ -24,6 +24,7 @@ import {
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
+  validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
@@ -116,12 +117,12 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
-    if (
-      (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
-      args.allDay === true
-    ) {
-      throw new Error("Out of office and focus time events must be timed.");
-    }
+    validateStatusEventTiming({
+      eventType: args.eventType,
+      allDay: args.allDay,
+      start: args.start,
+      end: args.end,
+    });
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
