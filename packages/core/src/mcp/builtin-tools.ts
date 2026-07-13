@@ -96,6 +96,7 @@ interface AskAppRoute {
   app: string;
   origin: string;
   routedVia: "local" | "a2a";
+  requestOrigin?: string;
   note?: string;
 }
 
@@ -248,7 +249,10 @@ function askAppTaskResult(route: AskAppRoute, task: Task): AskAppTaskResult {
   };
 }
 
-async function createA2AClientForAskApp(origin: string): Promise<{
+async function createA2AClientForAskApp(
+  origin: string,
+  requestOrigin?: string,
+): Promise<{
   client: import("../a2a/client.js").A2AClient;
   metadata: Record<string, unknown>;
 }> {
@@ -258,6 +262,7 @@ async function createA2AClientForAskApp(origin: string): Promise<{
   const metadata: Record<string, unknown> = {};
   if (auth.userEmail) metadata.userEmail = auth.userEmail;
   if (auth.orgDomain) metadata.orgDomain = auth.orgDomain;
+  if (requestOrigin) metadata.requestOrigin = requestOrigin;
   return {
     client: new A2AClient(origin, auth.apiKey, {
       requestTimeoutMs: ASK_APP_A2A_REQUEST_TIMEOUT_MS,
@@ -302,7 +307,10 @@ async function submitAskAppA2ATask(
   message: string,
   maxWaitMs: number,
 ): Promise<AskAppTaskResult> {
-  const { client, metadata } = await createA2AClientForAskApp(route.origin);
+  const { client, metadata } = await createA2AClientForAskApp(
+    route.origin,
+    route.requestOrigin,
+  );
   const task = await client.send(
     {
       role: "user",
@@ -784,7 +792,12 @@ async function routeAskOverA2A(
 > {
   if (options?.durable) {
     return submitAskAppA2ATask(
-      { app: id, origin: agentNativeA2AEndpoint(origin), routedVia: "a2a" },
+      {
+        app: id,
+        origin: agentNativeA2AEndpoint(origin),
+        routedVia: "a2a",
+        requestOrigin: origin,
+      },
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
     );
@@ -822,7 +835,12 @@ async function resolveAskAppStatusRoute(
         "ask_app_status requires a running app origin for local tasks.",
       );
     }
-    return { app: selfId, origin: selfEndpointUrl, routedVia: "local" };
+    return {
+      app: selfId,
+      origin: selfEndpointUrl,
+      routedVia: "local",
+      requestOrigin: requestMeta?.origin,
+    };
   }
 
   const targetApp = await resolveTargetAppOrigin(config, requestedApp);
@@ -831,6 +849,7 @@ async function resolveAskAppStatusRoute(
       app: targetApp.id,
       origin: agentNativeA2AEndpoint(targetApp.origin),
       routedVia: "a2a",
+      requestOrigin: targetApp.origin,
     };
   }
 
@@ -841,6 +860,7 @@ async function resolveAskAppStatusRoute(
       app: dirMatch.id,
       origin: agentNativeA2AEndpoint(dirMatch.a2aUrl),
       routedVia: "a2a",
+      requestOrigin: dirMatch.a2aUrl,
     };
   }
 
@@ -988,6 +1008,7 @@ function askAppTool(
             app: selfId,
             origin: localA2AEndpointUrl,
             routedVia: "local",
+            requestOrigin: requestMeta?.origin,
             ...(note ? { note } : {}),
           },
           message,

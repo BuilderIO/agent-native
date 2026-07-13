@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   getRequestOrgId,
+  getRequestContext,
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
@@ -1158,6 +1159,76 @@ describe("handleJsonRpc", () => {
     expect(resolveOrgByDomainMock).toHaveBeenCalledWith("acme.test");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("restores the queued caller origin without trusting it for identity", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: `${getRequestUserEmail() ?? "none"}|${getRequestContext()?.requestOrigin ?? "none"}`,
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: { requestOrigin: "https://workspace.example.test" },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+
+    const { getTask } = await import("./task-store.js");
+    expect(
+      (await getTask(result.result.id))?.metadata?.__a2a_processor,
+    ).toEqual(
+      expect.objectContaining({
+        requestOrigin: "https://workspace.example.test",
+      }),
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+
+    const followupEvent = mockEvent();
+    followupEvent.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      followupEvent,
+      contextConfig,
+    );
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "alice+qa@agent-native.test|https://workspace.example.test",
+    );
   });
 
   it("resolves org context from verified email when no verified org domain is present", async () => {

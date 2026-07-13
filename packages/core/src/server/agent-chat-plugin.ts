@@ -168,6 +168,7 @@ import {
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
   getRequestRunContext,
@@ -1267,11 +1268,21 @@ export function createAgentChatPlugin(
           if (a2aRunContext) {
             a2aRunContext.owner = userEmail;
             a2aRunContext.userApiKey = ownerApiKey;
-            try {
-              a2aRunContext.requestOrigin = getOrigin(context.event as any);
-            } catch {
-              // The processor event may not carry the original request host.
-              // Keep the owner context even when no browser origin is available.
+            // The async processor restores the original request origin from
+            // task metadata. Only derive a fallback for synchronous A2A calls
+            // where the inbound event is still the caller request.
+            if (!a2aRunContext.requestOrigin) {
+              const restoredOrigin = getRequestContext()?.requestOrigin;
+              if (restoredOrigin) {
+                a2aRunContext.requestOrigin = restoredOrigin;
+              }
+            }
+            if (!a2aRunContext.requestOrigin) {
+              try {
+                a2aRunContext.requestOrigin = getOrigin(context.event as any);
+              } catch {
+                // Keep the owner context even when no browser origin exists.
+              }
             }
           }
           const a2aEngine = await resolveEngine({
@@ -1307,14 +1318,8 @@ export function createAgentChatPlugin(
           }
 
           // Keep delegated runs aligned with the interactive production
-          // prompt. The A2A path previously omitted first-session guidance and
-          // the model-family overlay, which could make a fresh greeting look
-          // like a data request and cause the analytics guard to return its
-          // no-data fallback even though the interactive chat worked.
-          const personalizationBlock =
-            (await hasCompletedFirstSessionPersonalization(owner))
-              ? ""
-              : FIRST_SESSION_PERSONALIZATION;
+          // prompt's model-specific behavior without importing interactive
+          // onboarding into a background/cross-app task.
           const modelOverlay = getModelFamilyOverlay(model);
           // Stable content first, most-volatile-per-day last: the
           // runtime-context block is appended after resources/schema/extra so
@@ -1323,14 +1328,12 @@ export function createAgentChatPlugin(
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
             ? devPrompt +
-              personalizationBlock +
               resources +
               schemaBlock +
               extra +
               modelOverlay +
               runtimeContext
             : basePrompt +
-              personalizationBlock +
               resources +
               schemaBlock +
               extra +

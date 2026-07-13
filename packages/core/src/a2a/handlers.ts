@@ -47,6 +47,26 @@ const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
 
 /**
+ * Request origin is routing/link context, not an identity signal. Accept only
+ * an absolute HTTP(S) origin from caller metadata so queued runs can preserve
+ * custom-domain/workspace links without allowing arbitrary values to leak
+ * into browser or artifact URLs.
+ */
+function requestOriginFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = metadata?.requestOrigin;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Hard cap on how long a task may sit in submitted/working (never reaching
  * `processing`) before the dispatch-retry loop in
  * `refireStuckAsyncTaskIfNeeded` gives up and fails it. Without this, a
@@ -172,6 +192,7 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  const requestOrigin = requestOriginFromMetadata(processorMeta);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -197,7 +218,11 @@ export async function processA2ATaskFromQueue(
   ).unref?.();
   try {
     await runWithRequestContext(
-      { userEmail: verifiedEmail, orgId: resolvedOrgId },
+      {
+        userEmail: verifiedEmail,
+        orgId: resolvedOrgId,
+        ...(requestOrigin ? { requestOrigin } : {}),
+      },
       () =>
         runHandlerAndPersist(
           taskId,
@@ -349,7 +374,7 @@ function makeHandlerContext(
  * inside `runWithRequestContext` so downstream actions see the org.
  */
 async function withA2ARequestContext<T>(
-  _metadata: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
   event: any | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -366,9 +391,14 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
+  const requestOrigin = requestOriginFromMetadata(metadata);
 
   return runWithRequestContext(
-    { userEmail: verifiedEmail, orgId: resolvedOrgId },
+    {
+      userEmail: verifiedEmail,
+      orgId: resolvedOrgId,
+      ...(requestOrigin ? { requestOrigin } : {}),
+    },
     fn,
   ) as Promise<T>;
 }
@@ -528,12 +558,14 @@ async function handleSend(
     // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
+    const requestOrigin = requestOriginFromMetadata(metadata);
 
     const taskMetadata: Record<string, unknown> = {
       ...(metadata ?? {}),
       __a2a_processor: {
         verifiedEmail,
         orgDomainHint,
+        ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
         callerMetadata: metadata ?? null,
       },
