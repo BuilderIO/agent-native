@@ -676,10 +676,7 @@ export async function listCalendarEvents(
   const [googleResult, overlayResult, icalResult, rawBookingEvents] =
     await Promise.all([googleRead, overlayRead, icalRead, bookingRead]);
   googleEvents = [...googleResult.events, ...overlayResult.events];
-  errors = mergeAccountErrors(
-    googleResult.errors,
-    overlayResult.accountErrors,
-  );
+  errors = mergeAccountErrors(googleResult.errors, overlayResult.accountErrors);
   if (connected && includeOverlays && requestedOverlayEmails.length > 0) {
     overlaySources = requestedOverlayEmails.map((overlayEmail) => {
       const error = overlayResult.errors.find(
