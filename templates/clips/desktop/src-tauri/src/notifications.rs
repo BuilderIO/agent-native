@@ -6,8 +6,13 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
+use std::time::Duration;
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use crate::dlog;
 use crate::util::{
@@ -54,6 +59,59 @@ fn notification_rect(app: &AppHandle) -> (u32, u32, i32, i32) {
     (w, h, x, top.max(0))
 }
 
+static MEETING_NOTIF_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+
+/// True when the global cursor sits inside the notification window's frame.
+/// Mirrors `cursor_inside_pill_frame` in `recording_indicator.rs`: cursor and
+/// frame both come from Tauri (physical px, desktop top-left origin), so the
+/// test is a plain point-in-rect with no AppKit hop.
+fn cursor_inside_notification_frame(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    c.x >= p.x as f64
+        && c.x <= (p.x + s.width as i32) as f64
+        && c.y >= p.y as f64
+        && c.y <= (p.y + s.height as i32) as f64
+}
+
+/// Poll the cursor against the notification frame and emit
+/// `meetings:notification-hover` on transitions. The window never becomes key
+/// (`show_without_activation` uses `orderFrontRegardless`, not
+/// `makeKeyAndOrderFront:`), so CSS `:hover`/`onMouseEnter` only fires once
+/// the user's first click makes it key — this poll is the fallback that
+/// reveals the close button on real hover before that click, same pattern as
+/// `start_pill_hover_tracking`. Idempotent — a second call is a no-op while a
+/// loop is already running.
+fn start_meeting_notification_hover_tracking(app: &AppHandle) {
+    if MEETING_NOTIF_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev = false;
+        while MEETING_NOTIF_HOVER_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
+                break;
+            };
+            let inside = cursor_inside_notification_frame(&win);
+            if inside != prev {
+                prev = inside;
+                let _ = win.emit(
+                    "meetings:notification-hover",
+                    serde_json::json!({ "hovered": inside }),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        MEETING_NOTIF_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
 pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
@@ -61,6 +119,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        start_meeting_notification_hover_tracking(&app);
         return Ok(());
     }
 
@@ -97,6 +156,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     // own recording chrome is still excluded elsewhere so it won't leak.)
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    start_meeting_notification_hover_tracking(&app);
     Ok(())
 }
 
