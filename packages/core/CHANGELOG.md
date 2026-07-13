@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.16
+
+### Patch Changes
+
+- cc35446: Resolve the authenticated owner's active provider key for A2A and MCP ask-agent runs, matching the interactive chat engine path.
+
 ## 0.98.15
 
 ### Patch Changes
