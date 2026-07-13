@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.99.3
+
+### Patch Changes
+
+- 03cd25c: Document the `agent-native invoke` CLI usage and flags on the A2A protocol docs page, across all locales.
+
 ## 0.99.2
 
 ### Patch Changes
