@@ -8,6 +8,7 @@ import { useLocation, useParams } from "react-router";
 
 export interface NavigationState {
   view: string;
+  homeTab?: "designs" | "templates";
   designId?: string;
   designSystemId?: string;
   editorView?: "single" | "overview";
@@ -261,11 +262,16 @@ export function useNavigationState(enabled = true) {
         state.view = "design-systems";
         const designSystemId = searchParams.get("designSystemId");
         if (designSystemId) state.designSystemId = designSystemId;
+      } else if (pathname.startsWith("/templates")) {
+        state.view = "templates";
+        state.homeTab = "templates";
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
+      } else {
+        state.homeTab = "designs";
       }
 
       return state;
@@ -280,6 +286,7 @@ export function useNavigationState(enabled = true) {
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;
+      if (cmd.view === "templates") return "/templates";
       if (cmd.view === "settings") return "/settings";
       return "/";
     },

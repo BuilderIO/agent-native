@@ -14,6 +14,8 @@ prompts and visual tweak controls.
 
 - Generate complete, working HTML prototypes from a prompt.
 - Compare multiple design directions, then keep refining the strongest one.
+- Save any design as a reusable template and start new designs from starters or
+  your own templates.
 - Visual tweak controls for common copy, layout, color, and spacing changes.
 - Save and reuse design-system preferences to stay on-brand.
 - Import existing HTML or reference material as context.

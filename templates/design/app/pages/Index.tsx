@@ -1,4 +1,5 @@
 import {
+  ShareButton,
   useActionQuery,
   useActionMutation,
   useT,
@@ -11,23 +12,33 @@ import {
 import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
+  STARTER_TEMPLATES,
+  type StarterTemplate,
+} from "@shared/starter-templates";
+import {
   IconChecks,
   IconPlus,
   IconSearch,
   IconDots,
   IconTrash,
   IconCopy,
-  IconCode,
   IconX,
   IconPencil,
+  IconTemplate,
+  IconPalette,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useNavigate, Link, useLocation } from "react-router";
+import { toast } from "sonner";
 
+import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import type {
+  PromptTemplateOption,
+  UploadedFile,
+} from "@/components/editor/PromptDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +49,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -48,6 +60,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -74,10 +87,27 @@ interface Design {
   previewHtml?: string | null;
 }
 
-export default function Index() {
+interface TemplateDesign extends Design {
+  screenCount: number;
+  templateMeta?: string | null;
+  isBuiltIn?: boolean;
+}
+
+type HomeTab = "designs" | "templates";
+
+export default function Index({
+  activeTab: activeTabProp,
+}: {
+  activeTab?: HomeTab;
+} = {}) {
   const t = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const activeTab =
+    activeTabProp ??
+    (location.pathname.startsWith("/templates") ? "templates" : "designs");
+  const isTemplatesTab = activeTab === "templates";
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -89,6 +119,9 @@ export default function Index() {
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
+  const [openTemplatePickerOnStart, setOpenTemplatePickerOnStart] =
+    useState(false);
   // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
   // cloud container). Only reachable behind FULL_APP_BUILDING_ENABLED — the
   // popover renders no mode control at all when the flag is off, so this
@@ -98,6 +131,9 @@ export default function Index() {
   );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [shareTemplate, setShareTemplate] = useState<TemplateDesign | null>(
+    null,
+  );
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -108,6 +144,10 @@ export default function Index() {
     count: number;
     designs: Design[];
   }>("list-designs", { includePreview: "true" });
+  const { data: templatesData, isLoading: templatesLoading } = useActionQuery<{
+    count: number;
+    templates: TemplateDesign[];
+  }>("list-templates", { includePreview: "true" });
 
   const createMutation = useActionMutation("create-design");
   // Fires the fusion-backed cloud container build; only ever called when
@@ -115,6 +155,7 @@ export default function Index() {
   const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
+  const saveAsTemplateMutation = useActionMutation("save-as-template");
   const updateMutation = useActionMutation("update-design");
   const generateTitleMutation = useActionMutation("generate-design-title");
   // Designs the user has manually renamed since creation — an AI-generated
@@ -127,12 +168,69 @@ export default function Index() {
   } = useDesignSystems();
 
   const designs = designsData?.designs ?? [];
+  const templates = templatesData?.templates ?? [];
 
   const filtered = search
     ? designs.filter((d) =>
         d.title.toLowerCase().includes(search.toLowerCase()),
       )
     : designs;
+  const starterTemplateOptions = useMemo<PromptTemplateOption[]>(
+    () =>
+      STARTER_TEMPLATES.map((starter) => ({
+        id: starter.id,
+        title: t(starter.titleKey),
+        type: "starter",
+        icon: starter.icon,
+        placeholderPrompt: t(starter.placeholderPromptKey),
+        generationBrief: starter.generationBrief,
+        previewHtml:
+          starter.previewHtml ?? starter.seedScreens?.[0]?.html ?? null,
+        screenCount: starter.seedScreens?.length ?? 0,
+        hasSeedScreens: Boolean(starter.seedScreens?.length),
+      })),
+    [t],
+  );
+  const userTemplateOptions = useMemo<PromptTemplateOption[]>(
+    () =>
+      templates.map((template) => ({
+        id: template.id,
+        title: template.title,
+        type: "template",
+        designSystemId: template.designSystemId ?? null,
+        previewHtml: template.previewHtml ?? null,
+        screenCount: template.screenCount ?? 0,
+        hasSeedScreens: (template.screenCount ?? 0) > 0,
+      })),
+    [templates],
+  );
+  const templateOptions = useMemo(
+    () => [...starterTemplateOptions, ...userTemplateOptions],
+    [starterTemplateOptions, userTemplateOptions],
+  );
+  const templateCards = useMemo<TemplateDesign[]>(
+    () => [
+      ...templates,
+      ...starterTemplateOptions.map((template) => ({
+        id: template.id,
+        title: template.title,
+        projectType: "prototype" as const,
+        designSystemId: null,
+        previewHtml: template.previewHtml ?? null,
+        screenCount: template.screenCount ?? 0,
+        isBuiltIn: true,
+      })),
+    ],
+    [starterTemplateOptions, templates],
+  );
+  const filteredTemplates = search
+    ? templateCards.filter((template) =>
+        template.title.toLowerCase().includes(search.toLowerCase()),
+      )
+    : templateCards;
+  const selectedTemplate = templateOptions.find(
+    (template) => template.id === newTemplateId,
+  );
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -143,22 +241,58 @@ export default function Index() {
     () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
     [defaultSystem?.id, designSystems],
   );
+  const resolveAccessibleTemplateDesignSystemId = useCallback(
+    (template: PromptTemplateOption | undefined) => {
+      if (template?.type !== "template" || !template.designSystemId)
+        return null;
+      return designSystems.some(
+        (system) => system.id === template.designSystemId,
+      )
+        ? template.designSystemId
+        : null;
+    },
+    [designSystems],
+  );
 
   const openNewDesign = useCallback(
-    (e: React.MouseEvent<HTMLElement>) => {
+    (
+      e: React.MouseEvent<HTMLElement>,
+      options: {
+        templateId?: string | null;
+        openTemplatePicker?: boolean;
+      } = {},
+    ) => {
       anchorElRef.current = e.currentTarget;
+      const template = templateOptions.find(
+        (candidate) => candidate.id === options.templateId,
+      );
+      const templateDesignSystemId =
+        resolveAccessibleTemplateDesignSystemId(template);
+      setNewTemplateId(options.templateId ?? null);
+      setOpenTemplatePickerOnStart(Boolean(options.openTemplatePicker));
       setNewDesignSystemId(
-        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+        templateDesignSystemId
+          ? templateDesignSystemId
+          : designSystemsLoading
+            ? undefined
+            : resolveDefaultDesignSystemId(),
       );
       setShowNewPrompt(true);
     },
-    [designSystemsLoading, resolveDefaultDesignSystemId],
+    [
+      designSystemsLoading,
+      resolveAccessibleTemplateDesignSystemId,
+      resolveDefaultDesignSystemId,
+      templateOptions,
+    ],
   );
 
   const handleNewPromptOpenChange = useCallback((open: boolean) => {
     setShowNewPrompt(open);
     if (!open) {
       setNewDesignSystemId(undefined);
+      setNewTemplateId(null);
+      setOpenTemplatePickerOnStart(false);
       setNewDesignMode("design");
     }
   }, []);
@@ -177,6 +311,29 @@ export default function Index() {
     resolveDefaultDesignSystemId,
     showNewPrompt,
   ]);
+
+  const handleTemplateChange = useCallback(
+    (templateId: string | null) => {
+      setNewTemplateId(templateId);
+      const template = templateOptions.find(
+        (candidate) => candidate.id === templateId,
+      );
+      if (template?.type === "template") {
+        const templateDesignSystemId =
+          resolveAccessibleTemplateDesignSystemId(template);
+        setNewDesignSystemId(
+          templateDesignSystemId ??
+            (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
+        );
+      }
+    },
+    [
+      designSystemsLoading,
+      resolveAccessibleTemplateDesignSystemId,
+      resolveDefaultDesignSystemId,
+      templateOptions,
+    ],
+  );
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -223,6 +380,7 @@ export default function Index() {
     (
       title: string,
       designSystemId?: string | null,
+      templateId?: string | null,
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -253,9 +411,8 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(linkedDesignSystemId
-            ? { designSystemId: linkedDesignSystemId }
-            : {}),
+          designSystemId: linkedDesignSystemId,
+          ...(templateId ? { templateId } : {}),
         } as any)
         .then(() => undefined)
         .catch((error) => {
@@ -314,14 +471,23 @@ export default function Index() {
       // Derive a short title from the prompt — first line, ~40 chars max,
       // word-boundary truncated. The full prompt still drives generation;
       // the title is just a label, so longer is worse.
-      const derivedTitle = derivePromptTitle(prompt);
+      const template = selectedTemplate;
+      const derivedTitle = prompt.trim()
+        ? derivePromptTitle(prompt)
+        : template?.title || t("home.untitledDesign");
       const designSystemId =
         newDesignSystemId === undefined
           ? resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
-      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
-      handleGenerateDesignTitle(id, prompt, title);
+      const { id, title, ready } = createDesign(
+        derivedTitle,
+        designSystemId,
+        template?.id ?? null,
+      );
+      if (prompt.trim()) {
+        handleGenerateDesignTitle(id, prompt, title);
+      }
 
       if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
         // Full-app designs are backed by a real running container, not a
@@ -365,12 +531,22 @@ export default function Index() {
               submit: true,
             });
           });
-      } else {
+      } else if (prompt.trim() || !template || !template.hasSeedScreens) {
         writePendingGeneration(id, {
           prompt,
           files,
           title,
           designSystemId,
+          templateId: template?.id,
+          templateTitle: template?.title,
+          designSystemMismatch: Boolean(
+            template?.type === "template" &&
+            template.designSystemId &&
+            designSystemId &&
+            designSystemId !== template.designSystemId,
+          ),
+          starterBrief:
+            template?.type === "starter" ? template.generationBrief : undefined,
           skipQuestions: pendingOptions?.skipQuestions,
           ...options,
         });
@@ -387,6 +563,8 @@ export default function Index() {
       newDesignMode,
       newDesignSystemId,
       resolveDefaultDesignSystemId,
+      selectedTemplate,
+      t,
     ],
   );
 
@@ -402,6 +580,15 @@ export default function Index() {
         designs: (old?.designs ?? []).filter((d: Design) => d.id !== id),
       }),
     );
+    queryClient.setQueryData(
+      ["action", "list-templates", { includePreview: "true" }],
+      (old: any) => ({
+        count: Math.max((old?.count ?? 1) - 1, 0),
+        templates: (old?.templates ?? []).filter(
+          (template: TemplateDesign) => template.id !== id,
+        ),
+      }),
+    );
 
     setDeleteId(null);
 
@@ -409,6 +596,9 @@ export default function Index() {
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-templates"],
         });
       },
     });
@@ -461,6 +651,67 @@ export default function Index() {
     [duplicateMutation, queryClient, navigate],
   );
 
+  const handleSaveAsTemplate = useCallback(
+    (design: Design) => {
+      const optimisticId = `pending-template:${design.id}`;
+      const now = new Date().toISOString();
+      const optimisticTemplate: TemplateDesign = {
+        ...design,
+        id: optimisticId,
+        screenCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      queryClient.setQueryData(
+        ["action", "list-templates", { includePreview: "true" }],
+        (old: any) => ({
+          count: (old?.count ?? 0) + 1,
+          templates: [optimisticTemplate, ...(old?.templates ?? [])],
+        }),
+      );
+      toast.success(t("home.savedAsTemplate"), {
+        action: {
+          label: t("home.viewTemplates"),
+          onClick: () => navigate("/templates"),
+        },
+      });
+
+      saveAsTemplateMutation.mutate({ designId: design.id } as any, {
+        onSuccess: (result: any) => {
+          queryClient.setQueryData(
+            ["action", "list-templates", { includePreview: "true" }],
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return {
+                ...old,
+                templates: (old.templates ?? []).map(
+                  (template: TemplateDesign) =>
+                    template.id === optimisticId
+                      ? {
+                          ...optimisticTemplate,
+                          id: result?.id ?? optimisticId,
+                          title: result?.title ?? optimisticTemplate.title,
+                          screenCount:
+                            result?.fileCount ?? optimisticTemplate.screenCount,
+                        }
+                      : template,
+                ),
+              };
+            },
+          );
+        },
+        onError: () => {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-templates"],
+          });
+          toast.error(t("home.saveAsTemplateFailed"));
+        },
+      });
+    },
+    [navigate, queryClient, saveAsTemplateMutation, t],
+  );
+
   const startRename = useCallback((design: Design) => {
     setRenameId(design.id);
     setRenameDraft(design.title);
@@ -488,11 +739,27 @@ export default function Index() {
         };
       },
     );
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-templates"] },
+      (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return {
+          ...old,
+          count: old.count ?? (old.templates ?? []).length,
+          templates: (old.templates ?? []).map((template: TemplateDesign) =>
+            template.id === id ? { ...template, title: next } : template,
+          ),
+        };
+      },
+    );
 
     updateMutation.mutate({ id, title: next } as any, {
       onError: () => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-templates"],
         });
       },
     });
@@ -511,20 +778,28 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    designs.length > 0 ? (
+    (isTemplatesTab ? templateCards.length > 0 : designs.length > 0) ? (
       <div className="flex items-center gap-3">
         <div className="relative">
           <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder={t("home.searchPlaceholder")}
+            placeholder={
+              isTemplatesTab
+                ? t("home.searchTemplatesPlaceholder")
+                : t("home.searchPlaceholder")
+            }
             className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
         <Button
           size="sm"
-          onClick={openNewDesign}
+          onClick={(e) =>
+            openNewDesign(e, {
+              openTemplatePicker: isTemplatesTab,
+            })
+          }
           disabled={newDesignHandoffPending}
           className="cursor-pointer"
         >
@@ -535,7 +810,9 @@ export default function Index() {
           )}
           {newDesignHandoffPending
             ? t("home.openingDesign")
-            : t("home.newDesign")}
+            : isTemplatesTab
+              ? t("home.newFromTemplate")
+              : t("home.newDesign")}
         </Button>
       </div>
     ) : null,
@@ -545,13 +822,66 @@ export default function Index() {
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="px-4 sm:px-6 py-6 sm:py-10">
-        {isLoading ? (
+        <Tabs value={activeTab} className="mb-6">
+          <TabsList className="h-8 rounded-full bg-muted/50 p-0.5">
+            <TabsTrigger
+              value="designs"
+              asChild
+              className="h-7 rounded-full px-3 text-sm data-[state=active]:bg-accent data-[state=active]:text-foreground"
+            >
+              <Link to="/">{t("home.tabDesigns")}</Link>
+            </TabsTrigger>
+            <TabsTrigger
+              value="templates"
+              asChild
+              className="h-7 rounded-full px-3 text-sm data-[state=active]:bg-accent data-[state=active]:text-foreground"
+            >
+              <Link to="/templates">{t("home.tabTemplates")}</Link>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        {isTemplatesTab ? (
+          templatesLoading ? (
+            <LoadingSkeleton />
+          ) : (
+            <TemplatesGrid
+              templates={filteredTemplates}
+              onUse={(event, template) =>
+                openNewDesign(event, { templateId: template.id })
+              }
+              onEdit={(template) => navigate(`/design/${template.id}`)}
+              onRename={startRename}
+              onShare={setShareTemplate}
+              onRemove={(template) => {
+                updateMutation.mutate(
+                  {
+                    id: template.id,
+                    isTemplate: false,
+                    templateMeta: null,
+                  } as any,
+                  {
+                    onSuccess: () => {
+                      queryClient.invalidateQueries({
+                        queryKey: ["action", "list-templates"],
+                      });
+                      queryClient.invalidateQueries({
+                        queryKey: ["action", "list-designs"],
+                      });
+                    },
+                  },
+                );
+              }}
+              onDelete={(template) => setDeleteId(template.id)}
+              formatDate={formatDate}
+            />
+          )
+        ) : isLoading ? (
           <LoadingSkeleton />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) =>
-              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
+            onUseStarter={(event, starterId) =>
+              openNewDesign(event, { templateId: starterId })
             }
           />
         ) : (
@@ -728,6 +1058,13 @@ export default function Index() {
                             {t("home.duplicate")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={() => handleSaveAsTemplate(design)}
+                            className="cursor-pointer"
+                          >
+                            <IconTemplate className="w-3.5 h-3.5 me-2" />
+                            {t("home.saveAsTemplate")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
@@ -749,13 +1086,46 @@ export default function Index() {
         open={showNewPrompt}
         onOpenChange={handleNewPromptOpenChange}
         title={t("home.newDesignLower")}
-        placeholder={t("home.describeBuild")}
+        placeholder={
+          selectedTemplate?.placeholderPrompt ?? t("home.describeBuild")
+        }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={setNewDesignSystemId}
+        templateOptions={templateOptions}
+        selectedTemplateId={newTemplateId}
+        onTemplateChange={handleTemplateChange}
+        templatePickerDefaultOpen={openTemplatePickerOnStart}
+        templateHint={
+          selectedTemplate?.type === "template" ? (
+            <>
+              {t("promptDialog.templateCopyHint", {
+                count: selectedTemplate.screenCount ?? 0,
+                title: selectedTemplate.title,
+              })}
+              {selectedTemplate.designSystemId &&
+              newDesignSystemId &&
+              newDesignSystemId !== selectedTemplate.designSystemId ? (
+                <span className="ms-1 inline-flex items-center gap-1">
+                  <IconPalette className="size-3" />
+                  {t("promptDialog.templateReskinHint", {
+                    system:
+                      designSystems.find(
+                        (system) => system.id === newDesignSystemId,
+                      )?.title ?? t("promptDialog.designSystem"),
+                  })}
+                </span>
+              ) : null}
+            </>
+          ) : null
+        }
+        canSubmitWithoutPrompt={Boolean(
+          selectedTemplate?.hasSeedScreens ||
+          selectedTemplate?.type === "template",
+        )}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
@@ -766,6 +1136,20 @@ export default function Index() {
           FULL_APP_BUILDING_ENABLED ? setNewDesignMode : undefined
         }
       />
+
+      {shareTemplate ? (
+        <ShareButton
+          key={shareTemplate.id}
+          resourceType="design"
+          resourceId={shareTemplate.id}
+          resourceTitle={shareTemplate.title}
+          defaultOpen
+          triggerClassName="hidden"
+          onOpenChange={(open) => {
+            if (!open) setShareTemplate(null);
+          }}
+        />
+      ) : null}
 
       {/* Delete Confirmation */}
       <AlertDialog
@@ -856,73 +1240,6 @@ export default function Index() {
   );
 }
 
-/**
- * Render the design's index.html as a non-interactive thumbnail. The iframe
- * renders at a fixed natural size (so designs that assume a desktop viewport
- * still look right) and is then scaled to fill the card via a transform.
- *
- * The size is recomputed via ResizeObserver so the same component works in
- * 1, 2, 3 and 4-column grid layouts. We use a sandboxed iframe with only
- * allow-scripts (no allow-same-origin) so Tailwind/Alpine CDN render without
- * granting arbitrary design HTML access to the host origin.
- */
-function DesignThumbnail({ html }: { html: string | null }) {
-  const t = useT();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.25);
-
-  // Designs are generated for a desktop-ish viewport. Render at 1280×720 then
-  // shrink — close enough to 16:10 for the aspect-video card without leaving
-  // a sliver of letterbox at the bottom.
-  const NATURAL_WIDTH = 1280;
-  const NATURAL_HEIGHT = 720;
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => {
-      const w = el.clientWidth;
-      if (w > 0) setScale(w / NATURAL_WIDTH);
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  if (!html) {
-    return (
-      <div className="aspect-video bg-muted/50 flex items-center justify-center">
-        <IconCode className="w-8 h-8 text-muted-foreground/40" />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="aspect-video relative overflow-hidden bg-white"
-    >
-      <iframe
-        srcDoc={html}
-        sandbox="allow-scripts"
-        loading="lazy"
-        tabIndex={-1}
-        aria-hidden
-        title={t("home.designPreview")}
-        style={{
-          width: `${NATURAL_WIDTH}px`,
-          height: `${NATURAL_HEIGHT}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-          border: 0,
-          pointerEvents: "none",
-        }}
-      />
-    </div>
-  );
-}
-
 function NewDesignHandoffOverlay() {
   const t = useT();
   return (
@@ -960,40 +1277,153 @@ function LoadingSkeleton() {
   );
 }
 
-// Starter prompt chips shown on the empty home state. Each one is a fully
-// formed prompt that the user can run with one click instead of staring at
-// an empty composer. Keep these distinct enough that the four results would
-// all look meaningfully different — same approach as Phase 2 variant
-// generation in the design agent.
-const STARTER_PROMPTS: { labelKey: string; prompt: string }[] = [
-  {
-    labelKey: "home.starterSaas",
-    prompt:
-      "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
-  },
-  {
-    labelKey: "home.starterDashboard",
-    prompt:
-      "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
-  },
-  {
-    labelKey: "home.starterMobile",
-    prompt:
-      "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
-  },
-  {
-    labelKey: "home.starterPricing",
-    prompt:
-      "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
-  },
-];
+function TemplatesGrid({
+  templates,
+  onUse,
+  onEdit,
+  onRename,
+  onShare,
+  onRemove,
+  onDelete,
+  formatDate,
+}: {
+  templates: TemplateDesign[];
+  onUse: (
+    event: React.MouseEvent<HTMLElement>,
+    template: TemplateDesign,
+  ) => void;
+  onEdit: (template: TemplateDesign) => void;
+  onRename: (template: TemplateDesign) => void;
+  onShare: (template: TemplateDesign) => void;
+  onRemove: (template: TemplateDesign) => void;
+  onDelete: (template: TemplateDesign) => void;
+  formatDate: (date?: string) => string;
+}) {
+  const t = useT();
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {templates.map((template) => (
+        <div
+          key={template.id}
+          className="group relative overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/15"
+        >
+          {template.isBuiltIn ? (
+            <Badge
+              variant="secondary"
+              className="pointer-events-none absolute end-2 top-2 z-10 h-5 px-1.5 text-[10px] font-medium shadow-sm"
+            >
+              {t("promptDialog.builtIn")}
+            </Badge>
+          ) : null}
+          <button
+            type="button"
+            onClick={(event) => onUse(event, template)}
+            className="block w-full text-start"
+          >
+            <DesignThumbnail html={template.previewHtml ?? null} />
+            <div className="p-4">
+              <h3 className="mb-1 truncate text-sm font-medium text-foreground/90">
+                {template.title}
+              </h3>
+              <div className="text-xs text-muted-foreground/70">
+                {template.isBuiltIn
+                  ? t("promptDialog.builtIn")
+                  : t("home.templateCardMeta", {
+                      count: template.screenCount ?? 0,
+                      date: formatDate(
+                        template.updatedAt || template.createdAt,
+                      ),
+                    })}
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={(event) => onUse(event, template)}
+            className="absolute bottom-2 end-2 inline-flex h-7 items-center rounded-full bg-primary px-2.5 text-xs font-medium text-primary-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            {t("home.useTemplate")}
+          </button>
+          {!template.isBuiltIn ? (
+            <div
+              className="absolute end-2 top-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("home.actionsForDesign", {
+                      title: template.title,
+                    })}
+                    className="h-7 w-7 cursor-pointer bg-black/60 hover:bg-black/80"
+                  >
+                    <IconDots className="h-3.5 w-3.5 text-foreground/70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={(event) => onUse(event, template)}
+                    className="cursor-pointer"
+                  >
+                    <IconTemplate className="me-2 h-3.5 w-3.5" />
+                    {t("home.useTemplate")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onEdit(template)}
+                    className="cursor-pointer"
+                  >
+                    <IconPencil className="me-2 h-3.5 w-3.5" />
+                    {t("home.editTemplate")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onRename(template)}
+                    className="cursor-pointer"
+                  >
+                    <IconPencil className="me-2 h-3.5 w-3.5" />
+                    {t("home.rename")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onShare(template)}
+                    className="cursor-pointer"
+                  >
+                    <IconCopy className="me-2 h-3.5 w-3.5" />
+                    {t("home.share")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onRemove(template)}
+                    className="cursor-pointer"
+                  >
+                    <IconX className="me-2 h-3.5 w-3.5" />
+                    {t("home.removeFromTemplates")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onDelete(template)}
+                    className="cursor-pointer text-red-400 focus:text-red-400"
+                  >
+                    <IconTrash className="me-2 h-3.5 w-3.5" />
+                    {t("home.delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function EmptyState({
   onCreateDesign,
-  onStarterPrompt,
+  onUseStarter,
 }: {
   onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
-  onStarterPrompt: (prompt: string) => void;
+  onUseStarter: (
+    e: React.MouseEvent<HTMLElement>,
+    starterId: StarterTemplate["id"],
+  ) => void;
 }) {
   const t = useT();
   return (
@@ -1005,14 +1435,14 @@ function EmptyState({
         {t("home.pickStartingPoint")}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
-        {STARTER_PROMPTS.map((s) => (
+        {STARTER_TEMPLATES.map((starter) => (
           <button
-            key={s.labelKey}
+            key={starter.id}
             type="button"
-            onClick={() => onStarterPrompt(s.prompt)}
+            onClick={(event) => onUseStarter(event, starter.id)}
             className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
           >
-            {t(s.labelKey)}
+            {t(starter.titleKey)}
           </button>
         ))}
       </div>

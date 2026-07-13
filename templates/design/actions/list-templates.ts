@@ -1,46 +1,43 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-
-// Truncate preview HTML so the listing payload stays reasonable. The home
-// screen only needs enough HTML to render a recognizable thumbnail; full
-// content loads on demand when the user opens an editor.
-export const PREVIEW_MAX_BYTES = 50_000;
+import { STARTER_TEMPLATES } from "../shared/starter-templates.js";
+import { PREVIEW_MAX_BYTES } from "./list-designs.js";
 
 export default defineAction({
   description:
-    "List all design projects accessible to the current user. " +
-    "Returns title, id, project type, and timestamps.",
+    "List reusable design templates accessible to the current user, plus the " +
+    "built-in template definitions. Use before creating a design when " +
+    "the user references a saved template or past work.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' for compact output (id, title, projectType only)",
+        "Set to 'true' for compact output (id, title, designSystemId, screenCount only)",
       ),
     includePreview: z
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' to include a truncated `previewHtml` field per design (the index.html content). Used by the homepage to render thumbnails.",
-      ),
-    includeTemplates: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' to include rows saved as templates. Defaults to false so templates do not pollute the Designs grid.",
+        "Set to 'true' to include a truncated `previewHtml` field per template.",
       ),
   }),
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    // Project only the columns the list path uses. The `data` TEXT column holds
-    // the full design JSON (tweaks, selections, etc.) which can be large and is
-    // never read on the listing — detail/editor views load it via get-design.
+    const builtInTemplates = STARTER_TEMPLATES.map(
+      ({ seedScreens, previewHtml: _previewHtml, ...starter }) => ({
+        ...starter,
+        hasSeedScreens: Boolean(seedScreens?.length),
+        screenCount: seedScreens?.length ?? 0,
+      }),
+    );
+
     const rows = await db
       .select({
         id: schema.designs.id,
@@ -49,31 +46,43 @@ export default defineAction({
         projectType: schema.designs.projectType,
         designSystemId: schema.designs.designSystemId,
         visibility: schema.designs.visibility,
+        templateMeta: schema.designs.templateMeta,
         createdAt: schema.designs.createdAt,
         updatedAt: schema.designs.updatedAt,
       })
       .from(schema.designs)
       .where(
-        args.includeTemplates === "true"
-          ? accessFilter(schema.designs, schema.designShares)
-          : and(
-              accessFilter(schema.designs, schema.designShares),
-              eq(schema.designs.isTemplate, false),
-            ),
+        and(
+          accessFilter(schema.designs, schema.designShares),
+          eq(schema.designs.isTemplate, true),
+        ),
       )
       .orderBy(desc(schema.designs.updatedAt));
 
     if (rows.length === 0) {
-      return { count: 0, designs: [] };
+      return { builtInTemplates, count: 0, templates: [] };
     }
 
-    // Look up one preview per design when requested. We pick the shortest
-    // HTML file so the response stays small and the chosen file is more
-    // likely to be the entry point (`index.html`) rather than a heavy
-    // multi-page sub-screen. Falls back to the first HTML file we find.
+    const ids = rows.map((row) => row.id);
+    const screenRows = await db
+      .select({
+        designId: schema.designFiles.designId,
+        value: count(),
+      })
+      .from(schema.designFiles)
+      .where(
+        and(
+          inArray(schema.designFiles.designId, ids),
+          eq(schema.designFiles.fileType, "html"),
+        ),
+      )
+      .groupBy(schema.designFiles.designId);
+    const screenCounts = new Map(
+      screenRows.map((row) => [row.designId, row.value]),
+    );
+
     const previews = new Map<string, string>();
     if (args.includePreview === "true" && args.compact !== "true") {
-      const ids = rows.map((r) => r.id);
       const fileRows = await db
         .select({
           designId: schema.designFiles.designId,
@@ -85,31 +94,34 @@ export default defineAction({
         .where(inArray(schema.designFiles.designId, ids));
 
       const byDesign = new Map<string, typeof fileRows>();
-      for (const f of fileRows) {
-        if (f.fileType !== "html") continue;
-        const list = byDesign.get(f.designId);
-        if (list) list.push(f);
-        else byDesign.set(f.designId, [f]);
+      for (const file of fileRows) {
+        if (file.fileType !== "html") continue;
+        const list = byDesign.get(file.designId);
+        if (list) list.push(file);
+        else byDesign.set(file.designId, [file]);
       }
 
       for (const [designId, files] of byDesign) {
         const indexFile =
-          files.find((f) => f.filename === "index.html") ?? files[0];
+          files.find((file) => file.filename === "index.html") ?? files[0];
         if (!indexFile?.content) continue;
-        const trimmed =
+        previews.set(
+          designId,
           indexFile.content.length > PREVIEW_MAX_BYTES
             ? indexFile.content.slice(0, PREVIEW_MAX_BYTES)
-            : indexFile.content;
-        previews.set(designId, trimmed);
+            : indexFile.content,
+        );
       }
     }
 
-    const items = rows.map((row) => {
+    const templates = rows.map((row) => {
+      const screenCount = screenCounts.get(row.id) ?? 0;
       if (args.compact === "true") {
         return {
           id: row.id,
           title: row.title,
-          projectType: row.projectType,
+          designSystemId: row.designSystemId,
+          screenCount,
         };
       }
       const base = {
@@ -119,6 +131,8 @@ export default defineAction({
         projectType: row.projectType,
         designSystemId: row.designSystemId,
         visibility: row.visibility,
+        templateMeta: row.templateMeta,
+        screenCount,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
@@ -128,6 +142,6 @@ export default defineAction({
       return base;
     });
 
-    return { count: items.length, designs: items };
+    return { builtInTemplates, count: templates.length, templates };
   },
 });

@@ -243,6 +243,18 @@ export default defineAction({
         .nullable()
         .optional()
         .describe("Design system ID to link, or null to unlink"),
+      isTemplate: z
+        .boolean()
+        .optional()
+        .describe("Whether this design should appear in the Templates tab"),
+      templateMeta: z
+        .object({
+          sourceDesignId: z.string().optional(),
+          placeholderPrompt: z.string().optional(),
+        })
+        .nullable()
+        .optional()
+        .describe("Template metadata JSON patch, or null to clear it"),
     })
     .refine(
       ({ data, dataOperations }) =>
@@ -282,6 +294,8 @@ export default defineAction({
     operationRevision,
     projectType,
     designSystemId,
+    isTemplate,
+    templateMeta,
   }) => {
     if (data !== undefined) {
       try {
@@ -306,6 +320,11 @@ export default defineAction({
       if (description !== undefined) updates.description = description;
       if (projectType !== undefined) updates.projectType = projectType;
       if (designSystemId !== undefined) updates.designSystemId = designSystemId;
+      if (isTemplate !== undefined) updates.isTemplate = isTemplate;
+      if (templateMeta !== undefined) {
+        updates.templateMeta =
+          templateMeta === null ? null : JSON.stringify(templateMeta);
+      }
       return updates;
     };
 

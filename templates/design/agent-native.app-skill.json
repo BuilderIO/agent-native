@@ -46,6 +46,11 @@
       "path": ".agents/skills/visual-edit",
       "visibility": "both",
       "exportAs": "visual-edit"
+    },
+    {
+      "path": ".agents/skills/design-templates",
+      "visibility": "both",
+      "exportAs": "design-templates"
     }
   ],
   "hostAdapters": [

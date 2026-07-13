@@ -8,13 +8,14 @@
  *   pnpm action navigate --view=editor --designId=abc123
  *   pnpm action navigate --view=editor --designId=abc123 --editorView=overview
  *   pnpm action navigate --view=editor --designId=abc123 --filename=checkout.html
+ *   pnpm action navigate --view=templates
  *   pnpm action navigate --view=design-systems
  *   pnpm action navigate --view=design-systems --designSystemId=abc123
  *   pnpm action navigate --view=settings
  *   pnpm action navigate --path=/some/route
  *
  * Options:
- *   --view       View name (list, editor, design-systems, present, settings)
+ *   --view       View name (list, templates, editor, design-systems, present, settings)
  *   --designId   Design ID (for editor/present views)
  *   --editorView Editor mode for designs: single or overview
  *   --inspectorTab Inspector tab for designs: design or tweaks (extensions opens Tools for compatibility)
@@ -59,11 +60,18 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|import|tools|tokens|code to focus the left rail, including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|import|tools|tokens|code to focus the left rail, including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
   schema: z
     .object({
       view: z
-        .enum(["list", "editor", "design-systems", "present", "settings"])
+        .enum([
+          "list",
+          "templates",
+          "editor",
+          "design-systems",
+          "present",
+          "settings",
+        ])
         .optional()
         .describe("View name to navigate to"),
       designId: z.string().optional().describe("Design ID for editor/present"),

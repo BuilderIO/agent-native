@@ -20,6 +20,11 @@ export const designs = table("designs", {
     .default("{}"),
   projectType: text("project_type").notNull().default("prototype"),
   designSystemId: text("design_system_id"),
+  isTemplate: integer("is_template", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  /** JSON: { sourceDesignId?: string; placeholderPrompt?: string } */
+  templateMeta: text("template_meta"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),

@@ -40,6 +40,8 @@ export default defineAction({
       designSystemId: row.designSystemId,
       data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
+      isTemplate: row.isTemplate,
+      templateMeta: row.templateMeta,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       accessRole: access.role,

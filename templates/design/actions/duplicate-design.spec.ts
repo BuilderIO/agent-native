@@ -25,12 +25,24 @@ const mocks = vi.hoisted(() => {
   fileSelectChain.from.mockReturnValue(fileSelectChain);
   fileSelectChain.where.mockImplementation(() => Promise.resolve(sourceFiles));
 
-  const db = { select: vi.fn(() => fileSelectChain), insert };
+  const db: {
+    select: ReturnType<typeof vi.fn>;
+    insert: typeof insert;
+    transaction: ReturnType<typeof vi.fn>;
+  } = {
+    select: vi.fn(() => fileSelectChain),
+    insert,
+    transaction: vi.fn(),
+  };
+  db.transaction.mockImplementation(
+    async (run: (tx: typeof db) => Promise<unknown>) => run(db),
+  );
 
   return {
     db,
     insert,
     insertValues,
+    transaction: db.transaction,
     setSourceDesign: (design: Record<string, unknown> | null) => {
       sourceDesign = design;
     },
@@ -125,14 +137,17 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const designInsert = mocks.insertValues.mock.calls[0]![0] as {
       id: string;
     };
-    const fileInsert = mocks.insertValues.mock.calls[1]![0] as {
-      id: string;
-      designId: string;
-    };
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{
+        id: string;
+        designId: string;
+      }>
+    )[0]!;
     expect(designInsert.id).toBe(result.id);
     expect(designInsert.id).not.toBe("design-src");
     expect(fileInsert.id).not.toBe("file-src-1");
     expect(fileInsert.designId).toBe(result.id);
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
   });
 
   it("fills in missing node ids on the duplicated copy without disturbing existing ones", async () => {
@@ -148,9 +163,11 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
 
     await action.run({ id: "design-src" });
 
-    const fileInsert = mocks.insertValues.mock.calls[1]![0] as {
-      content: string;
-    };
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{
+        content: string;
+      }>
+    )[0]!;
     // Existing id on <main> is preserved verbatim (not regenerated).
     expect(fileInsert.content).toContain('data-agent-native-node-id="an-kept"');
     // The <button>, which had no id in the source, gets one filled in on the
@@ -158,6 +175,47 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     expect(fileInsert.content).toMatch(
       /<button data-agent-native-node-id="[^"]+">Buy<\/button>/,
     );
+  });
+
+  it("remaps canvas frame keys to the duplicated file ids", async () => {
+    setSource(
+      {
+        id: "design-src",
+        title: "Original",
+        data: JSON.stringify({
+          canvasFrames: {
+            "file-src-1": { x: 10, y: 20, width: 1280, height: 720 },
+          },
+        }),
+      },
+      [
+        {
+          id: "file-src-1",
+          filename: "index.html",
+          fileType: "html",
+          content: "<main>Hi</main>",
+        },
+      ],
+    );
+
+    await action.run({ id: "design-src" });
+
+    const designInsert = mocks.insertValues.mock.calls[0]![0] as {
+      data: string;
+    };
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ id: string }>
+    )[0]!;
+    const data = JSON.parse(designInsert.data) as {
+      canvasFrames: Record<string, unknown>;
+    };
+    expect(Object.keys(data.canvasFrames)).toEqual([fileInsert.id]);
+    expect(data.canvasFrames[fileInsert.id]).toEqual({
+      x: 10,
+      y: 20,
+      width: 1280,
+      height: 720,
+    });
   });
 
   it("copying two designs from the same source never collides on designFiles.id", async () => {
@@ -175,13 +233,14 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     const second = await action.run({ id: "design-src" });
 
     expect(first.id).not.toBe(second.id);
-    const firstFileId = (mocks.insertValues.mock.calls[1]![0] as { id: string })
-      .id;
+    const firstFileId = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ id: string }>
+    )[0]!.id;
     const secondFileId = (
-      mocks.insertValues.mock.calls[secondInsertCallsBefore + 1]![0] as {
+      mocks.insertValues.mock.calls[secondInsertCallsBefore + 1]![0] as Array<{
         id: string;
-      }
-    ).id;
+      }>
+    )[0]!.id;
     expect(firstFileId).not.toBe(secondFileId);
   });
 });

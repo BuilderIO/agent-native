@@ -914,7 +914,7 @@ function proxyHeaders(
 function appDatabaseEnv(app: TemplateApp): NodeJS.ProcessEnv {
   const appEnvName = app.id.toUpperCase().replace(/-/g, "_");
   const databaseUrlKey = `${appEnvName}_DATABASE_URL`;
-  if (process.env[databaseUrlKey]) return {};
+  if (process.env[databaseUrlKey] || process.env.DATABASE_URL) return {};
 
   return {
     [databaseUrlKey]: `file:${path.join(app.dir, "data", "app.db")}`,

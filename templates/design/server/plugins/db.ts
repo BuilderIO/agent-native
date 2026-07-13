@@ -342,6 +342,13 @@ ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash 
       name: "design-localhost-preview-token",
       sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
     },
+    {
+      version: 23,
+      name: "design-templates-columns",
+      sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS is_template INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE designs ADD COLUMN IF NOT EXISTS template_meta TEXT;
+CREATE INDEX IF NOT EXISTS designs_template_owner_org_updated_idx ON designs (is_template, owner_email, org_id, updated_at)`,
+    },
   ],
   { table: "design_migrations" },
 );

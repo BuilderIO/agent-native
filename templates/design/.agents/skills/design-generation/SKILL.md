@@ -10,6 +10,12 @@ description: >-
 
 How to generate complete, interactive HTML prototypes using Alpine.js + Tailwind CSS (via CDN). This is the core skill for the design agent.
 
+## Pre-flight
+
+- If the prompt references a template, prior design, "like our X", "from the X
+  flow", or any reusable/past work, call `list-templates` first and prefer
+  `create-design --templateId` over generating from scratch.
+
 ## Technology Stack
 
 Every generated design uses:

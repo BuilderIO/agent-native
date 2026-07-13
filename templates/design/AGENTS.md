@@ -16,6 +16,24 @@ patterns live in `.agents/skills/`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
+- Templates are frozen design snapshots: `save-as-template` deep-copies a
+  design into a `designs` row with `isTemplate: true`; later edits to the
+  source do not affect the template, and editing the template affects future
+  instantiations only.
+- Use `list-templates` before generating from scratch when the user says
+  "template", "like our X", "from the X design", references past work, or asks
+  to reuse an existing structure. Built-in template ids are
+  `starter:landing`, `starter:dashboard`, `starter:mobile-app`,
+  `starter:pricing`, and `starter:wireframe-kit`.
+- Create new designs from templates with `create-design --templateId <id>`.
+  User templates are copied server-side in the same action call. If the prompt
+  is empty and the template has screens, do not run generation; open the copied
+  design in overview. If a prompt is present, adapt the copied screens instead
+  of regenerating from scratch or adding duplicate screens.
+- Template-linked design systems are preselected unless the user explicitly
+  supplies another `designSystemId`. When `templateApplied.designSystemMismatch`
+  is true, re-skin the copied screens to the selected design system tokens
+  before making request-specific edits.
 - Treat repository import actions as shortcuts, not capability limits. When the
   exact GitHub endpoint, search query, request body, pagination mode, metadata
   field, or API version matters, use `provider-api-catalog`,

@@ -12,6 +12,10 @@ export interface PendingGeneration {
   title?: string;
   source?: string;
   designSystemId?: string | null;
+  templateId?: string;
+  templateTitle?: string;
+  designSystemMismatch?: boolean;
+  starterBrief?: string;
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];

@@ -1,9 +1,5 @@
-import { redirect } from "react-router";
+import Index from "../pages/Index";
 
-export function loader() {
-  return redirect("/", 302);
-}
-
-export default function TemplatesRedirect() {
-  return null;
+export default function TemplatesRoute() {
+  return <Index activeTab="templates" />;
 }

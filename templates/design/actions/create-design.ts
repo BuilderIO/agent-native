@@ -4,11 +4,19 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+} from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { duplicateDesignRecord } from "../server/lib/duplicate-design-record.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { getStarterTemplate } from "../shared/starter-templates.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -45,8 +53,16 @@ export default defineAction({
       .describe("Type of design project"),
     designSystemId: z
       .string()
+      .min(1)
+      .nullable()
       .optional()
-      .describe("Design system ID to link to this design"),
+      .describe("Design system ID to link, or null for no design system"),
+    templateId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional starter:* id or saved template design id to instantiate from.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -64,6 +80,7 @@ export default defineAction({
     description,
     projectType,
     designSystemId,
+    templateId,
   }) => {
     const db = getDb();
     const id = providedId ?? nanoid();
@@ -71,32 +88,159 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
+    const starter = getStarterTemplate(templateId);
+    const templateAccess =
+      templateId && !starter
+        ? await assertAccess("design", templateId, "viewer")
+        : null;
+    const templateSource = templateAccess?.resource ?? null;
 
-    if (designSystemId) {
-      await assertAccess("design-system", designSystemId, "viewer");
+    const defaultDesignSystemId = async () => {
+      const [row] = await db
+        .select({ id: schema.designSystems.id })
+        .from(schema.designSystems)
+        .where(
+          and(
+            accessFilter(schema.designSystems, schema.designSystemShares),
+            eq(schema.designSystems.isDefault, true),
+          ),
+        )
+        .orderBy(desc(schema.designSystems.updatedAt));
+      return row?.id ?? null;
+    };
+
+    const templateDesignSystemId = templateSource?.designSystemId
+      ? (await resolveAccess("design-system", templateSource.designSystemId))
+        ? templateSource.designSystemId
+        : null
+      : null;
+    const resolvedDesignSystemId =
+      designSystemId !== undefined
+        ? designSystemId || null
+        : (templateDesignSystemId ?? (await defaultDesignSystemId()));
+    const designSystemMismatch = Boolean(
+      templateSource?.designSystemId &&
+      resolvedDesignSystemId &&
+      resolvedDesignSystemId !== templateSource.designSystemId,
+    );
+    const templateTitle = starter
+      ? starter.titleKey
+      : templateSource
+        ? templateSource.title
+        : null;
+
+    if (resolvedDesignSystemId) {
+      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
     }
 
-    await db.insert(schema.designs).values({
+    const templateProvenance =
+      templateId && templateTitle
+        ? { templateId, templateTitle, appliedAt: now }
+        : undefined;
+
+    if (templateSource) {
+      const result = await duplicateDesignRecord({
+        db,
+        source: templateSource,
+        newId: id,
+        title,
+        description: description ?? null,
+        projectType: projectType ?? "prototype",
+        designSystemId: resolvedDesignSystemId,
+        ownerEmail,
+        orgId,
+        visibility: orgId ? "org" : "private",
+        isTemplate: false,
+        templateMeta: null,
+        dataPatch: templateProvenance ? { templateProvenance } : undefined,
+        now,
+      });
+
+      return {
+        id,
+        title: result.title,
+        projectType,
+        renderable: result.fileCount > 0,
+        templateApplied: {
+          fileCount: result.fileCount,
+          designSystemMismatch,
+        },
+      };
+    }
+
+    const seedScreens = starter?.seedScreens ?? [];
+    const seedScreenRecords = seedScreens.map((screen) => ({
+      id: nanoid(),
+      screen,
+    }));
+    const data =
+      seedScreens.length > 0 || templateProvenance
+        ? JSON.stringify({
+            ...(templateProvenance ? { templateProvenance } : {}),
+            ...(seedScreens.length > 0
+              ? {
+                  canvasFrames: Object.fromEntries(
+                    seedScreenRecords.map(({ id: fileId, screen }) => [
+                      fileId,
+                      screen.canvasFrame,
+                    ]),
+                  ),
+                }
+              : {}),
+          })
+        : "{}";
+
+    const designValues: typeof schema.designs.$inferInsert = {
       id,
       title,
       description: description ?? null,
       projectType: projectType ?? "prototype",
-      designSystemId: designSystemId ?? null,
-      data: "{}",
+      designSystemId: resolvedDesignSystemId,
+      data,
       ownerEmail,
       orgId,
       visibility: orgId ? "org" : "private",
+      isTemplate: false,
+      templateMeta: null,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    const fileValues = seedScreenRecords.map(({ id: fileId, screen }) => ({
+      id: fileId,
+      designId: id,
+      filename: screen.filename,
+      content: annotateScreenHtmlForPersist(screen.html, "html"),
+      fileType: "html",
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    if (fileValues.length > 0) {
+      await db.transaction(async (tx) => {
+        await tx.insert(schema.designs).values(designValues);
+        await tx.insert(schema.designFiles).values(fileValues);
+      });
+    } else {
+      await db.insert(schema.designs).values(designValues);
+    }
 
     return {
       id,
       title,
       projectType,
-      renderable: false,
+      renderable: seedScreens.length > 0,
+      ...(templateId
+        ? {
+            templateApplied: {
+              fileCount: seedScreens.length,
+              designSystemMismatch: false,
+            },
+          }
+        : {}),
       nextRequiredAction:
-        "show-design-questions for non-trivial new prompts, then generate-design or present-design-variants after the user answers",
+        seedScreens.length > 0
+          ? undefined
+          : "show-design-questions for non-trivial new prompts, then generate-design or present-design-variants after the user answers",
     };
   },
   link: ({ result }) => {

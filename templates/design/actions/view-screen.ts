@@ -12,8 +12,8 @@ import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -136,7 +136,7 @@ function resolveActiveCodeFile(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -161,6 +161,33 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (designSelection) screen.designSelection = designSelection;
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      (navigation as { view?: unknown }).view === "templates"
+    ) {
+      const db = getDb();
+      const rows = await db
+        .select({
+          id: schema.designs.id,
+          title: schema.designs.title,
+          designSystemId: schema.designs.designSystemId,
+          updatedAt: schema.designs.updatedAt,
+        })
+        .from(schema.designs)
+        .where(
+          and(
+            accessFilter(schema.designs, schema.designShares),
+            eq(schema.designs.isTemplate, true),
+          ),
+        )
+        .orderBy(desc(schema.designs.updatedAt));
+      screen.templates = {
+        count: rows.length,
+        visibleTemplates: rows.slice(0, 12),
+      };
+    }
+
     if (designId) {
       const access = await resolveAccess("design", designId).catch(() => null);
       if (access) {
@@ -193,6 +220,9 @@ export default defineAction({
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
+          isTemplate:
+            (access.resource as { isTemplate?: unknown }).isTemplate === true,
+          templateProvenance: objectProp(data, "templateProvenance"),
           screens: files,
           activeScreen: resolveActiveScreen(files, navigation, designSelection),
           activeCodeFile: resolveActiveCodeFile(files, designSelection),

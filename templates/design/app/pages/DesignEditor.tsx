@@ -152,6 +152,7 @@ import {
   IconLink,
   IconLock,
   IconPuzzle,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -280,6 +281,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -981,6 +983,8 @@ interface DesignData {
   projectType: string;
   designSystemId?: string | null;
   data?: string | null;
+  isTemplate?: boolean;
+  templateMeta?: string | null;
   accessRole?: DesignAccessRole;
   files: DesignFile[];
 }
@@ -6882,6 +6886,20 @@ function DesignEditor() {
     const sourceContext = pending.source
       ? `The user picked the "${pending.source}" template.`
       : "The user just created a new empty design.";
+    const templateContext =
+      pending.templateId && pending.templateTitle
+        ? [
+            `This design was instantiated from template "${pending.templateTitle}" — its screens are already copied in. Adapt the existing screens to the request with edit-design / apply-visual-edit; do not regenerate from scratch or add duplicate screens.`,
+            pending.designSystemMismatch
+              ? "Re-skin the copied screens to the linked design system's tokens first."
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : "";
+    const starterContext = pending.starterBrief
+      ? `Starter brief: ${pending.starterBrief}`
+      : "";
     const pendingDesignSystemId =
       pending.designSystemId === undefined
         ? design.designSystemId
@@ -6910,6 +6928,8 @@ function DesignEditor() {
         pendingDesignSystemId
           ? `Design system id: "${pendingDesignSystemId}"`
           : "",
+        templateContext,
+        starterContext,
         designSystemContext,
         fileContext,
         "",
@@ -24881,6 +24901,20 @@ ${serializedHtml}
         {design.title}
       </span>
     );
+  const templateBadge = design.isTemplate ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className="h-5 shrink-0 gap-1 px-1.5 text-[10px] font-medium text-muted-foreground"
+        >
+          <IconTemplate className="size-3" />
+          {t("editor.templateBadge")}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>{t("editor.templateBadgeTooltip")}</TooltipContent>
+    </Tooltip>
+  ) : null;
 
   const renderZoomControl = (controlId: "toolbar" | "inspector") => (
     <DropdownMenu
@@ -25267,6 +25301,7 @@ ${serializedHtml}
               >
                 <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                   {projectTitleControl}
+                  {templateBadge}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel

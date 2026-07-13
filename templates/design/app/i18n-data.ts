@@ -809,12 +809,29 @@ const enUS = {
     designSystem: "Design system",
     noDesignSystem: "No design system",
     newDesignSystem: "New",
+    createDesignSystem: "Create design system",
     addAttachment: "Add",
     removeAttachment: "Remove {{name}}",
     uploadFile: "Upload file",
     uploadFileDescription: "Images, PDFs, text/code",
     pickAsset: "Pick asset",
     pickAssetDescription: "Browse or generate images",
+    template: "Template",
+    starter: "Starter",
+    templates: "Templates",
+    builtIn: "Built-in",
+    templateBlank: "Blank",
+    chooseTemplate: "Choose a template",
+    searchTemplates: "Search templates...",
+    noTemplatesFound: "No templates found.",
+    starters: "Starters",
+    yourTemplates: "Your templates",
+    templateCopyHint: '{{count}} screens will be copied from "{{title}}"',
+    templateReskinHint: "and adapted to {{system}} tokens",
+  },
+  editor: {
+    templateBadge: "Template",
+    templateBadgeTooltip: "Edits apply to future uses of this template.",
   },
   visualEditor: {
     typeAnnotation: "Type annotation...",
@@ -881,8 +898,12 @@ const enUS = {
   },
   home: {
     pageTitle: "Designs",
+    tabDesigns: "Designs",
+    tabTemplates: "Templates",
     searchPlaceholder: "Search designs...",
+    searchTemplatesPlaceholder: "Search templates",
     newDesign: "New Design",
+    newFromTemplate: "New from template",
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
     openingDesign: "Opening design...",
@@ -895,7 +916,20 @@ const enUS = {
     selectDesign: "Select {{title}}",
     actionsForDesign: "Actions for {{title}}",
     rename: "Rename",
+    share: "Share",
     duplicate: "Duplicate",
+    saveAsTemplate: "Save as template",
+    savedAsTemplate: "Saved as template",
+    saveAsTemplateFailed: "Could not save as template",
+    viewTemplates: "View templates",
+    useTemplate: "Use template",
+    editTemplate: "Edit template",
+    removeFromTemplates: "Remove from templates",
+    templatesEmptyTitle: "No saved templates yet",
+    templatesEmptyBody:
+      "Save any design as a template from its menu, or use a built-in template:",
+    templateScreens: "{{count}} screens",
+    templateCardMeta: "{{count}} screens · {{date}}",
     renameDesign: "Rename design",
     designName: "Design name",
     cancel: "Cancel",
@@ -917,6 +951,30 @@ const enUS = {
     prototype: "Prototype",
     other: "Other",
     designPreview: "Design preview",
+  },
+  starter: {
+    landing: {
+      title: "Landing page",
+      placeholderPrompt:
+        "Describe the landing page audience, offer, and tone...",
+    },
+    dashboard: {
+      title: "Dashboard",
+      placeholderPrompt:
+        "Describe the dashboard users, metrics, and workflow...",
+    },
+    mobileApp: {
+      title: "Mobile app",
+      placeholderPrompt: "Describe the mobile app workflow and primary user...",
+    },
+    pricing: {
+      title: "Pricing page",
+      placeholderPrompt: "Describe the product, pricing tiers, and buyer...",
+    },
+    wireframeKit: {
+      title: "Wireframe kit",
+      placeholderPrompt: "Describe how to adapt this wireframe structure...",
+    },
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -4596,6 +4654,656 @@ const designLocaleOverrides = {
         title: "إنشاء نظام التصميم الأول الخاص بك",
         description:
           "حافظ على اتساق العلامة التجارية عبر جميع تصميماتك باستخدام الألوان والطباعة والأصول المشتركة.",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designTemplateFeatureOverrides = {
+  "zh-TW": {
+    promptDialog: {
+      createDesignSystem: "建立設計系統",
+      template: "範本",
+      starter: "入門範本",
+      templates: "範本",
+      builtIn: "內建",
+      templateBlank: "空白",
+      chooseTemplate: "選擇範本",
+      searchTemplates: "搜尋範本...",
+      noTemplatesFound: "找不到範本。",
+      starters: "入門範本",
+      yourTemplates: "你的範本",
+      templateCopyHint: "{{count}} 個畫面將從「{{title}}」複製",
+      templateReskinHint: "並調整為 {{system}} 設計標記",
+    },
+    editor: {
+      templateBadge: "範本",
+      templateBadgeTooltip: "編輯內容會套用到這個範本的未來使用。",
+    },
+    home: {
+      tabDesigns: "設計",
+      tabTemplates: "範本",
+      searchTemplatesPlaceholder: "搜尋範本",
+      newFromTemplate: "使用範本建立",
+      share: "分享",
+      saveAsTemplate: "儲存為範本",
+      savedAsTemplate: "已儲存為範本",
+      saveAsTemplateFailed: "無法儲存為範本",
+      viewTemplates: "查看範本",
+      useTemplate: "使用範本",
+      editTemplate: "編輯範本",
+      removeFromTemplates: "從範本中移除",
+      templatesEmptyTitle: "尚未儲存範本",
+      templatesEmptyBody: "從設計選單將任何設計儲存為範本，或使用內建範本：",
+      templateScreens: "{{count}} 個畫面",
+      templateCardMeta: "{{count}} 個畫面 · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "登陸頁面",
+        placeholderPrompt: "描述登陸頁面的受眾、方案與語氣...",
+      },
+      dashboard: {
+        title: "儀表板",
+        placeholderPrompt: "描述儀表板的使用者、指標與工作流程...",
+      },
+      mobileApp: {
+        title: "行動應用程式",
+        placeholderPrompt: "描述行動應用程式的流程與主要使用者...",
+      },
+      pricing: {
+        title: "定價頁面",
+        placeholderPrompt: "描述產品、定價方案與買家...",
+      },
+      wireframeKit: {
+        title: "線框工具組",
+        placeholderPrompt: "描述如何調整這個線框結構...",
+      },
+    },
+  },
+  "zh-CN": {
+    promptDialog: {
+      createDesignSystem: "创建设计系统",
+      template: "模板",
+      starter: "入门模板",
+      templates: "模板",
+      builtIn: "内置",
+      templateBlank: "空白",
+      chooseTemplate: "选择模板",
+      searchTemplates: "搜索模板...",
+      noTemplatesFound: "未找到模板。",
+      starters: "入门模板",
+      yourTemplates: "你的模板",
+      templateCopyHint: "将从“{{title}}”复制 {{count}} 个屏幕",
+      templateReskinHint: "并适配 {{system}} 标记",
+    },
+    editor: {
+      templateBadge: "模板",
+      templateBadgeTooltip: "编辑内容会应用到此模板的后续使用中。",
+    },
+    home: {
+      tabDesigns: "设计",
+      tabTemplates: "模板",
+      searchTemplatesPlaceholder: "搜索模板",
+      newFromTemplate: "从模板新建",
+      share: "分享",
+      saveAsTemplate: "保存为模板",
+      savedAsTemplate: "已保存为模板",
+      saveAsTemplateFailed: "无法保存为模板",
+      viewTemplates: "查看模板",
+      useTemplate: "使用模板",
+      editTemplate: "编辑模板",
+      removeFromTemplates: "从模板中移除",
+      templatesEmptyTitle: "还没有保存的模板",
+      templatesEmptyBody: "从设计菜单将任意设计保存为模板，或使用内置模板：",
+      templateScreens: "{{count}} 个屏幕",
+      templateCardMeta: "{{count}} 个屏幕 · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "落地页",
+        placeholderPrompt: "描述落地页的受众、方案和语气...",
+      },
+      dashboard: {
+        title: "仪表板",
+        placeholderPrompt: "描述仪表板的用户、指标和工作流程...",
+      },
+      mobileApp: {
+        title: "移动应用",
+        placeholderPrompt: "描述移动应用的工作流程和主要用户...",
+      },
+      pricing: {
+        title: "定价页",
+        placeholderPrompt: "描述产品、定价层级和买家...",
+      },
+      wireframeKit: {
+        title: "线框工具包",
+        placeholderPrompt: "描述如何调整这个线框结构...",
+      },
+    },
+  },
+  "es-ES": {
+    promptDialog: {
+      createDesignSystem: "Crear sistema de diseño",
+      template: "Plantilla",
+      starter: "Inicial",
+      templates: "Plantillas",
+      builtIn: "Integrado",
+      templateBlank: "En blanco",
+      chooseTemplate: "Elige una plantilla",
+      searchTemplates: "Buscar plantillas...",
+      noTemplatesFound: "No se encontraron plantillas.",
+      starters: "Plantillas iniciales",
+      yourTemplates: "Tus plantillas",
+      templateCopyHint: "Se copiarán {{count}} pantallas de «{{title}}»",
+      templateReskinHint: "y se adaptarán a los tokens de {{system}}",
+    },
+    editor: {
+      templateBadge: "Plantilla",
+      templateBadgeTooltip:
+        "Las ediciones se aplican a futuros usos de esta plantilla.",
+    },
+    home: {
+      tabDesigns: "Diseños",
+      tabTemplates: "Plantillas",
+      searchTemplatesPlaceholder: "Buscar plantillas",
+      newFromTemplate: "Nuevo desde plantilla",
+      share: "Compartir",
+      saveAsTemplate: "Guardar como plantilla",
+      savedAsTemplate: "Guardado como plantilla",
+      saveAsTemplateFailed: "No se pudo guardar como plantilla",
+      viewTemplates: "Ver plantillas",
+      useTemplate: "Usar plantilla",
+      editTemplate: "Editar plantilla",
+      removeFromTemplates: "Quitar de las plantillas",
+      templatesEmptyTitle: "Aún no hay plantillas guardadas",
+      templatesEmptyBody:
+        "Guarda cualquier diseño como plantilla desde su menú o usa una plantilla integrada:",
+      templateScreens: "{{count}} pantallas",
+      templateCardMeta: "{{count}} pantallas · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "Página de destino",
+        placeholderPrompt:
+          "Describe la audiencia, la oferta y el tono de la página de destino...",
+      },
+      dashboard: {
+        title: "Panel",
+        placeholderPrompt:
+          "Describe los usuarios, las métricas y el flujo de trabajo del panel...",
+      },
+      mobileApp: {
+        title: "Aplicación móvil",
+        placeholderPrompt:
+          "Describe el flujo de la aplicación móvil y su usuario principal...",
+      },
+      pricing: {
+        title: "Página de precios",
+        placeholderPrompt:
+          "Describe el producto, los niveles de precios y el comprador...",
+      },
+      wireframeKit: {
+        title: "Kit de wireframes",
+        placeholderPrompt:
+          "Describe cómo adaptar esta estructura de wireframe...",
+      },
+    },
+  },
+  "fr-FR": {
+    promptDialog: {
+      createDesignSystem: "Créer un système de design",
+      template: "Modèle",
+      starter: "Modèle de départ",
+      templates: "Modèles",
+      builtIn: "Intégré",
+      templateBlank: "Vierge",
+      chooseTemplate: "Choisir un modèle",
+      searchTemplates: "Rechercher des modèles...",
+      noTemplatesFound: "Aucun modèle trouvé.",
+      starters: "Modèles de départ",
+      yourTemplates: "Vos modèles",
+      templateCopyHint: "« {{title}} » sera copié avec {{count}} écrans",
+      templateReskinHint: "et adapté aux jetons de {{system}}",
+    },
+    editor: {
+      templateBadge: "Modèle",
+      templateBadgeTooltip:
+        "Les modifications s’appliquent aux utilisations futures de ce modèle.",
+    },
+    home: {
+      tabDesigns: "Designs",
+      tabTemplates: "Modèles",
+      searchTemplatesPlaceholder: "Rechercher des modèles",
+      newFromTemplate: "Nouveau depuis un modèle",
+      share: "Partager",
+      saveAsTemplate: "Enregistrer comme modèle",
+      savedAsTemplate: "Enregistré comme modèle",
+      saveAsTemplateFailed: "Impossible d’enregistrer comme modèle",
+      viewTemplates: "Voir les modèles",
+      useTemplate: "Utiliser le modèle",
+      editTemplate: "Modifier le modèle",
+      removeFromTemplates: "Retirer des modèles",
+      templatesEmptyTitle: "Aucun modèle enregistré pour le moment",
+      templatesEmptyBody:
+        "Enregistrez un design comme modèle depuis son menu ou utilisez un modèle intégré :",
+      templateScreens: "{{count}} écrans",
+      templateCardMeta: "{{count}} écrans · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "Page d’atterrissage",
+        placeholderPrompt:
+          "Décrivez l’audience, l’offre et le ton de la page d’atterrissage...",
+      },
+      dashboard: {
+        title: "Tableau de bord",
+        placeholderPrompt:
+          "Décrivez les utilisateurs, les métriques et le flux du tableau de bord...",
+      },
+      mobileApp: {
+        title: "Application mobile",
+        placeholderPrompt:
+          "Décrivez le parcours de l’application mobile et son utilisateur principal...",
+      },
+      pricing: {
+        title: "Page tarifaire",
+        placeholderPrompt:
+          "Décrivez le produit, les niveaux tarifaires et l’acheteur...",
+      },
+      wireframeKit: {
+        title: "Kit filaire",
+        placeholderPrompt:
+          "Décrivez comment adapter cette structure filaire...",
+      },
+    },
+  },
+  "de-DE": {
+    promptDialog: {
+      createDesignSystem: "Designsystem erstellen",
+      template: "Vorlage",
+      starter: "Startvorlage",
+      templates: "Vorlagen",
+      builtIn: "Integriert",
+      templateBlank: "Leer",
+      chooseTemplate: "Vorlage auswählen",
+      searchTemplates: "Vorlagen durchsuchen...",
+      noTemplatesFound: "Keine Vorlagen gefunden.",
+      starters: "Startvorlagen",
+      yourTemplates: "Deine Vorlagen",
+      templateCopyHint: "{{count}} Bildschirme werden aus „{{title}}“ kopiert",
+      templateReskinHint: "und an {{system}}-Tokens angepasst",
+    },
+    editor: {
+      templateBadge: "Vorlage",
+      templateBadgeTooltip:
+        "Änderungen gelten für künftige Verwendungen dieser Vorlage.",
+    },
+    home: {
+      tabDesigns: "Designs",
+      tabTemplates: "Vorlagen",
+      searchTemplatesPlaceholder: "Vorlagen durchsuchen",
+      newFromTemplate: "Neu aus Vorlage",
+      share: "Teilen",
+      saveAsTemplate: "Als Vorlage speichern",
+      savedAsTemplate: "Als Vorlage gespeichert",
+      saveAsTemplateFailed: "Vorlage konnte nicht gespeichert werden",
+      viewTemplates: "Vorlagen anzeigen",
+      useTemplate: "Vorlage verwenden",
+      editTemplate: "Vorlage bearbeiten",
+      removeFromTemplates: "Aus Vorlagen entfernen",
+      templatesEmptyTitle: "Noch keine gespeicherten Vorlagen",
+      templatesEmptyBody:
+        "Speichere ein beliebiges Design über sein Menü als Vorlage oder verwende eine integrierte Vorlage:",
+      templateScreens: "{{count}} Bildschirme",
+      templateCardMeta: "{{count}} Bildschirme · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "Landingpage",
+        placeholderPrompt:
+          "Beschreibe Zielgruppe, Angebot und Ton der Landingpage...",
+      },
+      dashboard: {
+        title: "Übersicht",
+        placeholderPrompt:
+          "Beschreibe Nutzer, Kennzahlen und Arbeitsablauf der Übersicht...",
+      },
+      mobileApp: {
+        title: "Mobile Anwendung",
+        placeholderPrompt:
+          "Beschreibe den Ablauf der mobilen Anwendung und den Hauptnutzer...",
+      },
+      pricing: {
+        title: "Preisseite",
+        placeholderPrompt: "Beschreibe Produkt, Preisstufen und Käufer...",
+      },
+      wireframeKit: {
+        title: "Wireframe-Kit",
+        placeholderPrompt:
+          "Beschreibe, wie diese Wireframe-Struktur angepasst werden soll...",
+      },
+    },
+  },
+  "ja-JP": {
+    promptDialog: {
+      createDesignSystem: "デザインシステムを作成",
+      template: "テンプレート",
+      starter: "スターター",
+      templates: "テンプレート",
+      builtIn: "組み込み",
+      templateBlank: "空白",
+      chooseTemplate: "テンプレートを選択",
+      searchTemplates: "テンプレートを検索...",
+      noTemplatesFound: "テンプレートが見つかりません。",
+      starters: "スターター",
+      yourTemplates: "自分のテンプレート",
+      templateCopyHint: "「{{title}}」から{{count}}画面をコピーします",
+      templateReskinHint: "{{system}}トークンに合わせて調整します",
+    },
+    editor: {
+      templateBadge: "テンプレート",
+      templateBadgeTooltip:
+        "編集内容はこのテンプレートの今後の利用に適用されます。",
+    },
+    home: {
+      tabDesigns: "デザイン",
+      tabTemplates: "テンプレート",
+      searchTemplatesPlaceholder: "テンプレートを検索",
+      newFromTemplate: "テンプレートから新規作成",
+      share: "共有",
+      saveAsTemplate: "テンプレートとして保存",
+      savedAsTemplate: "テンプレートとして保存しました",
+      saveAsTemplateFailed: "テンプレートとして保存できませんでした",
+      viewTemplates: "テンプレートを見る",
+      useTemplate: "テンプレートを使用",
+      editTemplate: "テンプレートを編集",
+      removeFromTemplates: "テンプレートから削除",
+      templatesEmptyTitle: "保存済みテンプレートはまだありません",
+      templatesEmptyBody:
+        "デザインのメニューからデザインをテンプレートとして保存するか、組み込みテンプレートを使用してください：",
+      templateScreens: "{{count}}画面",
+      templateCardMeta: "{{count}}画面 · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "ランディングページ",
+        placeholderPrompt: "ランディングページの対象者、提案、トーンを説明...",
+      },
+      dashboard: {
+        title: "ダッシュボード",
+        placeholderPrompt:
+          "ダッシュボードのユーザー、指標、ワークフローを説明...",
+      },
+      mobileApp: {
+        title: "モバイルアプリ",
+        placeholderPrompt: "モバイルアプリのフローと主なユーザーを説明...",
+      },
+      pricing: {
+        title: "料金ページ",
+        placeholderPrompt: "製品、料金プラン、購入者を説明...",
+      },
+      wireframeKit: {
+        title: "ワイヤーフレームキット",
+        placeholderPrompt: "このワイヤーフレーム構成をどう調整するか説明...",
+      },
+    },
+  },
+  "ko-KR": {
+    promptDialog: {
+      createDesignSystem: "디자인 시스템 만들기",
+      template: "템플릿",
+      starter: "스타터",
+      templates: "템플릿",
+      builtIn: "기본 제공",
+      templateBlank: "빈 템플릿",
+      chooseTemplate: "템플릿 선택",
+      searchTemplates: "템플릿 검색...",
+      noTemplatesFound: "템플릿을 찾을 수 없습니다.",
+      starters: "스타터",
+      yourTemplates: "내 템플릿",
+      templateCopyHint: "“{{title}}”에서 화면 {{count}}개를 복사합니다",
+      templateReskinHint: "{{system}} 토큰에 맞게 조정합니다",
+    },
+    editor: {
+      templateBadge: "템플릿",
+      templateBadgeTooltip:
+        "수정 사항은 이 템플릿을 앞으로 사용할 때 적용됩니다.",
+    },
+    home: {
+      tabDesigns: "디자인",
+      tabTemplates: "템플릿",
+      searchTemplatesPlaceholder: "템플릿 검색",
+      newFromTemplate: "템플릿에서 새로 만들기",
+      share: "공유",
+      saveAsTemplate: "템플릿으로 저장",
+      savedAsTemplate: "템플릿으로 저장됨",
+      saveAsTemplateFailed: "템플릿으로 저장하지 못했습니다",
+      viewTemplates: "템플릿 보기",
+      useTemplate: "템플릿 사용",
+      editTemplate: "템플릿 편집",
+      removeFromTemplates: "템플릿에서 제거",
+      templatesEmptyTitle: "저장된 템플릿이 아직 없습니다",
+      templatesEmptyBody:
+        "디자인 메뉴에서 디자인을 템플릿으로 저장하거나 기본 제공 템플릿을 사용하세요:",
+      templateScreens: "화면 {{count}}개",
+      templateCardMeta: "화면 {{count}}개 · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "랜딩 페이지",
+        placeholderPrompt: "랜딩 페이지의 대상, 제안, 분위기를 설명하세요...",
+      },
+      dashboard: {
+        title: "대시보드",
+        placeholderPrompt: "대시보드 사용자, 지표, 워크플로를 설명하세요...",
+      },
+      mobileApp: {
+        title: "모바일 앱",
+        placeholderPrompt: "모바일 앱의 흐름과 주요 사용자를 설명하세요...",
+      },
+      pricing: {
+        title: "가격 페이지",
+        placeholderPrompt: "제품, 가격 단계, 구매자를 설명하세요...",
+      },
+      wireframeKit: {
+        title: "와이어프레임 키트",
+        placeholderPrompt:
+          "이 와이어프레임 구조를 어떻게 조정할지 설명하세요...",
+      },
+    },
+  },
+  "pt-BR": {
+    promptDialog: {
+      createDesignSystem: "Criar sistema de design",
+      template: "Modelo",
+      starter: "Inicial",
+      templates: "Modelos",
+      builtIn: "Integrado",
+      templateBlank: "Em branco",
+      chooseTemplate: "Escolher um modelo",
+      searchTemplates: "Buscar modelos...",
+      noTemplatesFound: "Nenhum modelo encontrado.",
+      starters: "Modelos iniciais",
+      yourTemplates: "Seus modelos",
+      templateCopyHint: "Serão copiadas {{count}} telas de “{{title}}”",
+      templateReskinHint: "e adaptadas aos tokens de {{system}}",
+    },
+    editor: {
+      templateBadge: "Modelo",
+      templateBadgeTooltip:
+        "As edições serão aplicadas a futuros usos deste modelo.",
+    },
+    home: {
+      tabDesigns: "Designs",
+      tabTemplates: "Modelos",
+      searchTemplatesPlaceholder: "Buscar modelos",
+      newFromTemplate: "Novo a partir de um modelo",
+      share: "Compartilhar",
+      saveAsTemplate: "Salvar como modelo",
+      savedAsTemplate: "Salvo como modelo",
+      saveAsTemplateFailed: "Não foi possível salvar como modelo",
+      viewTemplates: "Ver modelos",
+      useTemplate: "Usar modelo",
+      editTemplate: "Editar modelo",
+      removeFromTemplates: "Remover dos modelos",
+      templatesEmptyTitle: "Ainda não há modelos salvos",
+      templatesEmptyBody:
+        "Salve qualquer design como modelo pelo menu ou use um modelo integrado:",
+      templateScreens: "{{count}} telas",
+      templateCardMeta: "{{count}} telas · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "Página de destino",
+        placeholderPrompt:
+          "Descreva o público, a oferta e o tom da página de destino...",
+      },
+      dashboard: {
+        title: "Painel",
+        placeholderPrompt:
+          "Descreva os usuários, as métricas e o fluxo de trabalho do painel...",
+      },
+      mobileApp: {
+        title: "Aplicativo móvel",
+        placeholderPrompt:
+          "Descreva o fluxo do aplicativo móvel e o usuário principal...",
+      },
+      pricing: {
+        title: "Página de preços",
+        placeholderPrompt:
+          "Descreva o produto, os níveis de preço e o comprador...",
+      },
+      wireframeKit: {
+        title: "Kit de wireframes",
+        placeholderPrompt:
+          "Descreva como adaptar esta estrutura de wireframe...",
+      },
+    },
+  },
+  "hi-IN": {
+    promptDialog: {
+      createDesignSystem: "डिज़ाइन सिस्टम बनाएं",
+      template: "टेम्पलेट",
+      starter: "स्टार्टर",
+      templates: "टेम्पलेट",
+      builtIn: "अंतर्निहित",
+      templateBlank: "खाली",
+      chooseTemplate: "टेम्पलेट चुनें",
+      searchTemplates: "टेम्पलेट खोजें...",
+      noTemplatesFound: "कोई टेम्पलेट नहीं मिला।",
+      starters: "स्टार्टर",
+      yourTemplates: "आपके टेम्पलेट",
+      templateCopyHint: "“{{title}}” से {{count}} स्क्रीन कॉपी की जाएंगी",
+      templateReskinHint: "और {{system}} टोकन के अनुसार ढाली जाएंगी",
+    },
+    editor: {
+      templateBadge: "टेम्पलेट",
+      templateBadgeTooltip: "बदलाव इस टेम्पलेट के भविष्य के उपयोगों पर लागू होंगे।",
+    },
+    home: {
+      tabDesigns: "डिज़ाइन",
+      tabTemplates: "टेम्पलेट",
+      searchTemplatesPlaceholder: "टेम्पलेट खोजें",
+      newFromTemplate: "टेम्पलेट से नया बनाएं",
+      share: "साझा करें",
+      saveAsTemplate: "टेम्पलेट के रूप में सहेजें",
+      savedAsTemplate: "टेम्पलेट के रूप में सहेजा गया",
+      saveAsTemplateFailed: "टेम्पलेट के रूप में सहेजा नहीं जा सका",
+      viewTemplates: "टेम्पलेट देखें",
+      useTemplate: "टेम्पलेट का उपयोग करें",
+      editTemplate: "टेम्पलेट संपादित करें",
+      removeFromTemplates: "टेम्पलेट से हटाएं",
+      templatesEmptyTitle: "अभी तक कोई सहेजा गया टेम्पलेट नहीं है",
+      templatesEmptyBody:
+        "डिज़ाइन मेनू से किसी भी डिज़ाइन को टेम्पलेट के रूप में सहेजें या अंतर्निहित टेम्पलेट का उपयोग करें:",
+      templateScreens: "{{count}} स्क्रीन",
+      templateCardMeta: "{{count}} स्क्रीन · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "लैंडिंग पेज",
+        placeholderPrompt: "लैंडिंग पेज के दर्शकों, ऑफ़र और अंदाज़ का वर्णन करें...",
+      },
+      dashboard: {
+        title: "डैशबोर्ड",
+        placeholderPrompt:
+          "डैशबोर्ड के उपयोगकर्ताओं, मेट्रिक्स और वर्कफ़्लो का वर्णन करें...",
+      },
+      mobileApp: {
+        title: "मोबाइल ऐप",
+        placeholderPrompt: "मोबाइल ऐप के वर्कफ़्लो और मुख्य उपयोगकर्ता का वर्णन करें...",
+      },
+      pricing: {
+        title: "मूल्य निर्धारण पेज",
+        placeholderPrompt: "उत्पाद, मूल्य स्तरों और खरीदार का वर्णन करें...",
+      },
+      wireframeKit: {
+        title: "वायरफ़्रेम किट",
+        placeholderPrompt: "इस वायरफ़्रेम संरचना को कैसे ढालना है, इसका वर्णन करें...",
+      },
+    },
+  },
+  "ar-SA": {
+    promptDialog: {
+      createDesignSystem: "إنشاء نظام التصميم",
+      template: "قالب",
+      starter: "نموذج جاهز",
+      templates: "القوالب",
+      builtIn: "مدمج",
+      templateBlank: "فارغ",
+      chooseTemplate: "اختر قالبًا",
+      searchTemplates: "البحث في القوالب...",
+      noTemplatesFound: "لم يتم العثور على قوالب.",
+      starters: "النماذج الجاهزة",
+      yourTemplates: "قوالبك",
+      templateCopyHint: 'سيتم نسخ {{count}} من الشاشات من "{{title}}"',
+      templateReskinHint: "وتكييفها مع رموز {{system}} المميزة",
+    },
+    editor: {
+      templateBadge: "قالب",
+      templateBadgeTooltip:
+        "تُطبّق التعديلات على الاستخدامات المستقبلية لهذا القالب.",
+    },
+    home: {
+      tabDesigns: "التصاميم",
+      tabTemplates: "القوالب",
+      searchTemplatesPlaceholder: "البحث في القوالب",
+      newFromTemplate: "جديد من قالب",
+      share: "مشاركة",
+      saveAsTemplate: "حفظ كقالب",
+      savedAsTemplate: "تم الحفظ كقالب",
+      saveAsTemplateFailed: "تعذر الحفظ كقالب",
+      viewTemplates: "عرض القوالب",
+      useTemplate: "استخدام القالب",
+      editTemplate: "تحرير القالب",
+      removeFromTemplates: "إزالة من القوالب",
+      templatesEmptyTitle: "لا توجد قوالب محفوظة بعد",
+      templatesEmptyBody:
+        "احفظ أي تصميم كقالب من قائمته، أو استخدم قالبًا مدمجًا:",
+      templateScreens: "{{count}} من الشاشات",
+      templateCardMeta: "{{count}} من الشاشات · {{date}}",
+    },
+    starter: {
+      landing: {
+        title: "صفحة هبوط",
+        placeholderPrompt: "صف جمهور صفحة الهبوط والعرض والنبرة...",
+      },
+      dashboard: {
+        title: "لوحة المعلومات",
+        placeholderPrompt: "صف مستخدمي لوحة المعلومات والمقاييس وسير العمل...",
+      },
+      mobileApp: {
+        title: "تطبيق جوال",
+        placeholderPrompt: "صف سير عمل تطبيق الجوال والمستخدم الأساسي...",
+      },
+      pricing: {
+        title: "صفحة الأسعار",
+        placeholderPrompt: "صف المنتج وشرائح الأسعار والمشتري...",
+      },
+      wireframeKit: {
+        title: "مجموعة الإطارات الهيكلية",
+        placeholderPrompt: "صف كيفية تكييف بنية الإطار الهيكلي هذه...",
       },
     },
   },
@@ -12225,6 +12933,7 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(
     mergePartialMessages(
       zhTW,
+      designTemplateFeatureOverrides["zh-TW"],
       designLeftRailOverrides["zh-TW"],
       designTokenImportOverrides["zh-TW"],
       designImportOverrides["zh-TW"],
@@ -12242,6 +12951,7 @@ export const messagesByLocale = {
   "zh-CN": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["zh-CN"],
+      designTemplateFeatureOverrides["zh-CN"],
       designRawLiteralOverrides["zh-CN"],
       designExactEnglishOverrides["zh-CN"],
       designLeftRailOverrides["zh-CN"],
@@ -12311,6 +13021,7 @@ export const messagesByLocale = {
   "es-ES": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["es-ES"],
+      designTemplateFeatureOverrides["es-ES"],
       designRawLiteralOverrides["es-ES"],
       designExactEnglishOverrides["es-ES"],
       designLeftRailOverrides["es-ES"],
@@ -12382,6 +13093,7 @@ export const messagesByLocale = {
   "fr-FR": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["fr-FR"],
+      designTemplateFeatureOverrides["fr-FR"],
       designRawLiteralOverrides["fr-FR"],
       designExactEnglishOverrides["fr-FR"],
       designLeftRailOverrides["fr-FR"],
@@ -12453,6 +13165,7 @@ export const messagesByLocale = {
   "de-DE": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["de-DE"],
+      designTemplateFeatureOverrides["de-DE"],
       designRawLiteralOverrides["de-DE"],
       designExactEnglishOverrides["de-DE"],
       designLeftRailOverrides["de-DE"],
@@ -12524,6 +13237,7 @@ export const messagesByLocale = {
   "ja-JP": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["ja-JP"],
+      designTemplateFeatureOverrides["ja-JP"],
       designRawLiteralOverrides["ja-JP"],
       designExactEnglishOverrides["ja-JP"],
       designLeftRailOverrides["ja-JP"],
@@ -12596,6 +13310,7 @@ export const messagesByLocale = {
   "ko-KR": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["ko-KR"],
+      designTemplateFeatureOverrides["ko-KR"],
       designRawLiteralOverrides["ko-KR"],
       designExactEnglishOverrides["ko-KR"],
       designLeftRailOverrides["ko-KR"],
@@ -12666,6 +13381,7 @@ export const messagesByLocale = {
   "pt-BR": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["pt-BR"],
+      designTemplateFeatureOverrides["pt-BR"],
       designRawLiteralOverrides["pt-BR"],
       designExactEnglishOverrides["pt-BR"],
       designLeftRailOverrides["pt-BR"],
@@ -12737,6 +13453,7 @@ export const messagesByLocale = {
   "hi-IN": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["hi-IN"],
+      designTemplateFeatureOverrides["hi-IN"],
       designRawLiteralOverrides["hi-IN"],
       designExactEnglishOverrides["hi-IN"],
       designLeftRailOverrides["hi-IN"],
@@ -12808,6 +13525,7 @@ export const messagesByLocale = {
   "ar-SA": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["ar-SA"],
+      designTemplateFeatureOverrides["ar-SA"],
       designRawLiteralOverrides["ar-SA"],
       designExactEnglishOverrides["ar-SA"],
       designLeftRailOverrides["ar-SA"],
