@@ -114,6 +114,15 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     }
   });
 
+  it("lets an explicit app opt-out override a stale deploy-wide flag", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: false })).toBe(
+      false,
+    );
+  });
+
   it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";

@@ -351,6 +351,12 @@ function isFlagExplicitlyDisabled(): boolean {
 export function isAgentChatDurableBackgroundEnabled(options?: {
   appOptIn?: boolean;
 }): boolean {
+  // An app-level opt-out must win over a stale deploy-wide env flag. Netlify
+  // environment variables can outlive the source config that originally set
+  // them; allowing that flag to re-enable a worker an app explicitly disabled
+  // recreates the missing-background-function failure this gate is meant to
+  // prevent.
+  if (options?.appOptIn === false) return false;
   const envOptIn = isFlagEnabled();
   const workspaceAppOptIn =
     options?.appOptIn === true &&

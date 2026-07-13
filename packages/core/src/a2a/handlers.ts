@@ -82,33 +82,50 @@ async function fireProcessTaskDispatch(
   event: any,
   taskId: string,
   config: A2AConfig,
-  options?: { awaitResponse?: boolean },
 ): Promise<void> {
   const backgroundPath = resolveAgentChatProcessRunDispatchPath();
   const useBackgroundWorker =
     isAgentChatDurableBackgroundEnabled({
-      appOptIn: config.durableBackgroundRuns === true,
+      appOptIn: config.durableBackgroundRuns,
     }) && dispatchPathTargetsNetlifyBackgroundFunction(backgroundPath);
 
-  await fireInternalDispatch({
-    event,
-    path: useBackgroundWorker ? backgroundPath : A2A_PROCESS_TASK_PATH,
-    taskId,
-    ...(useBackgroundWorker
-      ? {
-          body: {
-            [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
-          },
-        }
-      : {}),
-    // Only Netlify's background-function URL acknowledges enqueue with 202.
-    // The portable framework route keeps its HTTP response open until the
-    // processor completes, so awaiting that response would turn async
-    // message/send into a long synchronous request (or a 15s timeout).
-    ...(options?.awaitResponse && useBackgroundWorker
-      ? { awaitResponse: true }
-      : {}),
-  });
+  if (!useBackgroundWorker) {
+    await fireInternalDispatch({
+      event,
+      path: A2A_PROCESS_TASK_PATH,
+      taskId,
+    });
+    return;
+  }
+
+  try {
+    // A real Netlify background function acknowledges the enqueue quickly.
+    // Await that acknowledgement so a missing or rejected worker can fall
+    // back before the task is left in `working` with no processor.
+    await fireInternalDispatch({
+      event,
+      path: backgroundPath,
+      taskId,
+      body: {
+        [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
+      },
+      awaitResponse: true,
+    });
+  } catch (backgroundError) {
+    // Deploys can retain a runtime env opt-in after the corresponding
+    // background function was removed from the build. Keep async A2A useful
+    // in that state by falling back to the portable processor route, which
+    // runs in the regular framework function with the same task/auth checks.
+    console.error(
+      "[a2a] Durable background dispatch failed; falling back to portable processor:",
+      backgroundError,
+    );
+    await fireInternalDispatch({
+      event,
+      path: A2A_PROCESS_TASK_PATH,
+      taskId,
+    });
+  }
 }
 
 /**
@@ -531,9 +548,7 @@ async function handleSend(
     // race for the portable route, which holds its response open until the
     // handler finishes.
     try {
-      await fireProcessTaskDispatch(event, task.id, config, {
-        awaitResponse: true,
-      });
+      await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
       console.error("[a2a] Failed to dispatch process-task:", err);
     }
