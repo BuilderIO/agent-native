@@ -1255,6 +1255,19 @@ export function createAgentChatPlugin(
           const { getOwnerActiveApiKey } =
             await import("../agent/production-agent.js");
           const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          // A2A runs are reconstructed in a fresh processor request, so they
+          // do not pass through the interactive handler's prepareRun hook.
+          // Seed the same mutable run context before resolving the engine and
+          // building tools. Provider credentials, team/fetch helpers, and
+          // other action closures read this context rather than the engine
+          // argument alone; without it delegated runs can silently fall back
+          // to an unscoped/unconfigured provider path even though interactive
+          // chat works for the same owner.
+          const a2aRunContext = ensureRequestRunContext();
+          if (a2aRunContext) {
+            a2aRunContext.owner = userEmail;
+            a2aRunContext.userApiKey = ownerApiKey;
+          }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: ownerApiKey ?? options?.apiKey,
@@ -1282,6 +1295,7 @@ export function createAgentChatPlugin(
           const systemPrompt = devActive
             ? devPrompt + resources + schemaBlock + extra + runtimeContext
             : basePrompt + resources + schemaBlock + extra + runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           const a2aModelCandidate =
             options?.model ??
@@ -1290,6 +1304,10 @@ export function createAgentChatPlugin(
             })) ??
             a2aEngine.defaultModel;
           const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+          if (a2aRunContext) {
+            a2aRunContext.engine = a2aEngine;
+            a2aRunContext.model = model;
+          }
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
