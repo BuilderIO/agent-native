@@ -163,7 +163,13 @@ Añade una route `/response-insights` con `useActionQuery("list-response-insight
   />
 </WireframeBlock>
 
-Extiende `view-screen` y `navigate` para que el agent conozca la route actual y pueda abrir `/response-insights`. Los resultados también pueden incluir `href: "/response-insights"` para mostrar un botón "Abrir insights de respuestas".
+## 6. Deja que el agent navegue {#agent-navigation}
+
+La Chat template incluye las actions `view-screen` y `navigate`. Amplíalas a medida que tu app crece:
+
+- `view-screen` debería leer el application state y devolver la route actual, el insight seleccionado, los filtros activos y cualquier contexto de página compacto que el agent necesite.
+- `navigate` debería escribir una route same-origin como `/response-insights` cuando el agent decida que el usuario debe inspeccionar el resultado visualmente.
+- Los resultados de una action pueden incluir enlaces como `href: "/response-insights"` para que el chat ofrezca un botón explícito "Abrir insights de respuestas".
 
 Cuando el chat de página completa abra una página de app, usa `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` y `chatViewTransition` desde [Agent Surfaces](/docs/agent-surfaces#rich-chat) para deslizar el chat al panel lateral sin perder el thread.
 

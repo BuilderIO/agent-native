@@ -6,9 +6,13 @@ search: "harness agents AgentHarness ai-sdk HarnessAgent Claude Code Codex Pi Cu
 
 # Harness Agents
 
-> **Who is this for:** host authors wiring a full coding runtime (Claude Code,
-> Codex, Pi) into Agent-Native as the agent. Building an app? Start with
-> [Creating Templates](/docs/creating-templates).
+<Callout id="doc-block-harn1who" tone="info">
+
+**Who is this for:** host authors wiring a full coding runtime (Claude Code,
+Codex, Pi) into Agent-Native as the agent. Building an app? Start with
+[Creating Templates](/docs/creating-templates).
+
+</Callout>
 
 A harness agent is a full agent runtime — Claude Code, Codex, Pi, and similar —
 that owns its own loop, workspace, native file tools, session state, compaction,
@@ -408,7 +412,7 @@ one implementation of this contract, not the public abstraction.
 - Don't expose every app action to every harness session by default. Hand it a
   small, intentional tool set.
 
-## Related docs {#related-docs}
+## What's next
 
 - [Native Chat UI](/docs/native-chat-ui) — put your own agent behind the chat UI with `AgentChatRuntime`.
 - [Agent Surfaces](/docs/agent-surfaces) — choose headless, chat, sidecar, or full-app.

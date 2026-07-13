@@ -119,6 +119,9 @@ describe("demo dashboards", () => {
     mocks.hasCollabState.mockClear();
     mocks.applyText.mockClear();
     mocks.seedFromText.mockClear();
+    mocks.hasCollabState.mockResolvedValue(false);
+    mocks.applyText.mockResolvedValue(undefined);
+    mocks.seedFromText.mockResolvedValue(undefined);
   });
 
   it("creates a private per-user Node Exporter dashboard and opens it first", async () => {
@@ -177,6 +180,21 @@ describe("demo dashboards", () => {
       true,
     );
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+    expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not block installation when collab synchronization stalls", async () => {
+    mocks.hasCollabState.mockImplementation(
+      () => new Promise<boolean>(() => undefined),
+    );
+
+    const result = await ensureDemoDashboardsForUser(alice);
+
+    expect(result.dashboards[0]).toEqual(
+      expect.objectContaining({ installed: true, created: true }),
+    );
+    expect(mocks.putUserSetting).toHaveBeenCalledTimes(1);
+    expect(mocks.hasCollabState).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes existing demos when the embedded demo version is outdated", async () => {

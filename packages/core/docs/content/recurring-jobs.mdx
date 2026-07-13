@@ -191,12 +191,14 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
 
-| Action   | Parameters                                                        | Purpose                                                      |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`   | Create a new recurring job                                   |
-| `list`   | `scope` (`personal`, `shared`, or all)                            | List all jobs with status (schedule, enabled, last/next run) |
-| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs` | Edit an existing job                                         |
-| `delete` | `name` (required)                                                 | Delete a job — always confirm with the user first            |
+| Action   | Parameters                                                                 | Purpose                                                      |
+| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                                     | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                          | Delete a job — always confirm with the user first            |
+
+`model` is optional on both `create` and `update` — pass a model id to override the channel/app/engine default for that one routine.
 
 **Personal vs shared scope.** Each job lives in either personal scope (runs as and is visible only to the creator) or shared/org scope (runs on behalf of the creator but is visible to org members). The `scope` and `runAs` parameters control this at create time. Org admins can update or delete any shared job; non-admin members can only manage their own.
 

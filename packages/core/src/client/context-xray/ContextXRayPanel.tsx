@@ -121,8 +121,11 @@ export function ContextXRayPanel({
         </div>
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted/70">
           <div
-            className="h-full rounded-full bg-foreground transition-[width] duration-200"
-            style={{ width: `${pct}%` }}
+            className="h-full rounded-full bg-foreground origin-left transition-transform duration-200"
+            style={{
+              transform: `scaleX(${Math.min(1, pct / 100)})`,
+              width: "100%",
+            }}
           />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">

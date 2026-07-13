@@ -62,6 +62,7 @@ beforeEach(() => {
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     cost_cents_x100 INTEGER NOT NULL DEFAULT 0,
+    cost_source TEXT NOT NULL DEFAULT 'estimated',
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
@@ -382,11 +383,53 @@ describe("getUsageSummary", () => {
     const summary = await getUsageSummary({ ownerEmail: "ghost@example.com" });
     expect(summary.totalCalls).toBe(0);
     expect(summary.totalCents).toBe(0);
+    expect(summary.totalCost).toEqual({
+      status: "known",
+      knownCents: 0,
+      unavailableCalls: 0,
+    });
     expect(summary.byLabel).toEqual([]);
     expect(summary.byModel).toEqual([]);
     expect(summary.byApp).toEqual([]);
     expect(summary.byDay).toEqual([]);
     expect(summary.recent).toEqual([]);
+  });
+
+  it("keeps unavailable provider cost visible in every aggregate", async () => {
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "openai/gpt-oss-120b",
+      label: "visual-recap",
+      costSource: "unavailable",
+    });
+
+    const summary = await getUsageSummary({
+      ownerEmail: "mixed@example.com",
+    });
+
+    expect(summary.totalCost).toEqual({
+      status: "partial",
+      knownCents: 300,
+      unavailableCalls: 1,
+    });
+    expect(
+      summary.byModel.find((bucket) => bucket.key === "openai/gpt-oss-120b")
+        ?.cost,
+    ).toEqual({
+      status: "unavailable",
+      knownCents: 0,
+      unavailableCalls: 1,
+    });
+    expect(summary.byDay[0]?.cost.status).toBe("partial");
   });
 });
 
@@ -434,6 +477,25 @@ describe("recordUsage refId + cost override", () => {
       .get() as { c: number };
     // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
+  });
+
+  it("records token counts without fabricated spend when cost is unavailable", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "deepseek-chat",
+      label: "visual-recap",
+      refId: "recap-compatible",
+      costSource: "unavailable",
+    });
+    const row = sqlite
+      .prepare(
+        "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
+      )
+      .get() as { cost: number; source: string };
+
+    expect(row).toEqual({ cost: 0, source: "unavailable" });
   });
 
   it("does not dedup rows that carry no refId", async () => {

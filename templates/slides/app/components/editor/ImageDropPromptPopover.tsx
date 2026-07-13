@@ -2,10 +2,10 @@ import { appBasePath, sendToAgentChat, useT } from "@agent-native/core/client";
 import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 import {
   buildImageDropAgentPayload,
   readFileAsDataUrl,
@@ -169,16 +169,13 @@ export default function ImageDropPromptPopover({
       }
 
       onClose();
-      toast({
-        title: t("raw.sentToAgent"),
+      toast.success(t("raw.sentToAgent"), {
         description: file.name,
       });
     } catch (err) {
-      toast({
-        title: t("raw.imageUploadFailed"),
+      toast.error(t("raw.imageUploadFailed"), {
         description:
           err instanceof Error ? err.message : t("raw.imageUploadGenericError"),
-        variant: "destructive",
       });
     } finally {
       setUploading(false);

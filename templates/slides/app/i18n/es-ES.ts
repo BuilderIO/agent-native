@@ -336,6 +336,8 @@ const messages = {
     hideResolved: "Ocultar resueltos",
     showResolved: "Mostrar {{count}} resueltos",
     noCommentsYet: "Aún no hay comentarios",
+    loadFailed: "No se pudieron cargar los comentarios",
+    retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
   },
@@ -561,6 +563,10 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    loadFailed: "No se pudo cargar el contenido",
+    loadFailedDescription:
+      "El contenido guardado sigue disponible. Comprueba la conexión e inténtalo de nuevo.",
+    retry: "Reintentar",
     decksTitle: "Decks",
     newDeck: "Nuevo deck",
     deckLengthQuestion: "¿Qué longitud debe tener este deck?",

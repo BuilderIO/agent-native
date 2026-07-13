@@ -5,6 +5,7 @@ import {
   emailToColor,
   emailToName,
   useAvatarUrl,
+  useDbSync,
   useSession,
   useT,
   agentNativePath,
@@ -49,7 +50,6 @@ import {
 } from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
-  readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
@@ -343,6 +343,23 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
+  const flushRequestKey = `flush-request-${documentId}`;
+  const [flushRequestWake, setFlushRequestWake] = useState(0);
+  const handleFlushRequestEvent = useCallback(
+    (event: { source?: string; key?: string }) => {
+      if (
+        event.source === "app-state" &&
+        (event.key === flushRequestKey || event.key === "*")
+      ) {
+        setFlushRequestWake((wake) => wake + 1);
+      }
+    },
+    [flushRequestKey],
+  );
+  // Reuse the root's shared SSE/poll transport. This subscriber only wakes the
+  // flush reader when its exact application-state key changes; it does not open
+  // another EventSource or polling loop.
+  useDbSync({ onEvent: handleFlushRequestEvent });
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
@@ -519,71 +536,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     }
   }, [document, documentId]);
-
-  useEffect(() => {
-    if (!isInitializedRef.current || !isLinkedLocalSourceDocument) {
-      return;
-    }
-
-    let cancelled = false;
-    readDocumentFromLinkedLocalSource(document)
-      .then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          toast.error(t("editor.couldNotReadLocalSourceFile"), {
-            description: result.error,
-          });
-          return;
-        }
-
-        const fileDocument = result.document;
-        setLocalTitle(fileDocument.title);
-        setLocalContent(fileDocument.content);
-        setLocalContentUpdatedAt(result.updatedAt);
-        lastSavedTitleRef.current = {
-          title: fileDocument.title,
-          updatedAt: result.updatedAt,
-        };
-        lastSavedContentRef.current = {
-          content: fileDocument.content,
-          updatedAt: result.updatedAt,
-        };
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          (old: Document | undefined) =>
-            old && typeof old === "object" ? { ...old, ...fileDocument } : old,
-        );
-        queryClient.setQueryData(
-          ["action", "list-documents", undefined],
-          (old: any) => {
-            const docs = old?.documents ?? (Array.isArray(old) ? old : null);
-            if (!Array.isArray(docs)) return old;
-            const nextDocs = docs.map((doc: Document) =>
-              doc.id === documentId ? { ...doc, ...fileDocument } : doc,
-            );
-            return Array.isArray(old)
-              ? nextDocs
-              : { ...old, documents: nextDocs };
-          },
-        );
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        toast.error(t("editor.couldNotReadLocalSourceFile"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    documentId,
-    document.source?.path,
-    isLinkedLocalSourceDocument,
-    queryClient,
-  ]);
 
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the
@@ -1033,16 +985,18 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // the in-memory Y.Doc, so the open editor is the only place that can
   // serialize the live content through its existing serializer. On seeing the
   // key we force an immediate (non-debounced) save of the current editor
-  // state, then delete the key so `pull-document` knows the flush landed.
+  // state, then acknowledge it so `pull-document` knows the flush landed.
+  // The shared sync transport wakes this reader for the exact app-state key;
+  // the first run covers a request that was already pending when the editor
+  // mounted.
   useEffect(() => {
     if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
-    const flushKey = `flush-request-${documentId}`;
     const flushPath = agentNativePath(
-      `/_agent-native/application-state/${flushKey}`,
+      `/_agent-native/application-state/${flushRequestKey}`,
     );
 
-    async function poll() {
+    async function flushIfRequested() {
       try {
         const res = await fetch(flushPath);
         if (res.ok) {
@@ -1058,7 +1012,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             // read and clear it. Retrying here could hide a failed flush or
             // replace the explicit success signal before the server sees it.
             if (pending.status === "error" || pending.status === "success") {
-              if (active) setTimeout(poll, 600);
               return;
             }
             const title = localTitleRef.current;
@@ -1131,19 +1084,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           }
         }
       } catch {
-        // Ignore — next tick retries.
+        // Best-effort read. A later app-state event will wake the reader again.
       }
-      if (active) setTimeout(poll, 600);
     }
 
-    const timer = setTimeout(poll, 600);
+    void flushIfRequested();
     return () => {
       active = false;
-      clearTimeout(timer);
     };
   }, [
     documentId,
     editorCanEdit,
+    flushRequestKey,
+    flushRequestWake,
     isLocalFileDocument,
     persistDocumentUpdates,
     t,

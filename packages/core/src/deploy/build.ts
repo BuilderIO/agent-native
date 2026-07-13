@@ -763,6 +763,7 @@ export function generateWorkerEntry(
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
+${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -984,17 +985,26 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 /**
  * Apply the SSR cache policy to the response headers.
  *
- * SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.
- * Every SSR HTML / React Router .data response gets the same public
- * stale-while-revalidate policy for ALL visitors, authenticated or not. The SSR
- * output is impersonal (the handler never reads the request's session/cookies),
- * so it is safe to hard-cache one shared copy at the edge. Do NOT reintroduce
- * per-user / cookie-based cache variation here (no private, no no-store, no
- * "authenticated then don't cache" branch) — that makes every logged-in
- * visitor's pages uncacheable. Per-user state is resolved client-side instead.
+ * SSR HTML and React Router .data responses are one impersonal public shell.
+ * Always overwrite route cache hints so generated edge workers cannot drift
+ * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return normalized && normalized !== "*" && normalized !== "cookie" && normalized !== "authorization";
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
 
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
@@ -1090,6 +1100,13 @@ function requestWithPathname(request, pathname) {
   if (url.pathname === pathname) return request;
   url.pathname = pathname;
   return new Request(url, request);
+}
+
+function requestForAnonymousSsr(request) {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  return new Request(request, { headers });
 }
 
 function isStaticAppShellRequest(request) {
@@ -1210,10 +1227,14 @@ ${
     ) {
       return new Response(null, { status: 404 });
     }
-    const request = requestWithPathname(event.req, p);
+    const request = requestForAnonymousSsr(requestWithPathname(event.req, p));
+    const anonymousContext = { userEmail: undefined, orgId: undefined };
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
-      const response = await rrHandler(getRequest);
+      const response = await runWithRequestContext(
+        anonymousContext,
+        () => rrHandler(getRequest)
+      );
       return rewriteMountedResponse(
         new Response(null, {
           status: response.status,
@@ -1225,7 +1246,12 @@ ${
         getRequest
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
+    return rewriteMountedResponse(
+      await runWithRequestContext(anonymousContext, () => rrHandler(request)),
+      basePath,
+      p,
+      request
+    );
   }));`
     : ""
 }

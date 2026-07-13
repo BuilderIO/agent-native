@@ -92,8 +92,7 @@ server/routes/
 
 प्रत्येक मार्ग एक `defineEventHandler` निर्यात करता है:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -133,8 +132,7 @@ export default defineEventHandler(() => ({
 
 रीड-ओनली status endpoint के लिए, इसे action ही रखें:
 
-```ts
-// actions/get-status.ts
+```ts filename="actions/get-status.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -167,8 +165,7 @@ GET /_agent-native/actions/get-status?service=billing
 उपकरण, चैट इतिहास, या रन स्थिति, स्पष्ट एस्केप के रूप में `completeText()` का उपयोग करें
 हैच.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -233,8 +230,7 @@ export default defineAction({
 
 प्लगइन्स `server/plugins/` में रहते हैं और स्टार्टअप पर चलते हैं। माइग्रेशन, प्रदाता सेटअप, आवर्ती नौकरियों, एकीकरण एडाप्टर और फ्रेमवर्क प्लगइन कॉन्फ़िगरेशन के लिए उनका उपयोग करें।
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -412,8 +408,11 @@ export default runMigrations(
 
 </Diagram>
 
-> [!WARNING]
-> प्रतिक्रिया देने के बाद अप्रतीक्षित वादों पर भरोसा न करें - सर्वर रहित होस्ट निष्पादन को रोक देते हैं। विहित एकीकरण कतार के लिए [Messaging](/docs/messaging) देखें।
+<Callout tone="warning">
+  प्रतिक्रिया देने के बाद अप्रतीक्षित वादों पर भरोसा न करें - सर्वर रहित होस्ट
+  निष्पादन को रोक देते हैं। विहित एकीकरण कतार के लिए
+  [Messaging](/docs/messaging) देखें।
+</Callout>
 
 ## उन्नत: एस्केप हैच {#advanced-escape-hatches}
 
@@ -455,3 +454,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## आगे क्या है
+
+- [**Actions**](/docs/actions) — डिफ़ॉल्ट ऑपरेशन सतह; कस्टम रूट का उपयोग तभी करें जब यह इसमें फिट न हो
+- [**Database**](/docs/database) — `getDb()`/`schema` पैटर्न जिसे कस्टम रूट और actions दोनों आयात करते हैं
+- [**Security**](/docs/security#access-guards) — `accessFilter`/`assertAccess` और पूरा डेटा-स्कोपिंग मॉडल
+- [**Messaging**](/docs/messaging) — इनबाउंड webhook के लिए मानक इंटीग्रेशन क्यू पैटर्न
+- [**MCP Protocol**](/docs/mcp-protocol) — `/_agent-native/mcp` endpoint जिसे यह सर्वर अपने आप माउंट करता है

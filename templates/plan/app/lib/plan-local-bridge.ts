@@ -46,6 +46,94 @@ type LocalPlanBridgeCommentUpdate = {
   deletedCommentIds?: string[];
 };
 
+export type LocalNetworkAccessPermissionState =
+  | "checking"
+  | "prompt"
+  | "granted"
+  | "denied"
+  | "unsupported";
+
+export class LocalPlanBridgePermissionError extends Error {
+  readonly permissionState: "prompt" | "denied";
+
+  constructor(permissionState: "prompt" | "denied") {
+    super(
+      permissionState === "denied"
+        ? "Local network access is blocked for this site. Open your browser's site settings for Plan, allow local network access, then retry."
+        : "Plan needs permission to connect to the local plan on this computer. Allow local network access in your browser, then retry.",
+    );
+    this.name = "LocalPlanBridgePermissionError";
+    this.permissionState = permissionState;
+  }
+}
+
+type LocalPlanBridgeSessionStorage = Pick<Storage, "getItem" | "setItem">;
+
+function browserSessionStorage(): LocalPlanBridgeSessionStorage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function localPlanBridgeUrlFromLocation(
+  hash: string,
+  slug: string,
+  storage: LocalPlanBridgeSessionStorage | null = browserSessionStorage(),
+): string | null {
+  const hashParams = hash.startsWith("#bridge=")
+    ? new URLSearchParams(hash.slice(1))
+    : null;
+  const bridgeUrl = hashParams?.get("bridge") ?? null;
+  const storageKey = `agent-native.local-plan-bridge.${slug}`;
+  try {
+    if (bridgeUrl) {
+      storage?.setItem(storageKey, bridgeUrl);
+      return bridgeUrl;
+    }
+    return storage?.getItem(storageKey) ?? null;
+  } catch {
+    return bridgeUrl;
+  }
+}
+
+export function planReturnPathFromLocation(location: {
+  pathname: string;
+  search: string;
+  hash: string;
+}): string {
+  const safeHash = location.hash.startsWith("#bridge=") ? "" : location.hash;
+  return `${location.pathname}${location.search}${safeHash}`;
+}
+
+export async function localNetworkAccessPermissionState(): Promise<
+  Exclude<LocalNetworkAccessPermissionState, "checking">
+> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return "unsupported";
+  }
+  try {
+    // Chrome 145 split this permission into local-network and
+    // loopback-network, but keeps the Chrome 142 alias working for queries.
+    const status = await navigator.permissions.query({
+      name: "local-network-access",
+    } as unknown as PermissionDescriptor);
+    if (
+      status.state === "granted" ||
+      status.state === "denied" ||
+      status.state === "prompt"
+    ) {
+      return status.state;
+    }
+  } catch {
+    // Browsers without Local Network Access expose Permissions but reject the
+    // Chrome-specific permission name. Fall through to the legacy fetch path.
+  }
+  return "unsupported";
+}
+
 function assertLocalBridgeUrl(value: string): string {
   let url: URL;
   try {
@@ -92,6 +180,7 @@ export function shouldRetryLocalPlanBridgeBundle(
   failureCount: number,
   error: unknown,
 ) {
+  if (error instanceof LocalPlanBridgePermissionError) return false;
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (
     message.includes("Local plan bridge URL") ||
@@ -105,6 +194,28 @@ export function shouldRetryLocalPlanBridgeBundle(
 
 export function localPlanBridgeRetryDelay(attemptIndex: number) {
   return Math.min(500 * 2 ** attemptIndex, 2_500);
+}
+
+export function shouldShowLocalPlanLoadError(input: {
+  localPlanMode: boolean;
+  hasBundle: boolean;
+  hasBridgeUrl: boolean;
+  bridgeFetchEnabled: boolean;
+  error: unknown;
+  loading: boolean;
+  fetching: boolean;
+  permissionState: LocalNetworkAccessPermissionState;
+}): boolean {
+  if (!input.localPlanMode || input.hasBundle) return false;
+  if (input.hasBridgeUrl && !input.bridgeFetchEnabled) return false;
+  if (
+    input.error instanceof LocalPlanBridgePermissionError &&
+    (input.permissionState === "granted" ||
+      input.permissionState === "unsupported")
+  ) {
+    return false;
+  }
+  return Boolean(input.error) || (!input.loading && !input.fetching);
 }
 
 /**
@@ -342,7 +453,16 @@ export async function fetchLocalPlanBridgeBundle(
   fallbackSlug: string,
 ): Promise<LocalPlanBundle> {
   const safeUrl = assertLocalBridgeUrl(bridgeUrl);
-  const response = await fetch(safeUrl, { cache: "no-store" });
+  let response: Response;
+  try {
+    response = await fetch(safeUrl, { cache: "no-store" });
+  } catch (error) {
+    const permissionState = await localNetworkAccessPermissionState();
+    if (permissionState === "prompt" || permissionState === "denied") {
+      throw new LocalPlanBridgePermissionError(permissionState);
+    }
+    throw error;
+  }
   const payload = (await response
     .json()
     .catch(() => null)) as LocalPlanBridgePayload | null;

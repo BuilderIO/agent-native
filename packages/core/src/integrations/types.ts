@@ -104,6 +104,13 @@ export interface IncomingMessage {
     targetAgent?: string;
     instruction: string;
   };
+  /**
+   * Trusted app-side note about the caller's identity/visibility tier, set
+   * after execution-context resolution (e.g. an anonymous org-scoped Slack
+   * member). Surfaced to the agent as integration context. Adapters must not
+   * copy this from user-controlled webhook payload fields.
+   */
+  identityNote?: string;
   /** Provider-native message/activity reference for contextual replies. */
   replyRef?: string;
   /** Message timestamp (epoch ms) */
@@ -181,12 +188,31 @@ export interface PlatformAdapterCapabilities {
 }
 
 export interface PlatformRunProgress {
+  /**
+   * Opaque, provider-owned reference for resuming this progress surface from a
+   * durable continuation. It deliberately contains no user content,
+   * credentials, or provider payload.
+   */
+  ref?: PlatformRunProgressRef;
   /** Receive normalized agent events. Implementations should throttle writes. */
   onEvent(event: AgentChatEvent): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
   complete(message: OutgoingMessage): Promise<void>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
   fail?(message: string): Promise<void>;
+}
+
+/**
+ * Safe, minimal reference to a provider-native run-progress surface.
+ *
+ * The field values are opaque to the framework. Adapters may use `kind` to
+ * distinguish their own resume strategy and `streamTs` to identify the
+ * provider-side stream. No incoming message text, platform payload, or
+ * credential belongs here.
+ */
+export interface PlatformRunProgressRef {
+  kind: string;
+  streamTs: string;
 }
 
 export interface ImmediateWebhookResponse {
@@ -256,6 +282,13 @@ export interface PlatformAdapter {
   hydrateIncomingMessage?(incoming: IncomingMessage): Promise<IncomingMessage>;
 
   /**
+   * Hydrate only verified sender identity before execution-context selection.
+   * This runs on the provider acknowledgement path and must avoid fetching
+   * conversation history or file bodies.
+   */
+  hydrateIncomingIdentity?(incoming: IncomingMessage): Promise<IncomingMessage>;
+
+  /**
    * Provider-specific response returned only after a message is verified and
    * durably enqueued. Discord uses this to return a type-5 deferred response
    * within its three-second interaction deadline.
@@ -286,6 +319,23 @@ export interface PlatformAdapter {
   ): Promise<void>;
 
   /**
+   * Send a short best-effort system notice to the conversation the incoming
+   * message arrived on (polite identity declines, one-time access guidance).
+   * Bypasses agent formatting. When `dedupeKey` is provided, the adapter may
+   * drop the notice if the same key was sent recently. Callers must treat
+   * failures as non-fatal.
+   */
+  sendSystemNotice?(
+    incoming: IncomingMessage,
+    text: string,
+    opts?: {
+      dedupeKey?: string;
+      /** Dedupe window for `dedupeKey`. Adapters pick a default when omitted. */
+      dedupeTtlMs?: number;
+    },
+  ): Promise<void>;
+
+  /**
    * Optionally post a "working on it…" placeholder message immediately when a
    * webhook arrives, before the agent loop runs. Adapters that support
    * in-place message edits (Slack via `chat.update`, etc.) return an opaque
@@ -302,6 +352,17 @@ export interface PlatformAdapter {
   /** Start a provider-native progress/streaming surface for an agent run. */
   startRunProgress?(
     incoming: IncomingMessage,
+  ): Promise<PlatformRunProgress | null>;
+
+  /**
+   * Reattach a durable continuation to a provider-native progress surface
+   * previously started by this adapter. Adapters that cannot resume a native
+   * surface should omit this and the continuation will use its normal reply
+   * path instead.
+   */
+  resumeRunProgress?(
+    incoming: IncomingMessage,
+    ref: PlatformRunProgressRef,
   ): Promise<PlatformRunProgress | null>;
 
   /**
@@ -378,6 +439,13 @@ export interface IntegrationsPluginOptions {
     incoming: IncomingMessage,
   ) => IntegrationExecutionContext | Promise<IntegrationExecutionContext>;
   /**
+   * Explicitly allow an unlinked, verified Slack workspace member to run a DM
+   * with the installation organization's shared/service visibility. Disabled
+   * by default: DM identity resolution fails closed unless an app deliberately
+   * accepts this wider access tier.
+   */
+  allowAnonymousOrgScopedSlackDm?: boolean;
+  /**
    * Optional preprocessor for inbound platform messages. Can intercept special
    * commands (such as `/link`) before the agent loop runs.
    */
@@ -399,4 +467,10 @@ export interface IntegrationExecutionContext {
   principalType: "user" | "service";
   installationId?: string;
   scopeId?: string;
+  /**
+   * True when a hydrated full workspace member could not be matched to an
+   * organization member and runs with the anonymous org-scoped service
+   * principal (org-wide visibility only, nothing user-private).
+   */
+  anonymousMember?: boolean;
 }

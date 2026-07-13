@@ -11,7 +11,7 @@ Actions son la única fuente de verdad para todo lo que hace su aplicación. Def
 - **Enganches React Typesafe**: `useActionQuery("name")` y `useActionMutation("name")` en la interfaz, tipos inferidos del esquema.
 - **Llamadas imperativas del cliente**: `callAction("name", params)` cuando un gancho no encaja.
 - **Transporte del marco**: montado automáticamente por el marco detrás de esos ganchos y disponible para clientes HTTP externos.
-- **Una herramienta MCP**: expuesta a aplicaciones Claude, ChatGPT personalizadas MCP, escritorio/código Claude, cursor, Codex y cualquier otro cliente MCP.
+- **Una herramienta MCP**: expuesta a aplicaciones Claude, ChatGPT personalizadas MCP, escritorio/código Claude, cursor, Codex y cualquier otro host MCP.
 - **Una herramienta A2A**: llamada por otras aplicaciones nativas del agente a través de A2A.
 - **Un comando CLI**: `pnpm action <name>` para secuencias de comandos y bucles de desarrollo.
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-Mantener `link` como respaldo para clientes CLI y MCP que no sean UI; también es el objetivo de lanzamiento del inserto. El puente de inserción (la sesión de inicio de inserción firmada, el trasplante frente a la renderización de marco controlado, el puente de host `ui/*`, CSP y la fijación de altura) es propiedad de [External Agents](/docs/external-agents#mcp-app-bridge).
+Mantener `link` como respaldo para la CLI y los hosts MCP sin interfaz de usuario; también es el objetivo de lanzamiento del inserto. El puente de inserción (la sesión de inicio de inserción firmada, el trasplante frente a la renderización de marco controlado, el puente de host `ui/*`, CSP y la fijación de altura) es propiedad de [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Estándar actions {#standard-actions}
 

@@ -395,7 +395,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("// Item 9 — agent→UI breakpoint sync"),
     );
     expect(handler).toContain("setActiveBreakpointWidthState(widthPx)");
-    expect(handler).toContain("setActiveBreakpointMutation");
+    expect(handler).toContain("persistActiveBreakpoint");
+  });
+
+  it("keeps a newer local responsive target ahead of an older app-state echo", () => {
+    const persistence = source.slice(
+      source.indexOf("const persistActiveBreakpoint"),
+      source.indexOf('// §6.4 — "show all breakpoints" toggle'),
+    );
+    expect(persistence).toContain(
+      "activeBreakpointWriteQueueRef.current?.enqueue",
+    );
+
+    const sync = source.slice(
+      source.indexOf("// Item 9 — agent→UI breakpoint sync"),
+      source.indexOf("// Agent→UI: open the write-consent dialog"),
+    );
+    expect(
+      sync.match(/activeBreakpointWriteQueueRef\.current\?\.hasPending\(\)/g),
+    ).toHaveLength(2);
   });
 
   it("BP-DEEP item 5: every overview click-to-target path returns the edit scope to Base", () => {
@@ -546,7 +564,32 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleOverviewEditBreakpoint"),
       source.indexOf("// Hooks must not be called conditionally"),
     );
-    expect(editor).toContain("enterSingleScreen(screenId)");
+    expect(editor).toContain("handleOverviewFrameAction(screenId)");
+  });
+
+  it("keeps overview visible when entering Interact and uses the frame action for Full view", () => {
+    const modeHandler = source.slice(
+      source.indexOf("const handleModeChange = useCallback"),
+      source.indexOf("const handleOverviewFrameAction = useCallback"),
+    );
+    expect(modeHandler).not.toContain('setViewMode("single")');
+    expect(source).toContain('interactMode={mode === "interact"}');
+    expect(source).toContain(
+      'currentMode === "interact" ? "interact" : "edit"',
+    );
+
+    const frameActionStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback",
+    );
+    const frameAction = source.slice(
+      frameActionStart,
+      source.indexOf("  useEffect(() => {", frameActionStart),
+    );
+    expect(frameAction).toContain('if (mode === "interact")');
+    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
+    expect(frameAction).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

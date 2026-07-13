@@ -178,6 +178,16 @@ const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // accurate if any of the four numbers change.
 export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
 
+// A re-observed terminal run whose outcome would be an ERROR (never a
+// genuine "done" success) gets a short extra grace window before the follow
+// loop surfaces it: the server's dead-run recovery can reap a lost
+// background run and insert a claimable successor a beat after the client
+// first sees the stale terminal row. Deliberately much shorter than
+// BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS — this exists to absorb that narrow
+// insert-latency race, not to mask a genuinely lost run behind a long hang
+// before the user sees an error.
+const BACKGROUND_TERMINAL_ERROR_GRACE_POLLS = 5;
+
 /**
  * User-facing copy for the server's background terminal reasons
  * (`agent_runs.terminal_reason`, surfaced by /runs/active). These runs died in
@@ -199,6 +209,50 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
+
+/**
+ * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
+ * of the turn — `markBackgroundContinuationChunkTerminal` (production-agent.ts)
+ * writes status "completed" with one of these bare reasons whenever a
+ * background chunk ends at a continuation boundary (mirrors
+ * `AgentLoopContinuationReason` there). A run in this state is expected to be
+ * replaced by a server-chained successor row; it must never be read as "the
+ * turn is done" just because its own row says `status: "completed"`.
+ */
+const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
+  "run_timeout",
+  "loop_limit",
+  "max_tokens",
+  "stream_ended",
+  "gateway_timeout",
+  "network_interrupted",
+  "no_progress",
+]);
+
+/**
+ * True when the given `/runs/active` snapshot, if surfaced as a background
+ * terminal outcome right now, would render as an error rather than a
+ * successful completion. Mirrors `emitBackgroundTerminalOutcome`'s own
+ * mappedMessage/hasErrorTerminalReason/status branching (kept in sync with
+ * it) so callers can decide whether an error-surfacing grace window applies
+ * BEFORE actually emitting anything.
+ */
+function isBackgroundTerminalErrorOutcome(
+  lastKnown: Record<string, unknown> | null,
+): boolean {
+  const status = typeof lastKnown?.status === "string" ? lastKnown.status : "";
+  const rawTerminalReason =
+    typeof lastKnown?.terminalReason === "string"
+      ? lastKnown.terminalReason
+      : "";
+  const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
+  const terminalReason = rawTerminalReason.replace(/^error:/, "");
+  const mappedMessage = terminalReason
+    ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+    : undefined;
+  if (mappedMessage || hasErrorTerminalReason) return true;
+  return status !== "completed";
+}
 
 function normalizeMentions(text: string): string {
   return text.replace(/@\[([^\]|]+)\|[^\]]+\]/g, "@$1");
@@ -1069,15 +1123,15 @@ function autoContinueMessage(signal: AgentAutoContinueSignal): string {
 function delay(ms: number, abortSignal: AbortSignal): Promise<void> {
   if (abortSignal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    abortSignal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      abortSignal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    abortSignal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -2387,6 +2441,52 @@ export function createAgentChatAdapter(
           };
           dispatchResumingUiEvent();
 
+          // Before surfacing a background terminal ERROR (never called for a
+          // genuine "done" success — see call site), give the server's
+          // reap-and-recover path a short extra window to insert a claimable
+          // successor row for this turn. Returns as soon as `/runs/active`
+          // reports a DIFFERENT runId than the stale one, so the caller can
+          // hand back to the main loop and follow it seamlessly instead of
+          // erroring out from under it.
+          const awaitBackgroundErrorRecoverySuccessor = async (
+            staleRunId: string,
+          ): Promise<"successor" | "timeout" | "aborted"> => {
+            for (
+              let attempt = 0;
+              attempt < BACKGROUND_TERMINAL_ERROR_GRACE_POLLS;
+              attempt++
+            ) {
+              if (abortSignal.aborted) return "aborted";
+              dispatchResumingUiEvent();
+              await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
+              if (abortSignal.aborted) return "aborted";
+              let recheck: Record<string, unknown> | null = null;
+              try {
+                const activeRes = await fetch(
+                  `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId!)}`,
+                  { signal: abortSignal },
+                );
+                if (activeRes.ok) {
+                  recheck = await activeRes.json().catch(() => null);
+                }
+              } catch (pollErr: unknown) {
+                if (pollErr instanceof Error && pollErr.name === "AbortError") {
+                  return "aborted";
+                }
+                // Transient poll failure — this attempt counts as "no
+                // successor yet", not a hard failure of the grace window.
+              }
+              const recheckRunId =
+                recheck?.active === true && recheck.runId
+                  ? String(recheck.runId)
+                  : null;
+              if (recheckRunId && recheckRunId !== staleRunId) {
+                return "successor";
+              }
+            }
+            return "timeout";
+          };
+
           let idleSince: number | null = null;
           let lastSeenActive: Record<string, unknown> | null = null;
           // Terminal runs already replayed once. A recoverable terminal error
@@ -2394,7 +2494,10 @@ export function createAgentChatAdapter(
           // which used to re-drive a POST in foreground mode. In follow mode
           // the server owns recovery, so a SECOND visit to the same terminal
           // run means the turn is over — surface the outcome instead of
-          // re-replaying it every poll for the whole reconnect window.
+          // re-replaying it every poll for the whole reconnect window. (A
+          // CONTINUATION-class terminal_reason is the one exception: see the
+          // isContinuationChunkBoundary check below, which keeps polling
+          // instead of surfacing anything.)
           const replayedTerminalRunIds = new Set<string>();
 
           while (true) {
@@ -2458,6 +2561,64 @@ export function createAgentChatAdapter(
                     return "client_continue";
                   }
                 }
+                const rawTerminalReason =
+                  typeof active?.terminalReason === "string"
+                    ? active.terminalReason
+                    : "";
+                const bareTerminalReason = rawTerminalReason.replace(
+                  /^error:/,
+                  "",
+                );
+                // A re-observed "completed" row with a CONTINUATION-class
+                // reason (run_timeout/no_progress/loop_limit/…) is a MID-TURN
+                // chunk boundary, not the end of the turn — a warm instance
+                // can keep serving this stale row for a beat before the
+                // pre-inserted successor becomes visible. Emitting a terminal
+                // outcome here is exactly the bug this branch exists to
+                // avoid: it would flip the message to "done" while the
+                // successor's content is still coming. Keep polling on the
+                // shared idle budget instead; a truly stuck handoff still
+                // fails loud (never a silent stop) once it expires.
+                const isContinuationChunkBoundary =
+                  activeStatus === "completed" &&
+                  !rawTerminalReason.startsWith("error:") &&
+                  !BACKGROUND_TERMINAL_REASON_MESSAGES[bareTerminalReason] &&
+                  BACKGROUND_CONTINUATION_TERMINAL_REASONS.has(
+                    bareTerminalReason,
+                  );
+                if (isContinuationChunkBoundary) {
+                  if (idleSince === null) idleSince = Date.now();
+                  if (
+                    Date.now() - idleSince >=
+                    BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
+                  ) {
+                    yield* emitBackgroundTerminalError({
+                      message:
+                        "The agent's background run stopped between chunks and no continuation appeared. You can retry from the preserved chat context.",
+                      errorCode: "background_run_lost",
+                      details: `terminal_reason: ${rawTerminalReason}`,
+                    });
+                    return "completed";
+                  }
+                  dispatchResumingUiEvent();
+                  await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
+                  continue;
+                }
+                if (isBackgroundTerminalErrorOutcome(active)) {
+                  const graceOutcome =
+                    await awaitBackgroundErrorRecoverySuccessor(activeRunId);
+                  if (graceOutcome === "aborted") {
+                    clearActiveRun();
+                    return "completed";
+                  }
+                  if (graceOutcome === "successor") {
+                    // A successor claimed the turn while we waited — hand
+                    // back to the top of the loop so it attaches and follows
+                    // it exactly like any other newly-discovered run instead
+                    // of duplicating that bookkeeping here.
+                    continue;
+                  }
+                }
                 yield* emitBackgroundTerminalOutcome(active);
                 return "completed";
               }
@@ -2513,6 +2674,13 @@ export function createAgentChatAdapter(
               }
               dispatchResumingUiEvent();
             } else {
+              // No active run visible for this turn yet (the gap between a
+              // chunk ending and the successor becoming pollable). Refresh
+              // the "Resuming…" bridge on every tick here too — not just
+              // when an active run IS visible — so the client's own
+              // isAutoResuming window can't lapse into a false-idle UI while
+              // this loop is still confidently waiting out its own budget.
+              dispatchResumingUiEvent();
               if (idleSince === null) idleSince = Date.now();
               if (Date.now() - idleSince >= BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS) {
                 captureChatClientError(

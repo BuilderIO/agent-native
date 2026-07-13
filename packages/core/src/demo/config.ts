@@ -1,12 +1,12 @@
 /**
  * Demo mode gate.
  *
- * Demo mode replaces contact/free-text names, email addresses, and numbers in every action
- * result with deterministic fake data — for both the UI and what the agent
- * sees — while preserving labels, IDs, dates, URLs, and structure so the app
- * keeps working. The redaction WALK (see ./redact.ts) is expensive on large
- * payloads, so callers MUST gate it behind this function and only walk when it
- * returns true.
+ * Demo mode replaces every email address with `anonymous@builder.io` and
+ * anonymizes numbers in every action result — for both the UI and what the
+ * agent sees — while preserving names, free text, labels, IDs, dates, URLs,
+ * and structure so the app keeps working. The redaction WALK (see ./redact.ts)
+ * is expensive on large payloads, so callers MUST gate it behind this function
+ * and only walk when it returns true.
  *
  * This gate itself is intentionally cheap:
  *   - An env-forced deployment (a hosted demo site) short-circuits with zero

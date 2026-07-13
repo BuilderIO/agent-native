@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -234,6 +237,8 @@ Session replay प्रत्येक ब्राउज़र session के 
 - संवेदनशील ज़ोन को `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, और क्रेडिट-कार्ड/पासवर्ड/SSN-जैसे फ़ील्ड्स जैसे सेलेक्टर्स के साथ ब्लॉक किया जाता है।
 - URLs को ब्राउज़र एनालिटिक्स द्वारा उपयोग किए जाने वाले समान `scrubUrl()` हेल्पर के साथ स्क्रब किया जाता है।
 - Replay capture केवल-वेब और ऑप्ट-इन है; यह नेटिव डेस्कटॉप स्क्रीन को रिकॉर्ड नहीं करता।
+
+Framework के स्वामित्व वाले iframes, जिनमें extensions और render किया गया email content शामिल है, replay capture में शामिल किए जाते हैं। रिकॉर्ड किए गए frames के अंदर भी वही masking और blocking selectors लागू होते हैं। कोई third-party cross-origin iframe तब तक opaque रहता है जब तक उसका अपना document cross-origin iframe recording सक्षम किए हुए compatible rrweb recorder को न चलाए; parent page ब्राउज़र की origin boundaries को bypass नहीं कर सकता।
 
 रिकॉर्डिंग के दौरान, session replay ब्राउज़र कंसोल आउटपुट (`log`, `info`, `warn`, `error`, `debug`, साथ ही window `error` / `unhandledrejection`) और नेटवर्क रिक्वेस्ट मेटाडेटा (`fetch` और XHR) को टैग किए गए rrweb कस्टम इवेंट्स के रूप में भी कैप्चर करता है, ताकि एजेंट और replay viewer उपयोगकर्ता-रिपोर्ट की गई समस्याओं को डीबग कर सकें। जब replay सक्षम होता है तो capture डिफ़ॉल्ट रूप से चालू होता है; इसे `sessionReplay.console` और `sessionReplay.network` विकल्पों के साथ ट्यून या अक्षम करें, प्रत्येक एक बूलियन या एक विकल्प ऑब्जेक्ट स्वीकार करता है (`{ maxEvents?: number }`, जिसमें `network` अतिरिक्त रूप से `captureErrorBodies` और `maxErrorBodyLength` भी स्वीकार करता है)। Request bodies और headers कभी कैप्चर नहीं किए जाते; response bodies केवल 5xx (सर्वर एरर) रिस्पॉन्स के लिए एक बाउंडेड, रिडैक्टेड स्निपेट के रूप में कैप्चर किए जाते हैं (`captureErrorBodies`, डिफ़ॉल्ट true, `maxErrorBodyLength` वर्णों तक सीमित, डिफ़ॉल्ट 2048) — non-5xx और नेटवर्क-फेलियर (status 0) रिस्पॉन्स में कभी कोई body नहीं होती। URLs स्क्रब किए जाते हैं, संदेश छोटे किए जाते हैं, रिकॉर्डर का अपना ingest/tracking ट्रैफ़िक बाहर रखा जाता है, और प्रति-session बजट (1000 console / 2000 network events) से अधिक होने पर एक truncation नोटिस जोड़ते हैं।
 
@@ -349,5 +354,5 @@ interface TrackingEvent {
 ## आगे क्या है
 
 - [**Actions**](/docs/actions) - जहां अधिकांश ट्रैकिंग कॉल शुरू होती हैं
-- [**Server Plugins**](/docs/server) - `registerBuiltinProviders()` स्टार्टअप पर कोर-रूट्स प्लगइन में चलता है
-- [**Secrets**](/docs/security) - ट्रैकिंग प्रदाताओं के लिए API कुंजी प्रबंधित करें
+- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` स्टार्टअप पर कोर-रूट्स प्लगइन में चलता है
+- [**सुरक्षा — सीक्रेट प्रबंधन**](/docs/security#secrets) - ट्रैकिंग प्रदाताओं के लिए API कुंजी प्रबंधित करें

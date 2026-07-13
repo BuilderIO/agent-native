@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -233,9 +236,11 @@ Les paramètres de confidentialité par défaut sont volontairement prudents tou
 - Le texte de la page reste visible sauf si un élément est marqué avec `.an-mask` ou `data-an-mask`.
 - Les zones sensibles sont bloquées avec des sélecteurs tels que `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, ainsi que les champs de type carte bancaire/mot de passe/numéro de sécurité sociale.
 - Les URL sont nettoyées avec le même assistant `scrubUrl()` utilisé par les analyses du navigateur.
-- La capture de relecture est réservée au web et opt-in ; elle n'enregistre pas les écrans natifs du bureau.
+- La capture de relecture est réservée au web et opt-in ; elle n'enregistre pas les écrans natifs du bureau.
 
-Pendant l'enregistrement, la relecture de session capture également la sortie de la console du navigateur (`log`, `info`, `warn`, `error`, `debug`, ainsi que les événements globaux `error` / `unhandledrejection`) et les métadonnées des requêtes réseau (`fetch` et XHR) sous forme d'événements personnalisés rrweb balisés, afin que les agents et la visionneuse de relecture puissent déboguer les problèmes signalés par les utilisateurs. La capture est activée par défaut lorsque la relecture est activée ; ajustez-la ou désactivez-la avec les options `sessionReplay.console` et `sessionReplay.network`, chacune acceptant un booléen ou un objet d'options (`{ maxEvents?: number }`, `network` acceptant en plus `captureErrorBodies` et `maxErrorBodyLength`). Les corps et en-têtes des requêtes ne sont jamais capturés ; les corps des réponses ne sont capturés que sous forme d'extrait borné et expurgé pour les réponses 5xx (erreur serveur) (`captureErrorBodies`, activé par défaut, plafonné à `maxErrorBodyLength` caractères, 2048 par défaut) — les réponses hors 5xx et les échecs réseau ne comportent jamais de corps. Les URL sont nettoyées, les messages sont tronqués, le trafic d'ingestion/de suivi propre à l'enregistreur est exclu, et des budgets par session (1000 événements console / 2000 événements réseau) ajoutent une notice de troncature en cas de dépassement.
+Les iframes gérées par le framework, notamment les extensions et le contenu d'e-mail rendu, sont incluses dans la capture de relecture. Les mêmes sélecteurs de masquage et de blocage s'appliquent dans les frames enregistrées. Une iframe tierce d'origine différente reste opaque, sauf si son propre document exécute un enregistreur rrweb compatible avec l'enregistrement des iframes inter-origines activé ; la page parente ne peut pas contourner les limites d'origine imposées par le navigateur.
+
+Pendant l'enregistrement, la relecture de session capture également la sortie de la console du navigateur (`log`, `info`, `warn`, `error`, `debug`, ainsi que les événements globaux `error` / `unhandledrejection`) et les métadonnées des requêtes réseau (`fetch` et XHR) sous forme d'événements personnalisés rrweb balisés, afin que les agents et la visionneuse de relecture puissent déboguer les problèmes signalés par les utilisateurs. La capture est activée par défaut lorsque la relecture est activée ; ajustez-la ou désactivez-la avec les options `sessionReplay.console` et `sessionReplay.network`, chacune acceptant un booléen ou un objet d'options (`{ maxEvents?: number }`, `network` acceptant en plus `captureErrorBodies` et `maxErrorBodyLength`). Les corps et en-têtes des requêtes ne sont jamais capturés ; les corps des réponses ne sont capturés que sous forme d'extrait borné et expurgé pour les réponses 5xx (erreur serveur) (`captureErrorBodies`, activé par défaut, plafonné à `maxErrorBodyLength` caractères, 2048 par défaut) — les réponses hors 5xx et les échecs réseau ne comportent jamais de corps. Les URL sont nettoyées, les messages sont tronqués, le trafic d'ingestion/de suivi propre à l'enregistreur est exclu, et des budgets par session (1000 événements console / 2000 événements réseau) ajoutent une notice de troncature en cas de dépassement.
 
 Le modèle Analytics stocke les métadonnées de relecture en SQL (`session_recordings`) et stocke les blocs via des références blob privées (`session_replay_chunks`). Les navigateurs et les agents ne reçoivent jamais les URL du fournisseur. La lecture passe par des routes serveur à portée limitée, et les outils d'agent par défaut renvoient des résumés ou des événements de relecture bornés, et non un accès brut à la table des blocs.
 
@@ -349,5 +354,5 @@ Le framework suit également `builder connect clicked` à partir des CTA Connect
 ## Quelle est la prochaine étape
 
 - [**Actions**](/docs/actions) – d'où proviennent la plupart des appels de suivi
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` s'exécute dans le plugin core-routes au démarrage
-- [**Secrets**](/docs/security) : gérer les clés API pour les fournisseurs de suivi
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` s'exécute dans le plugin core-routes au démarrage
+- [**Sécurité — Gestion des secrets**](/docs/security#secrets) : gérer les clés API pour les fournisseurs de suivi

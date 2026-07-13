@@ -1,0 +1,18 @@
+name: Restore dist + tsBuildInfo cache
+description: >-
+  Restore the shared packages/*/dist and tsbuildinfo cache keyed on package
+  source + lockfile hash. Wraps the actions/cache step duplicated across CI
+  jobs so the cache key/paths only need to change in one place. Requires
+  actions/checkout to have already run (cache paths are repo-relative).
+
+runs:
+  using: composite
+  steps:
+    - name: Restore dist + tsBuildInfo cache
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: |
+          packages/*/dist
+          packages/*/node_modules/.cache/tsbuildinfo
+        key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
+        restore-keys: dist-

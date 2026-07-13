@@ -59,7 +59,16 @@ vi.mock("@agent-native/core/integrations", () => ({
       documentation: { href: "/docs/messaging#slack" },
       setup: { steps: ["Create a Slack app."] },
       credentialRequirements: [
-        { key: "SLACK_BOT_TOKEN", label: "Slack Bot Token", required: true },
+        {
+          key: "SLACK_BOT_TOKEN",
+          label: "Slack Bot Token (legacy)",
+          required: false,
+        },
+        {
+          key: "SLACK_CLIENT_ID",
+          label: "Slack OAuth Client ID",
+          required: true,
+        },
       ],
     },
     {
@@ -142,6 +151,7 @@ describe("MessagingSetupPanel", () => {
     expect(container.textContent).toContain(
       "Save the required Slack app credentials below",
     );
+    expect(container.textContent).toContain("Slack Bot Token (legacy)");
   });
 
   it("shows connected and alternative credential states", async () => {
@@ -152,6 +162,12 @@ describe("MessagingSetupPanel", () => {
       {
         key: "SLACK_BOT_TOKEN",
         label: "Slack Bot Token",
+        required: true,
+        configured: true,
+      },
+      {
+        key: "SLACK_CLIENT_ID",
+        label: "Slack OAuth Client ID",
         required: true,
         configured: true,
       },

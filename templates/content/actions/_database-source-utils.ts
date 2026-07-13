@@ -76,6 +76,12 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import {
+  databaseItemsPositionScope,
+  documentsPositionScope,
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
 import { isEffectivelyEmptyDocumentContent } from "./update-document.js";
 
@@ -189,7 +195,12 @@ function normalizeWriteOwner(
 function normalizeSourceType(
   value: string | null | undefined,
 ): ContentDatabaseSourceType {
-  if (value === "builder-cms" || value === "local-table") return value;
+  if (
+    value === "builder-cms" ||
+    value === "local-table" ||
+    value === "notion-database"
+  )
+    return value;
   return "mock-local";
 }
 
@@ -279,6 +290,7 @@ function sourceMetadataLabel(
 ) {
   if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
+  if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
 
@@ -3102,6 +3114,20 @@ export function serializeSourceMetadataRecord(args: {
         args.builderModelFields ?? existingMetadata?.builderModelFields,
     });
   }
+  if (args.sourceType === "notion-database") {
+    return JSON.stringify({
+      primaryKey: "id",
+      titleField: "title",
+      naturalKeyField: null,
+      pushMode: "none",
+      pushModeLabel: "Read only",
+      pushModeDescription:
+        "Notion database sources are read-only in this pilot.",
+      notes:
+        "Notion values are refreshed through the current user's OAuth connection; write-back is disabled.",
+      label: sourceMetadataLabel(args.sourceType, args.sourceTable),
+    });
+  }
   return JSON.stringify({
     primaryKey: "id",
     titleField: "title",
@@ -3176,6 +3202,21 @@ export function sourceCapabilitiesForType(
       canPull: true,
       canPublish: true,
       canStageLocalRevision: true,
+      liveWritesEnabled: false,
+      readOnlyRefresh: true,
+    });
+  }
+  if (sourceType === "notion-database") {
+    return serializeSourceCapabilitiesRecord({
+      canRefresh: true,
+      canCreateChangeSets: false,
+      canWriteFields: false,
+      canWriteBody: false,
+      canPush: false,
+      canPull: true,
+      canPublish: false,
+      canDelete: false,
+      canStageLocalRevision: false,
       liveWritesEnabled: false,
       readOnlyRefresh: true,
     });
@@ -4168,82 +4209,106 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   const existingTitles = new Set(
     currentItems.map((row) => row.document.title.trim().toLowerCase()),
   );
-  const [maxDocPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, args.database.ownerEmail),
-        eq(schema.documents.parentId, args.database.documentId),
+
+  // Reads MAX(position) for both `documents` and `content_database_items`
+  // then batch-inserts at MAX+1.. — serialize the whole read-through-write
+  // span per scope so a concurrent import/add/move targeting the same parent
+  // document or the same database can't read the same MAX (see
+  // _position-utils.ts).
+  return withPositionLock(
+    documentsPositionScope(args.database.ownerEmail, args.database.documentId),
+    () =>
+      withPositionLock(
+        databaseItemsPositionScope(args.database.id),
+        async () => {
+          const [maxDocPos] = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
+            .where(
+              and(
+                eq(schema.documents.ownerEmail, args.database.ownerEmail),
+                eq(schema.documents.parentId, args.database.documentId),
+              ),
+            );
+          const [maxItemPos] = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.contentDatabaseItems)
+            .where(
+              eq(schema.contentDatabaseItems.databaseId, args.database.id),
+            );
+
+          let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
+          let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
+          const documentRows: (typeof schema.documents.$inferInsert)[] = [];
+          const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
+            [];
+
+          for (const entry of args.entries) {
+            if (
+              builderCmsEntryAlreadyRepresented({
+                entry,
+                sourceTable: args.sourceTable,
+                existingSourceRows: args.existingSourceRows ?? [],
+              })
+            ) {
+              continue;
+            }
+
+            const title = entry.title.trim() || entry.id;
+            const titleKey = title.toLowerCase();
+            if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
+            existingTitles.add(titleKey);
+
+            const documentId = nanoid();
+            const itemId = nanoid();
+            documentRows.push({
+              id: documentId,
+              ownerEmail: args.database.ownerEmail,
+              orgId: args.database.orgId,
+              parentId: args.database.documentId,
+              title,
+              content: "",
+              icon: null,
+              position: nextDocPosition++,
+              isFavorite: 0,
+              hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
+              visibility: databaseDocument?.visibility ?? "private",
+              createdAt: args.now,
+              updatedAt: args.now,
+            });
+            itemRows.push({
+              id: itemId,
+              ownerEmail: args.database.ownerEmail,
+              orgId: args.database.orgId,
+              databaseId: args.database.id,
+              documentId,
+              position: nextItemPosition++,
+              bodyHydrationStatus: "pending",
+              bodyHydrationError: null,
+              createdAt: args.now,
+              updatedAt: args.now,
+            });
+            importedEntriesByDocumentId.set(documentId, entry);
+          }
+          await db.transaction(async (tx) => {
+            for (const chunk of chunks(
+              documentRows,
+              bulkChunkSizeForColumnCount(13),
+            )) {
+              await tx.insert(schema.documents).values(chunk);
+            }
+            for (const chunk of chunks(
+              itemRows,
+              bulkChunkSizeForColumnCount(10),
+            )) {
+              await tx.insert(schema.contentDatabaseItems).values(chunk);
+            }
+          });
+
+          return { imported: itemRows.length, importedEntriesByDocumentId };
+        },
       ),
-    );
-  const [maxItemPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
-
-  let nextDocPosition = (maxDocPos?.max ?? -1) + 1;
-  let nextItemPosition = (maxItemPos?.max ?? -1) + 1;
-  const documentRows: (typeof schema.documents.$inferInsert)[] = [];
-  const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] = [];
-
-  for (const entry of args.entries) {
-    if (
-      builderCmsEntryAlreadyRepresented({
-        entry,
-        sourceTable: args.sourceTable,
-        existingSourceRows: args.existingSourceRows ?? [],
-      })
-    ) {
-      continue;
-    }
-
-    const title = entry.title.trim() || entry.id;
-    const titleKey = title.toLowerCase();
-    if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
-    existingTitles.add(titleKey);
-
-    const documentId = nanoid();
-    const itemId = nanoid();
-    documentRows.push({
-      id: documentId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      parentId: args.database.documentId,
-      title,
-      content: "",
-      icon: null,
-      position: nextDocPosition++,
-      isFavorite: 0,
-      hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
-      visibility: databaseDocument?.visibility ?? "private",
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    itemRows.push({
-      id: itemId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      databaseId: args.database.id,
-      documentId,
-      position: nextItemPosition++,
-      bodyHydrationStatus: "pending",
-      bodyHydrationError: null,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
-    importedEntriesByDocumentId.set(documentId, entry);
-  }
-  await db.transaction(async (tx) => {
-    for (const chunk of chunks(documentRows, bulkChunkSizeForColumnCount(13))) {
-      await tx.insert(schema.documents).values(chunk);
-    }
-    for (const chunk of chunks(itemRows, bulkChunkSizeForColumnCount(10))) {
-      await tx.insert(schema.contentDatabaseItems).values(chunk);
-    }
-  });
-
-  return { imported: itemRows.length, importedEntriesByDocumentId };
+  );
 }
 
 export async function resyncBuilderCmsSourceSnapshot(args: {
@@ -4825,7 +4890,10 @@ export async function storeSecondarySourceRows(args: {
       sourceDisplayKey:
         entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
       sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
-      provenance: "secondary source row",
+      provenance:
+        args.sourceType === "notion-database"
+          ? "Notion database read adapter"
+          : "secondary source row",
       syncState: "linked" as const,
       freshness: "fresh" as const,
       lastSyncedAt: args.now,
@@ -4844,6 +4912,7 @@ export async function storeSecondarySourceRows(args: {
 export async function seedSecondarySourceFields(args: {
   sourceId: string;
   ownerEmail: string;
+  sourceType?: ContentDatabaseSourceType;
   modelFields: BuilderCmsModelFieldSummary[];
   sampleEntry?: BuilderCmsSourceEntry;
   now: string;
@@ -4909,7 +4978,10 @@ export async function seedSecondarySourceFields(args: {
         mappingType: "property" as const,
         writeOwner: "source" as const,
         readOnly: 1,
-        provenance: "secondary source field",
+        provenance:
+          args.sourceType === "notion-database"
+            ? "Notion database read adapter"
+            : "secondary source field",
         freshness: "fresh" as const,
         lastSyncedAt: args.now,
         createdAt: existing?.createdAt ?? args.now,
@@ -5003,6 +5075,39 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
         args.readState === "error" || args.suspiciousEmpty
           ? args.message
           : null,
+      updatedAt: args.now,
+    })
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+}
+
+export async function updateReadOnlySourceMetadata(args: {
+  sourceId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  fetchedAt: string;
+  now: string;
+  message: string | null;
+  metadata?: Record<string, unknown>;
+  syncState?: ContentDatabaseSourceSyncState;
+}) {
+  const db = getDb();
+  const [current] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+    .limit(1);
+  const existing =
+    parseObject<Record<string, unknown>>(current?.metadataJson) ?? {};
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({
+      syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
+      freshness: args.message ? "stale" : "fresh",
+      capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+      metadataJson: JSON.stringify({ ...existing, ...(args.metadata ?? {}) }),
+      lastRefreshedAt: args.now,
+      lastSourceUpdatedAt: args.fetchedAt,
+      lastError: null,
       updatedAt: args.now,
     })
     .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -5154,26 +5259,31 @@ export async function ensureDatabaseSourceProperty(args: {
       .set({ optionsJson, updatedAt: args.now })
       .where(eq(schema.documentPropertyDefinitions.id, existing.id));
   } else {
-    const [maxPos] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
-      );
     propertyId = crypto.randomUUID();
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
-      ownerEmail: args.database.ownerEmail,
-      orgId: args.database.orgId,
-      databaseId: args.database.id,
-      name: SOURCE_PROPERTY_NAME,
-      type: "select",
-      visibility: "always_show",
-      optionsJson,
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: args.now,
-      updatedAt: args.now,
-    });
+    await withPositionLock(
+      propertyDefinitionsPositionScope(args.database.id),
+      async () => {
+        const [maxPos] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+          );
+        await db.insert(schema.documentPropertyDefinitions).values({
+          id: propertyId,
+          ownerEmail: args.database.ownerEmail,
+          orgId: args.database.orgId,
+          databaseId: args.database.id,
+          name: SOURCE_PROPERTY_NAME,
+          type: "select",
+          visibility: "always_show",
+          optionsJson,
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: args.now,
+          updatedAt: args.now,
+        });
+      },
+    );
   }
 
   // A row's Source value IS its owning source id (= the option id); unsourced

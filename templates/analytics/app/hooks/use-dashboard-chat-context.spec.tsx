@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
+  SIDEBAR_STATE_CHANGE_EVENT: "agent-panel:state-change",
   agentContextItems: [] as Array<{
     key: string;
     title: string;
@@ -44,18 +45,44 @@ function PanelHarness() {
     title: "Revenue",
   });
   return (
-    <button
-      data-selected={selectedPanelId === "panel-1" ? "true" : "false"}
-      onClick={() =>
-        selectPanelForChat({
-          panelId: "panel-1",
-          panelTitle: "ARR by month",
-          panelKind: "chart",
-          chartType: "line",
-          source: "bigquery",
-        })
-      }
-    />
+    <>
+      <button
+        data-action="passive-select"
+        data-selected={selectedPanelId === "panel-1" ? "true" : "false"}
+        onClick={() =>
+          selectPanelForChat({
+            panelId: "panel-1",
+            panelTitle: "ARR by month",
+            panelKind: "chart",
+            chartType: "line",
+            source: "bigquery",
+          })
+        }
+      />
+      <button
+        data-action="open-chat"
+        onClick={() =>
+          selectPanelForChat(
+            {
+              panelId: "panel-1",
+              panelTitle: "ARR by month",
+              panelKind: "chart",
+              chartType: "line",
+              source: "bigquery",
+            },
+            { openSidebar: true, focus: true },
+          )
+        }
+      />
+    </>
+  );
+}
+
+function setSidebarOpen(open: boolean) {
+  window.dispatchEvent(
+    new CustomEvent(clientMocks.SIDEBAR_STATE_CHANGE_EVENT, {
+      detail: { open, source: "app", mode: "app" },
+    }),
   );
 }
 
@@ -158,8 +185,11 @@ describe("useDashboardChatContext", () => {
     await act(async () => {
       root.render(<PanelHarness />);
     });
+    await act(async () => setSidebarOpen(true));
 
-    const button = container.querySelector("button");
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="passive-select"]',
+    );
     await act(async () => {
       button?.click();
     });
@@ -169,7 +199,7 @@ describe("useDashboardChatContext", () => {
         key: "analytics-selected-dashboard-panel",
         title: "ARR by month",
         context: expect.stringContaining("Panel id: panel-1"),
-        openSidebar: true,
+        openSidebar: false,
         focus: false,
       }),
     );
@@ -182,6 +212,47 @@ describe("useDashboardChatContext", () => {
         panelKind: "chart",
       }),
       expect.objectContaining({ requestSource: TAB_ID }),
+    );
+  });
+
+  it("ignores passive chart selection while chat is closed", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="passive-select"]',
+    );
+    await act(async () => button?.click());
+
+    expect(clientMocks.setAgentChatContextItem).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "analytics-selected-dashboard-panel",
+      }),
+    );
+    expect(clientMocks.setClientAppState).not.toHaveBeenCalledWith(
+      "selected-object",
+      expect.objectContaining({ type: "dashboard-panel" }),
+      expect.anything(),
+    );
+  });
+
+  it("lets the explicit chat action open chat and stage the panel", async () => {
+    await act(async () => {
+      root.render(<PanelHarness />);
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[data-action="open-chat"]',
+    );
+    await act(async () => button?.click());
+
+    expect(clientMocks.setAgentChatContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "analytics-selected-dashboard-panel",
+        openSidebar: true,
+        focus: true,
+      }),
     );
   });
 
@@ -198,7 +269,12 @@ describe("useDashboardChatContext", () => {
     await act(async () => {
       root.render(<PanelHarness />);
     });
+    await act(async () => setSidebarOpen(true));
 
-    expect(container.querySelector("button")?.dataset.selected).toBe("true");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-action="passive-select"]',
+      )?.dataset.selected,
+    ).toBe("true");
   });
 });

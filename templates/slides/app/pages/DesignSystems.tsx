@@ -3,7 +3,12 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
-import { IconPlus, IconPalette } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPalette,
+  IconPlus,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
@@ -15,7 +20,7 @@ import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
   const t = useT();
-  const { designSystems, isLoading, refetch } = useDesignSystems();
+  const { designSystems, isLoading, error, refetch } = useDesignSystems();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -97,6 +102,22 @@ export default function DesignSystems() {
               ))}
             </div>
           </>
+        ) : error ? (
+          <div className="flex min-h-[360px] items-center justify-center">
+            <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+              <IconAlertTriangle className="size-7 text-destructive/70" />
+              <div>
+                <h2 className="font-medium">{t("home.loadFailed")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("home.loadFailedDescription")}
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => void refetch()}>
+                <IconRefresh className="size-4" />
+                {t("home.retry")}
+              </Button>
+            </div>
+          </div>
         ) : designSystems.length === 0 ? (
           <EmptyState
             onCreateNew={() => {

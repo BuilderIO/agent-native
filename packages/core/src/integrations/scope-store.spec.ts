@@ -51,6 +51,19 @@ afterEach(() => {
 });
 
 describe("integration scope authorization", () => {
+  it("types nullable org guards for Postgres parameter inference", async () => {
+    await listIntegrationScopes({
+      ownerEmail: "personal@example.com",
+      orgId: null,
+    });
+
+    expect(db.execute).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("CAST(? AS TEXT) IS NOT NULL"),
+      }),
+    );
+  });
+
   it("does not reveal, update, or delete another org's scope", async () => {
     const orgA = { ownerEmail: "owner-a@example.com", orgId: "org-a" };
     const orgB = { ownerEmail: "owner-b@example.com", orgId: "org-b" };

@@ -232,8 +232,8 @@ svg {
   pointer-events: none;
   transform: translate(-50%, -2px);
   transition:
-    opacity 90ms ease-in,
-    transform 90ms ease-in;
+    opacity 90ms ease,
+    transform 90ms ease-out;
 }
 
 [data-tooltip]::after {

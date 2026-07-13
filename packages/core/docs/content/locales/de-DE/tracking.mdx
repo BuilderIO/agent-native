@@ -127,6 +127,8 @@ import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
   description: "Create a new project.",
   schema: z.object({
@@ -134,14 +136,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -234,6 +237,8 @@ Die Datenschutz-Standardeinstellungen sind bewusst konservativ, aber für die Wi
 - Sensible Bereiche werden mit Selektoren wie `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private` sowie kreditkarten-/passwort-/sozialversicherungsnummerähnlichen Feldern blockiert.
 - URLs werden mit demselben `scrubUrl()`-Helfer bereinigt, der auch von der Browser-Analyse verwendet wird.
 - Die Replay-Aufzeichnung ist ausschließlich webbasiert und opt-in; native Desktop-Bildschirme werden nicht aufgezeichnet.
+
+Framework-eigene iframes, einschließlich Erweiterungen und gerenderten E-Mail-Inhalten, werden in der Replay-Aufzeichnung erfasst. Innerhalb aufgezeichneter Frames gelten dieselben Maskierungs- und Blockierungsselektoren. Ein fremdes Cross-Origin-iframe bleibt undurchsichtig, sofern sein eigenes Dokument nicht einen kompatiblen rrweb-Recorder mit aktivierter Cross-Origin-iframe-Aufzeichnung ausführt; die Ursprungsgrenzen des Browsers können von der übergeordneten Seite nicht umgangen werden.
 
 Während der Aufzeichnung erfasst Session Replay außerdem die Browser-Konsolenausgabe (`log`, `info`, `warn`, `error`, `debug`, sowie die Fenster-Ereignisse `error` / `unhandledrejection`) und Netzwerkanfrage-Metadaten (`fetch` und XHR) als getaggte rrweb-Custom-Events, damit Agenten und der Replay-Viewer von Nutzern gemeldete Probleme debuggen können. Die Erfassung ist standardmäßig aktiviert, wenn Replay aktiviert ist; passen Sie sie mit den Optionen `sessionReplay.console` und `sessionReplay.network` an oder deaktivieren Sie sie, wobei jede Option entweder einen booleschen Wert oder ein Optionsobjekt akzeptiert (`{ maxEvents?: number }`, wobei `network` zusätzlich `captureErrorBodies` und `maxErrorBodyLength` akzeptiert). Request-Bodies und -Header sowie Response-Header werden nie erfasst; Response-Bodies werden nur als begrenzter, redigierter Ausschnitt für 5xx-Antworten (Serverfehler) erfasst (`captureErrorBodies`, Standard true, begrenzt auf `maxErrorBodyLength` Zeichen, Standard 2048) — bei Antworten außerhalb des 5xx-Bereichs sowie bei Netzwerkfehlern wird nie ein Body mitgeführt. URLs werden bereinigt, Nachrichten werden gekürzt, der eigene Ingest-/Tracking-Traffic des Recorders wird ausgeschlossen, und sitzungsbezogene Budgets (1000 Konsolen- / 2000 Netzwerkereignisse) fügen bei Überschreitung einen Kürzungshinweis hinzu.
 
@@ -349,5 +354,5 @@ Das Framework verfolgt auch `builder connect clicked` von Connect Builder-CTAs u
 ## Was kommt als nächstes?
 
 - [**Actions**](/docs/actions) – woher die meisten Tracking-Aufrufe kommen
-- [**Server Plugins**](/docs/server) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
-- [**Secrets**](/docs/security) – API-Schlüssel für Tracking-Anbieter verwalten
+- [**Server Plugins**](/docs/server#server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
+- [**Sicherheit – Geheimnisverwaltung**](/docs/security#secrets) – API-Schlüssel für Tracking-Anbieter verwalten

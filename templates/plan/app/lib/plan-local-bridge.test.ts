@@ -1,11 +1,63 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchLocalPlanBridgeBundle } from "./plan-local-bridge";
+import {
+  fetchLocalPlanBridgeBundle,
+  localNetworkAccessPermissionState,
+  localPlanBridgeUrlFromLocation,
+  LocalPlanBridgePermissionError,
+  planReturnPathFromLocation,
+  shouldRetryLocalPlanBridgeBundle,
+  shouldShowLocalPlanLoadError,
+} from "./plan-local-bridge";
 
 describe("local plan bridge", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("reads bridge credentials from the URL fragment without requiring a query parameter", () => {
+    const bridgeUrl = "http://127.0.0.1:60166/local-plan.json?token=test-token";
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+
+    expect(
+      localPlanBridgeUrlFromLocation(
+        `#bridge=${encodeURIComponent(bridgeUrl)}`,
+        "local",
+        storage,
+      ),
+    ).toBe(bridgeUrl);
+    expect(localPlanBridgeUrlFromLocation("#overview", "local", storage)).toBe(
+      bridgeUrl,
+    );
+    expect(
+      localPlanBridgeUrlFromLocation("#overview", "other", storage),
+    ).toBeNull();
+  });
+
+  it("never reads bridge credentials from the request-visible query string", () => {
+    expect(localPlanBridgeUrlFromLocation("", "local", null)).toBeNull();
+  });
+
+  it("omits bridge fragments from hosted auth return paths", () => {
+    expect(
+      planReturnPathFromLocation({
+        pathname: "/local-plans/local",
+        search: "?view=review",
+        hash: "#bridge=private-token",
+      }),
+    ).toBe("/local-plans/local?view=review");
+    expect(
+      planReturnPathFromLocation({
+        pathname: "/plans/plan-1",
+        search: "",
+        hash: "#overview",
+      }),
+    ).toBe("/plans/plan-1#overview");
   });
 
   it("keeps valid plan blocks visible when local MDX contains malformed blocks", async () => {
@@ -72,5 +124,85 @@ This valid introduction stays visible.
         }),
       ]),
     );
+  });
+
+  it.each(["prompt", "granted", "denied"] as const)(
+    "reads the %s local network access permission through the legacy alias",
+    async (state) => {
+      const query = vi.fn().mockResolvedValue({ state });
+      vi.stubGlobal("navigator", { permissions: { query } });
+
+      await expect(localNetworkAccessPermissionState()).resolves.toBe(state);
+      expect(query).toHaveBeenCalledWith({ name: "local-network-access" });
+    },
+  );
+
+  it("falls back to unsupported when the browser cannot query local network access", async () => {
+    vi.stubGlobal("navigator", {
+      permissions: {
+        query: vi.fn().mockRejectedValue(new TypeError("unknown")),
+      },
+    });
+
+    await expect(localNetworkAccessPermissionState()).resolves.toBe(
+      "unsupported",
+    );
+  });
+
+  it("classifies a denied localhost fetch and does not retry it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+    vi.stubGlobal("navigator", {
+      permissions: {
+        query: vi.fn().mockResolvedValue({ state: "denied" }),
+      },
+    });
+
+    const request = fetchLocalPlanBridgeBundle(
+      "http://127.0.0.1:60166/local-plan.json?token=test-token",
+      "blocked-plan",
+    );
+    await expect(request).rejects.toMatchObject({
+      name: "LocalPlanBridgePermissionError",
+      permissionState: "denied",
+    });
+
+    const error = new LocalPlanBridgePermissionError("denied");
+    expect(shouldRetryLocalPlanBridgeBundle(0, error)).toBe(false);
+  });
+
+  it.each(["checking", "prompt", "denied"] as const)(
+    "keeps the generic load error hidden while permission is %s",
+    (permissionState) => {
+      expect(
+        shouldShowLocalPlanLoadError({
+          localPlanMode: true,
+          hasBundle: false,
+          hasBridgeUrl: true,
+          bridgeFetchEnabled: false,
+          error: null,
+          loading: false,
+          fetching: false,
+          permissionState,
+        }),
+      ).toBe(false);
+    },
+  );
+
+  it("keeps a stale permission error hidden while a newly granted fetch starts", () => {
+    expect(
+      shouldShowLocalPlanLoadError({
+        localPlanMode: true,
+        hasBundle: false,
+        hasBridgeUrl: true,
+        bridgeFetchEnabled: true,
+        error: new LocalPlanBridgePermissionError("denied"),
+        loading: false,
+        fetching: true,
+        permissionState: "granted",
+      }),
+    ).toBe(false);
   });
 });

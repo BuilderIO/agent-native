@@ -113,6 +113,7 @@ A gravidade orienta o estilo do selo no menu suspenso e é transmitida aos canai
 | `inbox`   | Persiste na tabela `notifications`; toca a campainha UI | Sempre ligado — parte do primitivo.                            |
 | `webhook` | POST JSON para um URL configurado                       | `NOTIFICATIONS_WEBHOOK_URL` env var definida na inicialização. |
 
+E-mail, Slack e webhook são sempre registrados junto com a caixa de entrada. A entrega prioriza a URL ou os destinatários nos metadados da notificação e, em seguida, usa a variável de ambiente correspondente. Se nenhum deles estiver definido, esse canal não faz nada durante a emissão.
 O canal webhook resolve referências `${keys.NAME}` em URL e `NOTIFICATIONS_WEBHOOK_AUTH` em relação ao [secrets](/docs/security) ad-hoc do proprietário, de forma que o valor bruto nunca entre no contexto do agente. As listas de permissões URL por chave são aplicadas – a mesma regra que a ferramenta de automações `web-request` usa.
 
 <Diagram id="doc-block-1b6ozy6" title="Canais e gravidade" summary={"a caixa de entrada está sempre ativada; o webhook precisa de um env var; canais personalizados são registrados na inicialização. A severidade impulsiona o estilo do emblema e é transmitida a todos os canais."}>
@@ -203,7 +204,7 @@ await notify(
 
 Registre um canal personalizado de qualquer plugin de servidor.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 Montado em `/_agent-native/notifications/*` pelo plugin core-routes. Todas as rotas têm como escopo o e-mail da sessão autenticada.
 
-| Método   | Caminho                                             |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| Método   | Caminho                                                        |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-11yfpn9" title={"Listar notificações"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"Listar notificações recentes para o usuário atual"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-11yfpn9" title={"Listar notificações"} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"Listar notificações recentes para o usuário atual"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ Montado em `/_agent-native/notifications/*` pelo plugin core-routes. Todas as ro
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "Cursor de timestamp ISO — retorna notificações criadas antes desse horário para paginação."
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ Montado em `/_agent-native/notifications/*` pelo plugin core-routes. Todas as ro
 
 ## Componente UI {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

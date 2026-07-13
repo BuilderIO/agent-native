@@ -104,9 +104,55 @@ describe("writeDesignClipboard", () => {
       payload,
     );
   });
+
+  it("commits the browser copy synchronously before an immediate navigation can cancel an async write", async () => {
+    const write = vi.fn(async () => undefined);
+    const legacyCopy = vi.fn(() => true);
+
+    await writeDesignClipboard(
+      {
+        plainText: "Readable text",
+        html: serializeDesignClipboardPayload("<p>Readable text</p>", payload),
+      },
+      {
+        clipboard: { write },
+        ClipboardItem: FakeClipboardItem,
+        legacyCopy,
+        preferLegacyCopy: true,
+      } as unknown as DesignClipboardEnvironment,
+    );
+
+    expect(legacyCopy).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
+  });
 });
 
 describe("readDesignClipboardPayload", () => {
+  it("rejects a marker-shaped external clipboard payload without the local trust token", () => {
+    const trusted = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "local-installation-token",
+    );
+    const forged = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "attacker-token",
+    );
+    const read = (html: string) =>
+      readDesignClipboardPayloadFromDataTransfer(
+        {
+          getData(type: string) {
+            return type === "text/html" ? html : "Readable text";
+          },
+        },
+        { trustToken: "local-installation-token" },
+      );
+
+    expect(read(trusted)?.payload).toEqual(payload);
+    expect(read(forged)).toBeNull();
+  });
+
   it("round-trips through the system clipboard across independent Design tabs", async () => {
     let sharedItems: FakeClipboardItem[] = [];
     const sharedClipboard = {
@@ -150,11 +196,14 @@ describe("readDesignClipboardPayload", () => {
       "<p>Readable text</p>",
       payload,
     );
-    const result = readDesignClipboardPayloadFromDataTransfer({
-      getData(type: string) {
-        return type === "text/html" ? html : "Readable text";
+    const result = readDesignClipboardPayloadFromDataTransfer(
+      {
+        getData(type: string) {
+          return type === "text/html" ? html : "Readable text";
+        },
       },
-    });
+      { trustToken: undefined },
+    );
 
     expect(result).toEqual({
       payload,
@@ -188,16 +237,56 @@ describe("readDesignClipboardPayload", () => {
     });
   });
 
-  it("still accepts legacy markers stored in text/plain", () => {
+  it("falls back from a permission-denied rich read to a readable marker", async () => {
+    const markerText = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+    );
+    const result = await readDesignClipboardPayloadFromSystem({
+      clipboard: {
+        read: async () => {
+          throw Object.assign(new Error("Clipboard permission denied"), {
+            name: "NotAllowedError",
+          });
+        },
+        readText: async () => markerText,
+      },
+    });
+
+    expect(result).toEqual({
+      payload,
+      markerText,
+      plainText: markerText,
+    });
+  });
+
+  it("fails closed when every system clipboard read path is permission-denied", async () => {
+    const denied = () =>
+      Promise.reject(
+        Object.assign(new Error("Clipboard permission denied"), {
+          name: "NotAllowedError",
+        }),
+      );
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: { read: denied, readText: denied },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("can inspect legacy markers in an explicit migration context", () => {
     const legacyText = serializeDesignClipboardPayload(
       "<p>Readable text</p>",
       payload,
     );
-    const result = readDesignClipboardPayloadFromDataTransfer({
-      getData(type: string) {
-        return type === "text/plain" ? legacyText : "";
+    const result = readDesignClipboardPayloadFromDataTransfer(
+      {
+        getData(type: string) {
+          return type === "text/plain" ? legacyText : "";
+        },
       },
-    });
+      { trustToken: undefined },
+    );
 
     expect(result?.payload).toEqual(payload);
   });

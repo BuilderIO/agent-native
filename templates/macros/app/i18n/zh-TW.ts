@@ -57,6 +57,8 @@ const messages = {
     optional: "可選",
     saveChanges: "儲存更改",
     saving: "正在儲存...",
+    loadFailed: "無法載入這些資料",
+    retry: "重試",
   },
   seo: {
     homeTitle: "Agent-Native Macros - 開放原始碼 AI 卡路裡和宏量營養追蹤器",

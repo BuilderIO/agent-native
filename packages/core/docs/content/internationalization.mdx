@@ -39,8 +39,7 @@ resolved locale/catalog into that script to avoid hydration mismatches.
 
 Each localized template keeps catalogs under `app/i18n/`:
 
-```ts
-// app/i18n/index.ts
+```ts filename="app/i18n/index.ts"
 import enUS from "./en-US";
 import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
 
@@ -60,7 +59,8 @@ export const i18nCatalog = {
 
 Always bundle `en-US`. Dynamic-import non-English catalogs so users only
 download the active locale. The supported locale codes are `en-US`, `zh-CN`,
-`es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, and `ar-SA`.
+`zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, and
+`ar-SA`.
 
 ## UI
 
@@ -106,8 +106,8 @@ locale-sensitive date/number formatting inside translation strings.
 Public docs pages use the same core provider, but with
 `persistPreference={false}` so anonymous docs traffic uses localStorage and the
 browser language instead of SQL settings actions. The English source remains in
-`packages/core/docs/content/*.md`. Localized page overrides live next to it under
-`packages/core/docs/content/locales/<locale>/<slug>.md`.
+`packages/core/docs/content/*.mdx`. Localized page overrides live next to it under
+`packages/core/docs/content/locales/<locale>/<slug>.mdx`.
 
 Use the same BCP-47 locale codes as app catalogs. Keep the same slug as the
 English source, preserve stable anchors with `{#anchor}` on translated headings,
@@ -149,3 +149,9 @@ review.
 Do not translate stable identifiers such as action names, routes, enum values,
 app-state keys, database values, protocol fields, env var names, or provider
 names.
+
+## What's next
+
+- [**Client**](/docs/client) — the `AppProviders` wrapper and other browser hooks i18n builds on
+- [**Toolkit: Settings**](/docs/toolkit-settings) — put `<LanguagePicker>` on the standard settings page
+- [**Getting Started**](/docs/getting-started) — build your first app on a template that already ships localized catalogs

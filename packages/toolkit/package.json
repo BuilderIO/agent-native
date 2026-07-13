@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.4.5",
+  "version": "0.4.9",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -134,7 +134,8 @@
   "scripts": {
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.15",
@@ -164,7 +165,7 @@
     "@radix-ui/react-toggle": "^1.1.13",
     "@radix-ui/react-toggle-group": "^1.1.14",
     "@radix-ui/react-tooltip": "^1.2.11",
-    "@tabler/icons-react": "^3.44.0",
+    "@tabler/icons-react": "^3.41.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -183,8 +184,8 @@
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "typescript": "catalog:",
-    "typescript-7": "catalog:"
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "react": "^19.0.0",

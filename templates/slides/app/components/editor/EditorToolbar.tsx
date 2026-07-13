@@ -42,6 +42,7 @@ import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
@@ -58,7 +59,6 @@ import {
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
-import { toast } from "@/hooks/use-toast";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
@@ -203,7 +203,7 @@ function ToolbarPopover({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed rounded-lg border border-border bg-popover shadow-xl z-[200] max-h-[80vh] overflow-y-auto"
+      className="fixed rounded-lg border border-border bg-popover shadow-xl z-[200] max-h-[80vh] overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-150 origin-top-left"
       style={{ top: rect.bottom + 4, left, width: Math.min(width, vw - 16) }}
     >
       {children}
@@ -321,8 +321,7 @@ export default function EditorToolbar({
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
-    toast({
-      title: t("editorToolbar.importingFile"),
+    toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
     });
     const formData = new FormData();
@@ -369,8 +368,7 @@ export default function EditorToolbar({
       if (!importRes.ok || importData?.error) {
         throw new Error(importData?.error || t("editorToolbar.importFailed"));
       }
-      toast({
-        title: t("editorToolbar.importComplete"),
+      toast.success(t("editorToolbar.importComplete"), {
         description:
           typeof importData.slideCount === "number"
             ? t("editorToolbar.importCompleteSlides", {
@@ -383,13 +381,11 @@ export default function EditorToolbar({
       });
     } catch (err) {
       console.error("Import failed:", err);
-      toast({
-        title: t("editorToolbar.importFailed"),
+      toast.error(t("editorToolbar.importFailed"), {
         description:
           err instanceof Error
             ? err.message
             : t("editorToolbar.importFailedDescription"),
-        variant: "destructive",
       });
     } finally {
       setImporting(false);
@@ -1027,7 +1023,7 @@ graph TD
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <RunsTray />
+      <RunsTray pollMs={0} />
       <AgentToggleButton />
     </div>
   );

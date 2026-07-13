@@ -222,8 +222,16 @@ export default defineAction({
     }
 
     // ─── List view: user is on the deck list ─────────────────────────────
+    // Project only the columns this summary reads. `decks.data` holds each
+    // deck's entire slide JSON and can be large — never select it for a
+    // plain list. Mirrors the light-mode projection in list-decks.ts; call
+    // list-decks or open a specific deck for slide counts / content.
     const rows = await db
-      .select()
+      .select({
+        id: schema.decks.id,
+        title: schema.decks.title,
+        ownerEmail: schema.decks.ownerEmail,
+      })
       .from(schema.decks)
       .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
@@ -257,12 +265,12 @@ export default defineAction({
       lines.push(`(no decks — use create-deck to make one)`);
     } else {
       for (const row of filteredRows) {
-        const data = JSON.parse(row.data);
-        const slideCount = Array.isArray(data?.slides) ? data.slides.length : 0;
-        lines.push(
-          `- id=${row.id}  title="${row.title ?? data?.title ?? "(untitled)"}"  slides=${slideCount}`,
-        );
+        lines.push(`- id=${row.id}  title="${row.title ?? "(untitled)"}"`);
       }
+      lines.push(``);
+      lines.push(
+        `(slide counts omitted here for performance — call list-decks or open a deck to see slide content)`,
+      );
     }
     return lines.join("\n");
   },

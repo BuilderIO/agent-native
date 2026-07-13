@@ -204,9 +204,6 @@ export default function Root() {
           // Brain has a faster sync cadence for source distillation status;
           // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Brain shows live ingestion progress — refetch on focus to pick
-          // up background sync jobs that don't emit DB events.
-          refetchOnWindowFocus: true,
           // Flat retry: Brain data fetches are rarely auth failures so a
           // flat count is sufficient.
           retry: 1,

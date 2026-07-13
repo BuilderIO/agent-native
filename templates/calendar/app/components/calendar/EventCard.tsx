@@ -61,7 +61,7 @@ export function EventCard({
         onDragStart={canDrag ? handleDragStart : undefined}
         onDragEnd={canDrag ? onDragEnd : undefined}
         className={cn(
-          "relative flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-all hover:brightness-110",
+          "relative flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-foreground transition-[filter,transform] hover:brightness-110 active:scale-[0.98]",
           canDrag && "cursor-grab active:cursor-grabbing",
           dimmed && "opacity-40",
           event.ownerColor && "pr-3.5",
@@ -109,7 +109,7 @@ export function EventCard({
       onDragStart={canDrag ? handleDragStart : undefined}
       onDragEnd={canDrag ? onDragEnd : undefined}
       className={cn(
-        "relative flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-all hover:brightness-110",
+        "relative flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-[filter,transform] hover:brightness-110 active:scale-[0.98]",
         canDrag && "cursor-grab active:cursor-grabbing",
         dimmed && "opacity-40",
         event.ownerColor && "pr-4",

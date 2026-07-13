@@ -276,8 +276,7 @@ install snippets, or framework-specific code blocks.
 
 For example, add an interactive component next to your content:
 
-```tsx
-// components/ImpactCounter.tsx
+```tsx filename="components/ImpactCounter.tsx"
 import { useState } from "react";
 
 export function ImpactCounter({
@@ -523,3 +522,10 @@ AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
 Only set that for a trusted single-tenant deployment where everyone who can use
 the app is allowed to read and write the configured files. For normal hosted,
 multi-user apps, use database mode and SQL-backed sharing.
+
+## What's next
+
+- [**Database**](/docs/database) — the SQL-backed mode this page contrasts with
+- [**Sharing**](/docs/sharing) — the standard document-sharing model that database-mode copies use
+- [**Extensions**](/docs/extensions) — the SQL-backed extension model that local extensions intentionally simplify
+- [**Creating Templates**](/docs/creating-templates) — adopting the same local-artifact pattern in a new app

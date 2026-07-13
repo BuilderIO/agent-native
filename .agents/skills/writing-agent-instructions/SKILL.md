@@ -96,6 +96,31 @@ contract:
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
 
+## Budget the first model request
+
+Treat the initial prompt and tool catalog as a latency budget. The agent should
+start with a compact map of the app, then retrieve depth only when the task
+needs it.
+
+- Set `initialToolNames` to the small set of actions used in the app's primary
+  workflows. Keep `tool-search` available so every other registered action and
+  connected MCP tool remains discoverable on demand.
+- Keep essential, always-applicable rules in `AGENTS.md`. Put workflow detail
+  in skills and long reference material in `references/` or workspace
+  resources that the agent can read when relevant.
+- Do not inject full documents, transcripts, data dictionaries, source trees,
+  or provider catalogs through `systemPrompt` or `extraContext`. Inject a
+  bounded summary, stable ids/paths, and the exact action or resource lookup
+  that retrieves the full content.
+- Avoid duplicating action descriptions in prose. The starter tools already
+  carry schemas; uncommon actions are available through `tool-search`.
+- Keep `view-screen` concise. Return navigation, selection, visible summary,
+  and ids needed for a follow-up read rather than full record bodies.
+
+The goal is progressive disclosure, not reduced capability: a compact first
+request, precise discovery, and full fidelity once the agent knows which depth
+is relevant.
+
 When documenting version history, restore, or audit trails, use actions for
 full restorable snapshots (`list-<resource>-versions`,
 `get-<resource>-version`, `restore-<resource>-version`). Do not copy legacy

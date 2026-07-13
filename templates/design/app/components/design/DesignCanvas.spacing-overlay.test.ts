@@ -123,7 +123,10 @@ describe("DesignCanvas text editing bridge", () => {
 
   it("lets forced document replacements bypass active inline text editing", () => {
     expect(source).toContain("forceFullDocument?: boolean");
-    expect(source).toContain("if (activeTextEditEl && !forceFullDocument)");
+    expect(source).toContain(
+      "(!forceFullDocument || preserveTextEditingSession)",
+    );
+    expect(source).toContain("if (activeTextEditEl) {");
     expect(source).toContain("Boolean(e.data.forceFullDocument)");
   });
 });

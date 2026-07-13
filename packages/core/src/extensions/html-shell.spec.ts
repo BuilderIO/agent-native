@@ -141,6 +141,8 @@ describe("buildExtensionHtml", () => {
     // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
   });
 
   it("adds default canvas padding with a full-bleed escape hatch", () => {

@@ -1998,6 +1998,124 @@ describe("run manager soft timeout", () => {
     abortRun(run.runId, "test");
   });
 
+  // ─── FIX 1: stale in-memory terminal chunk vs a live SQL successor ──────────
+  // A chunk-terminal in-memory run (soft-timeout auto_continue) never clears
+  // `threadToRun` — see `abortInMemoryRun` vs the direct `abort.abort(...)`
+  // soft-timeout path in `startRun`. Without this fix, every poll landing on
+  // the isolate that produced chunk 0 would keep returning its stale
+  // "completed" snapshot forever, even after a newer successor run for the
+  // SAME turn already exists and is running in SQL.
+  it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {
+    const run = startRun(
+      "run-fix1-chunk0",
+      "thread-fix1-successor",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-fix1" },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    // Chunk-terminal in-memory, but `threadToRun` still points at this run —
+    // exactly the stale-candidate state this fix must see through.
+    expect(run.status).toBe("completed");
+
+    // A same-turn successor already exists and is running in SQL (e.g. via
+    // chainServerDrivenContinuation, or FIX 3's stale-run recovery).
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-fix1-successor",
+      threadId: "thread-fix1-successor",
+      turnId: "turn-fix1",
+      status: "running",
+      startedAt: run.startedAt + 1_000,
+      heartbeatAt: Date.now(),
+      completedAt: null,
+      lastProgressAt: Date.now(),
+      dispatchMode: "background",
+      terminalReason: null,
+      diagStage: null,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-fix1-successor");
+
+    expect(result).toMatchObject({
+      runId: "run-fix1-successor",
+      status: "running",
+      dispatchMode: "background",
+      awaitingRedispatch: false,
+    });
+  });
+
+  it("FIX 1: falls back to the stale in-memory terminal status when no successor exists yet", async () => {
+    const run = startRun(
+      "run-fix1-nosucc",
+      "thread-fix1-nosucc",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-fix1-nosucc" },
+    );
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    // No successor has been inserted yet — must still fall back to the
+    // stale-but-honest in-memory status exactly as before this fix (the
+    // reconnect-window / replay behavior for a genuinely finished run is
+    // unchanged).
+    vi.mocked(getRunByThread).mockResolvedValue(null);
+
+    const result = await getActiveRunForThreadAsync("thread-fix1-nosucc");
+    expect(result).toMatchObject({
+      runId: "run-fix1-nosucc",
+      status: "completed",
+    });
+  });
+
+  it("FIX 1: does not adopt a newer run on the same thread that belongs to a DIFFERENT turn", async () => {
+    const run = startRun(
+      "run-fix1-diffturn",
+      "thread-fix1-diffturn",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, turnId: "turn-fix1-A" },
+    );
+    await vi.advanceTimersByTimeAsync(11);
+    expect(run.status).toBe("completed");
+
+    // A later, unrelated user turn already started on the same thread — this
+    // must never be mistaken for a continuation successor of the terminal
+    // chunk above.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-fix1-unrelated",
+      threadId: "thread-fix1-diffturn",
+      turnId: "turn-fix1-B",
+      status: "running",
+      startedAt: run.startedAt + 1_000,
+      heartbeatAt: Date.now(),
+      completedAt: null,
+      lastProgressAt: Date.now(),
+      dispatchMode: null,
+      terminalReason: null,
+      diagStage: null,
+    });
+
+    const result = await getActiveRunForThreadAsync("thread-fix1-diffturn");
+    expect(result).toMatchObject({
+      runId: "run-fix1-diffturn",
+      status: "completed",
+    });
+  });
+
   // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
   it("reaps an unclaimed-stale background run PAST the redispatch bound (202 acked, worker never started, no recovery left)", async () => {
     // dispatch_mode still 'background' (never flipped to 'background-processing')

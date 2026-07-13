@@ -7,7 +7,7 @@ description: "A GitHub Action that runs your repo's visual-recap skill on every 
 
 PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs the latest bundled [`visual-recap`](/docs/template-plan) skill (or your repo's committed copy when `VISUAL_RECAP_SKILL_SOURCE=repo`) against the PR diff, publishes a structured recap plan to the hosted Plans app, shows an informational `Visual Recap` check while it runs, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
 
-This is not a deterministic diff renderer. The action invokes a real coding agent (Claude Code CLI by default, or OpenAI Codex CLI) that reads the change, decides what matters, and authors the recap by calling the Plans MCP tool `create-visual-recap` — the same tool the `/visual-recap` slash command uses. You get a high-altitude, schema/API/before-after view of the change instead of a wall of raw diff.
+This is not a deterministic diff renderer. The action invokes a real coding agent (Claude Code CLI by default, OpenAI Codex CLI, or Agent-Native Code with an OpenAI-compatible provider) that reads the change, decides what matters, and authors the recap by calling the Plans MCP tool `create-visual-recap` — the same tool the `/visual-recap` slash command uses. You get a high-altitude, schema/API/before-after view of the change instead of a wall of raw diff.
 
 The recap is **informational and non-blocking**. It creates a check row so reviewers can see that generation is in progress, but it is not a required check, it never blocks the PR, and it never replaces reading the actual diff. The sticky comment is a review aid, not a sign-off.
 
@@ -36,7 +36,7 @@ On each PR push, the workflow:
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
     Coding agent<br /><small class="diagram-muted"
-      >Claude Code / Codex reads diff</small
+      >configured backend reads diff</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -123,32 +123,83 @@ reference files the skill ships with. If your repo intentionally customizes and
 pins its committed `visual-recap` folder, set the repository variable
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Runner selection
+
+The workflow runs on GitHub-hosted `ubuntu-latest` runners by default. To use a
+different hosted runner or your own self-hosted runner, set the repository or
+organization variable `VISUAL_RECAP_RUNS_ON` to a valid JSON string or JSON
+array of runner labels:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+The JSON quotes are required. This setting selects the full `recap` job runner.
+To configure it during guided setup, pass the same JSON value to `--runs-on`,
+then validate the workflow and runner availability with `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+The lightweight security gate defaults separately to GitHub-hosted
+`ubuntu-latest`. Repositories that disable GitHub-hosted runners can set
+`VISUAL_RECAP_GATE_RUNS_ON` to one **plain, single runner label** (not JSON), or
+pass `--gate-runs-on visual-recap-gate` during setup. The reusable workflow
+exposes the same value as its `gate-runs-on` input. This avoids parsing dynamic
+JSON before GitHub can schedule the gate. The custom label is selected only for
+same-repository PRs authored by an `OWNER`, `MEMBER`, or `COLLABORATOR`. Forks
+and all other authors are forced to GitHub-hosted `ubuntu-latest` before the job
+starts; in a self-hosted-only repository, those untrusted runs may remain
+unscheduled rather than touching a self-hosted machine.
+
+`recap doctor` rejects malformed or unsupported JSON and reports when GitHub
+does not expose an online runner matching every configured label. Runner
+registration, installation, upgrades, capacity, and maintenance remain your
+responsibility; Agent Native selects the labels but does not provide or operate
+the runner.
+
+**Security:** Prefer dedicated, ephemeral self-hosted runners. A custom gate
+runner receives only trusted same-repository PR events. The stock gate does not
+check out the PR tree; it evaluates the workflow logic and GitHub PR metadata.
+A persistent machine still retains process state across jobs, so do not share
+it with unrelated workloads. The workflow fails closed before dispatching any
+self-hosted gate or full recap job for untrusted public or fork PR authors. Do
+not weaken that boundary or route untrusted contributions to a persistent
+runner.
+
 ## Backend selection
 
 Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repository variable:
 
-| `VISUAL_RECAP_AGENT` | Coding agent     | Required API key    |
-| -------------------- | ---------------- | ------------------- |
-| `claude` _(default)_ | Claude Code CLI  | `ANTHROPIC_API_KEY` |
-| `codex`              | OpenAI Codex CLI | `OPENAI_API_KEY`    |
+| `VISUAL_RECAP_AGENT` | Coding agent                            | Required API key       | Required variables                            |
+| -------------------- | --------------------------------------- | ---------------------- | --------------------------------------------- |
+| `claude` _(default)_ | Claude Code CLI                         | `ANTHROPIC_API_KEY`    | —                                             |
+| `codex`              | OpenAI Codex CLI                        | `OPENAI_API_KEY`       | —                                             |
+| `openai-compatible`  | Agent-Native Code + compatible provider | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
 
 If the variable is unset, the action uses `claude`.
 
 ## Model and reasoning
 
-Beyond the backend, two repository variables tune _how_ the agent runs:
+Beyond the backend, these repository variables tune how the agent runs:
 
-- **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.6-sol` for Codex, or a Claude model id. Leave it unset to use the CLI's own default model.
+- **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.6-sol` for Codex, a Claude model id, or `deepseek-chat` for DeepSeek. It is required for `openai-compatible`; Claude and Codex may leave it unset to use their CLI default.
 - **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
+- **`VISUAL_RECAP_BASE_URL`** selects the HTTP(S) base URL for the `openai-compatible` backend. Use the provider's OpenAI-compatible endpoint, such as DeepSeek or Kimi, without embedding credentials in the URL.
 - **`VISUAL_RECAP_SKILL_SOURCE`** controls prompt freshness: `auto`/unset uses the latest bundled skill guidance, while `repo` pins to the committed repo-local `visual-recap` skill folder.
 
 For example, to run the recap on Codex with GPT-5.6 Sol at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol`, and `VISUAL_RECAP_REASONING=high`.
+
+For DeepSeek, set `VISUAL_RECAP_AGENT=openai-compatible`, `VISUAL_RECAP_BASE_URL=https://api.deepseek.com/v1`, `VISUAL_RECAP_MODEL=deepseek-chat`, and the `VISUAL_RECAP_API_KEY` secret. Kimi works the same way with its OpenAI-compatible base URL and model id. Other OpenAI-compatible providers use the same three settings.
 
 ## Secrets and variables
 
 Set these in your repository's **Settings → Secrets and variables → Actions**.
 
-### Secrets (only two required)
+### Secrets for the default backend
 
 | Secret              | Purpose                                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -190,8 +241,10 @@ real token.
 | Secret / variable        | Default                         | When you need it                                                                                                                                |
 | ------------------------ | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`         | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude` or `codex`).                                                                               |
-| `VISUAL_RECAP_MODEL`     | each CLI's default              | Variable. Pins the model — e.g. `gpt-5.6-sol` for Codex, or a Claude model id. Unset uses the CLI's own default.                                |
+| `VISUAL_RECAP_API_KEY`   | —                               | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                              |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                         |
+| `VISUAL_RECAP_BASE_URL`  | required for compatible backend | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                         |
+| `VISUAL_RECAP_MODEL`     | required for compatible backend | Variable. Provider model id for OpenAI-compatible backends; optional for Claude/Codex, where unset uses the CLI default.                        |
 | `VISUAL_RECAP_REASONING` | each model's default            | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                |
 | `RECAP_CLI_VERSION`      | `latest`                        | Variable. Pins the `@agent-native/core` CLI version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant). |
 | `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Secret. Only when self-hosting the Plans app at a different origin.                                                                             |
@@ -214,7 +267,7 @@ This also means you can merge the workflow file **before** the secrets exist: wi
 
 If you want to generate recaps for fork PRs, a second workflow file is available: `.github/workflows/pr-visual-recap-fork.yml`. It uses `pull_request_target` (which runs with base-repo secrets) but never checks out or executes fork code. Trusted fork authors with GitHub author association `OWNER`, `MEMBER`, or `COLLABORATOR` run automatically. Outside fork PRs require an explicit **per-head maintainer opt-in** via a fresh `recap` label event before the recap agent runs.
 
-To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same secrets (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) apply.
+To install it, copy the file from [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) into your repo's `.github/workflows/` directory alongside the existing `pr-visual-recap.yml`. The same backend configuration applies, including `VISUAL_RECAP_API_KEY`, `VISUAL_RECAP_BASE_URL`, and `VISUAL_RECAP_MODEL` when using an OpenAI-compatible provider.
 
 <Diagram id="doc-block-h3lne0" title="Fork PR consent gate" summary={"Fork PRs get no secrets by default; trusted authors run automatically, and outside contributors require a fresh maintainer recap label."}>
 
@@ -454,16 +507,20 @@ jobs:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:
       agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant.
+The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant. The reusable caller forwards `VISUAL_RECAP_RUNS_ON` through its JSON `runs-on` input for the full recap job and `VISUAL_RECAP_GATE_RUNS_ON` through its plain-label `gate-runs-on` input for the metadata-only gate. The latter is used only for trusted same-repository authors; other PRs use GitHub-hosted `ubuntu-latest`. Omitting either input preserves its `ubuntu-latest` default.
 
 ### Installing via the CLI
 
@@ -495,7 +552,7 @@ The `cli-version` input controls which `@agent-native/core` CLI version runs ins
 
 Do not trigger the caller on `workflow_dispatch` or `push` — those events do not carry a `pull_request` payload, and the gate will skip the recap with "no pull_request payload".
 
-## Related
+## What's next
 
 - [Visual Plans](/docs/template-plan) — the `/visual-plan` and `/visual-recap` skills, the hosted Plans connector, and the interactive review surface this action publishes to.
 - [Skills](/docs/skills-guide) — installing agent-native skills into your coding agent.

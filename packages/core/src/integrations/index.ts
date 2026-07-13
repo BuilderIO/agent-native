@@ -18,6 +18,12 @@ export type {
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
 
+export { resolveDefaultIntegrationExecutionContext } from "./identity.js";
+export {
+  upsertVerifiedIntegrationIdentity,
+  type IntegrationIdentityLink,
+} from "./identity-links-store.js";
+
 export {
   BUILT_IN_INTEGRATION_CATALOG,
   INTEGRATION_CATEGORIES,
@@ -43,11 +49,32 @@ export {
 } from "./plugin.js";
 
 export {
+  getRemoteComputerCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
   unregisterRemoteDevice,
 } from "./remote-devices-store.js";
-export { listRemoteCommandsForOwner } from "./remote-commands-store.js";
+export {
+  claimNextComputerCommand,
+  enqueueComputerCommand,
+  listRemoteCommandsForOwner,
+} from "./remote-commands-store.js";
+export {
+  assertValidComputerCommandEnvelope,
+  computeComputerActionHash,
+  computerOperationRequiresApproval,
+  ComputerSupervisionError,
+} from "./computer-supervision.js";
+export {
+  authorizeComputerOperation,
+  createComputerApprovalRequest,
+  decideComputerApproval,
+  getComputerApprovalForOwner,
+  listComputerApprovalsForOwner,
+  type ComputerApprovalRecord,
+  type ComputerApprovalStatus,
+} from "./computer-supervision-store.js";
+export { insertRemoteLiveViewEvents } from "./remote-run-events-store.js";
 export {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
@@ -57,10 +84,17 @@ export {
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
 export type {
+  ComputerApprovalScope,
+  ComputerCommandAction,
+  ComputerCommandEnvelope,
+  ComputerOperationClass,
   PublicRemotePushRegistration,
   PublicRemoteDevice,
+  RemoteComputerCapabilities,
   RemoteCommand,
   RemoteDevice,
+  RemoteDeviceMetadata,
+  RemoteLiveViewEvent,
   RemotePushNotification,
   RemotePushRegistration,
   RemoteRunEvent,

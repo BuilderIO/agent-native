@@ -19,6 +19,7 @@ import {
   isLocalFileDocumentId,
   localDocumentPathFromId,
 } from "./_local-file-documents.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -123,34 +124,42 @@ export default defineAction({
       return serializeDocument(row);
     }
 
-    const [{ max: maxPosition } = { max: -1 }] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documents)
-      .where(
-        and(eq(schema.documents.ownerEmail, userEmail), sql`parent_id IS NULL`),
-      );
-
     const documentId = nanoid();
-    await db.insert(schema.documents).values({
-      id: documentId,
-      ownerEmail: userEmail,
-      orgId,
-      parentId: null,
-      title: localDocument.title,
-      content: localDocument.content,
-      icon: localDocument.icon,
-      position: (maxPosition ?? -1) + 1,
-      isFavorite: localDocument.isFavorite ? 1 : 0,
-      hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
-      visibility: "private",
-      sourceMode: "database",
-      sourceKind: "local-file-copy",
-      sourcePath,
-      sourceRootPath: localDocument.source?.rootPath ?? null,
-      sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await withPositionLock(
+      documentsPositionScope(userEmail, null),
+      async () => {
+        const [{ max: maxPosition } = { max: -1 }] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.ownerEmail, userEmail),
+              sql`parent_id IS NULL`,
+            ),
+          );
+
+        await db.insert(schema.documents).values({
+          id: documentId,
+          ownerEmail: userEmail,
+          orgId,
+          parentId: null,
+          title: localDocument.title,
+          content: localDocument.content,
+          icon: localDocument.icon,
+          position: (maxPosition ?? -1) + 1,
+          isFavorite: localDocument.isFavorite ? 1 : 0,
+          hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
+          visibility: "private",
+          sourceMode: "database",
+          sourceKind: "local-file-copy",
+          sourcePath,
+          sourceRootPath: localDocument.source?.rootPath ?? null,
+          sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      },
+    );
 
     const [row] = await db
       .select()

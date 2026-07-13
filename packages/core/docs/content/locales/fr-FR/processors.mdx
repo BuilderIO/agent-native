@@ -51,8 +51,11 @@ Un `Processor` est un **observateur/garde-corps** interne à la boucle pour l'ex
 
 </Diagram>
 
-> [!WARNING]
-> Un processeur est une **configuration**, pas un outil, pas une action, ni une création DSL. Les processeurs observent et modifient uniquement leur propre état de flux et `abort()`. Ils ne définissent jamais le comportement de l'application, ne remplacent jamais actions et n'apparaissent jamais dans le modèle. Les opérations d'application appartiennent à [actions](/docs/actions).
+<Callout id="doc-block-proc1cfg" tone="warning">
+
+Un processeur est une **configuration**, pas un outil, pas une action, ni une création DSL. Les processeurs observent et modifient uniquement leur propre état de flux et `abort()`. Ils ne définissent jamais le comportement de l'application, ne remplacent jamais actions et n'apparaissent jamais dans le modèle. Les opérations d'application appartiennent à [actions](/docs/actions).
+
+</Callout>
 
 ## Les crochets {#hooks}
 
@@ -133,10 +136,13 @@ await runAgentLoop({
 
 **Zéro surcharge lorsqu'il n'est pas utilisé.** La boucle construit la chaîne de processeurs uniquement lorsqu'au moins un processeur est fourni ; lorsque `processors` est omis ou vide, aucun des codes de couture ne s'exécute et la boucle reste inchangée octet par octet. Les hooks s'exécutent dans l'ordre d'enregistrement et peuvent être synchronisés ou asynchrones.
 
-> [!NOTE]
-> La couture au niveau de la boucle est le livrable aujourd'hui et peut être appelée directement par les sous-agents, A2A, MCP et les tests. Faire passer `processors` via le gestionnaire de discussion HTTP (afin qu'un résolveur par requête puisse les configurer sans appeler directement `runAgentLoop`) est une plomberie pratique qui n'est pas encore câblée : configurez les processeurs sur le site d'appel `runAgentLoop` pour l'instant.
+<Callout id="doc-block-proc1note" tone="info">
 
-## Connexe
+La couture au niveau de la boucle est le livrable aujourd'hui et peut être appelée directement par les sous-agents, A2A, MCP et les tests. Faire passer `processors` via le gestionnaire de discussion HTTP (afin qu'un résolveur par requête puisse les configurer sans appeler directement `runAgentLoop`) est une plomberie pratique qui n'est pas encore câblée : configurez les processeurs sur le site d'appel `runAgentLoop` pour l'instant.
+
+</Callout>
+
+## Et ensuite
 
 - [**Durable Resume**](/docs/durable-resume) — comment la boucle survit aux interruptions sans réexécuter les effets secondaires terminés.
 - [**Custom Agents & Teams**](/docs/agent-teams) — les sous-agents exécutent la même boucle et peuvent transporter leurs propres processeurs.

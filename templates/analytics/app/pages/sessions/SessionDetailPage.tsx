@@ -9,6 +9,11 @@ import {
 } from "@agent-native/core/client";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "@shared/session-replay-diagnostics";
+import {
   IconArrowLeft,
   IconCheck,
   IconChevronRight,
@@ -58,6 +63,7 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { extractReplayDiagnostics } from "./session-replay-devtools";
+import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
@@ -154,36 +160,35 @@ type ReplayViewportDimensions = {
   height: number;
 };
 
+type ReplayViewportChange = ReplayViewportDimensions & {
+  offsetMs: number;
+};
+
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
-const MIN_REPLAY_DISPLAY_ASPECT_RATIO = 0.45;
-const MAX_REPLAY_DISPLAY_ASPECT_RATIO = 3;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
 const MIN_IDLE_SKIP_MS = 8000;
 const IDLE_EDGE_PAD_MS = 1200;
-const REPLAY_CHUNK_FETCH_CONCURRENCY = 6;
+const REPLAY_CHUNK_BATCH_MAX_CHUNKS = 20;
+const REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES = 4 * 1024 * 1024;
+const REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY = 3;
 const REPLAY_CHUNK_UNAVAILABLE_MESSAGE = "Session replay chunk is unavailable";
+const SCROLL_MARKER_BURST_MS = 1_000;
 const DEFAULT_DEVTOOLS_HEIGHT = 220;
 const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
-/** Toast/snackbar noise only — keep insertStyleRules minimal like builder-internal. */
-const SUPPRESS_OVERLAYS_CSS = [
-  "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
-];
-const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
-const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
-
-const EMPTY_DIAGNOSTICS: ReturnType<typeof extractReplayDiagnostics> = {
-  console: [],
-  network: [],
-  consoleErrorCount: 0,
-  networkFailedCount: 0,
-};
-
+const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
+/**
+ * Keep captured overlays intact. Toasts and snackbars are product feedback,
+ * not recorder chrome, and can be essential to understanding the session.
+ * The recorder does not inject notification UI into the recorded document, so
+ * blanket selectors (including Sonner's data attributes) are not justified.
+ */
+export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -229,25 +234,25 @@ const RRWEB_EVENT_TYPE = {
 
 const INCREMENTAL_SOURCE = {
   Mutation: 0,
+  MouseMove: 1,
   MouseInteraction: 2,
   Scroll: 3,
   ViewportResize: 4,
   Input: 5,
   TouchMove: 6,
+  Drag: 12,
 } as const;
 
 const MOUSE_INTERACTION = {
+  MouseUp: 0,
+  MouseDown: 1,
   Click: 2,
+  ContextMenu: 3,
   DblClick: 4,
   Focus: 5,
+  TouchStart: 7,
+  TouchEnd: 9,
 } as const;
-
-const INTERACTION_SOURCES = new Set<number>([
-  INCREMENTAL_SOURCE.MouseInteraction,
-  INCREMENTAL_SOURCE.Scroll,
-  INCREMENTAL_SOURCE.Input,
-  INCREMENTAL_SOURCE.TouchMove,
-]);
 
 export default function SessionDetailPage() {
   const t = useT();
@@ -476,6 +481,7 @@ function ReplayPlayer({
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
   const rafRef = useRef<number | null>(null);
+  const lastClockUpdateAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -492,8 +498,17 @@ function ReplayPlayer({
     height: number;
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
-  const initialDims = useMemo(() => replayViewportDimensions(events), [events]);
+  const initialDims = useMemo(
+    () => replayInitialViewportDimensions(events),
+    [events],
+  );
+  const viewportTimeline = useMemo(
+    () => buildReplayViewportTimeline(events),
+    [events],
+  );
   const eventsRef = useLiveRef(events);
+  const viewportTimelineRef = useLiveRef(viewportTimeline);
+  const streamedDimsRef = useLiveRef(streamedDims);
   // Stable identity for the loaded event set so progressive chunk publishes
   // that only grow the array do not tear down a healthy Replayer mid-playback.
   const eventsIdentity = useMemo(
@@ -506,9 +521,14 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
-  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  // Fall back to the default player size only when the viewport is unknown;
+  // otherwise render the raw recorded dimensions untouched. See the Replayer
+  // construction below for why "recovery" heuristics were removed here.
+  const displayDims = resolveReplayDisplayDimensions(
+    streamedDims ?? initialDims,
+  );
+  const playerWidth = displayDims.width;
+  const playerHeight = displayDims.height;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -520,13 +540,11 @@ function ReplayPlayer({
     () => currentUrlAt(events, currentTime),
     [events, currentTime],
   );
-  const diagnostics = useMemo(
-    () => (devToolsOpen ? extractReplayDiagnostics(events) : EMPTY_DIAGNOSTICS),
-    [devToolsOpen, events],
+  const diagnostics = useMemo(() => extractReplayDiagnostics(events), [events]);
+  const devToolsIssueCount = replayDevToolsIssueCount(
+    diagnostics,
+    response.isComplete,
   );
-  const devToolsIssueCount = devToolsOpen
-    ? diagnostics.consoleErrorCount + diagnostics.networkFailedCount
-    : response.recording.errorCount;
 
   // Resolve captured console errors in this replay to their Sentry-style issue
   // groups (one batched, access-scoped call, server-computed fingerprints) so
@@ -572,6 +590,7 @@ function ReplayPlayer({
     if (!el) return;
     const update = () => {
       const next = Math.min(
+        1,
         el.clientWidth / playerWidth,
         el.clientHeight / playerHeight,
       );
@@ -605,10 +624,16 @@ function ReplayPlayer({
 
   const updateTime = useCallback(
     (next: number) => {
+      if (!Number.isFinite(next) || next === currentTimeRef.current) return;
+      // Keep the live value in sync before React commits. The animation clock
+      // can run again while React is still processing the previous render;
+      // relying on useLiveRef's effect here republishes the same value and can
+      // create a nested update loop in development.
+      currentTimeRef.current = next;
       setCurrentTime(next);
       onTimeUpdate(next);
     },
-    [onTimeUpdate],
+    [currentTimeRef, onTimeUpdate],
   );
 
   const seek = useCallback(
@@ -628,9 +653,33 @@ function ReplayPlayer({
         console.warn("[session-replay] seek failed", seekError);
         return;
       }
+      const seekDims = replayViewportDimensionsAtTime(
+        viewportTimelineRef.current,
+        clamped,
+      );
+      if (seekDims) {
+        // rrweb 2.1 does not reliably re-emit its resize event when seeking
+        // backwards, so mirror the raw viewport-timeline lookup onto both
+        // rrweb's iframe and the outer stage state to keep them in sync.
+        const currentDims = streamedDimsRef.current;
+        if (
+          currentDims?.width !== seekDims.width ||
+          currentDims?.height !== seekDims.height
+        ) {
+          replayer.handleResize?.(seekDims);
+          setStreamedDims(seekDims);
+        }
+      }
       updateTime(clamped);
     },
-    [playingRef, status, totalTime, updateTime],
+    [
+      playingRef,
+      status,
+      streamedDimsRef,
+      totalTime,
+      updateTime,
+      viewportTimelineRef,
+    ],
   );
 
   const beginScrub = useCallback(
@@ -664,27 +713,17 @@ function ReplayPlayer({
     let localReplayer: any = null;
 
     async function loadReplay() {
-      // Wait for the full recording before creating the Replayer. Progressive
-      // chunk publishes used to rebuild the player on every append, which
-      // reset the clock, disabled the scrubber, and desynced the playhead.
       const replayEvents = eventsRef.current;
+      // Replayer construction remains all-or-nothing. Progressive response
+      // publishes update loading progress only; rebuilding during download
+      // rewinds the player and can desync the scrubber/playhead.
       if (!response.isComplete) {
         setStatus("loading");
         setError(null);
         setPlaying(false);
         return;
       }
-      if (replayEvents.length < 2) {
-        throw new Error(t("sessions.noReplayEvents"));
-      }
-      if (
-        !replayEvents.some(
-          (event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot,
-        )
-      ) {
-        throw new Error(t("sessions.noReplayEvents"));
-      }
-      if (!hasPlayableReplayEvents(replayEvents)) {
+      if (replayEvents.length < 2 || !hasPlayableReplayEvents(replayEvents)) {
         throw new Error(t("sessions.noReplayEvents"));
       }
       setStatus("loading");
@@ -694,22 +733,34 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      // Match builder-internal: pass events through untouched and let rrweb own
-      // iframe sizing via Meta / ViewportResize. Only use dimensions for CSS
-      // fit-to-stage scaling of the outer wrapper — never rewrite Meta or force
-      // iframe width/height (that mismatches the FullSnapshot DOM and blanks
-      // the stage).
-      setStreamedDims(replayViewportDimensions(replayEvents));
+      // Viewport and pointer events must pass through to rrweb untouched.
+      // The 2026-07 "ultra-wide replay" bugs (e.g. a stored 1,152px-wide
+      // recording rendering as a 4,491px Meta width) were caused by demo
+      // mode's fetch redaction faking numbers >= 1000 in raw replay JSON at
+      // view time, not by malformed stored geometry — fixed in
+      // packages/core/src/demo/fetch-interceptor.ts. Stored recordings were
+      // always sane, so never add viewport "recovery" heuristics here; they
+      // can only corrupt genuine recordings (e.g. a real ultrawide window).
+      setStreamedDims(replayInitialViewportDimensions(replayEvents));
+      // Keep this loosely typed: our internal AnyReplayEvent shape doesn't
+      // exactly match rrweb's declared eventWithTime type.
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
         skipInactive: false,
         showWarning: false,
         showDebug: false,
-        triggerFocus: false,
         mouseTail: false,
-        insertStyleRules: SUPPRESS_OVERLAYS_CSS,
+        // Match stock rrweb/builder-internal focus replay. Disabling focus
+        // drops recorded focus-visible state and can leave menus/forms looking
+        // unlike the source page even when the snapshot CSS is correct.
+        triggerFocus: true,
+        insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
       });
+      // rrweb already sandboxes the replay document without script execution.
+      // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
+      // at the iframe boundary while retaining historical visual resources.
+      localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
@@ -734,10 +785,21 @@ function ReplayPlayer({
           dims.width > 0 &&
           dims.height > 0
         ) {
-          setStreamedDims({
+          const rawDims = {
             width: Math.round(dims.width),
             height: Math.round(dims.height),
-          });
+          };
+          // rrweb owns its iframe geometry from raw Meta/ViewportResize
+          // events. Only mirror the raw dims into React state here, for the
+          // outer stage's fit-to-container scaling.
+          const currentDims = streamedDimsRef.current;
+          if (
+            currentDims?.width === rawDims.width &&
+            currentDims?.height === rawDims.height
+          ) {
+            return;
+          }
+          setStreamedDims(rawDims);
         }
       });
       updateTime(startAt);
@@ -770,6 +832,7 @@ function ReplayPlayer({
       try {
         localReplayer?.pause?.();
         localReplayer?.destroy?.();
+        replayerRef.current?.pause?.();
         replayerRef.current?.destroy?.();
       } catch {
         // rrweb cleanup is best-effort across versions.
@@ -777,9 +840,6 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-    // Key only on isComplete + a stable events identity. Including the events
-    // array reference would rebuild the Replayer when the final publish()
-    // replaces the chunks object even though the event set is unchanged.
   }, [
     currentTimeRef,
     eventsIdentity,
@@ -794,10 +854,11 @@ function ReplayPlayer({
     if (!playing || status !== "ready") {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
       return;
     }
 
-    const tick = () => {
+    const tick = (frameTime: number) => {
       const replayer = replayerRef.current;
       if (replayer && !scrubbingRef.current) {
         let nextTime = Number(
@@ -820,7 +881,17 @@ function ReplayPlayer({
             }
           }
         }
-        if (Number.isFinite(nextTime)) updateTime(nextTime);
+        if (
+          shouldPublishReplayClockUpdate(
+            lastClockUpdateAtRef.current,
+            frameTime,
+            currentTimeRef.current,
+            nextTime,
+          )
+        ) {
+          lastClockUpdateAtRef.current = frameTime;
+          updateTime(nextTime);
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -829,6 +900,7 @@ function ReplayPlayer({
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
     };
   }, [
     currentTimeRef,
@@ -879,10 +951,13 @@ function ReplayPlayer({
 
   return (
     <TooltipProvider>
-      <div ref={playerShellRef} className="flex min-h-0 flex-1 flex-col">
-        <Card className="flex min-h-0 flex-1 overflow-hidden">
-          <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-            <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
+      <div
+        ref={playerShellRef}
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
@@ -911,6 +986,10 @@ function ReplayPlayer({
                 />
                 <button
                   type="button"
+                  // IMPORTANT: Keep the viewer's real OS pointer visible while
+                  // the synthetic rrweb pointer replays underneath it. Hiding
+                  // this during playback makes the page feel broken whenever
+                  // the viewer moves their mouse over the full-stage control.
                   className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
                   disabled={disabled}
                   aria-label={
@@ -1042,8 +1121,10 @@ function ReplayPlayer({
                   "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:bg-muted",
                   devToolsOpen &&
                     "border-primary/40 bg-primary/10 text-primary",
+                  !response.isComplete && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => setDevToolsOpen((value) => !value)}
+                disabled={!response.isComplete}
                 aria-pressed={devToolsOpen}
                 aria-expanded={devToolsOpen}
               >
@@ -1061,12 +1142,14 @@ function ReplayPlayer({
                 ) : null}
               </button>
 
-              <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
-                {t("sessions.replayEventCount", {
-                  events: String(response.eventCount),
-                })}
-                {response.truncated ? ` ${t("sessions.truncated")}` : ""}
-              </span>
+              {response.isComplete ? (
+                <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
+                  {t("sessions.replayEventCount", {
+                    events: String(response.eventCount),
+                  })}
+                  {response.truncated ? ` ${t("sessions.truncated")}` : ""}
+                </span>
+              ) : null}
             </div>
 
             {devToolsOpen ? (
@@ -1078,6 +1161,7 @@ function ReplayPlayer({
                 onHeightChange={setDevToolsHeight}
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
+                issueMatching={issueMatchQuery.isFetching}
               />
             ) : null}
 
@@ -1464,7 +1548,9 @@ function useSessionReplayPlayback(recordingId: string) {
         let loadedCount = 0;
         let loadedBytes = 0;
         let unavailableChunks = 0;
-        let nextIndex = 0;
+        const chunkIndexBySeq = new Map(
+          manifest.chunks.map((chunk, index) => [chunk.seq, index]),
+        );
 
         const publish = (force = false) => {
           const complete = loadedCount >= manifest.chunks.length;
@@ -1513,31 +1599,20 @@ function useSessionReplayPlayback(recordingId: string) {
 
         publish();
 
-        async function worker() {
-          while (!cancelled && nextIndex < manifest.chunks.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            const chunk = await fetchReplayChunk(manifest.chunks[index], {
-              agentAccessToken,
-            });
-            loadedChunks[index] = chunk;
-            loadedCount += 1;
-            loadedBytes += manifest.chunks[index].byteLength;
-            if (chunk.unavailable) unavailableChunks += 1;
+        await fetchReplayChunks(
+          manifest.chunks,
+          { agentAccessToken },
+          (batch) => {
+            for (const chunk of batch) {
+              const index = chunkIndexBySeq.get(chunk.seq);
+              if (index === undefined || loadedChunks[index]) continue;
+              loadedChunks[index] = chunk;
+              loadedCount += 1;
+              loadedBytes += manifest.chunks[index].byteLength;
+              if (chunk.unavailable) unavailableChunks += 1;
+            }
             if (!cancelled) publish();
-          }
-        }
-
-        await Promise.all(
-          Array.from(
-            {
-              length: Math.min(
-                REPLAY_CHUNK_FETCH_CONCURRENCY,
-                manifest.chunks.length,
-              ),
-            },
-            worker,
-          ),
+          },
         );
         if (!cancelled) publish(true);
       } catch (loadError) {
@@ -1635,25 +1710,116 @@ async function fetchReplayManifest(
 async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
   options: FetchSessionReplayPlaybackOptions,
+  onBatch?: (chunks: ReplayChunkEvents[]) => void,
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
+  const indexBySeq = new Map(chunks.map((chunk, index) => [chunk.seq, index]));
+  const batches = partitionReplayChunkBatches(chunks);
   let nextIndex = 0;
 
   async function worker() {
-    while (nextIndex < chunks.length) {
+    while (nextIndex < batches.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await fetchReplayChunk(chunks[index], options);
+      const loaded = await fetchReplayChunkBatch(batches[index], options);
+      for (const chunk of loaded) {
+        const resultIndex = indexBySeq.get(chunk.seq);
+        if (resultIndex !== undefined) results[resultIndex] = chunk;
+      }
+      onBatch?.(loaded);
     }
   }
 
   await Promise.all(
     Array.from(
-      { length: Math.min(REPLAY_CHUNK_FETCH_CONCURRENCY, chunks.length) },
+      {
+        length: Math.min(REPLAY_CHUNK_BATCH_FETCH_CONCURRENCY, batches.length),
+      },
       worker,
     ),
   );
   return results;
+}
+
+export function partitionReplayChunkBatches(
+  chunks: SessionReplayManifestResponse["chunks"],
+): Array<SessionReplayManifestResponse["chunks"]> {
+  const batches: Array<SessionReplayManifestResponse["chunks"]> = [];
+  let batch: SessionReplayManifestResponse["chunks"] = [];
+  let declaredBytes = 0;
+
+  for (const chunk of chunks) {
+    const exceedsChunkLimit = batch.length >= REPLAY_CHUNK_BATCH_MAX_CHUNKS;
+    const exceedsByteLimit =
+      batch.length > 0 &&
+      declaredBytes + chunk.byteLength > REPLAY_CHUNK_BATCH_MAX_DECLARED_BYTES;
+    if (exceedsChunkLimit || exceedsByteLimit) {
+      batches.push(batch);
+      batch = [];
+      declaredBytes = 0;
+    }
+    batch.push(chunk);
+    declaredBytes += chunk.byteLength;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+async function fetchReplayChunkBatch(
+  chunks: SessionReplayManifestResponse["chunks"],
+  options: FetchSessionReplayPlaybackOptions,
+): Promise<ReplayChunkEvents[]> {
+  const recordingId = replayRecordingIdFromChunkPath(chunks[0]?.bytesPath);
+  if (!recordingId) {
+    return Promise.all(chunks.map((chunk) => fetchReplayChunk(chunk, options)));
+  }
+  const query = new URLSearchParams({
+    seqs: chunks.map((chunk) => chunk.seq).join(","),
+  });
+  const response = await fetchReplayApi(
+    `/api/session-replay/recordings/${encodeURIComponent(recordingId)}/chunks?${query}`,
+    options.agentAccessToken,
+  );
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 405) {
+      return Promise.all(
+        chunks.map((chunk) => fetchReplayChunk(chunk, options)),
+      );
+    }
+    throw await replayFetchError(response);
+  }
+
+  const payload = (await response.json()) as { chunks?: unknown };
+  const returnedChunks = Array.isArray(payload?.chunks)
+    ? payload.chunks.filter(isReplayChunkEvents)
+    : [];
+  const returnedBySeq = new Map(
+    returnedChunks.map((chunk) => [chunk.seq, chunk]),
+  );
+
+  return Promise.all(
+    chunks.map(async (manifestChunk) => {
+      const loaded = returnedBySeq.get(manifestChunk.seq);
+      return loaded ?? fetchReplayChunk(manifestChunk, options);
+    }),
+  );
+}
+
+function replayRecordingIdFromChunkPath(path: string | undefined): string {
+  if (!path) return "";
+  const match = path.match(/\/recordings\/([^/]+)\/chunks\//);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function isReplayChunkEvents(value: unknown): value is ReplayChunkEvents {
+  return (
+    isRecord(value) &&
+    typeof value.seq === "number" &&
+    typeof value.checksum === "string" &&
+    typeof value.byteLength === "number" &&
+    typeof value.eventCount === "number" &&
+    Array.isArray(value.events)
+  );
 }
 
 async function fetchReplayChunk(
@@ -1758,7 +1924,7 @@ function useReplayEvents(
 ): AnyReplayEvent[] {
   return useMemo(
     () =>
-      sanitizeReplayEvents(
+      normalizeReplayEvents(
         response.chunks
           .flatMap((chunk) => chunk.events)
           .filter((event) => event && typeof event === "object"),
@@ -1767,187 +1933,20 @@ function useReplayEvents(
   );
 }
 
-export function sanitizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
+/**
+ * Stock rrweb consumes the recorded event objects directly. Playback-time URL
+ * or CSS rewriting breaks snapshots, responsive rules, fonts, and navigation
+ * metadata, so filtering invalid container entries is the only normalization.
+ *
+ * IMPORTANT — DO NOT add URL/CSS sanitization here. A previous security review
+ * changed href/src/_cssText to about:blank and immediately regressed every
+ * historical recording that depended on captured styles. Network/privacy
+ * controls belong at capture or the sandbox boundary, never in rrweb events.
+ */
+export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
   return events
-    .map((event) => sanitizeReplayEvent(event))
-    .filter((event): event is AnyReplayEvent => Boolean(event))
+    .filter((event): event is AnyReplayEvent => isRecord(event))
     .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
-}
-
-function sanitizeReplayEvent(event: unknown): AnyReplayEvent | null {
-  if (!isRecord(event)) return null;
-  let copy: AnyReplayEvent;
-  try {
-    copy = JSON.parse(JSON.stringify(event));
-  } catch {
-    copy = { ...event };
-  }
-  if (copy.type === RRWEB_EVENT_TYPE.FullSnapshot && isRecord(copy.data)) {
-    const node = sanitizeSerializedNode(copy.data.node);
-    if (!node) return null;
-    copy.data.node = node;
-  }
-  if (
-    copy.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-    copy.data?.source === INCREMENTAL_SOURCE.Mutation &&
-    isRecord(copy.data)
-  ) {
-    copy.data = sanitizeMutationData(copy.data);
-  }
-  return copy;
-}
-
-function sanitizeMutationData(data: AnyRecord): AnyRecord {
-  const next = { ...data };
-  if (Array.isArray(next.adds)) {
-    next.adds = next.adds
-      .map((add) => {
-        if (!isRecord(add)) return add;
-        const node = sanitizeSerializedNode(add.node);
-        if (!node) return null;
-        return { ...add, node };
-      })
-      .filter(Boolean);
-  }
-  if (Array.isArray(next.attributes)) {
-    next.attributes = next.attributes.map((attributeMutation) => {
-      if (
-        !isRecord(attributeMutation) ||
-        !isRecord(attributeMutation.attributes)
-      ) {
-        return attributeMutation;
-      }
-      return {
-        ...attributeMutation,
-        attributes: sanitizeAttributes(attributeMutation.attributes),
-      };
-    });
-  }
-  if (Array.isArray(next.texts)) {
-    next.texts = next.texts.map((textMutation) => {
-      if (!isRecord(textMutation)) return textMutation;
-      const copy = { ...textMutation };
-      if (
-        typeof copy.value === "string" &&
-        containsStylesheetNetworkLoad(copy.value)
-      ) {
-        copy.value = sanitizeCssText(copy.value);
-      }
-      if (
-        typeof copy.textContent === "string" &&
-        containsStylesheetNetworkLoad(copy.textContent)
-      ) {
-        copy.textContent = sanitizeCssText(copy.textContent);
-      }
-      return copy;
-    });
-  }
-  return next;
-}
-
-function sanitizeSerializedNode(node: unknown): AnyRecord | null {
-  if (!isRecord(node)) return node as AnyRecord;
-  const next: AnyRecord = { ...node };
-  const tagName =
-    typeof next.tagName === "string" ? next.tagName.toLowerCase() : "";
-  if (next.type === 2 && tagName === "script") {
-    return {
-      ...next,
-      tagName: "noscript",
-      attributes: {},
-      childNodes: [],
-    };
-  }
-  if (
-    next.type === 3 &&
-    typeof next.textContent === "string" &&
-    containsStylesheetNetworkLoad(next.textContent)
-  ) {
-    next.textContent = sanitizeCssText(next.textContent);
-  }
-  if (
-    next.type === 2 &&
-    tagName === "link" &&
-    isScriptLikeLink(next.attributes)
-  ) {
-    return null;
-  }
-  if (isRecord(next.attributes)) {
-    next.attributes = sanitizeAttributes(next.attributes);
-  }
-  if (Array.isArray(next.childNodes)) {
-    next.childNodes = next.childNodes
-      .map((child) => sanitizeSerializedNode(child))
-      .filter(Boolean);
-  }
-  return next;
-}
-
-function containsStylesheetNetworkLoad(value: string): boolean {
-  return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
-}
-
-function sanitizeCssText(value: string): string {
-  if (!containsStylesheetNetworkLoad(value)) return value;
-  return value
-    .replace(/@import\s+(?:url\s*\()?[^;{}]+;?/gi, "")
-    .replace(/\burl\s*\(\s*((?:\\.|[^\\)])*)\)/gi, sanitizeCssUrlToken);
-}
-
-function sanitizeCssUrlToken(match: string, rawValue: string): string {
-  const urlValue = rawValue.trim();
-  const unquoted = urlValue.replace(/^(['"])(.*)\1$/, "$2").trim();
-  if (/^(?:data:|blob:|#)/i.test(unquoted)) return match;
-  return "none";
-}
-
-function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
-  const next: AnyRecord = {};
-  for (const [key, value] of Object.entries(attributes)) {
-    const normalized = key.toLowerCase();
-    if (normalized.startsWith("on")) continue;
-    if (normalized === "srcdoc") continue;
-    if (isReplayResourceAttribute(normalized)) continue;
-    if (normalized === "style") {
-      const style = sanitizeCssText(String(value));
-      if (style.trim()) next[key] = style;
-      continue;
-    }
-    if (normalized === "_csstext") {
-      const cssText = sanitizeCssText(String(value));
-      if (cssText.trim()) next[key] = cssText;
-      continue;
-    }
-    next[key] = value;
-  }
-  return next;
-}
-
-function isReplayResourceAttribute(name: string): boolean {
-  return (
-    name === "src" ||
-    name === "srcset" ||
-    name === "href" ||
-    name === "xlink:href" ||
-    name === "poster" ||
-    name === "data" ||
-    name === "action" ||
-    name === "formaction" ||
-    name === "background" ||
-    name === "cite"
-  );
-}
-
-function isScriptLikeLink(attributes: unknown): boolean {
-  if (!isRecord(attributes)) return false;
-  const rel = String(attributes.rel ?? "").toLowerCase();
-  const as = String(attributes.as ?? "").toLowerCase();
-  const href = String(attributes.href ?? "").toLowerCase();
-  return (
-    rel === "modulepreload" ||
-    (rel === "preload" && as === "script") ||
-    (rel === "prefetch" && href.endsWith(".js"))
-  );
 }
 
 export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
@@ -2007,6 +2006,23 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
           ["Y", event.data?.y],
         ]),
       });
+    } else if (
+      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
+      event.data?.source === INCREMENTAL_SOURCE.Scroll
+    ) {
+      markers.push({
+        id: `scroll-${timestamp}-${markers.length}`,
+        timestamp,
+        offsetMs: Math.max(0, timestamp - startedAt),
+        kind: "custom",
+        label: "Scroll",
+        detail: pointerDetail(event.data),
+        fields: markerFields([
+          ["Element id", event.data?.id],
+          ["X", event.data?.x],
+          ["Y", event.data?.y],
+        ]),
+      });
     } else if (event.type === RRWEB_EVENT_TYPE.Custom) {
       const marker = customReplayMarker(
         event,
@@ -2017,7 +2033,53 @@ export function buildReplayMarkers(events: AnyReplayEvent[]): ReplayMarker[] {
       if (marker) markers.push(marker);
     }
   }
-  return markers.sort((a, b) => a.offsetMs - b.offsetMs);
+  return collapseScrollMarkerBursts(
+    markers.sort((a, b) => a.offsetMs - b.offsetMs),
+  );
+}
+
+function collapseScrollMarkerBursts(markers: ReplayMarker[]): ReplayMarker[] {
+  const collapsed: ReplayMarker[] = [];
+  const lastScrollByTarget = new Map<
+    string,
+    { index: number; timestamp: number }
+  >();
+  for (const marker of markers) {
+    if (marker.label !== "Scroll") {
+      collapsed.push(marker);
+      continue;
+    }
+    const target =
+      marker.fields?.find((field) => field.label === "Element id")?.value ??
+      "viewport";
+    const previous = lastScrollByTarget.get(target);
+    if (
+      previous &&
+      marker.timestamp - previous.timestamp <= SCROLL_MARKER_BURST_MS
+    ) {
+      // Keep one marker per continuous scroll gesture, using its final
+      // position while retaining the first marker's stable id/time.
+      collapsed[previous.index] = {
+        ...marker,
+        id: collapsed[previous.index].id,
+        timestamp: collapsed[previous.index].timestamp,
+        offsetMs: collapsed[previous.index].offsetMs,
+      };
+      previous.timestamp = marker.timestamp;
+      continue;
+    }
+    const index = collapsed.push(marker) - 1;
+    lastScrollByTarget.set(target, { index, timestamp: marker.timestamp });
+  }
+  return collapsed;
+}
+
+export function replayDevToolsIssueCount(
+  diagnostics: ReplayDevToolsDiagnostics,
+  isComplete: boolean,
+): number {
+  if (!isComplete) return 0;
+  return diagnostics.consoleErrorCount + diagnostics.networkFailedCount;
 }
 
 function customReplayMarker(
@@ -2055,7 +2117,33 @@ function customReplayMarker(
   }
 
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
-    return null;
+    const status = Number(payload.status ?? 0);
+    if (
+      payload.ok !== false &&
+      (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
+    ) {
+      return null;
+    }
+    const method =
+      typeof payload.method === "string" ? payload.method : undefined;
+    const url = typeof payload.url === "string" ? payload.url : undefined;
+    const error = typeof payload.error === "string" ? payload.error : undefined;
+    return {
+      id: `network-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "custom",
+      label: "Network error", // i18n-ignore: timeline protocol label.
+      detail: [method, url].filter(Boolean).join(" ") || error,
+      severity: "error",
+      fields: markerFields([
+        ["Method", method],
+        ["URL", url],
+        ["Status", Number.isFinite(status) ? status : undefined],
+        ["Error", error],
+        ["Duration", payload.durationMs],
+      ]),
+    };
   }
 
   return {
@@ -2068,7 +2156,7 @@ function customReplayMarker(
   };
 }
 
-function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
+export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
   const startedAt = replayStartedAt(events);
   const interactions: number[] = [];
   let lastTimestamp = startedAt;
@@ -2076,15 +2164,7 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     const timestamp = Number(event.timestamp ?? 0);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     lastTimestamp = Math.max(lastTimestamp, timestamp);
-    if (event.type === RRWEB_EVENT_TYPE.Meta) {
-      interactions.push(timestamp);
-    } else if (
-      event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-      typeof event.data?.source === "number" &&
-      INTERACTION_SOURCES.has(event.data.source)
-    ) {
-      interactions.push(timestamp);
-    }
+    interactions.push(...replayActivityTimestamps(event, timestamp));
   }
   interactions.sort((a, b) => a - b);
   const ranges: SkipRange[] = [];
@@ -2105,6 +2185,55 @@ function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     );
   }
   return ranges;
+}
+
+function replayActivityTimestamps(
+  event: AnyReplayEvent,
+  timestamp: number,
+): number[] {
+  if (event.type === RRWEB_EVENT_TYPE.Meta) return [timestamp];
+  if (event.type !== RRWEB_EVENT_TYPE.IncrementalSnapshot) return [];
+
+  const source = event.data?.source;
+  if (
+    source === INCREMENTAL_SOURCE.MouseMove ||
+    source === INCREMENTAL_SOURCE.TouchMove ||
+    source === INCREMENTAL_SOURCE.Drag
+  ) {
+    const positions = Array.isArray(event.data?.positions)
+      ? event.data.positions
+      : [];
+    // IMPORTANT: rrweb batches pointer positions and schedules each one at
+    // event.timestamp + timeOffset. Treat those exact moments as activity.
+    // Ignoring the batch made Skip inactivity jump across visible movement,
+    // which looked like a frozen cursor even though the recording was intact.
+    return positions.flatMap((position: unknown) => {
+      if (!isRecord(position)) return [];
+      const timeOffset = Number(position.timeOffset ?? 0);
+      return [timestamp + (Number.isFinite(timeOffset) ? timeOffset : 0)];
+    });
+  }
+  if (
+    source === INCREMENTAL_SOURCE.Input ||
+    source === INCREMENTAL_SOURCE.Scroll
+  ) {
+    return [timestamp];
+  }
+  if (source !== INCREMENTAL_SOURCE.MouseInteraction) return [];
+
+  const interactionType = event.data?.type;
+  return [
+    interactionType === MOUSE_INTERACTION.MouseUp ||
+    interactionType === MOUSE_INTERACTION.MouseDown ||
+    interactionType === MOUSE_INTERACTION.Click ||
+    interactionType === MOUSE_INTERACTION.ContextMenu ||
+    interactionType === MOUSE_INTERACTION.DblClick ||
+    interactionType === MOUSE_INTERACTION.Focus ||
+    interactionType === MOUSE_INTERACTION.TouchStart ||
+    interactionType === MOUSE_INTERACTION.TouchEnd
+      ? timestamp
+      : null,
+  ].filter((value): value is number => value !== null);
 }
 
 function pushIdleRange(
@@ -2159,6 +2288,73 @@ export function replayViewportDimensions(
   return best;
 }
 
+export function replayInitialViewportDimensions(
+  events: AnyReplayEvent[],
+): ReplayViewportDimensions | null {
+  // rrweb itself initializes from the first Meta event. A resize can appear
+  // earlier in chunk order after reconnect/flush boundaries, but it must not
+  // replace the snapshot's native starting viewport.
+  for (const event of events) {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
+    const dims = dimensionsFromReplayEvent(event);
+    if (dims) return dims;
+  }
+  for (const event of events) {
+    const dims = dimensionsFromReplayEvent(event);
+    if (dims) return dims;
+  }
+  return null;
+}
+
+export function buildReplayViewportTimeline(
+  events: AnyReplayEvent[],
+): ReplayViewportChange[] {
+  const initial = replayInitialViewportDimensions(events);
+  if (!initial) return [];
+  const startedAt = replayStartedAt(events);
+  const firstMetaTimestamp = events.reduce((best, event) => {
+    if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
+    const timestamp = Number(event.timestamp ?? 0);
+    return Number.isFinite(timestamp) && timestamp > 0
+      ? Math.min(best, timestamp)
+      : best;
+  }, Number.POSITIVE_INFINITY);
+  const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
+  for (const event of events) {
+    const timestamp = Number(event.timestamp ?? 0);
+    if (!Number.isFinite(timestamp) || timestamp <= firstMetaTimestamp)
+      continue;
+    const dims = dimensionsFromReplayEvent(event);
+    if (!dims) continue;
+    const previous = changes[changes.length - 1];
+    if (previous?.width === dims.width && previous.height === dims.height) {
+      continue;
+    }
+    changes.push({
+      ...dims,
+      offsetMs: Math.max(0, timestamp - startedAt),
+    });
+  }
+  return changes;
+}
+
+export function replayViewportDimensionsAtTime(
+  changes: ReplayViewportChange[],
+  elapsedMs: number,
+): ReplayViewportDimensions | null {
+  if (changes.length === 0) return null;
+  const target = Math.max(0, elapsedMs);
+  let low = 0;
+  let high = changes.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if ((changes[middle]?.offsetMs ?? 0) <= target) low = middle;
+    else high = middle - 1;
+  }
+  const match = changes[low];
+  return match ? { width: match.width, height: match.height } : null;
+}
+
 function dimensionsFromReplayEvent(
   event: AnyReplayEvent,
 ): ReplayViewportDimensions | null {
@@ -2195,24 +2391,28 @@ export function normalizeReplayDimensions(
   };
 }
 
-export function clampReplayDisplayDimensions(
+/**
+ * Fall back to the default player size only when the viewport is entirely
+ * unknown (no Meta/ViewportResize event yet). This is not a "recovery"
+ * heuristic for real recorded geometry — it never rewrites valid dims, no
+ * matter how wide, narrow, or unusual the aspect ratio. See the Replayer
+ * construction in ReplayPlayer for why viewport "correction" was removed:
+ * the 2026-07 ultra-wide replay bugs were caused by demo mode's fetch
+ * redaction faking numbers at view time, not by malformed stored geometry.
+ */
+export function resolveReplayDisplayDimensions(
   dims: ReplayViewportDimensions | null,
-): ReplayViewportDimensions | null {
-  if (!dims) return null;
-  const aspect = dims.width / dims.height;
-  if (aspect > MAX_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: Math.round(dims.height * MAX_REPLAY_DISPLAY_ASPECT_RATIO),
-      height: dims.height,
-    };
+): ReplayViewportDimensions {
+  if (
+    dims &&
+    Number.isFinite(dims.width) &&
+    Number.isFinite(dims.height) &&
+    dims.width > 0 &&
+    dims.height > 0
+  ) {
+    return dims;
   }
-  if (aspect < MIN_REPLAY_DISPLAY_ASPECT_RATIO) {
-    return {
-      width: dims.width,
-      height: Math.round(dims.width / MIN_REPLAY_DISPLAY_ASPECT_RATIO),
-    };
-  }
-  return dims;
+  return { width: DEFAULT_PLAYER_WIDTH, height: DEFAULT_PLAYER_HEIGHT };
 }
 
 export function filterReplayMarkers(
@@ -2237,10 +2437,14 @@ export function filterReplayMarkers(
 }
 
 function replayStartedAt(events: AnyReplayEvent[]): number {
-  const first = events.find((event) =>
-    Number.isFinite(Number(event.timestamp)),
-  );
-  return Number(first?.timestamp ?? 0);
+  let startedAt = Number.POSITIVE_INFINITY;
+  for (const event of events) {
+    const timestamp = Number(event.timestamp);
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      startedAt = Math.min(startedAt, timestamp);
+    }
+  }
+  return Number.isFinite(startedAt) ? startedAt : 0;
 }
 
 function replayDuration(events: AnyReplayEvent[]): number {
@@ -2365,6 +2569,20 @@ function formatNumber(value: number): string {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+export function shouldPublishReplayClockUpdate(
+  lastUpdateAt: number | null,
+  frameTime: number,
+  currentTime: number,
+  nextTime: number,
+): boolean {
+  if (!Number.isFinite(frameTime) || !Number.isFinite(nextTime)) return false;
+  if (nextTime === currentTime) return false;
+  return (
+    lastUpdateAt == null ||
+    frameTime - lastUpdateAt >= REPLAY_CLOCK_UPDATE_INTERVAL_MS
+  );
 }
 
 function isRecord(value: unknown): value is AnyRecord {

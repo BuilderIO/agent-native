@@ -35,8 +35,10 @@ type FilterStatus = "all" | "confirmed" | "cancelled";
 
 export default function BookingsList() {
   const t = useT();
-  const { data: bookings = [] } = useBookings();
-  const { data: bookingLinks = [] } = useBookingLinks();
+  const bookingsQuery = useBookings();
+  const bookingLinksQuery = useBookingLinks();
+  const bookings = bookingsQuery.data ?? [];
+  const bookingLinks = bookingLinksQuery.data ?? [];
   const deleteBooking = useDeleteBooking();
   const [filter, setFilter] = useState<FilterStatus>("all");
 
@@ -81,7 +83,22 @@ export default function BookingsList() {
         </TabsList>
       </Tabs>
 
-      {filtered.length === 0 ? (
+      {bookingsQuery.isError || bookingLinksQuery.isError ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-destructive/30 py-12 text-center">
+          <p className="text-sm text-destructive">{t("common.loadFailed")}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void bookingsQuery.refetch();
+              void bookingLinksQuery.refetch();
+            }}
+            disabled={bookingsQuery.isFetching || bookingLinksQuery.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-12">
           <p className="text-sm text-muted-foreground">
             {t("bookingLinks.noBookingsFound")}

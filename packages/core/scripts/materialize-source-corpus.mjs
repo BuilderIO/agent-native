@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
@@ -7,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -113,6 +115,14 @@ const excludedFileSuffixes = [
   ".tsbuildinfo",
 ];
 
+// Matches both the "corpus" output dir itself and the unique per-process
+// temp dirs materializeSourceCorpus() swaps into place (see
+// swapCorpusDirIntoPlace), so a non-git fallback filesystem walk never
+// recurses into the corpus output it is currently producing.
+function isCorpusOutputDirName(name) {
+  return name === "corpus" || name.startsWith("corpus.tmp-");
+}
+
 function shouldSkipFile(name) {
   if (excludedFileNames.has(name)) return true;
   if (name === ".env") return true;
@@ -125,7 +135,14 @@ function shouldSkipFile(name) {
 
 function shouldSkipRelativePath(relativePath) {
   const segments = relativePath.split("/");
-  if (segments.some((segment) => excludedDirNames.has(segment))) return true;
+  if (
+    segments.some(
+      (segment) =>
+        excludedDirNames.has(segment) || isCorpusOutputDirName(segment),
+    )
+  ) {
+    return true;
+  }
   const name = segments[segments.length - 1];
   return shouldSkipFile(name);
 }
@@ -190,7 +207,12 @@ function listFilesystemFiles(absRoot, relRoot) {
     const abs = join(absRoot, entry.name);
     const rel = `${relRoot}/${entry.name}`.split("\\").join("/");
     if (entry.isDirectory()) {
-      if (excludedDirNames.has(entry.name)) continue;
+      if (
+        excludedDirNames.has(entry.name) ||
+        isCorpusOutputDirName(entry.name)
+      ) {
+        continue;
+      }
       files.push(...listFilesystemFiles(abs, rel));
     } else if (entry.isFile()) {
       files.push(rel);
@@ -210,7 +232,7 @@ function sourceFilesFor(rootRel) {
     .sort();
 }
 
-function copySourceFiles(rootRel, targetName) {
+function copySourceFiles(rootRel, targetName, baseDir) {
   const files = sourceFilesFor(rootRel);
   const prefix = `${rootRel}/`;
   let copied = 0;
@@ -220,7 +242,7 @@ function copySourceFiles(rootRel, targetName) {
     const sourcePath = join(repoRoot, file);
     if (!existsSync(sourcePath)) continue;
     if (!lstatSync(sourcePath).isFile()) continue;
-    const targetPath = join(corpusDir, targetName, relToRoot);
+    const targetPath = join(baseDir, targetName, relToRoot);
     mkdirSync(dirname(targetPath), { recursive: true });
     copyFileSync(sourcePath, targetPath);
     copied += 1;
@@ -228,7 +250,7 @@ function copySourceFiles(rootRel, targetName) {
   return { files: copied };
 }
 
-function writeCorpusReadme(stats) {
+function writeCorpusReadme(stats, baseDir) {
   const lines = [
     "# Agent Native Source Corpus",
     "",
@@ -263,24 +285,88 @@ function writeCorpusReadme(stats) {
     `- template files: ${stats.templateFiles}`,
     "",
   ];
-  writeFileSync(join(corpusDir, "README.md"), lines.join("\n"));
+  writeFileSync(join(baseDir, "README.md"), lines.join("\n"));
+}
+
+const swapMaxAttempts = 5;
+const swapRetryDelayMs = 40;
+
+// Synchronous sleep with no subprocess dependency, so retrying stays
+// cross-platform (Windows CI has no `sleep` binary under cmd.exe).
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// `corpusDir` is only ever replaced wholesale by a fully-populated temp dir
+// (see swapCorpusDirIntoPlace), so its presence + README.md proves *some*
+// materialize run -- ours or a concurrent one -- finished successfully.
+export function looksLikeMaterializedCorpus(dir) {
+  return existsSync(join(dir, "README.md"));
+}
+
+// Concurrent `materializeSourceCorpus()` runs (e.g. two overlapping
+// `scripts/dev-lazy.ts` prebuilds racing on the same checkout) used to both
+// `rmSync`/repopulate the shared `corpusDir` directly, which could throw
+// ENOTEMPTY out of the recursive rm/rename when one process's writes landed
+// mid-walk of another's, crashing dev-lazy startup entirely. Build into a
+// unique-per-process temp dir instead (nothing else can touch that path),
+// then swap it into place with a small bounded retry that treats "a
+// concurrent run already produced an equivalent corpus" as success rather
+// than a fatal error.
+export function swapCorpusDirIntoPlace(tempDir, targetDir = corpusDir) {
+  for (let attempt = 1; attempt <= swapMaxAttempts; attempt += 1) {
+    try {
+      rmSync(targetDir, { recursive: true, force: true });
+    } catch {
+      // A concurrent rename may already be repopulating targetDir; let the
+      // renameSync below decide the outcome instead of failing here.
+    }
+    try {
+      renameSync(tempDir, targetDir);
+      return true;
+    } catch (error) {
+      const code = error && error.code;
+      const concurrentWriter =
+        code === "ENOTEMPTY" ||
+        code === "EEXIST" ||
+        code === "ENOENT" ||
+        code === "EPERM";
+      if (!concurrentWriter) throw error;
+      if (looksLikeMaterializedCorpus(targetDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+        return false;
+      }
+      if (attempt < swapMaxAttempts) {
+        sleepSync(swapRetryDelayMs * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+  return false;
 }
 
 export function materializeSourceCorpus() {
-  rmSync(corpusDir, { recursive: true, force: true });
-  mkdirSync(corpusDir, { recursive: true });
+  const tempDir = `${corpusDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+  rmSync(tempDir, { recursive: true, force: true });
+  mkdirSync(tempDir, { recursive: true });
 
-  const coreStats = copySourceFiles("packages/core", "core");
-  const templateStats = copySourceFiles("templates", "templates");
+  const coreStats = copySourceFiles("packages/core", "core", tempDir);
+  const templateStats = copySourceFiles("templates", "templates", tempDir);
 
-  writeCorpusReadme({
-    coreFiles: coreStats.files,
-    templateFiles: templateStats.files,
-  });
+  writeCorpusReadme(
+    { coreFiles: coreStats.files, templateFiles: templateStats.files },
+    tempDir,
+  );
+
+  const applied = swapCorpusDirIntoPlace(tempDir);
 
   const size = relative(packageDir, corpusDir);
+  const note = applied
+    ? ""
+    : " (accepted a concurrent run's equivalent corpus)";
   console.log(
-    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${templateStats.files} template files).`,
+    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${templateStats.files} template files).${note}`,
   );
 }
 

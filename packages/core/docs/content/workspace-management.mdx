@@ -5,7 +5,11 @@ description: "Branching, CODEOWNERS, PR review, and how Dispatch handles runtime
 
 # Workspace Governance
 
-> **Which workspace doc?** This page covers **governance** — who reviews, approves, and owns what across many apps in one repo. For what a workspace _is_ (the customization layer) see [Workspace](/docs/workspace); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
+<Callout tone="info">
+
+**Which workspace doc?** This page covers **governance** — who reviews, approves, and owns what across many apps in one repo. For what a workspace _is_ (the customization layer) see [Workspace](/docs/workspace); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
+
+</Callout>
 
 This guide covers the operational side of running an agent-native workspace — how to branch, who reviews what, how to set up code ownership, and how the Dispatch control plane fits into your governance model.
 
@@ -68,7 +72,7 @@ This guide covers the operational side of running an agent-native workspace — 
 
 Use short-lived feature branches for all work:
 
-```
+```text
 main                         ← production
 ├── feat/mail-filters        ← single-app change
 ├── feat/core-oauth-refresh  ← framework change
@@ -118,7 +122,7 @@ Code governance is configured by a handful of files at the repo root:
 
 GitHub's CODEOWNERS file auto-assigns reviewers to PRs based on which files changed. Create `.github/CODEOWNERS` at the repo root:
 
-```
+```text filename=".github/CODEOWNERS"
 # Framework core — affects every app; platform team reviews all changes
 packages/core/                     @your-org/platform-team
 
@@ -232,4 +236,12 @@ For a new workspace, after running `npx @agent-native/core@latest create`:
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications
 - [ ] Connect Slack or Telegram for workspace messaging
-- [ ] Configure shared MCP servers — add `mcp-servers/<name>.json` workspace resources in Dispatch for All-app or selected-app grants; use `mcp.config.json` or [MCP hub mode](/docs/mcp-clients#hub) for lower-level deployments
+- [ ] Configure shared MCP servers — see [Multi-App Workspaces — Shared MCP servers](/docs/multi-app-workspace#shared-mcp)
+
+## What's next {#whats-next}
+
+- [**Workspace**](/docs/workspace) — the customization layer this page governs (skills, memory, agents, MCP servers)
+- [**Multi-App Workspaces**](/docs/multi-app-workspace) — the deployment shape: one monorepo, many apps
+- [**Dispatch**](/docs/dispatch) — the runtime control plane referenced throughout this page
+- [**Sharing**](/docs/sharing) — access control for individual resources, complementing repo-level CODEOWNERS
+- [**Audit Log**](/docs/audit-log) — the action-level audit trail that complements `git log`/`git blame`

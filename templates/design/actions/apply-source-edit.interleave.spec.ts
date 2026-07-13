@@ -67,6 +67,9 @@ import * as Y from "yjs";
 // nothing about the merge semantics under test is faked.
 // ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabTestControl = vi.hoisted(() => ({
+  corruptNextValidatedApply: false,
+}));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -107,10 +110,28 @@ vi.mock("@agent-native/core/collab", () => ({
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
   getText: async (docId: string) =>
     getOrCreateDoc(docId).getText("content").toString(),
-  applyText: async (docId: string, newText: string) => {
+  applyText: async (
+    docId: string,
+    newText: string,
+    _fieldName?: string,
+    _requestSource?: string,
+    options?: { validateSnapshot?: (snapshot: string) => void },
+  ) => {
     const doc = getOrCreateDoc(docId);
     applyTextDiff(doc, newText);
-    return doc.getText("content").toString();
+    if (
+      collabTestControl.corruptNextValidatedApply &&
+      options?.validateSnapshot
+    ) {
+      collabTestControl.corruptNextValidatedApply = false;
+      applyTextDiff(
+        doc,
+        `${doc.getText("content").toString()}<!DOCTYPE html><html><body>concurrent</body></html>`,
+      );
+    }
+    const snapshot = doc.getText("content").toString();
+    options?.validateSnapshot?.(snapshot);
+    return snapshot;
   },
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
@@ -336,6 +357,7 @@ function currentFileRef(): FileRow {
 
 beforeEach(() => {
   collabDocs.docs.clear();
+  collabTestControl.corruptNextValidatedApply = false;
   designFilesStore.rows.clear();
   seedFile(buildDoc());
 });
@@ -360,6 +382,25 @@ describe("HTML integrity write boundary", () => {
 
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
     expect((await readLiveSourceFile(currentFileRef())).content).toBe(before);
+  });
+
+  it("reports an invalid concurrent collab merge as a retryable conflict", async () => {
+    const before = buildDoc();
+    await applyText(FILE_ID, before, "content", "seed");
+    const live = await readLiveSourceFile(currentFileRef());
+    const validAgentEdit = before.replace("Hello world", "Hello from agent");
+    collabTestControl.corruptNextValidatedApply = true;
+
+    await expect(
+      writeInlineSourceFile({
+        designId: DESIGN_ID,
+        file: currentFileRef(),
+        content: validAgentEdit,
+        expectedVersionHash: live.versionHash,
+      }),
+    ).rejects.toThrow(/changed while the edit was being applied/);
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
   });
 });
 

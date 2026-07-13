@@ -20,7 +20,7 @@ description: >-
 
 **Before writing any SQL, verify the metric definition and exact table/column names.**
 
-1. Check the injected `<data-dictionary>` block and call `list-data-dictionary` first.
+1. Call `list-data-dictionary` with a focused search first; dictionary definitions are loaded on demand rather than injected into every chat request.
 2. Use `search-bigquery-schema` to confirm exact dataset, table, and column names.
 3. Only write SQL after you know the correct table and columns. Do not guess.
 
@@ -33,7 +33,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-1. The injected `<data-dictionary>` block and `list-data-dictionary`.
+1. `list-data-dictionary` with a focused search or department filter.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
 4. A concise user clarification when the business meaning cannot be inferred.

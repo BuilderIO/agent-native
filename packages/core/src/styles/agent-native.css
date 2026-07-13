@@ -25,6 +25,7 @@
 @import "./agent-conversation.css";
 @import "./rich-markdown-editor.css";
 @import "./blocks.css";
+@import "./chat-history-list.css";
 
 /* Scan @agent-native/core's compiled client output for Tailwind classes.
    Path is resolved relative to THIS file. After build, this CSS lives at
@@ -108,8 +109,7 @@
 .agent-layout-left-drawer[data-collapsed] {
   overflow: clip;
   width: var(--agent-layout-left-drawer-width, auto);
-  will-change: width;
-  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: width 260ms var(--ease-drawer);
 }
 
 .agent-layout-left-drawer[data-collapsed="true"] {
@@ -150,9 +150,9 @@
   container: agent-native-main / inline-size;
   background: var(--agent-native-raised-surface);
   transition:
-    border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
-    border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
-    box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+    border-radius 260ms var(--ease-drawer),
+    border-color 260ms var(--ease-drawer),
+    box-shadow 260ms var(--ease-drawer);
 }
 
 .agent-native-app-main {
@@ -234,8 +234,7 @@
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
   width: 0;
   overflow: clip;
-  will-change: width;
-  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: width 260ms var(--ease-drawer);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
@@ -250,7 +249,7 @@
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
   will-change: transform;
-  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 260ms var(--ease-drawer);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"]
@@ -264,7 +263,7 @@
     translateX(calc(100% + 1px))
   );
   will-change: transform;
-  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 260ms var(--ease-drawer);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -356,6 +355,9 @@
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-bounce-once: bounce-once 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
 
   @keyframes accordion-down {
     from {
@@ -515,9 +517,9 @@
   clip-path: inset(0);
   interpolate-size: allow-keywords;
   transition:
-    height 200ms cubic-bezier(0.2, 0, 0, 1),
+    height 200ms var(--ease-collapse),
     opacity 150ms ease,
-    clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+    clip-path 200ms var(--ease-collapse);
 }
 
 .agent-native-settings-section-body[data-state="closed"] {
@@ -540,9 +542,9 @@
     height: auto;
     max-height: 64rem;
     transition:
-      max-height 200ms cubic-bezier(0.2, 0, 0, 1),
+      max-height 200ms var(--ease-collapse),
       opacity 150ms ease,
-      clip-path 200ms cubic-bezier(0.2, 0, 0, 1);
+      clip-path 200ms var(--ease-collapse);
   }
 
   .agent-native-settings-section-body[data-state="closed"] {
@@ -552,7 +554,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-native-settings-section-body {
-    transition: none;
+    transition: opacity 150ms ease;
   }
 }
 
@@ -731,7 +733,7 @@
 }
 
 .agent-composer-root--hero {
-  min-height: 7.5rem;
+  min-height: 5.625rem;
   border-radius: 1rem;
   border-color: hsl(var(--border) / 0.75);
   background: hsl(var(--muted) / 0.62);
@@ -749,7 +751,7 @@
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
-  min-height: 4rem;
+  min-height: 3rem;
   font-size: 1rem;
   line-height: 1.75rem;
 }

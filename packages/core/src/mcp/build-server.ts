@@ -51,6 +51,7 @@ import {
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -124,8 +125,9 @@ export interface MCPConfig {
    * from connectors. It is no longer gated behind an environment variable, and
    * the catalog is never inferred from the client name/user-agent.
    *
-   * `tool-search` stays available in the compact catalog so any trimmed tool is
-   * reachable on demand. Callers who need the full surface up front opt in
+   * `tool-search` stays available in the compact catalog for discovery. A
+   * searched action still needs the connector catalog or authenticated-read
+   * policy before `tools/call`; callers who need the full surface up front opt in
    * explicitly with `agent-native connect --full-catalog` (embeds a
    * `catalog_scope: "full"` claim in the connect-minted JWT) or the
    * deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
@@ -134,6 +136,11 @@ export interface MCPConfig {
    * setting it on `MCPConfig` directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+  /**
+   * Optional policy for automatically exposing explicitly annotated,
+   * authenticated read actions to external MCP callers.
+   */
+  externalAgents?: ExternalAgentPolicy;
 }
 
 /**
@@ -281,7 +288,7 @@ function explicitlyRequestsFullMcpCatalog(
   // (100k+ tokens) into a context window just because a client called itself
   // "code"/"cursor"/"codex" was a recurring footgun. Everything else gets the
   // connector/compact catalog plus `tool-search`, which keeps every tool
-  // reachable on demand.
+  // discoverable; only permitted actions are callable without full opt-in.
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
   return requestMeta?.fullCatalog === true;
 }
@@ -309,17 +316,101 @@ function warnFullCatalogServed(toolCount: number): void {
   );
 }
 
+function isAuthenticatedReadAction(entry: ActionEntry): boolean {
+  return (
+    entry.http !== false &&
+    entry.http?.method === "GET" &&
+    entry.readOnly === true &&
+    entry.publicAgent?.expose === true &&
+    entry.publicAgent.readOnly === true &&
+    entry.publicAgent.requiresAuth === true
+  );
+}
+
 /**
- * Returns true when the given action name is in the template's connector
- * catalog, OR is a builtin cross-app tool that is always included for
- * external connector clients. Builtin tool names from
- * `COMPACT_MCP_APP_CATALOG_BUILTINS` are always allowed since they are the
- * stable external-agent verb set.
+ * Hard exclusion list for the `authenticatedReads: "auto"` derivation ONLY
+ * (see `autoAuthenticatedReadNames` below). Explicit `connectorCatalog`
+ * entries are a deliberate, reviewed choice made by the app and are NOT
+ * affected by this list — an app can still list any of these names in
+ * `connectorCatalog` on purpose.
+ *
+ * These are the footgun families this file's other comments already call
+ * out ("removes footguns (db-exec, seed-*, extension tools, browser-session
+ * tools, etc.)" above, and "keeps db-exec / seed-* / extension /
+ * browser-session footguns off the external surface" near the connector
+ * tier below): generic core SQL access, template demo/seed data, the
+ * extension-management suite, live browser-session control, and Context
+ * X-Ray internals. `isAuthenticatedReadAction` only inspects action
+ * metadata (http/readOnly/publicAgent flags) — nothing stops a future
+ * change from mis-annotating one of these with that exact flag set again,
+ * the way `db-query`/`db-schema` were briefly (and accidentally) annotated
+ * before it was caught in review. These names can never be auto-derived
+ * from metadata alone; exposing one to external callers requires an
+ * explicit `connectorCatalog` entry.
  */
-function isActionInConnectorCatalog(name: string, config: MCPConfig): boolean {
-  if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-  if (!Array.isArray(config.connectorCatalog)) return false;
-  return config.connectorCatalog.includes(name);
+const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
+  "db-query",
+  "db-schema",
+  "db-exec",
+  "db-patch",
+  "context-manifest-get",
+  "context-pin",
+  "context-evict",
+  "context-restore",
+  "context-report",
+]);
+
+/**
+ * Substring/prefix patterns for excluded name *families* that aren't a
+ * fixed, enumerable set: `seed-*` varies per app/template, and the
+ * extension-management and browser-session tool suites use varying verb
+ * prefixes around a shared noun (e.g. `list-extensions`, `create-extension`,
+ * `hide-extension`; `list-browser-sessions`, `run-browser-session-action`) —
+ * so a leading-prefix match alone would miss most of them.
+ */
+const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
+  /^seed-/,
+  /extension/,
+  /browser-session/,
+];
+
+function isAutoReadExcludedActionName(name: string): boolean {
+  return (
+    AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
+    AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))
+  );
+}
+
+function autoAuthenticatedReadNames(
+  actions: Record<string, ActionEntry>,
+  config: MCPConfig,
+): Set<string> {
+  if (config.externalAgents?.authenticatedReads !== "auto") return new Set();
+  return new Set(
+    Object.entries(actions)
+      .filter(
+        ([name, entry]) =>
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name),
+      )
+      .map(([name]) => name),
+  );
+}
+
+function externalAgentDenySet(config: MCPConfig): Set<string> {
+  return new Set(
+    (config.externalAgents?.denyActions ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+}
+
+function externalAgentWritesAreAskAppOnly(config: MCPConfig): boolean {
+  return (
+    config.externalAgents?.writes === "ask_app_only" ||
+    (config.externalAgents?.authenticatedReads === "auto" &&
+      config.externalAgents?.writes !== "allowlisted")
+  );
 }
 
 interface ResolvedMcpAppResource {
@@ -1300,16 +1391,21 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
+  const autoReadNames = autoAuthenticatedReadNames(visibleActions, config);
+  const connectorNames = new Set([
+    ...(config.connectorCatalog ?? []),
+    ...autoReadNames,
+  ]);
+  const denyNames = externalAgentDenySet(config);
+  const automaticConnectorPolicyActive =
+    config.externalAgents?.authenticatedReads === "auto";
   // Connector-catalog tier: when a template declares a connector allow-list,
-  // serve exactly that curated surface (+ cross-app builtins + tool-search) to
-  // external callers unless they explicitly opted into the full catalog. This
-  // is active by default whenever a catalog is declared — no env flag required —
-  // so the ~105-tool full catalog can never leak just because a deployment
-  // forgot to set one. It also keeps db-exec / seed-* / extension /
+  // serve exactly that curated surface plus any explicitly annotated
+  // authenticated reads from `externalAgents.authenticatedReads: "auto"`.
+  // This stays compact by default and keeps db-exec / seed-* / extension /
   // browser-session footguns off the external surface.
   const connectorCatalogActive =
-    Array.isArray(config.connectorCatalog) &&
-    config.connectorCatalog.length > 0 &&
+    (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
     !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
   // rather than advertisedActionsBeforeConnector. This ensures the connector
@@ -1318,9 +1414,18 @@ export async function createMCPServerForRequest(
   // would have activated the compact catalog for the same caller.
   const advertisedActions = connectorCatalogActive
     ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name]) =>
-          isActionInConnectorCatalog(name, config),
-        ),
+        Object.entries(visibleActions).filter(([name, entry]) => {
+          if (denyNames.has(name)) return false;
+          if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+          if (!connectorNames.has(name)) return false;
+          if (
+            externalAgentWritesAreAskAppOnly(config) &&
+            entry.readOnly !== true
+          ) {
+            return false;
+          }
+          return true;
+        }),
       )
     : advertisedActionsBeforeConnector;
   if (fullCatalogRequested) {

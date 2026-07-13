@@ -17,9 +17,16 @@ details live in `.agents/skills/`.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
 - Catalog-first: before querying, consult known data sources (data-source
-  status) and the injected `<data-dictionary>` to learn what exists and which
-  table/columns/join paths to use. Don't fan out blind queries when the catalog
-  already answers where a fact lives.
+  status) and call `list-data-dictionary` with a focused search to learn what
+  exists and which table/columns/join paths to use. Don't fan out blind queries
+  when the catalog already answers where a fact lives.
+- Simple time-bounded metric fast path: when the data dictionary or a known
+  canonical source already identifies the metric, run one bounded aggregate.
+  Once that query returns a valid result, answer immediately with the source,
+  time window, row count, and only necessary caveats. Do not schema-discover,
+  retry, enrich, or add breakdowns unless the query fails or its result
+  conflicts with the known metric definition. This never waives the real-data
+  requirement: do not answer from a guess, stale value, or unverified result.
 - Clarify-first for ambiguous ad-hoc work: when the metric definition, date
   range, or grain is ambiguous and a wrong guess would change the numbers, use
   the `ask-question` clarifying tool (multiple-choice) before computing. Ask at
@@ -32,6 +39,14 @@ details live in `.agents/skills/`.
   Prometheus credential slot. Treat it as demo-environment data: do not use it
   for `REAL_DATA_REQUIRED`, saved analyses, or real user analytics answers
   unless the user explicitly asks to inspect the demo dashboard.
+- Framework Demo mode is separate from the built-in `demo` source. While Demo
+  mode is enabled, Analytics line and area charts reshape each returned numeric
+  series into a deterministic upward trend using that series' actual minimum,
+  maximum, and local step pattern. Source spikes and dips remain at the same
+  x-positions while the smallest necessary linear drift moves the series up and
+  to the right. This is presentation-only: query results, tables, metrics,
+  exports, and non-time-series charts remain unchanged, so do not cite the
+  displayed intermediate line/area points as retrieved source values.
 - Every analytical answer should include enough audit context for the user to
   trust it: source(s), time window, filters, sample size or row count,
   join/match method when relevant, and caveats/gaps.
@@ -76,6 +91,9 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- Agent Native observability is the exception: its panels belong in the
+  canonical Agent Native dashboard (`agent-native-templates-first-party`). Do
+  not create, publish, or install a separate observability dashboard template.
 - Agent LLM observability is collected through the same first-party tracking
   API as product analytics. Core emits PostHog-compatible `$ai_generation`
   events when emitting apps are configured with `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`
@@ -88,6 +106,33 @@ details live in `.agents/skills/`.
   / `$ai_latency`, `status`, `tool_calls`, `successful_tools`, `failed_tools`,
   and `$ai_error` / `error_message`. Do not expect prompts, tool args, or model
   responses in these tracked events by default.
+- External MCP callers should use `ask_app` as the default for multi-step
+  Analytics work. It can resolve a person's known email, correlate sessions
+  with captured errors, mint a temporary replay-context link, and inspect the
+  timeline, page navigation, console diagnostics, failed network requests, and
+  clicks when needed. The authenticated connector catalog is the fast fallback
+  and exposes only bounded, user/org-scoped read actions for incident triage:
+  `list-session-recordings`, `get-session-replay-summary`,
+  `get-session-replay-timeline`, `query-agent-native-analytics`,
+  `list-error-issues`, and `get-error-issue`. Fetch the summary before the
+  sanitized timeline; the timeline contains bounded page/click/error markers
+  without raw replay events or storage references. Do not add replay blob or
+  dashboard mutation actions to this catalog without an explicit security
+  review.
+- While Demo mode is enabled, session and error identities display anonymized
+  (`anonymous@builder.io`), so incident lookups must filter by the stable
+  `userId`/email parameter (e.g. `userId: "user@example.com"`) or recording/
+  issue id — never by matching emails read back from previously displayed
+  output.
+- Analytics keeps its direct MCP surface explicitly curated, so external
+  agents should use `ask_app` for multi-step investigation and changes. The
+  six incident reads above are bounded, user/org-scoped fallback tools for
+  callers that already know which lookup they need. Generic core
+  `db-schema` / `db-query` remain in-app agent tools and are not exposed
+  directly because broad SQL/schema access is too powerful to infer from
+  read-only metadata. Writes remain `ask_app`-only. Use the explicit catalog
+  and `denyActions` policy for any unusually sensitive read instead of
+  exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
   evals, experiments, and feedback. `/agents?view=dashboards` shows the
@@ -288,9 +333,15 @@ details live in `.agents/skills/`.
 - `install-dashboard-template` installs a catalog template into normal
   SQL-backed dashboards. Required: `templateId`. Optional: `dashboardId`,
   `name`, `overwrite`, `forceNew`, and `mergePanels`.
-- The LLM observability dashboard template is `agent-observability-llm`. Install
-  it when the user wants model cost, token volume, latency, error rate, or top
-  expensive agent-run visibility from first-party `$ai_generation` events.
+- Keep the canonical Agent Native dashboard
+  (`agent-native-templates-first-party`) focused: it includes one explicit
+  feedback-sentiment-by-model chart and one optional inferred-message-sentiment
+  chart, not the broader LLM cost, token, latency, or error suite. Explicit
+  feedback uses content-free `$ai_feedback` events with `sentiment` (`positive`
+  or `negative`) and model in `$ai_model` or `model`. Inferred sentiment uses
+  `$ai_sentiment` events with `method = 'llm'` and `sentiment` (`positive`,
+  `neutral`, or `negative`). Keep these panels in the canonical dashboard and
+  do not recreate a separately installable observability template.
 - To add a template's panels to an existing dashboard, call
   `install-dashboard-template` with `mergePanels: true` and the existing
   `dashboardId`. It appends only the template panels whose id is not already

@@ -5,12 +5,16 @@ description: "Agent-Native Plans turns your coding agent's plan into a structure
 
 # Visual Plans
 
-> **Most people install Plan as a skill, not a scaffolded app.** One CLI command
-> adds the `/visual-plan`, `/visual-recap`, and `/visualize-repo` skills plus
-> the hosted Plan connector to your coding agent — see
-> [Plan plugin & marketplace](/docs/plan-plugin) for the plugin and marketplace
-> routes. Forking the Plan template (covered under [For developers](#for-developers))
-> is the secondary path, for self-hosting or building on Plan itself.
+<Callout tone="info">
+
+**Most people install Plan as a skill, not a scaffolded app.** One CLI command
+adds the `/visual-plan`, `/visual-recap`, and `/visualize-repo` skills plus
+the hosted Plan connector to your coding agent — see
+[Plan plugin & marketplace](/docs/plan-plugin) for the plugin and marketplace
+routes. Forking the Plan template (covered under [For developers](#for-developers))
+is the secondary path, for self-hosting or building on Plan itself.
+
+</Callout>
 
 Agent-Native Plans is visual plan mode for coding agents. It turns an ordinary
 Codex, Claude Code, Markdown, or pasted implementation plan into a structured
@@ -91,7 +95,7 @@ agent the same way.
   <Screen
     surface="desktop"
     html={
-      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Current wireframe</div><div class='wf-box'>Proposed wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Checkout redesign plan</h1><div style='flex:1'></div><button>Share</button><button class='primary'>Approve</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Current wireframe</span><div class='wf-box' style='height:14px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:28px'></div><div class='wf-box' style='height:18px;width:65%'></div></div><div class='wf-box' style='display:flex;flex-direction:column;gap:6px;padding:10px'><span class='wf-muted' style='font-size:11px'>Proposed wireframe</span><div style='display:flex;gap:6px'><div class='wf-box' style='flex:2;height:54px'></div><div class='wf-box' style='flex:1;height:54px'></div></div><div class='wf-box' style='height:18px;width:40%'></div></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementation plan</strong><div class='wf-box'>Decision: keep existing checkout shell</div><div class='wf-box'>Annotated code walkthrough</div><div class='wf-box'>Open questions</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Comments</strong><div class='wf-box'>Pin on primary CTA</div><div class='wf-box'>Question for agent</div><div class='wf-box'>Resolved copy note</div><button class='primary'>Hand back feedback</button></aside></div>"
     }
   />
 </WireframeBlock>
@@ -171,10 +175,14 @@ npx skills@latest add BuilderIO/agent-native --skill visual-plan
 That installs the skill instructions only. It does not register the hosted MCP
 connector, so use the Agent-Native CLI path when you want the one-command setup.
 
-> **Prefer a one-install plugin?** Claude Code and Codex can add
-> `BuilderIO/agent-native` directly as a plugin marketplace, which bundles the
-> Plan skills _and_ the connector in one install and auto-updates as the skills
-> improve — see [Plan plugin & marketplace](/docs/plan-plugin).
+<Callout tone="info">
+
+**Prefer a one-install plugin?** Claude Code and Codex can add
+`BuilderIO/agent-native` directly as a plugin marketplace, which bundles the
+Plan skills _and_ the connector in one install and auto-updates as the skills
+improve — see [Plan plugin & marketplace](/docs/plan-plugin).
+
+</Callout>
 
 ### Open Plans inside VS Code {#vscode-extension}
 
@@ -296,7 +304,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 The bridge URL looks like
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 The page is the normal Plan viewer, but the browser fetches `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json`, and local image assets from
 the localhost bridge. Plan content is not written to the hosted database and is
@@ -797,8 +805,7 @@ repeat them in `toAttrs`.
 
 1. Add a shared config for the data shape and MDX round trip.
 
-```ts
-// templates/plan/shared/risk-card.config.ts
+```ts filename="templates/plan/shared/risk-card.config.ts"
 import { z } from "zod";
 import {
   markdown,
@@ -849,7 +856,7 @@ block instead of rejecting it as an unknown type.
 3. Register the React-free server spec in
    `templates/plan/shared/plan-block-registry.ts`.
 
-```ts
+```ts filename="templates/plan/shared/plan-block-registry.ts"
 import {
   BlockRegistry,
   defineBlock,
@@ -885,7 +892,7 @@ export function registerPlanBlocks(registry: BlockRegistry): void {
 4. Register the browser spec in
    `templates/plan/app/components/plan/planBlocks.tsx`.
 
-```tsx
+```tsx filename="templates/plan/app/components/plan/planBlocks.tsx"
 import {
   defineBlock,
   registerLibraryBlocks,

@@ -7,6 +7,7 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
+    "doctor": "agent-native doctor",
     "action": "agent-native action",
     "script": "agent-native script",
     "skills:update": "agent-native skills update scaffold --project",
@@ -43,8 +44,7 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
-    "vite": "^8.0.0"
+    "vite": "8.1.0"
   }
 }

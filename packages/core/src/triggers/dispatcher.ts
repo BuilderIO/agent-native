@@ -14,9 +14,11 @@ import {
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createThread } from "../chat-threads/store.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
@@ -152,6 +154,13 @@ export function buildTriggerContent(
 export interface TriggerDispatcherDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a trigger run. See
+   * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
+   * semantics. Omit to keep the full `getActions()` set visible up front
+   * (current behavior).
+   */
+  getInitialToolNames?: () => string[] | undefined;
   apiKey?: string;
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
@@ -401,9 +410,20 @@ async function dispatchAgentic(
     { userEmail: jobUserEmail, orgId: jobOrgId },
     async () => {
       try {
-        const actions = _deps!.getActions();
+        const baseActions = _deps!.getActions();
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = _deps!.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         const engine = await resolveEngine({
           apiKey,
@@ -457,6 +477,7 @@ ${body}`;
             model,
             systemPrompt,
             tools,
+            availableTools,
             messages,
             actions,
             send: (event) => events.push(event),

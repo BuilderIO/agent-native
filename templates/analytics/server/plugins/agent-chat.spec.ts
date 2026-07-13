@@ -1,11 +1,30 @@
-import type { ActionEntry } from "@agent-native/core/server";
-import { describe, expect, it } from "vitest";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuardContext,
+} from "@agent-native/core/server";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 
 import {
   applyAnalyticsPlanModePolicy,
   PLAN_MODE_ACT_ONLY_TOOLS,
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
+import {
+  GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  looksLikeAnalyticsDataRequest,
+} from "../lib/real-data-actions";
+import {
+  analyticsDataDictionaryRoutingContext,
+  analyticsSourceGuidanceOpening,
+  ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
+  NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+  NON_ANALYTICS_REQUEST_GUIDANCE,
+  realDataFinalGuard,
+  SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE,
+} from "./agent-chat";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
 
@@ -21,6 +40,28 @@ function action(readOnly = true): ActionEntry {
 }
 
 describe("Analytics agent Plan mode policy", () => {
+  it("injects the simple, time-bounded metric fast path into source guidance", () => {
+    const guidance = analyticsSourceGuidanceOpening();
+
+    expect(guidance).toContain("<data-source-guidance>");
+    expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
+    expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
+    expect(guidance).toContain("run one bounded aggregate");
+    expect(guidance).toContain("Once it returns a valid result");
+    expect(guidance).toContain("does not waive the real-data requirement");
+  });
+
+  it("routes data-dictionary lookup on demand with compact guidance", () => {
+    const context = analyticsDataDictionaryRoutingContext();
+
+    expect(context).toContain("available on demand");
+    expect(context).toContain("`list-data-dictionary`");
+    expect(context).toContain("focused `search` or `department` filter");
+    expect(context).toContain("approved entries as canonical");
+    expect(context.length).toBeLessThan(1_000);
+  });
+
   it("marks substantive data-analysis tools as Act-only without changing lightweight planning tools", () => {
     const actions = applyAnalyticsPlanModePolicy({
       "data-source-status": action(),
@@ -93,5 +134,112 @@ describe("Analytics agent Plan mode policy", () => {
         "github-repo-files",
       ]),
     );
+  });
+});
+
+function userMessage(
+  text: string,
+): AgentLoopFinalResponseGuardContext["messages"][number] {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
+function guardContext(params: {
+  userText: string;
+  draftText: string;
+  toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
+  executionMode?: AgentLoopFinalResponseGuardContext["executionMode"];
+}): AgentLoopFinalResponseGuardContext {
+  return {
+    messages: [userMessage(params.userText)],
+    assistantContent: [],
+    text: params.draftText,
+    toolCalls: [],
+    toolResults: params.toolResults ?? [],
+    retryCount: 0,
+    executionMode: params.executionMode ?? "act",
+  };
+}
+
+describe("realDataFinalGuard", () => {
+  it("retries a casual greeting that drafted the canned no-grounded-data fallback, without repeating that sentence in the fallback", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "hows it going",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect(result).toMatchObject({
+      retryMessage: NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+      fallbackMessage: NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
+    });
+    expect((result as { fallbackMessage: string }).fallbackMessage).not.toBe(
+      GENERIC_NO_DATA_FALLBACK_MESSAGE,
+    );
+  });
+
+  it("passes through a casual greeting answered normally", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "hows it going",
+        draftText: "Pretty good! What can I help you dig into?",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("retries a data question that drafted the canned fallback with no tool results", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("passes through a data question backed by a successful data query attempt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: "Signup conversion last week was 4.2%.",
+        toolResults: [{ name: "bigquery", isError: false, content: "{}" }],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not let the guard's own non-analytics retry turn re-trigger the analytics retry path", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(NON_ANALYTICS_FALLBACK_RETRY_MESSAGE),
+    ).toBe(false);
+
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+      }),
+    );
+
+    expect(result).not.toBeNull();
+    expect((result as { retryMessage: string }).retryMessage).toBe(
+      NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
+    );
+  });
+
+  it("never engages the guard in plan mode, even with a canned-fallback draft", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+        executionMode: "plan",
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 });

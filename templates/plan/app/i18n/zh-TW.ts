@@ -468,6 +468,16 @@ const messages = {
       message: "無法讀取本機計畫資料夾“{{slug}}”。",
       title: "未找到本機計畫",
     },
+    localPlanConnection: {
+      promptTitle: "連線至此本機計畫",
+      promptMessage:
+        "此計畫會保留在你的電腦上。Plan 需要瀏覽器權限，才能透過本機橋接讀取它。",
+      deniedTitle: "本機網路存取已遭封鎖",
+      deniedMessage:
+        "開啟瀏覽器中 Plan 的網站設定，允許存取本機網路，然後再次檢查。",
+      connect: "連線至本機計畫",
+      checkAgain: "再次檢查",
+    },
     loggedOut: {
       copied: "已複製",
       copy: "複製",

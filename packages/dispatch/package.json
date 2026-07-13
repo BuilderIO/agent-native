@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.14.0",
+  "version": "0.14.7",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -39,7 +39,7 @@
     "dev": "tsc --watch & tsc-alias --watch --resolve-full-paths",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src --passWithNoTests",
-    "prepack": "npm run build && cp ../../README.md ./README.md",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -99,7 +99,6 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
     "tsc-alias": "^1.8.10",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5"

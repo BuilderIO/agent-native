@@ -14,6 +14,7 @@ const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
+const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
@@ -22,6 +23,9 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const startRunMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -39,6 +43,32 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) and conflict with the narrower engine
+// mock below. This only needs to prove webhook-handler.ts WIRES the filter
+// with the right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
   getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
   getOwnerApiKey: getOwnerApiKeyMock,
@@ -48,9 +78,11 @@ vi.mock("../agent/production-agent.js", () => ({
       : engineName,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
     engine: { defaultModel?: string },
@@ -86,43 +118,50 @@ vi.mock("./usage-budget-store.js", () => ({
   settleIntegrationUsageBudget: settleIntegrationUsageBudgetMock,
 }));
 
+vi.mock("./awaiting-input-store.js", () => ({
+  setIntegrationAwaitingInput: setIntegrationAwaitingInputMock,
+  clearIntegrationAwaitingInput: clearIntegrationAwaitingInputMock,
+}));
+
 vi.mock("../usage/store.js", () => ({
   calculateCost: vi.fn(() => 25),
   recordUsage: vi.fn(),
 }));
 
 vi.mock("../agent/run-manager.js", () => ({
-  startRun: vi.fn((runId, threadId, runFn, onComplete) => {
-    const events: any[] = [];
-    const send = (event: any) => {
-      events.push({
-        id: `event-${events.length + 1}`,
-        runId,
-        event,
-        createdAt: Date.now(),
-      });
-    };
-    Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
-      onComplete?.({
+  startRun: startRunMock.mockImplementation(
+    (runId, threadId, runFn, onComplete) => {
+      const events: any[] = [];
+      const send = (event: any) => {
+        events.push({
+          id: `event-${events.length + 1}`,
+          runId,
+          event,
+          createdAt: Date.now(),
+        });
+      };
+      Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
+        onComplete?.({
+          runId,
+          threadId,
+          events,
+          status: "completed",
+          subscribers: new Set(),
+          abort: new AbortController(),
+          startedAt: Date.now(),
+        }),
+      );
+      return {
         runId,
         threadId,
         events,
-        status: "completed",
+        status: "running",
         subscribers: new Set(),
         abort: new AbortController(),
         startedAt: Date.now(),
-      }),
-    );
-    return {
-      runId,
-      threadId,
-      events,
-      status: "running",
-      subscribers: new Set(),
-      abort: new AbortController(),
-      startedAt: Date.now(),
-    };
-  }),
+      };
+    },
+  ),
 }));
 
 function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
@@ -203,7 +242,10 @@ describe("integration webhook handler engine resolution", () => {
     settleIntegrationUsageBudgetMock.mockResolvedValue({
       status: "settled",
     });
+    setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
+    clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
+    getConfiguredEngineNameForRequestMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
       defaultModel: "builder-default-model",
@@ -231,19 +273,66 @@ describe("integration webhook handler engine resolution", () => {
   // too tight for the full processIntegrationTask pipeline. Bumping these two
   // mock-heavy run-loop tests to 15s avoids flake without masking real perf
   // regressions: the test bodies still finish in well under a second locally.
-  it("releases reserved budgets when thread setup fails", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    listIntegrationUsageBudgetsMock.mockResolvedValue([
-      {
-        id: "budget-org",
-        subjectType: "org",
-        subjectId: "org-qa",
-      },
-    ]);
-    createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
+  it(
+    "releases reserved budgets when thread setup fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
 
-    await expect(
-      processIntegrationTask(pendingTask(), {
+      await expect(
+        processIntegrationTask(pendingTask(), {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "service",
+        }),
+      ).rejects.toThrow("thread setup failed");
+
+      expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
+      expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ budgetId: "budget-org" }),
+        expect.objectContaining({ orgId: "org-qa" }),
+      );
+      expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "settles the full actual cost above the reservation estimate",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "done" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      await processIntegrationTask(pendingTask(), {
         adapter: createAdapter(),
         systemPrompt: "system",
         actions: {},
@@ -251,56 +340,24 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: "dispatch+qa@integration.local",
         orgId: "org-qa",
         principalType: "service",
-      }),
-    ).rejects.toThrow("thread setup failed");
+      });
 
-    expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
-    expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
-      expect.objectContaining({ budgetId: "budget-org" }),
-      expect.objectContaining({ orgId: "org-qa" }),
-    );
-    expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
-  });
-
-  it("settles the full actual cost above the reservation estimate", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
-    listIntegrationUsageBudgetsMock.mockResolvedValue([
-      {
-        id: "budget-org",
-        subjectType: "org",
-        subjectId: "org-qa",
-      },
-    ]);
-    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
-      send({ type: "text", text: "done" });
-      return {
-        inputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: "test-model",
-      };
-    });
-
-    await processIntegrationTask(pendingTask(), {
-      adapter: createAdapter(),
-      systemPrompt: "system",
-      actions: {},
-      apiKey: "test-key",
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      principalType: "service",
-    });
-
-    expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        budgetId: "budget-org",
-        actualCostMicros: 2_500,
-      }),
-      expect.anything(),
-    );
-  });
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        { useHostedSoftTimeoutDefault: true },
+      );
+      expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetId: "budget-org",
+          actualCostMicros: 2_500,
+        }),
+        expect.anything(),
+      );
+    },
+  );
 
   it(
     "uses the shared engine resolver instead of forcing Anthropic",
@@ -358,6 +415,8 @@ describe("integration webhook handler engine resolution", () => {
         expect.objectContaining({
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
+          maxOutputTokens: 32_000,
+          reasoningEffort: "medium",
           systemPrompt: expect.stringContaining("<runtime-context>"),
         }),
       );
@@ -432,6 +491,66 @@ describe("integration webhook handler engine resolution", () => {
         apiKey: "openai-user-key",
         model: "gpt-5.2",
       });
+    },
+  );
+
+  it(
+    "prefers the org's configured engine over the integration plugin default",
+    { timeout: 15000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { getRequestOrgId, getRequestUserEmail } =
+        await import("../server/request-context.js");
+      const sendResponse = vi.fn();
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        expect(getRequestUserEmail()).toBe("dispatch+qa@integration.local");
+        expect(getRequestOrgId()).toBe("org-qa");
+        return "anthropic";
+      });
+      getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      getStoredModelForEngineMock.mockResolvedValueOnce("claude-sonnet-4-6");
+      resolveEngineMock.mockResolvedValueOnce({
+        name: "anthropic",
+        defaultModel: "claude-sonnet-4-6",
+        stream: vi.fn(),
+      });
+
+      const task = pendingTask({
+        id: "task-org-engine",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "builder-default-model",
+        apiKey: "",
+        engine: "builder",
+        appId: "dispatch",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
+        appId: "dispatch",
+      });
+      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
+        "anthropic",
+        task.ownerEmail,
+      );
+      expect(resolveEngineMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        apiKey: "anthropic-org-key",
+        model: "builder-default-model",
+        appId: "dispatch",
+      });
+      expect(runAgentLoopMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          engine: expect.objectContaining({ name: "anthropic" }),
+          model: "claude-sonnet-4-6",
+        }),
+      );
     },
   );
 
@@ -833,6 +952,212 @@ describe("integration webhook handler engine resolution", () => {
     expect(updateThreadDataMock).toHaveBeenCalled();
   });
 
+  it("keeps a resumable native progress stream open for a queued A2A continuation", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+        onEvent,
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "agent_call", agent: "Design", status: "start" });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-stream-continuation" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_progress",
+        agent: "Design",
+        state: "working",
+      }),
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("does not falsely fail a queued resumable stream when parent bookkeeping throws", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn();
+    const fail = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+        onEvent: vi.fn(async () => undefined),
+        complete: vi.fn(async () => undefined),
+        fail,
+      }),
+    };
+    updateThreadDataMock.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-stream-continuation-bookkeeping" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(fail).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("projects a successful Slack ask-question call into a reply window", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn();
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Create a launch design task",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "ask-question",
+        input: {
+          header: "Audience",
+          question: "Who is the launch page for?",
+          options: JSON.stringify([
+            {
+              label: "Existing customers",
+              description: "Focus on adoption and expansion",
+              recommended: true,
+            },
+            {
+              label: "New prospects",
+              description: "Focus on discovery and conversion",
+            },
+          ]),
+          allowFreeText: "true",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "ask-question",
+        result:
+          "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.",
+      });
+    });
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Who is the launch page for?"),
+      }),
+      expect.objectContaining({
+        externalThreadId: slackIncoming.externalThreadId,
+      }),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0]?.[0].text).toContain(
+      "1. Existing customers — Focus on adoption and expansion",
+    );
+    expect(setIntegrationAwaitingInputMock).toHaveBeenCalledWith({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      requesterId: "U123",
+    });
+    expect(clearIntegrationAwaitingInputMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a Slack reply window after a terminal response", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Use existing customers",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(clearIntegrationAwaitingInputMock).toHaveBeenCalledWith(
+      "slack",
+      slackIncoming.externalThreadId,
+    );
+  });
+
   it("suppresses alternate A2A continuation deferral wording", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
@@ -883,11 +1208,21 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
-  it("still sends real final text after an A2A continuation marker", async () => {
+  it("sends real parent text without closing a queued continuation's native progress stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
     const sendResponse = vi.fn();
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000002" },
+        onEvent,
+        complete,
+      }),
+    };
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -906,7 +1241,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     await processIntegrationTask(pendingTask({ id: "task-final" }), {
-      adapter: createAdapter(sendResponse),
+      adapter,
       systemPrompt: "system",
       actions: {},
       model: "claude-sonnet-4-6",
@@ -914,6 +1249,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
+    expect(complete).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "371 pageview events were recorded in the requested window.",
@@ -921,13 +1257,27 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+    expect(
+      onEvent.mock.calls.some(
+        ([event]) => event.type === "agent_call_progress",
+      ),
+    ).toBe(false);
   });
 
-  it("sends substantive partial answers even when one A2A continuation will post separately", async () => {
+  it("sends substantive partial answers without closing a queued continuation stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
     const sendResponse = vi.fn();
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000003" },
+        onEvent: vi.fn(async () => undefined),
+        complete,
+      }),
+    };
     const partialAnswer =
       "Analytics completed: 259,850 page views and 9,337 unique visitors from BigQuery. " +
       "Content page was created successfully with document id abc123. " +
@@ -950,7 +1300,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     await processIntegrationTask(pendingTask({ id: "task-partial-final" }), {
-      adapter: createAdapter(sendResponse),
+      adapter,
       systemPrompt: "system",
       actions: {},
       model: "claude-sonnet-4-6",
@@ -958,6 +1308,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
+    expect(complete).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({ text: partialAnswer }),
       expect.any(Object),
@@ -1228,5 +1579,81 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+  });
+
+  it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    // Only this test needs a real-shaped action->tool conversion — every
+    // other test in this file relies on the `[]` stub set in `beforeEach`
+    // and doesn't inspect `tools`/`availableTools`.
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "ok" });
+    });
+
+    const noopTool = (description: string) => ({
+      tool: {
+        description,
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-tool-filter" }), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {
+        "template-action": noopTool("A template/app action"),
+        "call-agent": noopTool("Delegate to another A2A agent"),
+        "list-integration-memory": noopTool("List integration memory"),
+      },
+      // Mirrors what `createIntegrationsPlugin` passes: the app's own
+      // action names, not the framework additions merged into `actions`.
+      initialToolNames: ["template-action"],
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames: string[] = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames: string[] = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    // Deferred framework additions never reach the first request...
+    expect(firstRequestToolNames).not.toContain("call-agent");
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    // ...but the template action, and tool-search itself, do.
+    expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
+    // ...while the full registry (used for mid-run tool-search expansion)
+    // still contains everything, so the model can discover and call the
+    // deferred tools after a tool-search hit.
+    expect(availableToolNames).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
+    // The executable registry passed through for real tool dispatch must
+    // also include tool-search so a model-issued call to it can run.
+    expect(Object.keys(call.actions).sort()).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
   });
 });

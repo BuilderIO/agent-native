@@ -207,7 +207,6 @@ import type {
   IframeHotkeyPayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
-import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -378,11 +377,24 @@ import {
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
+  acknowledgeClipboardContentMutation,
+  publishClipboardContentMutation,
+  type ClipboardContentLineage,
+  type ClipboardContentMutationOrigin,
+  type ClipboardContentMutationPublication,
+} from "@/lib/clipboard-content-lineage";
+import {
   plainTextFromDesignHtml,
+  getDesignClipboardTrustToken,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
   writeDesignClipboard,
 } from "@/lib/design-clipboard";
+import {
+  applyDesignClipboardManagedStyles,
+  extractDesignClipboardManagedStyles,
+  type DesignClipboardManagedStyleSnapshot,
+} from "@/lib/design-clipboard-managed-styles";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
@@ -434,11 +446,29 @@ import {
   type AutoLayoutSuggestion,
 } from "./design-editor/auto-layout-suggestion";
 import {
+  appendCanvasPrimitiveToHtml,
+  blankScreenHtml,
+  nextBlankScreenFilename,
+  nextDuplicatedFilename,
+  normalizedDesignFileType,
+  reassignDuplicatedNodeIds,
+  uniqueLayerId,
+} from "./design-editor/canvas-primitive-insert";
+import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   createPrimitiveInsertFromSpec,
   defaultCanvasTextColor,
   parsePenPathFromSerializedD,
 } from "./design-editor/canvas-primitives";
+import {
+  cloneHtmlLayerAtPosition,
+  extractLayerPosition,
+  getElementOuterHtml,
+  insertClonedHtmlLayer,
+  insertClonedHtmlLayers,
+  setPenNodesAttributeOnElement,
+  writeBackVectorEditedPenPath,
+} from "./design-editor/clone-and-pen-edit";
 import { reassignClonedAuthoredIds } from "./design-editor/clone-idrefs";
 import {
   bridgeSourceIdForCodeLayerNode,
@@ -490,8 +520,23 @@ import {
   type PendingDesignDataOperations,
   viewportSizeFromFrameGeometry,
 } from "./design-editor/data-operations";
+import {
+  areTweakSelectionsEqual,
+  buildAuthoritativeTweakSelections,
+  cloneCanvasFrameGeometry,
+  getCanvasFrameGeometry,
+  getDesignDataRecord,
+  isDesignData,
+  parseDesignDataJson,
+  staleGeometryFrameIds,
+  viewportChangedFrameIds,
+} from "./design-editor/design-data-geometry-utils";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
-import { queryUniqueSelector } from "./design-editor/dom-utils";
+import {
+  escapeHtmlAttributeValue,
+  escapeHtmlText,
+  queryUniqueSelector,
+} from "./design-editor/dom-utils";
 import {
   createEditorSaveOperationSource,
   LOCAL_EDIT_ORIGIN,
@@ -537,6 +582,17 @@ import {
   waitForExportReady,
 } from "./design-editor/export-capture";
 import {
+  designGenerationDirectives,
+  designIntakeQuestionDirectives,
+  designTemplateRefinementDirectives,
+  designVariantGenerationDirectives,
+  formatTweakDefinitionsContext,
+  formatUploadedFileContext,
+  imageAttachmentsFromUploadedFiles,
+  loadDesignSystemGenerationContext,
+  promptRequestsVariantExploration,
+} from "./design-editor/generation-prompt-directives";
+import {
   frameGeometryEquals,
   geometrySnapshotsEqual,
   sanitizeCanvasFrameGeometryForPersist,
@@ -563,6 +619,17 @@ import {
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
 } from "./design-editor/history";
+import {
+  getAbsolutePositioningForNodeInHtml,
+  getBodyInlineStyles,
+  isAbsoluteCodeLayerNode,
+  removeAbsolutePositioningFromNodeInHtml,
+  setAbsolutePositioningForNodeInHtml,
+  setCodeLayerAttributeInHtml,
+  setFlowPositioningOverrideForNodeInHtml,
+  warnIfPoisonedBoardCoordsNormalized,
+} from "./design-editor/html-layer-positioning";
+import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   type AlignableRect,
   computeAlignedPositions,
@@ -633,6 +700,16 @@ import {
   shouldShowPendingVisualStyleApply,
 } from "./design-editor/pending-edits";
 import { verifyPendingStructuresRuntime } from "./design-editor/pending-structure-verification";
+import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
+import {
+  blurActiveDesignEditableTarget,
+  cropCanvasToRect,
+  PngCaptureError,
+  removeEditorChromeOverlays,
+  renderExportDocumentCanvas,
+  resolveExportCropRect,
+  sanitizeSerializedXmlForSvg,
+} from "./design-editor/png-export-render";
 import {
   applyPortableStyles,
   applyPortableStyleSnapshotToHtml,
@@ -653,6 +730,14 @@ import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
 } from "./design-editor/screen-auto-layout";
+import {
+  applyInlineStylesToHtml,
+  DEFAULT_STATES_PANEL_BREAKPOINTS,
+  designEditorCommandFromSearchParams,
+  designStatePreviewHtml,
+  findDesignFileByScreenTarget,
+  type DesignStatePreviewRow,
+} from "./design-editor/screen-command-utils";
 import {
   buildActiveFileNodeIdSet,
   computeOverviewScreenPickSelectionIds,
@@ -679,11 +764,19 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import {
+  postShaderFillPreviewClearToPreviewIframes,
+  removeElementFromHtml,
+  sanitizeEditableInnerHtml,
+  scheduleBeginTextEditForScreen,
+  updateElementContentInHtml,
+} from "./design-editor/text-edit-utils";
+import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
   getSingleScreenCreationTool,
   isSingleScreenAnnotationTool,
   MOVE_GROUP_TOOL_PRESENTATIONS,
+  normalizeDesignLeftPanel,
   normalizeDesignTool,
 } from "./design-editor/tool-state";
 import {
@@ -696,10 +789,14 @@ import {
   type PendingTweakSave,
 } from "./design-editor/tweak-save";
 import {
+  type DesignAccessRole,
+  type DesignData,
+  type DesignFile,
   type DesignLeftPanel,
   type DesignTool,
   type EditorMode,
   type ShapeTool,
+  FOCUSED_SCREEN_ZOOM,
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./design-editor/types";
 
@@ -746,343 +843,6 @@ const NO_LOCALHOST_WRITE_PATH_MESSAGE =
   "Can't determine the source file for this screen."; /* i18n-ignore */
 const TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE =
   "You need edit access to add tweak controls."; /* i18n-ignore */
-const FOCUSED_SCREEN_ZOOM = 100;
-const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
-  /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
-const HTML2CANVAS_COLOR_PROPERTIES = [
-  "color",
-  "background-color",
-  "border-top-color",
-  "border-right-color",
-  "border-bottom-color",
-  "border-left-color",
-  "outline-color",
-  "text-decoration-color",
-  "fill",
-  "stroke",
-] as const;
-const HTML2CANVAS_SHADOW_PROPERTIES = ["box-shadow", "text-shadow"] as const;
-const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
-  "background-image",
-  "border-image-source",
-  "list-style-image",
-] as const;
-
-function blurActiveDesignEditableTarget() {
-  if (typeof document === "undefined") return;
-  const active = document.activeElement;
-  if (active instanceof HTMLElement && isDesignHotkeyEditableTarget(active)) {
-    active.blur();
-  }
-}
-
-let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
-
-function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
-  if (html2CanvasColorContext !== undefined) return html2CanvasColorContext;
-  if (typeof document === "undefined") {
-    html2CanvasColorContext = null;
-    return html2CanvasColorContext;
-  }
-  html2CanvasColorContext = document.createElement("canvas").getContext("2d");
-  return html2CanvasColorContext;
-}
-
-function parseColorFunctionComponent(component: string): number {
-  const trimmed = component.trim();
-  if (trimmed.endsWith("%")) {
-    return (Number(trimmed.slice(0, -1)) / 100) * 255;
-  }
-  const value = Number(trimmed);
-  if (!Number.isFinite(value)) return 0;
-  return Math.abs(value) <= 1 ? value * 255 : value;
-}
-
-function parseColorFunctionAlpha(alpha: string | undefined): number {
-  if (!alpha) return 1;
-  const trimmed = alpha.trim();
-  if (trimmed.endsWith("%")) return Number(trimmed.slice(0, -1)) / 100;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : 1;
-}
-
-function parseRgbLikeColorFunction(value: string): string | null {
-  const match = value.match(/color\(\s*[\w-]+\s+([^)]+)\)/i);
-  if (!match) return null;
-  const [componentsPart, alphaPart] = match[1].split("/");
-  const channels = componentsPart.trim().split(/\s+/).slice(0, 3);
-  if (channels.length < 3) return null;
-  const [red, green, blue] = channels
-    .map(parseColorFunctionComponent)
-    .map((channel) => Math.round(Math.max(0, Math.min(255, channel))));
-  const alpha = Math.max(0, Math.min(1, parseColorFunctionAlpha(alphaPart)));
-  return alpha < 1
-    ? `rgba(${red}, ${green}, ${blue}, ${alpha})`
-    : `rgb(${red}, ${green}, ${blue})`;
-}
-
-function normalizeHtml2CanvasColor(value: string): string {
-  if (!UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) return value;
-  const context = getHtml2CanvasColorContext();
-  if (context) {
-    try {
-      context.fillStyle = "#000";
-      context.fillStyle = value;
-      const normalized = String(context.fillStyle);
-      if (normalized && !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(normalized)) {
-        return normalized;
-      }
-    } catch {
-      // Fall back to small parser below.
-    }
-  }
-  return parseRgbLikeColorFunction(value) ?? "rgb(0, 0, 0)";
-}
-
-function elementInlineStyle(
-  element: Element | undefined,
-): CSSStyleDeclaration | null {
-  if (!element) return null;
-  const style = (element as Element & { style?: CSSStyleDeclaration }).style;
-  return style && typeof style.setProperty === "function" ? style : null;
-}
-
-function sanitizeHtml2CanvasClone(
-  sourceDocument: Document,
-  clonedDocument: Document,
-) {
-  const sourceView = sourceDocument.defaultView;
-  if (!sourceView) return;
-  const sourceElements = [
-    sourceDocument.documentElement,
-    ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
-  ];
-  const clonedElements = [
-    clonedDocument.documentElement,
-    ...Array.from(clonedDocument.documentElement.querySelectorAll("*")),
-  ];
-  sourceElements.forEach((sourceElement, index) => {
-    const clonedStyle = elementInlineStyle(clonedElements[index]);
-    if (!clonedStyle) return;
-    const computed = sourceView.getComputedStyle(sourceElement);
-    for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(
-        property,
-        normalizeHtml2CanvasColor(value),
-        "important",
-      );
-    }
-    for (const property of HTML2CANVAS_SHADOW_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(property, "none", "important");
-    }
-    for (const property of HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(property, "none", "important");
-    }
-  });
-}
-
-/**
- * Remove editor-chrome overlays from a cloned document/element before it is
- * rasterized (PNG) or serialized (SVG) for export.
- */
-function removeEditorChromeOverlays(root: ParentNode): void {
-  root
-    .querySelectorAll(EDITOR_CHROME_OVERLAY_SELECTOR)
-    .forEach((element) => element.remove());
-}
-
-function sanitizeSerializedXmlForSvg(value: string): string {
-  // SVG opened as XML only knows the five predefined entities. HTML serializers
-  // can leave named entities or bare ampersands in foreignObject content; escape
-  // those so the downloaded SVG parses cleanly in browsers and editors.
-  return value.replace(
-    /&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/g,
-    "&amp;",
-  );
-}
-
-/**
- * Resolve the document-space rect of the currently selected element inside the
- * preview iframe so image exports (PNG/SVG) can crop to just that frame instead
- * of the whole screen. Returns null — meaning "export the whole screen" — when
- * there is no element selection, when the selection is the screen root
- * (BODY/HTML, which is the whole screen anyway), or when the element can no
- * longer be resolved in the live document.
- */
-function resolveElementExportCropRect(
-  doc: Document,
-  selected: ElementInfo,
-): { x: number; y: number; width: number; height: number } | null {
-  if (isScreenRootElementInfo(selected)) return null;
-  const view = doc.defaultView;
-  if (!view) return null;
-  let element: Element | null = null;
-  if (selected.sourceId) {
-    try {
-      element = doc.querySelector(
-        `[data-agent-native-node-id="${CSS.escape(selected.sourceId)}"]`,
-      );
-    } catch {
-      element = null;
-    }
-  }
-  if (!element && selected.selector) {
-    try {
-      element = doc.querySelector(selected.selector);
-    } catch {
-      element = null;
-    }
-  }
-  if (!element) return null;
-  const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  // getBoundingClientRect is viewport-relative; add the iframe scroll offset so
-  // coordinates match the full-document render (which starts at the page top).
-  return {
-    x: rect.left + (view.scrollX ?? 0),
-    y: rect.top + (view.scrollY ?? 0),
-    width: rect.width,
-    height: rect.height,
-  };
-}
-
-function resolveExportCropRect(
-  doc: Document,
-  selected: ElementInfo | readonly ElementInfo[] | null | undefined,
-): { x: number; y: number; width: number; height: number } | null {
-  const selections = Array.isArray(selected)
-    ? selected
-    : selected
-      ? [selected]
-      : [];
-  return unionExportCropRects(
-    selections.flatMap((selection) => {
-      const rect = resolveElementExportCropRect(doc, selection);
-      return rect ? [rect] : [];
-    }),
-  );
-}
-
-/**
- * Crop a rendered html2canvas canvas down to a document-space rect so image
- * exports capture just the selected frame. Returns null when the crop is empty,
- * so callers can fall back to the full render.
- */
-function cropCanvasToRect(
-  source: HTMLCanvasElement,
-  rect: { x: number; y: number; width: number; height: number },
-  scale: number,
-): HTMLCanvasElement | null {
-  const box = computeExportCropBox(source.width, source.height, rect, scale);
-  if (!box) return null;
-  const cropped = document.createElement("canvas");
-  cropped.width = box.sw;
-  cropped.height = box.sh;
-  const context = cropped.getContext("2d");
-  if (!context) return null;
-  context.drawImage(
-    source,
-    box.sx,
-    box.sy,
-    box.sw,
-    box.sh,
-    0,
-    0,
-    box.sw,
-    box.sh,
-  );
-  return cropped;
-}
-
-async function renderExportDocumentCanvas({
-  doc,
-  iframe,
-  exportScale,
-  render,
-}: {
-  doc: Document;
-  iframe: HTMLIFrameElement;
-  exportScale: number;
-  render: (typeof import("html2canvas"))["default"];
-}): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
-  // A freshly loaded preview iframe (new generation, screen switch, or just a
-  // fast click) can still be mid-load for its CDN Tailwind/Alpine script and
-  // Google Fonts — capturing before either lands renders plain unstyled HTML.
-  // Bounded wait; never blocks an export indefinitely. See
-  // export-capture.ts's waitForExportReady docblock.
-  await waitForExportReady(doc);
-  const width = Math.max(
-    doc.documentElement.scrollWidth,
-    doc.body?.scrollWidth ?? 0,
-    iframe.clientWidth,
-  );
-  const height = Math.max(
-    doc.documentElement.scrollHeight,
-    doc.body?.scrollHeight ?? 0,
-    iframe.clientHeight,
-  );
-  const effectiveScale = resolveRasterExportScale({
-    width,
-    height,
-    requestedScale: exportScale,
-  });
-  const options = {
-    width,
-    height,
-    windowWidth: width,
-    windowHeight: height,
-    scale: effectiveScale,
-    useCORS: true,
-    backgroundColor: null,
-    onclone: (clonedDocument: Document) => {
-      sanitizeHtml2CanvasClone(doc, clonedDocument);
-      removeEditorChromeOverlays(clonedDocument);
-    },
-  };
-  try {
-    // html2canvas's normal renderer handles native form controls, clipping,
-    // and computed layout more consistently than its foreignObject shortcut.
-    // Prefer it for production exports and retain foreignObject as a fallback
-    // for the uncommon CSS feature the canvas renderer cannot parse.
-    const canvas = await render(doc.documentElement, {
-      ...options,
-      foreignObjectRendering: false,
-    });
-    return { canvas, scale: effectiveScale };
-  } catch (primaryError) {
-    console.warn(
-      "PNG canvas capture failed; retrying foreignObject renderer:",
-      primaryError,
-    );
-    const canvas = await render(doc.documentElement, {
-      ...options,
-      foreignObjectRendering: true,
-    });
-    return { canvas, scale: effectiveScale };
-  }
-}
-
-type PngCaptureErrorCode =
-  | "no-preview"
-  | "external-preview"
-  | "read-only-preview"
-  | "blob-failed";
-
-class PngCaptureError extends Error {
-  readonly code: PngCaptureErrorCode;
-
-  constructor(code: PngCaptureErrorCode) {
-    super(`PNG capture ${code}`);
-    this.name = "PngCaptureError";
-    this.code = code;
-  }
-}
 
 // PF6: local alias for DesignCanvas's inline `embeddedFrame` prop type (not
 // exported from DesignCanvas.tsx) so the per-screen cache below can be typed.
@@ -1095,15 +855,6 @@ type DesignCanvasEmbeddedFrame = {
   contentOffsetX?: number;
   contentOffsetY?: number;
 };
-
-interface DesignFile {
-  id: string;
-  filename: string;
-  fileType: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface LiveScreenSnapshot {
   url: string;
@@ -1170,18 +921,6 @@ function runtimeMultiplicityForElementProvenance(
   return Math.max(1, count);
 }
 
-interface DesignData {
-  id: string;
-  title: string;
-  description?: string;
-  projectType: string;
-  designSystemId?: string | null;
-  data?: string | null;
-  accessRole?: DesignAccessRole;
-  files: DesignFile[];
-}
-
-type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
 type PostAuthDesignIntent = "save" | "share";
 type ShareExportFormat = "html" | "png" | "svg" | "zip";
 
@@ -1198,6 +937,7 @@ interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceFileId: string;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
 }
 
 interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
@@ -1242,991 +982,6 @@ interface PatchProofState {
   createdAt: number;
 }
 
-function formatUploadedFileContext(files: UploadedFile[]): string {
-  if (files.length === 0) return "";
-
-  const lines: string[] = [
-    "",
-    `The user uploaded ${files.length} file(s) for context:`,
-  ];
-
-  files.forEach((file, index) => {
-    lines.push(
-      `${index + 1}. ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}`,
-    );
-    const text = file.textContent?.trim();
-    if (text) {
-      lines.push(
-        `Extracted text${file.textTruncated ? " (truncated)" : ""}:\n${text}`,
-      );
-    }
-  });
-
-  return lines.join("\n");
-}
-
-function imageAttachmentsFromUploadedFiles(files: UploadedFile[]): string[] {
-  return files
-    .map((file) => file.dataUrl)
-    .filter((dataUrl): dataUrl is string => !!dataUrl?.trim());
-}
-
-function formatTweakDefinitionsContext(tweaks: TweakDefinition[]): string {
-  if (tweaks.length === 0) return "None yet.";
-  return JSON.stringify(
-    tweaks.map((tweak) => ({
-      id: tweak.id,
-      label: tweak.label,
-      type: tweak.type,
-      cssVar: tweak.cssVar,
-      defaultValue: tweak.defaultValue,
-      options: tweak.options,
-      min: tweak.min,
-      max: tweak.max,
-      step: tweak.step,
-    })),
-    null,
-    2,
-  );
-}
-
-function designSystemGenerationDirectives(
-  designSystemId?: string | null,
-): string[] {
-  if (!designSystemId) return [];
-  return [
-    `Use design system id "${designSystemId}" for this generation.`,
-    "Use the selected design system context in this message as mandatory generation input. If details are missing or conflict, call `get-design-system` for that id before writing visual code.",
-    `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
-  ];
-}
-
-interface DesignSystemGenerationContextResult {
-  title?: string;
-  agentContext?: string;
-}
-
-async function loadDesignSystemGenerationContext(
-  designSystemId?: string | null,
-): Promise<string> {
-  if (!designSystemId) return "";
-  try {
-    const result = (await callAction(
-      "get-design-system",
-      { id: designSystemId },
-      { method: "GET" },
-    )) as DesignSystemGenerationContextResult | undefined;
-    if (result?.agentContext?.trim()) {
-      return [
-        "",
-        result.agentContext.trim(),
-        "",
-        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, or components.",
-      ].join("\n");
-    }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "unknown loading error";
-    return [
-      "",
-      "## Selected Design System Context",
-      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
-      "Before writing visual code, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
-    ].join("\n");
-  }
-  return [
-    "",
-    "## Selected Design System Context",
-    `The selected design system id "${designSystemId}" returned no generation context.`,
-    "Call `get-design-system` for this id before writing visual code. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
-  ].join("\n");
-}
-
-function designIntakeQuestionDirectives(
-  designId: string,
-  designSystemId?: string | null,
-): string[] {
-  return [
-    `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
-    ...designSystemGenerationDirectives(designSystemId),
-    "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
-    "Make the questions feel like Claude Design intake: form factor, aesthetic direction, important features/content, special interactions/polish, and whether to explore variations. Omit or rephrase anything the user's prompt already answered.",
-    "Use concise option chips with `allowOther: true`; include a practical `Decide for me` option where useful. Use `multiSelect: true` for feature/interactions questions.",
-    "Set a specific title like `Quick questions about your todo app` and a short description. After `show-design-questions` succeeds, wait for the user's answers.",
-  ];
-}
-
-function promptRequestsVariantExploration(prompt: string): boolean {
-  const normalized = prompt.toLowerCase();
-  const asksForVariants =
-    /\b(variant|variants|variation|variations|direction|directions|option|options|concept|concepts|exploration|explorations)\b/.test(
-      normalized,
-    );
-  if (!asksForVariants) return false;
-  return (
-    /\b(2|3|4|5|two|three|four|five|multiple|several|distinct|different|choose|compare|side[-\s]?by[-\s]?side)\b/.test(
-      normalized,
-    ) || /\bto choose from\b/.test(normalized)
-  );
-}
-
-function designVariantGenerationDirectives(
-  designId: string,
-  designSystemId?: string | null,
-): string[] {
-  return [
-    `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
-    ...designSystemGenerationDirectives(designSystemId),
-    "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
-    "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens.",
-    'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
-  ];
-}
-
-function designGenerationDirectives(
-  designId: string,
-  designSystemId?: string | null,
-): string[] {
-  return [
-    `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
-    ...designSystemGenerationDirectives(designSystemId),
-    'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
-    "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
-    "After generate-design succeeds, stop and summarize what was created.",
-  ];
-}
-
-function designTemplateRefinementDirectives(
-  designId: string,
-  templateId: string,
-  designSystemId?: string | null,
-): string[] {
-  return [
-    `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
-    ...designSystemGenerationDirectives(designSystemId),
-    `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
-    "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
-    'Layers marked `data-agent-native-locked="true"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.',
-    "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",
-    "Prefer one bounded search-replace edit pass. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
-    "After edit-design succeeds, stop and summarize the refinement.",
-  ];
-}
-
-function normalizeScreenTarget(value: string): string {
-  return value
-    .trim()
-    .replace(/^\.?\//, "")
-    .replace(/\.html?$/i, "")
-    .toLowerCase();
-}
-
-function findDesignFileByScreenTarget(
-  files: DesignFile[],
-  target: string | null | undefined,
-): DesignFile | null {
-  const trimmed = target?.trim();
-  if (!trimmed) return null;
-  const normalized = normalizeScreenTarget(trimmed);
-  return (
-    files.find((file) => file.id === trimmed) ??
-    files.find((file) => file.filename === trimmed) ??
-    files.find((file) => normalizeScreenTarget(file.filename) === normalized) ??
-    null
-  );
-}
-
-function designEditorCommandFromSearchParams(
-  designId: string,
-  searchParams: URLSearchParams,
-): DesignEditorCommand | null {
-  const editorView = searchParams.get("view");
-  const inspector = searchParams.get("inspector");
-  const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
-  const screen =
-    searchParams.get("screen") ??
-    searchParams.get("fileId") ??
-    searchParams.get("filename");
-  const selection = searchParams.get("selection");
-  const rawZoom = searchParams.get("zoom");
-  const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
-  const tool = normalizeDesignTool(searchParams.get("tool"));
-  if (
-    editorView !== "overview" &&
-    editorView !== "single" &&
-    inspector !== "design" &&
-    inspector !== "tweaks" &&
-    inspector !== "extensions" &&
-    !leftPanel &&
-    !screen &&
-    !selection &&
-    !tool
-  ) {
-    return null;
-  }
-  const command: DesignEditorCommand = {
-    designId,
-    issuedAt: 0,
-  };
-  if (editorView === "overview" || editorView === "single") {
-    command.editorView = editorView;
-  }
-  if (inspector === "design" || inspector === "tweaks") {
-    command.inspectorTab = inspector;
-  } else if (inspector === "extensions") {
-    command.leftPanel = "tools";
-  }
-  if (leftPanel) command.leftPanel = leftPanel;
-  if (screen) command.screen = screen;
-  if (selection) command.selection = selection;
-  if (Number.isFinite(zoom)) {
-    command.zoom = zoom;
-  } else if (editorView === "single") {
-    command.zoom = FOCUSED_SCREEN_ZOOM;
-  }
-  if (tool) command.tool = tool;
-  return command;
-}
-
-function applyInlineStyleToHtml(
-  content: string,
-  selector: string,
-  property: string,
-  value: string,
-): string | null {
-  return applyInlineStylesToHtml(content, selector, { [property]: value });
-}
-
-function applyInlineStylesToHtml(
-  content: string,
-  selector: string,
-  styles: Record<string, string>,
-): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
-    if (!element) return null;
-    Object.entries(styles).forEach(([property, value]) => {
-      (element.style as any)[property] = value;
-    });
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return null;
-  }
-}
-
-const DEFAULT_STATES_PANEL_BREAKPOINTS = [
-  { id: "bp-mobile", label: "Mobile", widthPx: 390 },
-  { id: "bp-tablet", label: "Tablet", widthPx: 768 },
-  { id: "bp-desktop", label: "Desktop", widthPx: 1280 },
-] as const;
-
-interface DesignStatePreviewRow {
-  captureData?: Record<string, unknown> | null;
-  fixtureData?: Record<string, unknown> | null;
-}
-
-const STATE_PREVIEW_HTML_KEYS = [
-  "domHtml",
-  "domSnapshot",
-  "documentHtml",
-  "html",
-  "content",
-  "markup",
-] as const;
-
-function looksLikePreviewHtml(value: string): boolean {
-  return /<!doctype|<html\b|<body\b|<[a-zA-Z][\s>]/i.test(value);
-}
-
-function findStatePreviewHtml(value: unknown, depth = 0): string | null {
-  if (typeof value === "string") {
-    return looksLikePreviewHtml(value) ? value : null;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 2)
-    return null;
-  const record = value as Record<string, unknown>;
-  for (const key of STATE_PREVIEW_HTML_KEYS) {
-    const hit = findStatePreviewHtml(record[key], depth + 1);
-    if (hit) return hit;
-  }
-  for (const entry of Object.values(record)) {
-    const hit = findStatePreviewHtml(entry, depth + 1);
-    if (hit) return hit;
-  }
-  return null;
-}
-
-function designStatePreviewHtml(
-  row: DesignStatePreviewRow | undefined,
-): string | null {
-  if (!row) return null;
-  return (
-    findStatePreviewHtml(row.captureData) ??
-    findStatePreviewHtml(row.fixtureData)
-  );
-}
-
-function escapeHtmlAttributeValue(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-const ABS_POSITION_PROPS = [
-  "position",
-  "left",
-  "top",
-  "right",
-  "bottom",
-] as const;
-
-// Flex/grid-item-only inline properties. Mirrors FLEX_ITEM_INLINE_PROPS in
-// editor-chrome.bridge.ts's prepareFlowMembersForAbsoluteDrop (the live
-// in-iframe optimistic strip) — a former flow child persisted here as
-// position:absolute must lose these too, or the source round-trip re-adds
-// back exactly the flex-item styling the live DOM already dropped, and any
-// later reparent back into flow (including undo) resurrects a stale,
-// source-parent-relative grow/shrink/basis/align-self/order.
-const FLEX_ITEM_PROPS = [
-  "flex",
-  "flex-grow",
-  "flex-shrink",
-  "flex-basis",
-  "align-self",
-  "order",
-] as const;
-
-/**
- * Remove absolute-positioning style properties from the element identified by
- * `data-agent-native-node-id` so that it becomes a flow child after being
- * reparented into a container. Returns the updated HTML, or the original HTML
- * if the node cannot be found or parsing is unavailable.
- *
- * Uses DOMParser + CSSStyleDeclaration.removeProperty() rather than
- * applyVisualEdit({kind:"style",value:""}) because the substrate rejects
- * empty-string values in isSafeStyleValue, making that approach a silent no-op.
- */
-function removeAbsolutePositioningFromNodeInHtml(
-  content: string,
-  nodeAttrId: string,
-): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
-    for (const prop of ABS_POSITION_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-/** Persist the bridge's narrow fallback for a flow insertion whose authored
- * stylesheet still resolves the moved child to absolute/fixed after its
- * editable inline/utility positioning has been stripped. `!important` is
- * intentional: the stylesheet declaration that forced this path may itself
- * be important. Left/top are removed because they are inert in static flow
- * and should not become surprising offsets if positioning changes later. */
-function setFlowPositioningOverrideForNodeInHtml(
-  content: string,
-  nodeAttrId: string,
-): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
-    for (const prop of ABS_POSITION_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    element.style.setProperty("position", "static", "important");
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-function setAbsolutePositioningForNodeInHtml(
-  content: string,
-  nodeAttrId: string,
-  point: { x: number; y: number },
-  pointerOffset?: { x: number; y: number },
-): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return content;
-    element.style.position = "absolute";
-    element.style.left = `${Math.round(point.x - (pointerOffset?.x ?? 0))}px`;
-    element.style.top = `${Math.round(point.y - (pointerOffset?.y ?? 0))}px`;
-    element.style.removeProperty("right");
-    element.style.removeProperty("bottom");
-    for (const prop of FLEX_ITEM_PROPS) {
-      element.style.removeProperty(prop);
-    }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-function getAbsolutePositioningForNodeInHtml(
-  content: string,
-  nodeAttrId: string,
-): { x: number; y: number } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${CSS.escape(nodeAttrId)}"]`,
-    ) as HTMLElement | null;
-    if (!element) return null;
-    // Walk every ancestor up to <body> (authoredElementPosition, shared with
-    // MultiScreenCanvas's drop-target math) instead of reading only this
-    // node's own inline left/top. A node nested two-plus containers deep has
-    // a style.left/top that's relative to its OWN immediate parent, not the
-    // screen root, so a flat read here previously fed
-    // computeReparentedChildPosition two positions from different coordinate
-    // spaces whenever the source/target containers weren't both direct
-    // children of the screen root — producing a garbage delta and making the
-    // dropped element jump away from the cursor. For a root-level node this
-    // walk terminates after one step and returns the exact same left/top as
-    // before, so root-level reparents are unaffected.
-    return authoredElementPosition(element);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Finding 4: normalizePoisonedBoardNestedCoords (shared/board-file.ts)
- * heuristically rewrites persisted nested board coords with no built-in
- * trace of its own (kept side-effect-free so it stays safely callable from
- * any context — see its doc comment). Every call site that applies its
- * result and persists it goes through this shared logger instead, so a bad
- * heuristic firing in the wild is visible: file id, how many nodes were
- * rebased, and a small before/after sample.
- */
-function warnIfPoisonedBoardCoordsNormalized(
-  fileId: string,
-  result: ReturnType<typeof normalizePoisonedBoardNestedCoords>,
-): void {
-  if (!result.changed) return;
-  console.warn(
-    "[design] normalized poisoned nested board coordinates on load/reparent",
-    {
-      fileId,
-      fixedNodeCount: result.fixedNodeCount,
-      samples: result.samples,
-    },
-  );
-}
-
-function isAbsoluteCodeLayerNode(node: CodeLayerNode | null | undefined) {
-  const position = String(node?.style.position ?? "").toLowerCase();
-  return position === "absolute" || position === "fixed";
-}
-
-function escapeHtmlText(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function setCodeLayerAttributeInHtml(
-  content: string,
-  node: CodeLayerNode,
-  name: string,
-  value: string | null,
-): string | null {
-  if (!node.source) return null;
-  const openStart = node.source.openStart;
-  const openEnd = node.source.openEnd;
-  if (openStart < 0 || openEnd <= openStart || openEnd > content.length) {
-    return null;
-  }
-
-  const openTag = content.slice(openStart, openEnd);
-  const attrPattern = new RegExp(
-    `\\s${name}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s"'=<>]+))?`,
-    "i",
-  );
-  const replacement =
-    value === null || value === ""
-      ? ""
-      : ` ${name}="${escapeHtmlAttributeValue(value)}"`;
-
-  if (attrPattern.test(openTag)) {
-    const nextOpenTag = openTag.replace(attrPattern, replacement);
-    return `${content.slice(0, openStart)}${nextOpenTag}${content.slice(openEnd)}`;
-  }
-
-  if (value === null || value === "") return content;
-  const insertAt = openTag.endsWith("/>") ? openEnd - 2 : openEnd - 1;
-  return `${content.slice(0, insertAt)}${replacement}${content.slice(insertAt)}`;
-}
-
-function getBodyInlineStyles(content: string): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const body = doc.body;
-    if (!body) return {};
-    return {
-      backgroundColor: body.style.backgroundColor,
-      backgroundImage: body.style.backgroundImage,
-      backgroundPosition: body.style.backgroundPosition,
-      backgroundRepeat: body.style.backgroundRepeat,
-      backgroundSize: body.style.backgroundSize,
-      fontFamily: body.style.fontFamily,
-      fontSize: body.style.fontSize,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function nextDuplicatedFilename(files: DesignFile[], filename: string): string {
-  const existing = new Set(files.map((file) => file.filename));
-  const dotIndex = filename.lastIndexOf(".");
-  const base = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
-  const extension = dotIndex > 0 ? filename.slice(dotIndex) : "";
-  let candidate = `${base}-copy${extension}`;
-  let index = 2;
-  while (existing.has(candidate)) {
-    candidate = `${base}-copy-${index}${extension}`;
-    index += 1;
-  }
-  return candidate;
-}
-
-function normalizedDesignFileType(
-  fileType: string,
-): "html" | "css" | "jsx" | "asset" {
-  return fileType === "css" ||
-    fileType === "jsx" ||
-    fileType === "asset" ||
-    fileType === "html"
-    ? fileType
-    : "html";
-}
-
-function nextBlankScreenFilename(files: DesignFile[]): string {
-  const existing = new Set(files.map((file) => file.filename));
-  const screenCount = files.filter(
-    (file) =>
-      normalizedDesignFileType(file.fileType) === "html" &&
-      !isBoardFile(file.filename),
-  ).length;
-  let index = screenCount + 1;
-  let candidate = `screen-${index}.html`;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `screen-${index}.html`;
-  }
-  return candidate;
-}
-
-function blankScreenHtml(title: string): string {
-  const safeTitle = escapeHtmlText(title);
-  const safeTitleAttribute = escapeHtmlAttributeValue(title);
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${safeTitle}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--color-bg, #ffffff);
-      color: var(--color-text, #111827);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    main {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 48px;
-    }
-  </style>
-</head>
-<body>
-  <main data-agent-native-layer-name="${safeTitleAttribute}">
-  </main>
-</body>
-</html>`;
-}
-
-function uniqueLayerId(prefix: string): string {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? `${prefix}-${crypto.randomUUID()}`
-    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-/**
- * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
- * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
- * its source, which collapses the cross-file layer-owner map (selecting a layer
- * in one screen resolves to the other) and can produce a malformed aggregate
- * projection.
- */
-function reassignDuplicatedNodeIds(content: string): string {
-  return content.replace(
-    /data-agent-native-node-id="[^"]*"/g,
-    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
-  );
-}
-
-function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
-  switch (primitive.kind) {
-    case "frame":
-      return "Frame";
-    case "line":
-      return "Line";
-    case "arrow":
-      return "Arrow";
-    case "ellipse":
-      return "Ellipse";
-    case "polygon":
-      return "Polygon";
-    case "star":
-      return "Star";
-    case "path":
-      return "Vector";
-    case "text":
-      return primitive.text?.trim() || "Text";
-    case "rectangle":
-    default:
-      return "Rectangle";
-  }
-}
-
-/**
- * Marker attribute stamped on board-drawn text whose inline `color` is the
- * auto-applied board default (defaultCanvasTextColor's "#ffffff" branch),
- * NOT a user-chosen color. Mirrors BOARD_TEXT_AUTO_COLOR_MARKER in
- * editor-chrome.bridge.ts (keep both in sync) — that bridge's
- * adaptAutoTextColorForNest reads this marker to decide whether an
- * in-screen re-parent should switch the forced white to `inherit` so the
- * text doesn't render white-on-white in a light container. Cross-screen
- * drops (handleCrossScreenElementDrop below) key off the same marker via
- * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
- * remove this attribute so the text is never "helpfully" overridden again.
- */
-function appendCanvasPrimitiveToHtml(
-  content: string,
-  primitive: CanvasPrimitiveInsert,
-  options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
-): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    if (!doc.body) return null;
-    const geometry = primitive.geometry;
-    const left = options?.preserveNegativePosition
-      ? Math.round(geometry.x)
-      : Math.max(0, Math.round(geometry.x));
-    const top = options?.preserveNegativePosition
-      ? Math.round(geometry.y)
-      : Math.max(0, Math.round(geometry.y));
-    const width = Math.max(1, Math.round(geometry.width));
-    const height = Math.max(1, Math.round(geometry.height));
-    const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
-    const layerName = primitiveLayerName(primitive);
-
-    if (
-      primitive.kind === "path" ||
-      primitive.kind === "line" ||
-      primitive.kind === "arrow"
-    ) {
-      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
-      const markerId = `${nodeId}-arrow`;
-      const explicitPathData = primitive.pathData?.trim()
-        ? primitive.pathData
-        : null;
-      const pathViewBoxLeft = options?.preserveNegativePosition
-        ? geometry.x
-        : Math.max(0, geometry.x);
-      const pathViewBoxTop = options?.preserveNegativePosition
-        ? geometry.y
-        : Math.max(0, geometry.y);
-      const pathViewBoxWidth = Math.max(1, geometry.width);
-      const pathViewBoxHeight = Math.max(1, geometry.height);
-      const points = primitive.points?.length
-        ? primitive.points
-        : [
-            { x: left, y: top + height / 2 },
-            { x: left + width, y: top + height / 2 },
-          ];
-      const originX = Math.min(...points.map((point) => point.x));
-      const originY = Math.min(...points.map((point) => point.y));
-      path.setAttribute(
-        "d",
-        explicitPathData ??
-          points
-            .map((point, index) => {
-              const command = index === 0 ? "M" : "L";
-              return `${command} ${Math.round(point.x - originX)} ${Math.round(
-                point.y - originY,
-              )}`;
-            })
-            .join(" "),
-      );
-      // P11: a CLOSED pen path (serializePenPath always ends a closed path's
-      // "d" string with a trailing "Z" — see shared/pen-path.ts) is a real
-      // fillable shape, not just a stroked line — Figma/Illustrator give a
-      // closed pen path a default fill. An open path (no trailing Z, or the
-      // points-based line/arrow fallback) keeps fill:none since there's no
-      // enclosed region to fill. The inspector's existing style-edit path
-      // can still override this fill like any other element style.
-      const isClosedPenPath = Boolean(
-        explicitPathData && /Z\s*$/i.test(explicitPathData.trim()),
-      );
-      path.setAttribute(
-        "fill",
-        isClosedPenPath ? (primitive.fill ?? "#D9D9D9") : "none",
-      );
-      path.setAttribute("stroke", primitive.stroke ?? DEFAULT_LINE_STROKE);
-      path.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX),
-      );
-      path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("stroke-linejoin", "round");
-      if (primitive.kind === "arrow") {
-        const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-        const marker = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "marker",
-        );
-        const arrowHead = doc.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "path",
-        );
-        marker.setAttribute("id", markerId);
-        marker.setAttribute("markerWidth", "10");
-        marker.setAttribute("markerHeight", "10");
-        marker.setAttribute("refX", "8");
-        marker.setAttribute("refY", "5");
-        marker.setAttribute("orient", "auto");
-        marker.setAttribute("markerUnits", "strokeWidth");
-        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-        arrowHead.setAttribute("fill", primitive.stroke ?? DEFAULT_LINE_STROKE);
-        marker.appendChild(arrowHead);
-        defs.appendChild(marker);
-        svg.appendChild(defs);
-        path.setAttribute("marker-end", `url(#${markerId})`);
-      }
-      svg.setAttribute("data-agent-native-node-id", nodeId);
-      svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true vector/line/arrow icon for
-      // this SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
-      svg.setAttribute("data-an-primitive", primitive.kind);
-      svg.setAttribute(
-        "viewBox",
-        explicitPathData
-          ? `${pathViewBoxLeft} ${pathViewBoxTop} ${pathViewBoxWidth} ${pathViewBoxHeight}`
-          : `0 0 ${width} ${height}`,
-      );
-      // P4: without this, resizing the shape non-uniformly (e.g. dragging
-      // only the right handle) letterboxes the path inside its viewBox
-      // (SVG's default preserveAspectRatio is "xMidYMid meet") instead of
-      // stretching it to fill the new box — every other primitive kind here
-      // (polygon/star, div-based shapes) already stretches to its
-      // width/height, so pen paths/lines/arrows should match.
-      svg.setAttribute("preserveAspectRatio", "none");
-      svg.setAttribute(
-        "style",
-        [
-          "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
-          `width:${width}px`,
-          `height:${height}px`,
-          "overflow:visible",
-          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-        ]
-          .filter(Boolean)
-          .join(";"),
-      );
-      svg.appendChild(path);
-      doc.body.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-    }
-
-    if (primitive.kind === "polygon" || primitive.kind === "star") {
-      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const polygon = doc.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "polygon",
-      );
-      polygon.setAttribute(
-        "points",
-        polygonPointsForHtmlShape(primitive.kind, width, height),
-      );
-      polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
-      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
-      polygon.setAttribute(
-        "stroke-width",
-        String(primitive.strokeWidth ?? 1.5),
-      );
-      polygon.setAttribute("stroke-linejoin", "round");
-      svg.setAttribute("data-agent-native-node-id", nodeId);
-      svg.setAttribute("data-agent-native-layer-name", layerName);
-      // Kind marker so the layers panel shows a true polygon/star icon for this
-      // SVG primitive instead of falling through to the rectangle glyph.
-      // Read by treeTypeForNode in shared/code-layer.ts.
-      svg.setAttribute("data-an-primitive", primitive.kind);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      svg.setAttribute(
-        "style",
-        [
-          "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
-          `width:${width}px`,
-          `height:${height}px`,
-          "overflow:visible",
-          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
-        ]
-          .filter(Boolean)
-          .join(";"),
-      );
-      svg.appendChild(polygon);
-      doc.body.appendChild(svg);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-    }
-
-    const element = doc.createElement("div");
-    element.setAttribute("data-agent-native-node-id", nodeId);
-    element.setAttribute("data-agent-native-layer-name", layerName);
-    // Kind marker so the layers panel shows a shape/text/frame icon for this
-    // primitive (rectangle/ellipse/text/frame) instead of the generic code
-    // glyph. Read by treeTypeForNode in shared/code-layer.ts.
-    element.setAttribute("data-an-primitive", primitive.kind);
-    element.style.position = "absolute";
-    element.style.left = `${left}px`;
-    element.style.top = `${top}px`;
-    if (!(primitive.kind === "text" && primitive.autoSize)) {
-      element.style.width = `${width}px`;
-      element.style.height = `${height}px`;
-    }
-    if (geometry.rotation) {
-      element.style.transform = `rotate(${geometry.rotation}deg)`;
-    }
-
-    // Use the shared canvas-primitive-style module so committed output is
-    // pixel-identical to the draft preview (fixes B5 color jump, B6 ellipse
-    // radius jump).  User-supplied fill/stroke/strokeWidth override the
-    // canonical defaults so hand-chosen colours are preserved.
-    const canonical = canvasPrimitiveVisual(
-      primitive.kind === "rectangle" ? "rect" : primitive.kind,
-    );
-    if (primitive.kind === "frame") {
-      // A committed frame is a BARE container <div> — no default fill,
-      // border, or radius — so the markup this code-first editor emits stays
-      // clean (a Figma frame reads as unstyled structure, and a dashed
-      // border/tint baked into the design's real HTML would be styling
-      // pollution). This deliberately diverges from the draft PREVIEW's
-      // faint-tint/dashed look (canvas-primitive-style.ts), which is editor
-      // affordance chrome during the drag; on commit the new frame is
-      // immediately selected, so its bounds stay visible via selection
-      // chrome instead. Explicit user-chosen fill/stroke still applies.
-      // overflow:hidden matches Figma frames clipping their content.
-      if (primitive.fill) {
-        element.style.background = primitive.fill;
-      }
-      if (
-        primitive.stroke !== undefined ||
-        primitive.strokeWidth !== undefined
-      ) {
-        element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
-      }
-      element.style.overflow = "hidden";
-    } else if (primitive.kind === "text") {
-      element.textContent = primitive.text ?? "";
-      element.style.display = primitive.autoSize ? "inline-block" : "flex";
-      if (!primitive.autoSize) {
-        // Figma defaults fixed-size text frames to TOP vertical alignment,
-        // not centered — match that instead of centering the text block.
-        element.style.alignItems = "flex-start";
-      }
-      // Board (dark infinite-canvas) text needs an explicit default fill —
-      // "currentColor" inherits the unstyled document's black body text,
-      // invisible on the dark canvas background. The board surface is
-      // always dark regardless of the editor chrome theme, so this keys off
-      // the target surface only (see defaultCanvasTextColor). Screens keep
-      // "currentColor" so text dropped into an existing (often light)
-      // screen still inherits its surrounding styles/theme as before.
-      const resolvedTextColor =
-        primitive.fill ??
-        defaultCanvasTextColor(options?.isBoardTarget === true);
-      element.style.color = resolvedTextColor;
-      // Stamp the auto-color marker whenever the color came from the
-      // default (no explicit primitive.fill) rather than a user-chosen
-      // value, so a later cross-screen or in-screen re-parent (see
-      // adaptAutoTextColorForCrossScreenNode below and
-      // adaptAutoTextColorForNest in editor-chrome.bridge.ts) can safely
-      // detect "this white was auto-applied" and rewrite it to inherit
-      // instead of leaving invisible white-on-white text.
-      if (primitive.fill === undefined) {
-        element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");
-      }
-      element.style.fontSize = "16px";
-      element.style.lineHeight = "1.2";
-      element.style.whiteSpace = "pre-wrap";
-      element.style.border = canonical.border;
-      element.style.borderRadius = canonical.borderRadius;
-      // Item 2: canvas-drawn text defaulted to the browser's serif fallback
-      // (no font-family was ever set here) — match the editor's own Inter
-      // stack instead. Only applies when the caller doesn't already carry an
-      // explicit font (kept future-proof even though CanvasPrimitiveInsert
-      // has no fontFamily field today).
-      element.style.fontFamily = CANVAS_TEXT_DEFAULT_FONT_FAMILY;
-    } else if (primitive.kind === "ellipse") {
-      element.style.background = primitive.fill ?? canonical.background;
-      element.style.border =
-        primitive.stroke !== undefined || primitive.strokeWidth !== undefined
-          ? `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`
-          : canonical.border;
-      element.style.borderRadius = canonical.borderRadius; // "50%"
-    } else {
-      // rect / rectangle / frame fallthrough
-      element.style.background = primitive.fill ?? canonical.background;
-      element.style.border =
-        primitive.stroke !== undefined || primitive.strokeWidth !== undefined
-          ? `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`
-          : canonical.border;
-      element.style.borderRadius = canonical.borderRadius;
-    }
-
-    doc.body.appendChild(element);
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
  * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
@@ -2237,381 +992,6 @@ function appendCanvasPrimitiveToHtml(
  * or `content` fails to parse — this is a best-effort enrichment step, never
  * a hard requirement for the primitive to commit successfully.
  */
-function setPenNodesAttributeOnElement(
-  content: string,
-  nodeId: string,
-  penPath: PenPath,
-): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    // nodeId always comes from uniqueLayerId(...) (alphanumeric/hyphen/UUID
-    // chars only, never quotes), but escape defensively anyway since this
-    // value is interpolated into a CSS attribute-selector string.
-    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-    const element = doc.querySelector(
-      `[data-agent-native-node-id="${safeNodeId}"]`,
-    );
-    if (!element) return content;
-    element.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-/**
- * Vector-edit foundations: writes an edited PenPath back onto its committed
- * SVG element — the `<path>` child's `d` (serializePenPath, matching what
- * appendCanvasPrimitiveToHtml's explicitPathData branch produces) AND the
- * `<svg>` root's `data-an-pen-nodes` (serializePenNodes, the structured
- * round-trip source), plus the root's `viewBox`/left/top/width/height so the
- * element's bounding box stays correct after anchors/handles moved it.
- * `nodeId` is the element's `data-agent-native-node-id` value (screen-content
- * space — same coordinate system the path's own nodes are already in, see
- * parsePenPathFromSerializedD's doc comment for that finding).
- *
- * Returns `content` unchanged (never null/throws) if the element can't be
- * found, isn't an SVG pen-path root, or has no `<path>` child — the caller
- * treats that as a no-op commit rather than losing the user's edit.
- */
-function writeBackVectorEditedPenPath(
-  content: string,
-  nodeId: string,
-  penPath: PenPath,
-): string {
-  if (typeof window === "undefined") return content;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
-    const svg = doc.querySelector(
-      `[data-agent-native-node-id="${safeNodeId}"]`,
-    );
-    const path = svg?.querySelector("path");
-    if (!svg || !path) return content;
-
-    const d = serializePenPath(penPath);
-    const geometry = getPenPathGeometry(penPath);
-    const isClosed = Boolean(penPath.closed && penPath.nodes.length > 1);
-
-    path.setAttribute("d", d);
-    if (isClosed && path.getAttribute("fill") === "none") {
-      path.setAttribute("fill", "#D9D9D9");
-    } else if (!isClosed) {
-      path.setAttribute("fill", "none");
-    }
-
-    svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    svg.setAttribute(
-      "viewBox",
-      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
-    );
-    const existingStyle = svg.getAttribute("style") ?? "";
-    const rotationMatch = existingStyle.match(/transform:[^;]+/);
-    svg.setAttribute(
-      "style",
-      [
-        "position:absolute",
-        `left:${Math.round(geometry.x)}px`,
-        `top:${Math.round(geometry.y)}px`,
-        `width:${Math.max(1, Math.round(geometry.width))}px`,
-        `height:${Math.max(1, Math.round(geometry.height))}px`,
-        "overflow:visible",
-        rotationMatch?.[0] ?? "",
-      ]
-        .filter(Boolean)
-        .join(";"),
-    );
-
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return content;
-  }
-}
-
-function polygonPointsForHtmlShape(
-  kind: "polygon" | "star",
-  width: number,
-  height: number,
-): string {
-  const safeWidth = Math.max(1, width);
-  const safeHeight = Math.max(1, height);
-  const cx = safeWidth / 2;
-  const cy = safeHeight / 2;
-  const radius = Math.max(1, Math.min(safeWidth, safeHeight) / 2);
-  const points: Array<{ x: number; y: number }> = [];
-
-  if (kind === "polygon") {
-    for (let index = 0; index < 3; index += 1) {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / 3;
-      points.push({
-        x: cx + Math.cos(angle) * radius,
-        y: cy + Math.sin(angle) * radius,
-      });
-    }
-  } else {
-    for (let index = 0; index < 10; index += 1) {
-      const angle = -Math.PI / 2 + (index * Math.PI) / 5;
-      const pointRadius = index % 2 === 0 ? radius : radius * 0.45;
-      points.push({
-        x: cx + Math.cos(angle) * pointRadius,
-        y: cy + Math.sin(angle) * pointRadius,
-      });
-    }
-  }
-
-  return points
-    .map(
-      (point) =>
-        `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`,
-    )
-    .join(" ");
-}
-
-function cloneHtmlLayerAtPosition(
-  content: string,
-  layerHtml: string,
-  position: { x: number; y: number },
-): string | null {
-  return (
-    insertClonedHtmlLayers(content, [layerHtml], {
-      positions: [position],
-    })?.content ?? null
-  );
-}
-
-function clearRootLayerPosition(element: Element) {
-  const host = styleHost(element);
-  if (!host) return;
-  host.style.position = "";
-  host.style.left = "";
-  host.style.top = "";
-  host.style.right = "";
-  host.style.bottom = "";
-}
-
-function setRootLayerPosition(
-  element: Element,
-  position: { x: number; y: number },
-) {
-  const host = styleHost(element);
-  if (!host) return;
-  // Use explicit style property assignments rather than prepending a raw
-  // string. Prepending creates duplicate CSS properties in the same style
-  // attribute, and in CSS the LAST occurrence wins, so existing left/top
-  // values from the cloned element would override the new position.
-  host.style.position = "absolute";
-  host.style.left = `${Math.max(0, Math.round(position.x))}px`;
-  host.style.top = `${Math.max(0, Math.round(position.y))}px`;
-  host.style.right = "";
-  host.style.bottom = "";
-}
-
-function prepareClonedHtmlLayer(
-  doc: Document,
-  layerHtml: string,
-  styleSnapshot?: PortableStyleSnapshot,
-): {
-  element: Element;
-  rootNodeId: string;
-  // U14: old data-agent-native-node-id -> new id, for every node that was
-  // re-stamped (root + descendants). Callers use this to remap motion
-  // tracks (MotionTrack.targetNodeId) onto the clone so a duplicated/pasted
-  // animated layer keeps its animation instead of silently losing it.
-  nodeIdMap: Map<string, string>;
-} | null {
-  const layerDoc = new DOMParser().parseFromString(
-    `<template>${layerHtml}</template>`,
-    "text/html",
-  );
-  const source =
-    layerDoc.querySelector("template")?.content.firstElementChild ??
-    layerDoc.body.firstElementChild;
-  if (!source) return null;
-  const clone = doc.importNode(source, true) as Element;
-  if (styleSnapshot) {
-    clone.setAttribute("data-agent-native-preserve-styles", "true");
-    styleSnapshot.nodes.forEach((node) => {
-      const target = elementAtPortableStylePath(clone, node);
-      if (target) applyPortableStyles(target, node.styles);
-    });
-  }
-  const nodeIdMap = new Map<string, string>();
-  const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
-  const rootNodeId = uniqueLayerId("copy");
-  clone.setAttribute("data-agent-native-node-id", rootNodeId);
-  if (previousRootNodeId) nodeIdMap.set(previousRootNodeId, rootNodeId);
-  Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
-    (node) => {
-      const previousChildId = node.getAttribute("data-agent-native-node-id");
-      const nextChildId = uniqueLayerId("copy-child");
-      node.setAttribute("data-agent-native-node-id", nextChildId);
-      if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
-    },
-  );
-  // U14: also regenerate plain `id="..."` attributes on the clone (root +
-  // descendants). Without this, duplicating/pasting an element that (or
-  // whose descendants) carries an authored id="..." produces two elements
-  // with the same id in the same document — CSS #id selectors and any
-  // later selector-based edit then resolve to whichever one the browser
-  // happens to match first (typically the ORIGINAL, not the new copy),
-  // silently misapplying edits meant for the duplicate.
-  reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
-  return { element: clone, rootNodeId, nodeIdMap };
-}
-
-function insertClonedHtmlLayers(
-  content: string,
-  layerHtmls: string[],
-  options: {
-    targetSelectors?: string[];
-    anchorSelectors?: string[];
-    placement?: "before" | "after" | "inside";
-    stripRootPosition?: boolean;
-    positions?: Array<{ x: number; y: number } | null | undefined>;
-    styleSnapshots?: Array<PortableStyleSnapshot | null | undefined>;
-  } = {},
-): {
-  content: string;
-  rootNodeIds: string[];
-  // U14: merged old-id -> new-id map across every cloned layer, for
-  // remapping motion tracks onto the copies.
-  nodeIdMap: Map<string, string>;
-} | null {
-  if (typeof window === "undefined" || layerHtmls.length === 0) return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    if (!doc.body) return null;
-    const fragment = doc.createDocumentFragment();
-    const rootNodeIds: string[] = [];
-    const nodeIdMap = new Map<string, string>();
-    layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(
-        doc,
-        layerHtml,
-        options.styleSnapshots?.[index] ?? undefined,
-      );
-      if (!prepared) return;
-      const position = options.positions?.[index];
-      if (position) {
-        setRootLayerPosition(prepared.element, position);
-      } else if (options.stripRootPosition) {
-        clearRootLayerPosition(prepared.element);
-      }
-      rootNodeIds.push(prepared.rootNodeId);
-      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
-      fragment.appendChild(prepared.element);
-    });
-    if (rootNodeIds.length === 0) return null;
-
-    const target = queryFirstSelector(doc, options.targetSelectors ?? []);
-    const anchor =
-      queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
-    const placement = options.placement ?? "after";
-    if (!anchor) {
-      doc.body.appendChild(fragment);
-    } else if (placement === "inside") {
-      anchor.appendChild(fragment);
-    } else if (placement === "before") {
-      if (anchor.parentElement)
-        anchor.parentElement.insertBefore(fragment, anchor);
-      else doc.body.appendChild(fragment);
-    } else {
-      if (anchor.parentElement) {
-        anchor.parentElement.insertBefore(fragment, anchor.nextSibling);
-      } else {
-        doc.body.appendChild(fragment);
-      }
-    }
-    return {
-      content: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`,
-      rootNodeIds,
-      nodeIdMap,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function queryFirstSelector(
-  root: ParentNode,
-  selectors: Array<string | undefined>,
-): Element | null {
-  for (const selector of selectors) {
-    if (!selector) continue;
-    // Fail-closed on ambiguity, same pattern as queryUniqueSelector's other
-    // call sites in this file (and resolveCodeLayerNodeFromBridge in
-    // design-editor/code-layer-state.ts): a selector alias that matches
-    // MULTIPLE elements in this DOMParser pass (an imprecise class-based
-    // alias colliding with unrelated siblings, e.g.) must not silently
-    // resolve to whichever one querySelector happens to return first —
-    // callers pass several alias selectors for the SAME intended node
-    // (codeLayerSelectorAliases) specifically so a later, more specific
-    // alias (e.g. a stable data-attribute id) can still resolve correctly
-    // when an earlier one is ambiguous.
-    const match = queryUniqueSelector(root, selector);
-    if (match) return match;
-  }
-  return null;
-}
-
-function insertClonedHtmlLayer(
-  content: string,
-  cloneHtml: string,
-  options: {
-    targetSelectors: string[];
-    anchorSelectors?: string[];
-    placement?: "before" | "after" | "inside";
-  },
-): string | null {
-  return (
-    insertClonedHtmlLayers(content, [cloneHtml], {
-      targetSelectors: options.targetSelectors,
-      anchorSelectors: options.anchorSelectors,
-      placement: options.placement,
-    })?.content ?? null
-  );
-}
-
-function getElementOuterHtml(content: string, selector: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    return queryUniqueSelector(doc, selector)?.outerHTML ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Extract the absolute position declared in the outerHTML of a layer element.
- * Used to position a pasted element near its source so the paste lands inside
- * the same design area instead of at an arbitrary canvas coordinate.
- * Returns null if the position cannot be parsed (e.g. non-absolute element).
- */
-function extractLayerPosition(
-  layerHtml: string,
-): { x: number; y: number } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const layerDoc = new DOMParser().parseFromString(
-      `<template>${layerHtml}</template>`,
-      "text/html",
-    );
-    const source =
-      (layerDoc.querySelector("template")?.content
-        .firstElementChild as HTMLElement | null) ??
-      (layerDoc.body.firstElementChild as HTMLElement | null);
-    if (!source) return null;
-    const left = parseFloat(source.style.left);
-    const top = parseFloat(source.style.top);
-    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
-    return { x: left, y: top };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Ask a single iframe's editor-chrome bridge whether a text-edit session for
  * `nodeId` is "active" (focused), "done" (non-empty committed text), or
@@ -2620,233 +1000,6 @@ function extractLayerPosition(
  * so it can answer the same question without the host needing same-origin
  * DOM access. See `agent-native:text-edit-status` in editor-chrome.bridge.ts.
  */
-function queryTextEditStatus(
-  iframe: HTMLIFrameElement,
-  nodeId: string,
-): Promise<"active" | "done" | false> {
-  const win = iframe.contentWindow;
-  if (!win) return Promise.resolve(false);
-  const correlationId = `text-edit-status-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 6)}`;
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => {
-      window.removeEventListener("message", listener);
-      resolve(false);
-    }, 250);
-    const listener = (event: MessageEvent) => {
-      if (
-        !event.data ||
-        event.data.type !== "agent-native:text-edit-status-result" ||
-        event.data.correlationId !== correlationId ||
-        // Require the reply to come from the iframe we asked, not just any
-        // window that happens to guess the correlationId.
-        event.source !== win
-      ) {
-        return;
-      }
-      window.clearTimeout(timer);
-      window.removeEventListener("message", listener);
-      const status = event.data.status;
-      resolve(status === "active" || status === "done" ? status : false);
-    };
-    window.addEventListener("message", listener);
-    win.postMessage(
-      { type: "agent-native:text-edit-status", correlationId, nodeId },
-      "*",
-    );
-  });
-}
-
-async function postBeginTextEditToPreviewIframes(
-  screenId: string | null,
-  nodeId: string,
-): Promise<"active" | "done" | false> {
-  if (typeof document === "undefined" || !nodeId) return false;
-  const iframes = Array.from(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    ),
-  );
-  const targetIframes = iframes.filter(
-    (iframe) => screenId && iframe.dataset.screenIframeId === screenId,
-  );
-  const orderedIframes = targetIframes.length > 0 ? targetIframes : iframes;
-  for (const iframe of orderedIframes) {
-    const status = await queryTextEditStatus(iframe, nodeId);
-    if (status === "active" || status === "done") return status;
-  }
-  orderedIframes.forEach((iframe) => {
-    iframe.contentWindow?.postMessage(
-      { type: "begin-text-edit", nodeId, force: true },
-      "*",
-    );
-  });
-  return false;
-}
-
-/**
- * T6: schedule retried "begin-text-edit" force-reopen attempts for a newly
- * created text node, but STOP retrying as soon as an edit session is
- * actually active in the iframe (previously this only stopped on "done" —
- * i.e. non-empty committed text — so an empty node the user hadn't typed
- * into yet, or had already pressed Escape on, kept getting force-reopened
- * for the full ~4.2s window). Returns a cancel function the caller can
- * invoke early (e.g. when the bridge reports the edit session ended via
- * Escape/blur) to stop any remaining scheduled retries immediately.
- *
- * `onExhausted` fires exactly once, either when a retry finally observes
- * "active"/"done" or when every retry ran out having only ever seen `false`
- * — the caller uses this to decide whether to clean up an empty node that
- * never got a real editing session.
- */
-function scheduleBeginTextEditForScreen(
-  screenId: string | null,
-  nodeId: string,
-  onExhausted?: (finalStatus: "active" | "done" | false) => void,
-): () => void {
-  if (typeof window === "undefined") return () => {};
-  let finished = false;
-  let lastStatus: "active" | "done" | false = false;
-  const timers: number[] = [];
-  const settle = (status: "active" | "done" | false) => {
-    if (finished) return;
-    finished = true;
-    lastStatus = status;
-    timers.forEach((timer) => window.clearTimeout(timer));
-    onExhausted?.(status);
-  };
-  const delays = [
-    POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS,
-    600,
-    900,
-    1200,
-    1800,
-    2400,
-    3200,
-    4200,
-  ];
-  delays.forEach((delay, index) => {
-    const timer = window.setTimeout(() => {
-      if (finished) return;
-      void postBeginTextEditToPreviewIframes(screenId, nodeId).then(
-        (status) => {
-          if (finished) return;
-          lastStatus = status;
-          if (status === "active" || status === "done") {
-            settle(status);
-            return;
-          }
-          if (index === delays.length - 1) {
-            settle(false);
-          }
-        },
-      );
-    }, delay);
-    timers.push(timer);
-  });
-  return () => {
-    if (finished) return;
-    settle(lastStatus);
-  };
-}
-
-function postShaderFillPreviewClearToPreviewIframes() {
-  if (typeof document === "undefined") return;
-  document
-    .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
-    .forEach((iframe) => {
-      try {
-        iframe.contentWindow?.postMessage(
-          { type: "shader-fill-preview-clear" },
-          "*",
-        );
-      } catch {
-        // Ignore inaccessible iframe windows; same-origin previews handle this.
-      }
-    });
-}
-
-function removeElementFromHtml(
-  content: string,
-  selector: string,
-): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = queryUniqueSelector(doc, selector);
-    if (!element) return null;
-    element.remove();
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return null;
-  }
-}
-
-function sanitizeEditableInnerHtml(html: string): string {
-  if (typeof window === "undefined") return html;
-  try {
-    const doc = new DOMParser().parseFromString(
-      `<template>${html}</template>`,
-      "text/html",
-    );
-    const fragment = doc.querySelector("template")?.content;
-    if (!fragment) return html;
-    fragment
-      .querySelectorAll("script,style,iframe,object,embed,link,meta,base")
-      .forEach((node) => node.remove());
-    const walker = doc.createTreeWalker(fragment, NodeFilter.SHOW_ELEMENT);
-    let current = walker.nextNode() as Element | null;
-    while (current) {
-      for (const attr of Array.from(current.attributes)) {
-        const attrName = attr.name.toLowerCase();
-        const attrValue = attr.value.trim().toLowerCase();
-        if (
-          attrName.startsWith("on") ||
-          ((attrName === "href" ||
-            attrName === "src" ||
-            attrName === "xlink:href") &&
-            attrValue.startsWith("javascript:"))
-        ) {
-          current.removeAttribute(attr.name);
-        }
-      }
-      current = walker.nextNode() as Element | null;
-    }
-    return Array.from(fragment.childNodes)
-      .map((node) =>
-        node.nodeType === Node.ELEMENT_NODE
-          ? (node as Element).outerHTML
-          : (node.textContent ?? ""),
-      )
-      .join("");
-  } catch {
-    return html;
-  }
-}
-
-function updateElementContentInHtml(
-  content: string,
-  selector: string,
-  text: string,
-  html?: string,
-): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = queryUniqueSelector(doc, selector);
-    if (!element) return null;
-    if (html !== undefined) {
-      element.innerHTML = sanitizeEditableInnerHtml(html);
-    } else {
-      element.textContent = text;
-    }
-    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
-  } catch {
-    return null;
-  }
-}
-
 function AgentNativeMenuMark({ className }: { className?: string }) {
   return (
     <svg
@@ -2887,21 +1040,6 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "import",
   "code",
 ]);
-
-function normalizeDesignLeftPanel(value: unknown): DesignLeftPanel | undefined {
-  if (value === "extensions") return "tools";
-  if (value === "code") {
-    return SHOW_DESIGN_CODE_LEFT_PANEL ? "code" : undefined;
-  }
-  return value === "file" ||
-    value === "agent" ||
-    value === "assets" ||
-    value === "tools" ||
-    value === "tokens" ||
-    value === "import"
-    ? value
-    : undefined;
-}
 
 function DesignWorkspaceRail({
   activePanel,
@@ -2972,7 +1110,7 @@ function DesignWorkspaceRail({
   return (
     <nav
       aria-label={t("designEditor.leftRail.label")}
-      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain bg-[var(--design-editor-panel-bg)] py-3"
+      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
     >
       <div className="mb-3 flex h-8 items-center justify-center">
         {projectMenu}
@@ -3788,131 +1926,6 @@ function DesignBottomToolbar({
   );
 }
 
-function isDesignData(
-  data: DesignData | string | undefined,
-): data is DesignData {
-  return !!data && typeof data === "object" && Array.isArray(data.files);
-}
-
-function areTweakSelectionsEqual(
-  a: TweakSelections,
-  b: TweakSelections,
-): boolean {
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key) => Object.is(a[key], b[key]));
-}
-
-function buildAuthoritativeTweakSelections(
-  tweaks: TweakDefinition[],
-  persistedSelections: TweakSelections,
-): TweakSelections {
-  const selections: TweakSelections = {};
-  for (const tweak of tweaks) {
-    selections[tweak.id] =
-      persistedSelections[tweak.id] !== undefined
-        ? persistedSelections[tweak.id]
-        : tweak.defaultValue;
-  }
-  for (const [key, value] of Object.entries(persistedSelections)) {
-    if (/^--[-_a-zA-Z0-9]+$/.test(key)) {
-      selections[key] = value;
-    }
-  }
-  return selections;
-}
-
-function parseDesignDataJson(data?: string | null): Record<string, unknown> {
-  if (!data) return {};
-  try {
-    const parsed = JSON.parse(data);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function getDesignDataRecord(
-  data: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  const value = data[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function getCanvasFrameGeometry(
-  data: Record<string, unknown>,
-): CanvasFrameGeometryById {
-  return parseCanvasFrameGeometryById(data.canvasFrames);
-}
-
-function cloneCanvasFrameGeometry(
-  geometryById: CanvasFrameGeometryById,
-): CanvasFrameGeometryById {
-  return Object.fromEntries(
-    Object.entries(geometryById).map(([frameId, geometry]) => [
-      frameId,
-      { ...geometry },
-    ]),
-  );
-}
-
-/**
- * Freshness guard for geometry undo/redo. Returns the ids of frames that a
- * geometry history entry touched whose LIVE geometry no longer matches what the
- * entry expects (`expected` = the state this entry previously wrote). A
- * non-empty result means a concurrent peer/agent moved those frames since the
- * snapshot was captured, so replaying the entry's stored "before"/"after" would
- * clobber their change. Frames absent from live geometry (deleted) are treated
- * as changed. Only compares the frames the entry itself changed, so unrelated
- * concurrent edits to OTHER frames don't block this undo.
- */
-function staleGeometryFrameIds(
-  entry: GeometryHistoryEntry,
-  live: CanvasFrameGeometryById,
-  expected: CanvasFrameGeometryById,
-): string[] {
-  // A frame is "touched" when ANY geometry field differs between before and
-  // after — moves (x/y), rotation, and z-order count, not just viewport size.
-  const touched = new Set<string>(
-    [...Object.keys(entry.before), ...Object.keys(entry.after)].filter(
-      (frameId) =>
-        !frameGeometryEquals(entry.before[frameId], entry.after[frameId]),
-    ),
-  );
-  const stale: string[] = [];
-  for (const frameId of touched) {
-    const expectedGeo = expected[frameId];
-    const liveGeo = live[frameId];
-    if (!expectedGeo) continue; // entry didn't establish this frame's geometry
-    if (!liveGeo || JSON.stringify(liveGeo) !== JSON.stringify(expectedGeo)) {
-      stale.push(frameId);
-    }
-  }
-  return stale;
-}
-
-function viewportChangedFrameIds(
-  before: CanvasFrameGeometryById,
-  after: CanvasFrameGeometryById,
-) {
-  const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
-  return [...ids].filter((frameId) => {
-    const beforeSize = viewportSizeFromFrameGeometry(before[frameId]);
-    const afterSize = viewportSizeFromFrameGeometry(after[frameId]);
-    if (!beforeSize || !afterSize) return false;
-    return (
-      beforeSize.width !== afterSize.width ||
-      beforeSize.height !== afterSize.height
-    );
-  });
-}
-
 /**
  * React Router reuses the same route component when only `:id` changes. Key
  * the stateful editor by design id so pending refs, collaboration docs, tools,
@@ -3929,6 +1942,11 @@ function DesignEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  // Long overview sessions (pan/zoom/select/undo across many screens) build
+  // up a very large native `performance.measure` buffer from React/Radix dev
+  // instrumentation (see performance-buffer-guard.ts) — bound it so a long
+  // session's JS heap doesn't grow from that alone.
+  usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;
     searchParams: URLSearchParams;
@@ -4456,6 +2474,17 @@ function DesignEditor() {
   // paste without mistaking a newer external copy for stale in-memory layers.
   const lastWrittenClipboardMarkerRef = useRef<string | null>(null);
   const lastWrittenClipboardPlainTextRef = useRef<string | null>(null);
+  // Synchronous per-file content lineage for repeated paste/undo cycles. A
+  // save acknowledgement may clear the generic pending-local map before the
+  // React query/collab mirrors have rendered its content, leaving a brief
+  // stale-base gap. Keep this mirror current for both local applications and
+  // authoritative host-sync snapshots; the latter replaces, rather than
+  // clears, the known content so there is never an undefined gap.
+  const latestClipboardMutationContentRef = useRef<
+    Map<string, ClipboardContentLineage>
+  >(new Map());
+  const clipboardPasteUndoStackRef = useRef<ContentHistoryChange[]>([]);
+  const clipboardPasteRedoStackRef = useRef<ContentHistoryChange[]>([]);
   // Cascade offset for repeated keyboard pastes so successive clones don't stack
   // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
   const pasteCascadeRef = useRef(0);
@@ -4935,6 +2964,7 @@ function DesignEditor() {
         pendingLiveNonStyleUndoStackRef.current.length > 0 ||
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
+        clipboardPasteUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
@@ -4946,6 +2976,7 @@ function DesignEditor() {
         pendingLiveNonStyleRedoStackRef.current.length > 0 ||
         Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
+        clipboardPasteRedoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
@@ -5113,6 +3144,9 @@ function DesignEditor() {
     fileDeletionUndoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
+    clipboardPasteUndoStackRef.current = [];
+    clipboardPasteRedoStackRef.current = [];
+    latestClipboardMutationContentRef.current.clear();
     historyOrderRef.current = [];
     redoOrderRef.current = [];
   }, []);
@@ -5677,6 +3711,36 @@ function DesignEditor() {
   const removeBreakpointMutation = useActionMutation("remove-breakpoint");
   const setActiveBreakpointMutation = useActionMutation(
     "set-active-breakpoint",
+  );
+  type ActiveBreakpointWrite = {
+    designId: string;
+    breakpointId: string;
+    editScope: ResponsiveEditScope;
+  };
+  const setActiveBreakpointMutateAsyncRef = useRef(
+    setActiveBreakpointMutation.mutateAsync,
+  );
+  setActiveBreakpointMutateAsyncRef.current =
+    setActiveBreakpointMutation.mutateAsync;
+  const activeBreakpointWriteQueueRef =
+    useRef<ReturnType<typeof createLatestWriteQueue<ActiveBreakpointWrite>>>(
+      null,
+    );
+  if (!activeBreakpointWriteQueueRef.current) {
+    activeBreakpointWriteQueueRef.current = createLatestWriteQueue((input) =>
+      setActiveBreakpointMutateAsyncRef.current(input),
+    );
+  }
+  const persistActiveBreakpoint = useCallback(
+    (breakpointId: string, editScope: ResponsiveEditScope) => {
+      if (!id) return;
+      activeBreakpointWriteQueueRef.current?.enqueue({
+        designId: id,
+        breakpointId,
+        editScope,
+      });
+    },
+    [id],
   );
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
@@ -7753,13 +5817,9 @@ function DesignEditor() {
       // app-state poll tick this write eventually triggers is a no-op echo,
       // not a redundant re-apply of a value we already set locally.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designBreakpoints, setActiveBreakpointMutation],
+    [id, designBreakpoints, persistActiveBreakpoint],
   );
   const handleResponsiveEditScopeChange = useCallback(
     (scope: ResponsiveEditScope) => {
@@ -7772,13 +5832,9 @@ function DesignEditor() {
           ? "auto"
           : (designBreakpoints.find((bp) => bp.widthPx === activeWidth)?.id ??
             "auto");
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: scope,
-      });
+      persistActiveBreakpoint(breakpointId, scope);
     },
-    [designBreakpoints, id, setActiveBreakpointMutation],
+    [designBreakpoints, id, persistActiveBreakpoint],
   );
 
   // Item 9 — agent→UI breakpoint sync. `set-active-breakpoint` (the action
@@ -7802,12 +5858,20 @@ function DesignEditor() {
     if (!id) return;
     let cancelled = false;
     void (async () => {
+      if (activeBreakpointWriteQueueRef.current?.hasPending()) return;
       const value = await readClientAppState<{
         designId?: string;
         activeBreakpointId?: string;
         responsiveEditScope?: ResponsiveEditScope;
       }>(`design-active-breakpoint:${id}`).catch(() => null);
-      if (cancelled || !value || value.designId !== id) return;
+      if (
+        cancelled ||
+        activeBreakpointWriteQueueRef.current?.hasPending() ||
+        !value ||
+        value.designId !== id
+      ) {
+        return;
+      }
       const nextBreakpointId = value.activeBreakpointId ?? "auto";
       if (nextBreakpointId === lastAppliedActiveBreakpointIdRef.current) {
         return;
@@ -10247,6 +8311,7 @@ function DesignEditor() {
       cancelPendingStructureVerification("conflict");
       pendingVisualStyleRedoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
+      clipboardPasteRedoStackRef.current = [];
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
         window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
@@ -11325,6 +9390,53 @@ function DesignEditor() {
     [selectedCanvasSelector, selectedCanvasSelectorCandidates],
   );
 
+  const publishAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      baseContent: string;
+      nextContent: string;
+      origin: ClipboardContentMutationOrigin;
+    }): ClipboardContentMutationPublication | null => {
+      const current = latestClipboardMutationContentRef.current.get(
+        args.fileId,
+      );
+      const nextLineage = publishClipboardContentMutation({
+        current,
+        baseContentHash: sourceContentHash(args.baseContent),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        origin: args.origin,
+      });
+      if (!nextLineage) return null;
+      latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
+      return {
+        mutationId: nextLineage.mutationId,
+        contentHash: nextLineage.contentHash,
+        origin: nextLineage.origin,
+      };
+    },
+    [],
+  );
+
+  const acknowledgeAuthoritativeClipboardMutation = useCallback(
+    (args: {
+      fileId: string;
+      nextContent: string;
+      publication?: ClipboardContentMutationPublication;
+    }) => {
+      const nextLineage = acknowledgeClipboardContentMutation({
+        current: latestClipboardMutationContentRef.current.get(args.fileId),
+        nextContent: args.nextContent,
+        nextContentHash: sourceContentHash(args.nextContent),
+        publication: args.publication,
+      });
+      if (nextLineage) {
+        latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
+      }
+    },
+    [],
+  );
+
   const applyLocalContentUpdate = useCallback(
     (
       nextContent: string,
@@ -11337,6 +9449,7 @@ function DesignEditor() {
         recordHistory?: boolean;
         historyBeforeContent?: string;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!activeFile || !canEditDesignRef.current) return;
@@ -11361,6 +9474,14 @@ function DesignEditor() {
         });
         return;
       }
+      // No implicit authority from `recordHistory`: save/query/Yjs echoes can
+      // traverse this same function with history enabled. Only a publication
+      // allocated synchronously at a user-action boundary may advance lineage.
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId: activeFile.id,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const yjsHistoryAvailable = Boolean(
         shouldRecordHistory &&
         viewModeRef.current !== "overview" &&
@@ -11419,6 +9540,8 @@ function DesignEditor() {
       }
       setCollabContent(nextContent);
       setCollabContentFileId(activeFile.id);
+      collabContentRef.current = nextContent;
+      collabContentFileIdRef.current = activeFile.id;
       lastLocalContentRef.current = nextContent;
       latestActiveContentRef.current = nextContent;
       if (id) {
@@ -11512,6 +9635,7 @@ function DesignEditor() {
     },
     [
       activeFile,
+      acknowledgeAuthoritativeClipboardMutation,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
       id,
@@ -11540,6 +9664,7 @@ function DesignEditor() {
         persist?: boolean;
         recordHistory?: boolean;
         updatedAt?: string;
+        clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
       if (!canEditDesignRef.current) return;
@@ -11577,6 +9702,11 @@ function DesignEditor() {
         });
         return;
       }
+      acknowledgeAuthoritativeClipboardMutation({
+        fileId,
+        nextContent,
+        publication: options.clipboardMutation,
+      });
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
       if (
@@ -11662,6 +9792,7 @@ function DesignEditor() {
     },
     [
       activeFile?.id,
+      acknowledgeAuthoritativeClipboardMutation,
       applyLocalContentUpdate,
       cancelQueuedFileContentSave,
       clearPendingLocalFileContent,
@@ -16357,6 +14488,7 @@ function DesignEditor() {
             candidate.dataAttributes["data-agent-native-node-id"] === layerId,
         );
         if (!node?.source) continue;
+        const html = content.slice(node.source.start, node.source.end);
         const portableStyleSnapshot =
           selectedElementLayerId &&
           node.id === selectedElementLayerId &&
@@ -16364,11 +14496,15 @@ function DesignEditor() {
             ? selectedElement.portableStyleSnapshot
             : undefined;
         snapshots.push({
-          html: content.slice(node.source.start, node.source.end),
+          html,
           rootNodeId:
             node.dataAttributes["data-agent-native-node-id"] ?? node.id,
           sourceFileId: file.id,
           portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source.start,
           tree,
@@ -16396,6 +14532,10 @@ function DesignEditor() {
             selectedElement.id,
           sourceFileId: activeFile.id,
           portableStyleSnapshot: selectedElement.portableStyleSnapshot,
+          managedStyleSnapshot: extractDesignClipboardManagedStyles(
+            content,
+            html,
+          ),
           node,
           sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
           tree,
@@ -16564,6 +14704,7 @@ function DesignEditor() {
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      managedStyleSnapshot: snapshot.managedStyleSnapshot,
     }));
     // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
     // file/screen ids from layer candidates, so selecting one or more whole
@@ -16603,11 +14744,15 @@ function DesignEditor() {
     // only readable content. This mirrors Figma's clipboard behavior: Design
     // can round-trip structure across tabs without dumping source and marker
     // data into ordinary text destinations.
-    const clipboardHtml = serializeDesignClipboardPayload(copiedHtml, {
-      version: 1,
-      entries,
-      screens,
-    });
+    const clipboardHtml = serializeDesignClipboardPayload(
+      copiedHtml,
+      {
+        version: 1,
+        entries,
+        screens,
+      },
+      getDesignClipboardTrustToken() ?? undefined,
+    );
     copiedLayerEntriesRef.current = entries;
     copiedScreenEntriesRef.current = screens;
     copiedLayerHtmlRef.current = clipboardHtml;
@@ -16735,25 +14880,71 @@ function DesignEditor() {
         return;
       }
       if (!targetFileId || !canEditDesign) return;
+      // The pending-local map is the synchronous write-through source for
+      // same-task/repeated operations. React query/collab mirrors can lag one
+      // render behind a just-completed paste even after its save is already
+      // observable from another request; rebasing a second paste on that stale
+      // mirror makes its history `before` skip the first clone, so one undo
+      // removes both. Prefer the pending snapshot exactly like primitive and
+      // cross-screen structure writes do elsewhere in this editor.
       const baseContent =
-        targetFileId === activeFile?.id
+        latestClipboardMutationContentRef.current.get(targetFileId)?.content ??
+        pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
+        (targetFileId === activeFile?.id
           ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
+          : (getScreenContent(targetFileId) ?? ""));
       if (!baseContent && targetFileId !== boardFileId) return;
       const layerHtmls = entries.map((entry) => entry.html);
       const styleSnapshots = entries.map(
         (entry) => entry.portableStyleSnapshot,
       );
+      const managedStyleSnapshots = entries.map(
+        (entry) => entry.managedStyleSnapshot,
+      );
       const applyPasteContentUpdate = (nextContent: string) => {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: targetFileId,
+          baseContent,
+          nextContent,
+          origin: "clipboard-paste",
+        });
+        if (!clipboardMutation) return false;
+        if (nextContent !== baseContent) {
+          // Capture the exact immutable pre-paste document here, before the
+          // optimistic cache/collab mirrors can advance independently. The
+          // dedicated stack owns paste history in both single and overview
+          // mode: generic Yjs/local history can be destroyed by a view switch
+          // and cannot publish the authoritative clipboard generation on
+          // undo. DOM insertion + every remapped managed rule stay in this
+          // single before/after snapshot.
+          clipboardPasteUndoStackRef.current = [
+            ...clipboardPasteUndoStackRef.current.slice(
+              -(MAX_DESIGN_UNDO_STACK - 1),
+            ),
+            {
+              fileId: targetFileId,
+              before: baseContent,
+              after: nextContent,
+            },
+          ];
+          clipboardPasteRedoStackRef.current = [];
+          clearRedoStacks();
+          syncUndoRedoState();
+        }
         if (targetFileId === activeFile?.id) {
           applyLocalContentUpdate(nextContent, {
             forcePreviewFullDocument: true,
+            clipboardMutation,
+            recordHistory: false,
           });
-          return;
+          return true;
         }
         applyFileContentUpdate(targetFileId, nextContent, {
           forcePreviewFullDocument: true,
+          clipboardMutation,
+          recordHistory: false,
         });
+        return true;
       };
 
       // B7 fix: when an element is selected and no explicit canvas position was
@@ -16773,10 +14964,11 @@ function DesignEditor() {
           placement: "after",
           stripRootPosition: true,
           styleSnapshots,
+          managedStyleSnapshots,
         });
         if (result) {
           pasteCascadeRef.current += 1;
-          applyPasteContentUpdate(result.content);
+          if (!applyPasteContentUpdate(result.content)) return;
           remapMotionTracksForClone(result.nodeIdMap, targetFileId);
           selectInsertedLayers(
             targetFileId,
@@ -16856,10 +15048,11 @@ function DesignEditor() {
       const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
         positions,
         styleSnapshots,
+        managedStyleSnapshots,
       });
       if (!result) return;
       if (!position) pasteCascadeRef.current += 1;
-      applyPasteContentUpdate(result.content);
+      if (!applyPasteContentUpdate(result.content)) return;
       remapMotionTracksForClone(result.nodeIdMap, targetFileId);
       selectInsertedLayers(targetFileId, result.content, result.rootNodeIds);
     },
@@ -16874,11 +15067,14 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       pasteCopiedScreens,
+      publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
       remapMotionTracksForClone,
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
+      clearRedoStacks,
+      syncUndoRedoState,
       zoom,
     ],
   );
@@ -17362,6 +15558,9 @@ function DesignEditor() {
             y: y + index * 16,
           })),
           styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
+          managedStyleSnapshots: entries.map(
+            (entry) => entry.managedStyleSnapshot,
+          ),
         },
       );
       if (!result) return;
@@ -17415,6 +15614,7 @@ function DesignEditor() {
       {
         positions: [{ x: targetPosition.x, y: targetPosition.y }],
         styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
       },
     );
     if (!result) return;
@@ -20214,6 +18414,9 @@ function DesignEditor() {
 
         if (deletionHistoryEntry) {
           fileHistoryMutationPendingRef.current = false;
+          clipboardPasteUndoStackRef.current = [];
+          clipboardPasteRedoStackRef.current = [];
+          latestClipboardMutationContentRef.current.clear();
         }
         options?.onMutationSettled?.(deletedFiles, failedFiles);
         syncUndoRedoState();
@@ -20808,6 +19011,72 @@ function DesignEditor() {
       syncUndoRedoState();
       return;
     }
+    const clipboardPasteUndo =
+      clipboardPasteUndoStackRef.current[
+        clipboardPasteUndoStackRef.current.length - 1
+      ];
+    if (clipboardPasteUndo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(clipboardPasteUndo.fileId)
+          ?.content ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
+          ?.content ??
+        (clipboardPasteUndo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));
+      // Only claim the command when this paste is still the top document
+      // state. If another edit followed it, the ordinary chronological
+      // history below gets first chance; once that edit is undone back to
+      // `after`, the next Cmd+Z reaches this immutable paste entry.
+      if (currentContent === clipboardPasteUndo.after) {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteUndo.fileId,
+          baseContent: clipboardPasteUndo.after,
+          nextContent: clipboardPasteUndo.before,
+          origin: "clipboard-undo",
+        });
+        if (!clipboardMutation) return;
+        clipboardPasteUndoStackRef.current =
+          clipboardPasteUndoStackRef.current.slice(0, -1);
+        clipboardPasteRedoStackRef.current = [
+          ...clipboardPasteRedoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteUndo,
+        ];
+        if (clipboardPasteUndo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteUndo.before, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+            clipboardMutation,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteUndo.fileId,
+            clipboardPasteUndo.before,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+        }
+        setSelectedElement((previous) =>
+          previous
+            ? refreshElementInfoFromContent(clipboardPasteUndo.before, previous)
+            : previous,
+        );
+        setSelectedLayerIdsState((previous) =>
+          refreshSelectedLayerIdsFromContent(
+            clipboardPasteUndo.before,
+            previous,
+          ),
+        );
+        syncUndoRedoState();
+        return;
+      }
+    }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
     let prunedUndoHistory = 0;
@@ -21233,11 +19502,14 @@ function DesignEditor() {
     createFileMutation,
     deleteFileMutation,
     files,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,
     markPendingLocalFileContent,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     replacePreviewContent,
@@ -21411,6 +19683,57 @@ function DesignEditor() {
       }
       syncUndoRedoState();
       return;
+    }
+    const clipboardPasteRedo =
+      clipboardPasteRedoStackRef.current[
+        clipboardPasteRedoStackRef.current.length - 1
+      ];
+    if (clipboardPasteRedo) {
+      const currentContent =
+        latestClipboardMutationContentRef.current.get(clipboardPasteRedo.fileId)
+          ?.content ??
+        pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
+          ?.content ??
+        (clipboardPasteRedo.fileId === activeFile?.id
+          ? getFreshActiveContent()
+          : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));
+      if (currentContent === clipboardPasteRedo.before) {
+        const clipboardMutation = publishAuthoritativeClipboardMutation({
+          fileId: clipboardPasteRedo.fileId,
+          baseContent: clipboardPasteRedo.before,
+          nextContent: clipboardPasteRedo.after,
+          origin: "clipboard-redo",
+        });
+        if (!clipboardMutation) return;
+        clipboardPasteRedoStackRef.current =
+          clipboardPasteRedoStackRef.current.slice(0, -1);
+        clipboardPasteUndoStackRef.current = [
+          ...clipboardPasteUndoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          clipboardPasteRedo,
+        ];
+        if (clipboardPasteRedo.fileId === activeFile?.id) {
+          applyLocalContentUpdate(clipboardPasteRedo.after, {
+            recordHistory: false,
+            forcePreviewFullDocument: true,
+            immediateSave: true,
+            clipboardMutation,
+          });
+        } else {
+          applyFileContentUpdate(
+            clipboardPasteRedo.fileId,
+            clipboardPasteRedo.after,
+            {
+              recordHistory: false,
+              forcePreviewFullDocument: true,
+              clipboardMutation,
+            },
+          );
+        }
+        syncUndoRedoState();
+        return;
+      }
     }
     const um = undoManagerRef.current;
     const canUseOverviewHistory = viewModeRef.current === "overview";
@@ -21846,6 +20169,8 @@ function DesignEditor() {
     createFileMutation,
     files,
     focusCreatedScreen,
+    getFreshActiveContent,
+    getScreenContent,
     id,
     isSynced,
     liveScreenSnapshotsById,
@@ -21853,6 +20178,7 @@ function DesignEditor() {
     optimisticallyInsertCreatedFile,
     overviewScreens.length,
     performDeleteFiles,
+    publishAuthoritativeClipboardMutation,
     queryClient,
     queueFileContentSave,
     recordLocalContentHistoryChangeFallback,
@@ -22009,7 +20335,12 @@ function DesignEditor() {
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
-      setMode("edit");
+      // Returning from a focused prototype keeps Interact active so the user
+      // lands back on the large interactive canvas. Other overview-entry
+      // paths retain the existing Edit default.
+      setMode((currentMode) =>
+        currentMode === "interact" ? "interact" : "edit",
+      );
       setSelectedElement(null);
       setHoveredElement(null);
       setActiveTool("move");
@@ -22024,7 +20355,7 @@ function DesignEditor() {
   ]);
 
   const enterSingleScreen = useCallback(
-    (fileId?: string | null) => {
+    (fileId?: string | null, nextMode: EditorMode = "edit") => {
       if (
         viewModeRef.current === "single" &&
         (!fileId || fileId === activeFileId)
@@ -22064,7 +20395,7 @@ function DesignEditor() {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
         setPinMode(false);
-        setMode("edit");
+        setMode(nextMode);
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");
@@ -22077,6 +20408,10 @@ function DesignEditor() {
       clearPendingOverviewLayerSelectionTimer,
       runEditorViewTransition,
     ],
+  );
+  const enterSingleScreenInteract = useCallback(
+    (fileId?: string | null) => enterSingleScreen(fileId, "interact"),
+    [enterSingleScreen],
   );
 
   // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
@@ -22125,10 +20460,14 @@ function DesignEditor() {
       options?: {
         discardPendingLiveEdits?: boolean;
         pendingLiveEditsAlreadyHandled?: boolean;
+        targetFileId?: string;
       },
     ) => {
+      const nextActiveFile = options?.targetFileId
+        ? files.find((file) => file.id === options.targetFileId)
+        : activeFile;
       if (!canEditDesign && next === "annotate") return;
-      if ((next === "annotate" || next === "interact") && !activeFile) {
+      if ((next === "annotate" || next === "interact") && !nextActiveFile) {
         return;
       }
       if (
@@ -22147,14 +20486,7 @@ function DesignEditor() {
         clearPendingLiveEditState();
       }
 
-      // Interact operates inside one live screen. Annotate is different: its
-      // overlay is intentionally board-wide in overview so users can mark the
-      // canvas around/across screens without remounting their preview iframes.
-      if (next === "interact" && activeFile && viewMode === "overview") {
-        viewModeRef.current = "single";
-        setScreenZoom(FOCUSED_SCREEN_ZOOM);
-        setViewMode("single");
-      }
+      if (options?.targetFileId) setActiveFileId(options.targetFileId);
       setMode(next);
       setSelectedElement(null);
 
@@ -22181,8 +20513,18 @@ function DesignEditor() {
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
       t,
-      viewMode,
+      files,
     ],
+  );
+  const handleOverviewFrameAction = useCallback(
+    (screenId: string) => {
+      if (mode === "interact") {
+        enterSingleScreenInteract(screenId);
+        return;
+      }
+      handleModeChange("interact", { targetFileId: screenId });
+    },
+    [enterSingleScreenInteract, handleModeChange, mode],
   );
 
   useEffect(() => {
@@ -23337,12 +21679,14 @@ function DesignEditor() {
         designTitle: design?.title,
         activeFileId: activeFile?.id,
         activeFilename: activeFile?.filename,
+        localhostConnectionId: activeOverviewScreen?.connectionId,
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
       }),
     [
       activeFile?.filename,
       activeFile?.id,
+      activeOverviewScreen?.connectionId,
       design?.title,
       id,
       pendingLiveNonStyleEdits,
@@ -25755,11 +24099,7 @@ function DesignEditor() {
         activeBreakpointWidthStateRef.current = undefined;
         setActiveBreakpointWidthState(undefined);
         if (id) {
-          void setActiveBreakpointMutation.mutateAsync({
-            designId: id,
-            breakpointId: "auto",
-            editScope: responsiveEditScopeRef.current,
-          });
+          persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
         }
         return;
       }
@@ -25770,14 +24110,10 @@ function DesignEditor() {
       activeBreakpointWidthStateRef.current = bp.widthPx;
       setActiveBreakpointWidthState(bp.widthPx);
       if (id) {
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId,
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
       }
     },
-    [id, setActiveBreakpointMutation, statesPanelBreakpoints],
+    [id, persistActiveBreakpoint, statesPanelBreakpoints],
   );
 
   const handleStatesPanelAddBreakpoint = useCallback(() => {
@@ -28200,7 +26536,7 @@ function DesignEditor() {
           editorChromeScaleX={overviewCanvasZoom / 100}
           editorChromeScaleY={overviewCanvasZoom / 100}
           editMode={mode === "edit"}
-          interactMode={false}
+          interactMode={mode === "interact"}
           readOnly={!canEditDesign}
           scaleMode={screenIsActive && activeTool === "scale"}
           handToolActive={activeTool === "hand"}
@@ -28597,11 +26933,7 @@ function DesignEditor() {
         setActiveBreakpointWidthState(undefined);
         // Item 9 — see handleBreakpointBarSelect's matching comment.
         lastAppliedActiveBreakpointIdRef.current = "auto";
-        void setActiveBreakpointMutation.mutateAsync({
-          designId: id,
-          breakpointId: "auto",
-          editScope: responsiveEditScopeRef.current,
-        });
+        persistActiveBreakpoint("auto", responsiveEditScopeRef.current);
       }
       void removeBreakpointMutation.mutateAsync({ designId: id, breakpointId });
     },
@@ -28610,7 +26942,7 @@ function DesignEditor() {
       designBreakpoints,
       activeBreakpointWidthState,
       removeBreakpointMutation,
-      setActiveBreakpointMutation,
+      persistActiveBreakpoint,
     ],
   );
   // BP-DEEP v2 item 6 — "Change width" in the per-breakpoint "…" menu.
@@ -28726,13 +27058,9 @@ function DesignEditor() {
       const breakpointId = widthPx !== undefined && bp ? bp.id : "auto";
       // Item 9 — see handleBreakpointBarSelect's matching comment.
       lastAppliedActiveBreakpointIdRef.current = breakpointId;
-      void setActiveBreakpointMutation.mutateAsync({
-        designId: id,
-        breakpointId,
-        editScope: responsiveEditScopeRef.current,
-      });
+      persistActiveBreakpoint(breakpointId, responsiveEditScopeRef.current);
     },
-    [id, designDataJson, setActiveBreakpointMutation],
+    [id, designDataJson, persistActiveBreakpoint],
   );
   // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu (Remove /
   // Change width) and full-view entry. Width-first, same convention as
@@ -28768,9 +27096,9 @@ function DesignEditor() {
   // base frame's onEdit={enterSingleScreen}.
   const handleOverviewEditBreakpoint = useCallback(
     (screenId: string, _widthPx: number) => {
-      enterSingleScreen(screenId);
+      handleOverviewFrameAction(screenId);
     },
-    [enterSingleScreen],
+    [handleOverviewFrameAction],
   );
 
   // Hooks must not be called conditionally; keep navigate as an effect so the
@@ -29544,7 +27872,7 @@ function DesignEditor() {
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
+              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
               style={{ width: leftContentWidth }}
             >
               <div
@@ -30154,6 +28482,7 @@ function DesignEditor() {
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
+                        interactMode={mode === "interact"}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -30285,7 +28614,7 @@ function DesignEditor() {
                           selectedLayerSelectorGroupsByScreen
                         }
                         onPick={handleOverviewScreenPick}
-                        onEdit={enterSingleScreen}
+                        onEdit={handleOverviewFrameAction}
                         onDuplicate={handleDuplicateScreen}
                         onAddBreakpoint={handleOverviewAddBreakpoint}
                         onActiveBreakpointChange={
@@ -30670,7 +28999,7 @@ function DesignEditor() {
         {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
-            className="relative hidden h-full min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)] md:flex"
+            className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
             <div

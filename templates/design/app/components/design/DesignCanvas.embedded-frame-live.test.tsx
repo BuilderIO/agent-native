@@ -20,6 +20,58 @@ vi.mock("@agent-native/core/client", async (importOriginal) => {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it("keeps editor shell semantic tokens out of the prototype document", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousRootStyle = document.documentElement.style.cssText;
+    document.documentElement.style.setProperty("--background", "0 0% 100%");
+    document.documentElement.style.setProperty("--foreground", "0 0% 10%");
+    document.documentElement.style.setProperty("--border", "0 0% 90%");
+    document.documentElement.style.setProperty(
+      "--design-editor-accent-color",
+      "hsl(205 100% 53%)",
+    );
+    const content =
+      "<!doctype html><html><head><style>:root{--background:210 20% 96%;--foreground:220 20% 12%;--border:220 12% 82%}</style></head><body></body></html>";
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content={content}
+            contentKey="prototype-theme-isolation"
+            screenId="screen-theme"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+            editMode
+          />,
+        ),
+      );
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const editorThemeScript = iframe?.srcdoc.match(
+        /<script data-agent-native-editor-theme>([\s\S]*?)<\/script>/,
+      )?.[1];
+
+      expect(editorThemeScript).toBeDefined();
+      expect(editorThemeScript).toContain("--design-editor-accent-color");
+      expect(editorThemeScript).not.toContain('"--background"');
+      expect(editorThemeScript).not.toContain('"--foreground"');
+      expect(editorThemeScript).not.toContain('"--border"');
+      expect(iframe?.srcdoc).toContain("--background:210 20% 96%");
+    } finally {
+      document.documentElement.style.cssText = previousRootStyle;
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("keeps the iframe identity stable when a board render window reanchors", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -253,6 +305,71 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       expect(interactIframe?.srcdoc).toContain('data-test="state-latest"');
       expect(interactIframe?.srcdoc).toContain(":hover{opacity:.5!important}");
+
+      // Returning to Edit must retain Interact's authoritative persisted
+      // baseline rather than restoring the stale pre-edit snapshot.
+      await act(async () => root.render(render(withState, false)));
+      const refreshedEditIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(refreshedEditIframe?.srcdoc).toContain('data-test="state-latest"');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("reloads edit mode when a runtime update introduces executable scripts", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const initial =
+      "<!doctype html><html><head></head><body><main>Static direction</main></body></html>";
+    const alpine =
+      '<!doctype html><html><head><script>window.__runtimeStarted = true;</script><style>[x-cloak]{display:none!important}</style></head><body x-data="{ ready: true }" x-cloak><main x-show="ready">Interactive app</main></body></html>';
+    const render = (content: string, revision: string) => (
+      <DesignCanvas
+        content={content}
+        contentKey="script-aware-runtime-replacement"
+        runtimeReplacementContent={content}
+        runtimeReplacementKey={revision}
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        editMode
+      />
+    );
+
+    try {
+      await act(async () => root.render(render(initial, "revision-1")));
+      const staticIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(staticIframe?.srcdoc).toContain("Static direction");
+
+      await act(async () => root.render(render(alpine, "revision-2")));
+      const alpineIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+
+      expect(alpineIframe).not.toBe(staticIframe);
+      expect(alpineIframe?.srcdoc).toContain("__runtimeStarted");
+      expect(alpineIframe?.srcdoc).toContain("x-cloak");
+      expect(alpineIframe?.srcdoc).toContain("Interactive app");
+
+      const visualEdit = alpine.replace(
+        "Interactive app",
+        "Updated interactive app",
+      );
+      await act(async () => root.render(render(visualEdit, "revision-3")));
+      const visualEditIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(visualEditIframe).toBe(alpineIframe);
     } finally {
       await act(async () => root.unmount());
       container.remove();

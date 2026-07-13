@@ -1436,7 +1436,7 @@ export function DesignColorPicker({
                                 disabled={disabled}
                                 onClick={() => setPaintType(type)}
                                 className={cn(
-                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
+                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-[color,background-color,transform] duration-150",
                                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                   "active:scale-95",
                                   isActive

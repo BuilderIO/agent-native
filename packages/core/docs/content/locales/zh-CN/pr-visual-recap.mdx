@@ -123,6 +123,28 @@ npx @agent-native/core@latest recap doctor
 固定其提交的`visual-recap`文件夹，设置存储库变量
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## 运行器选择
+
+默认情况下，工作流程在 GitHub 托管的 `ubuntu-latest` 运行器上执行。若要使用其他托管运行器或自己的自托管运行器，请将存储库或组织变量 `VISUAL_RECAP_RUNS_ON` 设置为有效的 JSON 字符串或运行器标签的 JSON 数组：
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+JSON 引号是必需的。此值选择完整 `recap` 作业的运行器。若要在引导设置期间进行配置，请将相同的 JSON 值传给 `--runs-on`，然后使用 `doctor` 验证工作流程和运行器可用性：
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+轻量级门禁单独使用 `ubuntu-latest`。禁用 GitHub 托管运行器的存储库可以将 `VISUAL_RECAP_GATE_RUNS_ON` 设置为一个不含 JSON 的纯文本标签，或使用 `--gate-runs-on visual-recap-gate`。自定义标签仅用于同一存储库中身份为 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的作者；分支及其他作者会被强制使用 `ubuntu-latest`，在禁用 GitHub 托管运行器时可能一直无法调度。请使用专用且最好是临时的运行器；标准门禁不会检出 PR 树，只评估工作流逻辑和 PR 元数据。
+
+`recap doctor` 会拒绝格式错误或不受支持的 JSON，并在 GitHub 未提供与所有已配置标签匹配的在线运行器时进行报告。运行器的注册、安装、升级、容量和维护仍由您负责；Agent Native 只选择标签，不提供或运营运行器。
+
+**安全性：** 建议使用临时自托管运行器。持久自托管运行器应仅用于贡献者可信的私有存储库。工作流程会在向不可信的公开或分支 PR 作者分配自托管工作前安全关闭，但持久计算机仍会在作业之间保留工作区和进程状态。请勿削弱此门禁，也不要将不可信贡献路由到持久运行器。
+
 ## 后端选择
 
 选择哪个编码代理使用 `VISUAL_RECAP_AGENT` 存储库变量运行技能：
@@ -458,10 +480,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-适用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和变量 - 在存储库设置中以与复制变体相同的方式设置它们。
+适用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和变量。可复用调用方将完整作业的 `VISUAL_RECAP_RUNS_ON` 转发为 `runs-on`，并将门禁的 `VISUAL_RECAP_GATE_RUNS_ON` 转发为单标签 `gate-runs-on`。省略时两者都使用 `ubuntu-latest`。
 
 ### 通过CLI安装
 

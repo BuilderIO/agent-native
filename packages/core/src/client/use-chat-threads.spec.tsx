@@ -828,6 +828,66 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("materializes a new thread before saving a passive voice transcript", async () => {
+    let putCount = 0;
+    const scope: ChatThreadScope = {
+      type: "brain-source",
+      id: "source-1",
+      label: "Source one",
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/forked-thread" && init?.method === "PUT") {
+        putCount += 1;
+        return putCount === 1
+          ? new Response(JSON.stringify({ error: "Thread not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            })
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        return jsonResponse({ id: "forked-thread" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "voice-thread-test", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await hook!.saveThreadData("forked-thread", {
+        threadData: JSON.stringify({ messages: [{ id: "voice-1" }] }),
+        title: "Open sources",
+        preview: "Opening Sources.",
+        messageCount: 1,
+      });
+    });
+
+    expect(putCount).toBe(2);
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/chat/threads" && init?.method === "POST",
+    );
+    expect(JSON.parse(createCall![1]!.body as string)).toEqual({
+      id: "forked-thread",
+      title: "Open sources",
+      scope,
+    });
+  });
+
   it("moves a saved thread to the top of the local recency order", async () => {
     const olderThread: ChatThreadSummary = {
       id: "thread-1",
@@ -1203,6 +1263,63 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("thread-2");
+  });
+
+  it("drops an archived thread created this session once the server resync omits it", async () => {
+    // The store now excludes archived threads from `GET /threads` by
+    // default (see chat-threads/store.ts `listThreads`/`searchThreads`).
+    // A thread created client-side this session lives in `newlyCreatedRef`
+    // so it survives a resync even before the server has seen it — but once
+    // it's archived, the server will never return it again, and the client
+    // must not keep treating "missing from the server list" as "not yet
+    // synced" forever.
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        // The server never returns the archived thread, whether because it
+        // was never synced or because it's now excluded as archived.
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/thread-1/archive" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "archive-resync-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.createThread("thread-1");
+    });
+    expect(hook!.threads.map((t) => t.id)).toEqual(["thread-1"]);
+
+    let archived = false;
+    await act(async () => {
+      archived = await hook!.archiveThread("thread-1");
+    });
+    expect(archived).toBe(true);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.find((t) => t.id === "thread-1")).toBeUndefined();
   });
 
   it("does not switch away from the current thread when a deleted thread request finishes late", async () => {

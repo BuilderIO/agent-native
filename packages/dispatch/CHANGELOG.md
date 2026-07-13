@@ -1,5 +1,59 @@
 # @agent-native/dispatch
 
+## 0.14.7
+
+### Patch Changes
+
+- 10dc602: Widen centered full-page Ask and Chat composers by 20% while keeping their responsive viewport cap.
+
+## 0.14.6
+
+### Patch Changes
+
+- 1137302: Keep session replay identities isolated per browser tab so recordings from
+  concurrent or duplicated tabs cannot be merged into a corrupt replay. Preserve
+  signed DOM stylesheet, font, image, and other load-bearing resource URLs while
+  continuing to redact navigation and diagnostic URL secrets. Recover long-lived
+  tabs from replay upload identity conflicts by restarting once with a fresh
+  snapshot, and report the content-free recovery outcome to Analytics.
+  Stabilize Dispatch's deferred-navigation behavior under test-runner load.
+
+## 0.14.5
+
+### Patch Changes
+
+- ee7b5b3: Prevent sync-driven request storms by preserving in-flight reads, filtering same-tab action echoes, targeting action-query invalidation, refreshing shared run state from change events, and backing idle Dispatch monitoring away from fixed polling.
+- ee7b5b3: Remove the obsolete template cards from the Dispatch Apps page.
+- ee7b5b3: Reduce the width and height of centered full-page chat composers for a more compact starting state.
+
+## 0.14.4
+
+### Patch Changes
+
+- 38ca6fa: Polish the Dispatch overview and chat flow with cleaner navigation, view-transition routing, and a stable bottom-pinned chat composer.
+- 38ca6fa: Restrict organization-wide Dispatch MCP app grants to owners and admins, default new gateways to Dispatch-only access, allow Dispatch itself in selected-app mode, and keep large app catalogs machine-readable for MCP hosts.
+- 38ca6fa: Make sheets and toasts respond faster while respecting reduced-motion preferences.
+- 38ca6fa: Show retryable error states when Dispatch data queries fail instead of rendering misleading empty content.
+- 38ca6fa: Tenant-scope approval request status updates so requests can only be approved or rejected within their own workspace context.
+
+## 0.14.3
+
+### Patch Changes
+
+- f43d34c: Fence approval/rejection status transitions so concurrent approvals cannot double-apply side effects.
+
+## 0.14.2
+
+### Patch Changes
+
+- 6baca78: Move Slack's legacy single-workspace token under advanced setup while keeping managed OAuth credentials primary.
+
+## 0.14.1
+
+### Patch Changes
+
+- dfbbf30: Keep the optional server tokenizer out of browser production bundles, publish Dispatch's Operations route, simplify Dispatch's sidebar identity and chat history, and route design-task creation into structured intake.
+
 ## 0.14.0
 
 ### Minor Changes

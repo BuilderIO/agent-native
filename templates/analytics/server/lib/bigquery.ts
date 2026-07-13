@@ -241,6 +241,15 @@ export interface QueryResult {
   cached?: boolean;
 }
 
+export interface RunQueryOptions {
+  /**
+   * The current agent run's abort signal. This cancels in-flight BigQuery
+   * requests and, importantly, stops the one-second job polling wait without
+   * starting another request after the parent run has ended.
+   */
+  signal?: AbortSignal;
+}
+
 interface BigQueryField {
   name: string;
   type: string;
@@ -263,6 +272,57 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+}
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("BigQuery query aborted", "AbortError");
+  }
+  const error = new Error("BigQuery query aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function waitForPollInterval(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, 1000);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      reject(createAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function cancelQueryJob(
+  projectId: string,
+  jobId: string,
+  token: string,
+): Promise<void> {
+  try {
+    await fetch(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs/${jobId}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+  } catch {
+    // Cancellation is best-effort and must not hide the original abort or
+    // timeout reason if BigQuery or the network is unavailable.
+  }
 }
 
 /**
@@ -361,7 +421,12 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
   return `BigQuery validation failed (${res.status})`;
 }
 
-export async function runQuery(sql: string): Promise<QueryResult> {
+export async function runQuery(
+  sql: string,
+  options: RunQueryOptions = {},
+): Promise<QueryResult> {
+  const { signal } = options;
+  throwIfAborted(signal);
   const { projectId, cacheScope, appEventsTable } = await getProjectInfo();
   const resolvedSql = await resolveTablePlaceholder(
     sql,
@@ -383,8 +448,10 @@ export async function runQuery(sql: string): Promise<QueryResult> {
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`;
 
+  throwIfAborted(signal);
   const res = await fetch(url, {
     method: "POST",
+    ...(signal ? { signal } : {}),
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -409,23 +476,33 @@ export async function runQuery(sql: string): Promise<QueryResult> {
     const resultsUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${jobId}`;
 
     let attempts = 0;
-    while (!data.jobComplete && attempts < 60) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const pollRes = await fetch(resultsUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!pollRes.ok) {
-        const text = await pollRes.text();
-        throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+    try {
+      while (!data.jobComplete && attempts < 60) {
+        await waitForPollInterval(signal);
+        throwIfAborted(signal);
+        const pollRes = await fetch(resultsUrl, {
+          ...(signal ? { signal } : {}),
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+        if (!pollRes.ok) {
+          const text = await pollRes.text();
+          throw new Error(`BigQuery poll error ${pollRes.status}: ${text}`);
+        }
+        data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
+        attempts++;
       }
-      data = (await pollRes.json()) as BigQueryGetQueryResultsResponse;
-      attempts++;
+    } catch (error) {
+      if (signal?.aborted) {
+        await cancelQueryJob(projectId, jobId, token);
+      }
+      throw error;
     }
 
     if (!data.jobComplete) {
+      await cancelQueryJob(projectId, jobId, token);
       throw new Error("BigQuery query timed out after 60 seconds");
     }
   }

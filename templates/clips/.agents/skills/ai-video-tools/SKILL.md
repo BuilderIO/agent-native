@@ -28,9 +28,9 @@ The agent is already the user's primary interface — it has full project contex
 | Feature                   | Trigger                                                                               | What the action does                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Include full video        | User toggles "Include full video" in the AI tools menu                                | `update-clips-ai-prefs --includeFullVideoInAi=true\|false` → stored in `clips-user-prefs`; default off |
-| Default title             | Native transcript is saved and the recording still has the default title              | `regenerate-title --recordingId=<id>` → writes `clips-ai-request-:id`; the UI bridge sends it to the agent chat. If Include full video is on, skips the transcript-only Gemini fast path and always delegates so the agent watches the recording |
+| Default title             | Native/cloud transcript becomes ready and the recording still has an automatic title   | `regenerate-title --recordingId=<id> --includeSummary=true` tries the transcript-only Gemini fast path, keeps any local heuristic title replaceable, and queues a `generate-metadata` agent refinement that writes a specific title plus description. If Include full video is on, it always delegates so the agent watches the recording |
 | Manual title suggestion   | User asks the agent "rename this"                                                     | Agent reads transcript and calls `update-recording --id=<id> --title=...`                             |
-| Summary / description     | Upload completes, or user clicks "Summarize" / "Regenerate description"               | `regenerate-summary` / `generate-ai-metadata --id=<id> --kind=summary` → agent writes `update-recording --description=...`. With Include full video, agent must watch the clip, not transcript alone |
+| Summary / description     | Transcript becomes ready, or user clicks "Summarize" / "Regenerate description"       | The automatic metadata handoff or `regenerate-summary` asks the agent to write `update-recording --description=...`. Existing user-authored descriptions are preserved. With Include full video, the agent must watch the clip, not transcript alone |
 | Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference) |
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
 | Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
@@ -57,7 +57,9 @@ on-screen text.
   `get-recording-player-data` / `create-recording-agent-link` and follow
   recommended frames / the frame API across the timeline — not transcript only.
 - Default title generation also honors this: `regenerate-title` skips the
-  transcript-only Gemini cleanup path and always queues the agent.
+  transcript-only Gemini cleanup path and always queues the agent. Automatic
+  post-transcription work uses one `generate-metadata` request so title and
+  description are not competing application-state entries.
 
 Do not invent a parallel "video LLM" path in the UI. Keep the preference on the
 shared user-prefs object and keep delegation through the agent chat.
@@ -132,6 +134,13 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
+
+When a transcript becomes ready, `request-transcript` must await native cleanup
+and the metadata handoff before its durable post-finalize worker returns.
+Do not leave title/summary work as an unawaited promise in that worker:
+serverless runtimes may freeze it immediately. A local heuristic title uses
+`titleSource: "context"` so it remains a temporary UI fallback until the
+`generate-metadata` agent request replaces it with a transcript-backed title.
 
 If Builder transcription fails because credits are exhausted, explain that
 Builder.io credits/upgrade or a Groq key are the supported speech-to-text

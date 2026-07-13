@@ -3,13 +3,13 @@ import http, { type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { expect, test, type APIRequestContext } from "@playwright/test";
-
 import {
   prepareDesignConnectManifest,
   startDesignConnectBridge,
   type DesignConnectBridge,
-} from "../../../packages/core/src/cli/design-connect";
+} from "@agent-native/core/testing";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+
 import { appPath } from "./helpers";
 
 let baseURL = "http://127.0.0.1:9333";

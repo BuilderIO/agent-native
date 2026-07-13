@@ -352,6 +352,12 @@ const messages = {
     contentLabel: "内容",
     previewTitle: "扩展预览",
     previewEmpty: "预览将出现在这里",
+    loadError: "无法加载扩展。",
+    widgetsLoadError: "无法加载小部件。",
+    widgetAreasLoadError: "无法加载小部件区域。",
+    historyLoadError: "无法加载扩展历史记录。",
+    versionLoadError: "无法加载此扩展版本。",
+    retry: "重试",
   },
   org: {
     createTitle: "创建您的组织",

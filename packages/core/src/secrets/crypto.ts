@@ -5,12 +5,13 @@
  * credentials (`resolveCredential` / `saveCredential`, stored in `settings`) so
  * there is a single crypto implementation and a single key story.
  *
- * The encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
- * existing `BETTER_AUTH_SECRET` env var (fallback so templates don't need a
- * second secret during development). In production we refuse to start without
- * one of them — a CWD-derived fallback would be effectively static (e.g.
- * `/var/task` on Lambda), so anyone with read access to the DB could decrypt
- * every secret.
+ * The encryption key is derived from `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when
+ * set, then `SECRETS_ENCRYPTION_KEY`, then `BETTER_AUTH_SECRET`. The app-scoped
+ * key lets a local multi-app workspace read one app's encrypted production data
+ * without replacing the shared local auth secret. In production we refuse to
+ * start without configured key material — a CWD-derived fallback would be
+ * effectively static (e.g. `/var/task` on Lambda), so anyone with read access
+ * to the DB could decrypt every secret.
  *
  * Encrypted values are tagged `v1:<iv-hex>:<ct-hex>:<tag-hex>`. The `v1:` prefix
  * lets readers distinguish ciphertext from legacy plaintext during migration.
@@ -55,6 +56,17 @@ function processCwd(): string {
   return process.cwd();
 }
 
+function appScopedEncryptionKey(): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  const appName = process.env.APP_NAME?.trim() // guard:allow-env-credential — deploy-level app configuration selects the scoped encryption key.
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return appName
+    ? process.env[`${appName}_SECRETS_ENCRYPTION_KEY`] // guard:allow-env-credential — deploy-level app encryption material, never a user credential.
+    : undefined;
+}
+
 /**
  * Derive a 32-byte AES key from the configured secret material via SHA-256.
  * Re-derived per call (cheap, stateless, and makes rotation easy).
@@ -62,6 +74,7 @@ function processCwd(): string {
 export function getSecretEncryptionKey(): Buffer {
   const { createHash } = requireNodeCrypto();
   const explicit =
+    appScopedEncryptionKey() ||
     (typeof process === "undefined"
       ? undefined
       : process.env.SECRETS_ENCRYPTION_KEY) ||
@@ -71,9 +84,16 @@ export function getSecretEncryptionKey(): Buffer {
 
   if (!explicit) {
     if (processNodeEnv() === "production") {
+      const appName =
+        typeof process === "undefined"
+          ? undefined
+          : process.env.APP_NAME?.trim() // guard:allow-env-credential — deploy-level app configuration selects the scoped encryption key.
+              .toUpperCase()
+              .replace(/[^A-Z0-9]+/g, "_")
+              .replace(/^_+|_+$/g, "");
       throw new Error(
         "[agent-native/secrets] Refusing to start in production without an encryption key. " +
-          "Set SECRETS_ENCRYPTION_KEY (preferred) or BETTER_AUTH_SECRET in the deploy environment. " +
+          `Set ${appName ? `${appName}_SECRETS_ENCRYPTION_KEY, ` : ""}SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET in the deploy environment. ` +
           "The previous CWD-derived fallback was effectively static (e.g. `/var/task` on Lambda), " +
           "which means anyone with read access to the secrets table could decrypt every user's secrets.",
       );
@@ -83,7 +103,7 @@ export function getSecretEncryptionKey(): Buffer {
       // eslint-disable-next-line no-console
       console.warn(
         "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
-          "Set SECRETS_ENCRYPTION_KEY (or BETTER_AUTH_SECRET) for production. " +
+          "Set an app-scoped *_SECRETS_ENCRYPTION_KEY, SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET for production. " +
           "Production deploys without one of these env vars now hard-fail.",
       );
     }

@@ -1,17 +1,17 @@
 ---
 title: "Slides"
-description: "Generate decks from a prompt, edit visually, and present full-screen. An open-source replacement for Google Slides, Pitch, and PowerPoint."
+description: "Generate decks from a prompt, edit visually, and present full-screen — an open-source replacement for Google Slides, Pitch, and PowerPoint, with import/export, design systems, and real-time collaboration built in."
 ---
 
 # Slides
 
-Generate full presentation decks from a prompt, edit slides visually, and present full-screen. Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and watch it stream slide-by-slide into the editor in seconds. An open-source replacement for Google Slides, Pitch, and PowerPoint.
+Generate full presentation decks from a prompt, edit slides visually, and present full-screen. Ask the agent for "a 10-slide pitch deck for a coffee subscription service" and watch it stream slide-by-slide into the editor in seconds. It's an open-source replacement for Google Slides, Pitch, and PowerPoint — a deck editor you own end to end: generate, import, edit, present, and export without a subscription.
 
 <WireframeBlock id="doc-block-eqogw6">
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Board Update</h1><span class='wf-pill accent'>Title slide</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Share</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 Board Update</strong><br/><small>Maya Chen · CEO</small><div style='height:46px'></div><span class='wf-pill'>Product momentum</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Slide outline</strong><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div></div><div class='wf-card' style='flex:1'><strong>Speaker notes</strong><p class='wf-muted' style='margin:8px 0 0'>Open with launch progress and retention story.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 Board Update</h1><span class='wf-pill accent'>Title slide</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Share</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 Board Update</strong><br/><small>Maya Chen · CEO</small><div style='height:46px'></div><span class='wf-pill'>Product momentum</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Slide outline</strong><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div><div class='wf-card' style='flex:1'><strong>Speaker notes</strong><p class='wf-muted' style='margin:8px 0 0'>Open with launch progress and retention story.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Title</div><div class='wf-box'>2 Agenda</div><div class='wf-box'>3 Metrics</div><div class='wf-box'>4 Shipped</div><div class='wf-box'>5 Risks</div></div></div>"
     }
   />
 </WireframeBlock>
@@ -453,3 +453,11 @@ Agent skills that explain patterns when the agent needs to modify code:
 #### API routes
 
 For cases where actions aren't the right fit (file uploads, streaming), the template exposes a small set of REST endpoints: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. See `templates/slides/server/routes/api/`.
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Assets**](/docs/template-assets) — where Slides delegates image generation and brand libraries
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline decks share with other collaborative surfaces
+- [**Sharing**](/docs/sharing) — the share-grant model decks and design systems build on

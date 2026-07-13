@@ -330,7 +330,8 @@ function HeroScreens() {
               src={template.screenshot}
               alt=""
               className="aspect-[4/3] w-full object-cover"
-              loading={index === 0 ? "eager" : "lazy"}
+              loading="lazy"
+              decoding="async"
               aria-hidden="true"
             />
           </div>
@@ -383,6 +384,7 @@ function ExampleAppCard({ app }: { app: ExampleApp }) {
           alt={`${displayName} app screenshot`}
           className="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.015]"
           loading="lazy"
+          decoding="async"
         />
       </div>
       <div className="flex flex-1 flex-col gap-4 p-5">

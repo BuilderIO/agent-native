@@ -638,4 +638,57 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       fileCount: 1,
     });
   });
+
+  it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a task manager",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 1440,
+      height: 1024,
+    });
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [
+        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
+        expect.objectContaining({ label: "Desktop", widthPx: 1440 }),
+      ],
+    });
+  });
+
+  it("uses the requested mobile viewport when the agent supplies it", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a mobile task manager",
+      primaryViewport: "mobile",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
 });

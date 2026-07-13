@@ -699,6 +699,7 @@ const messages = {
     closeTweaks: "關閉調整",
     tweaksHelp:
       "調整項是疊加在基礎設計上的中斷點與狀態專屬視覺覆寫。重設控制項可回到繼承值。",
+    tweaksDocs: "深入瞭解。",
     noTweakControls: "還沒有調整控制項。",
     extensions: "擴充功能",
     addExtension: "擴充功能",

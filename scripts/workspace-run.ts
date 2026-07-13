@@ -55,6 +55,7 @@ const concurrency = resolveConcurrency(
 );
 const pnpmArgs = [
   "-r",
+  "--no-bail",
   `--workspace-concurrency=${formatConcurrency(concurrency)}`,
   ...profile.pnpmArgs,
   profile.script,

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  ensureDemoModeFetchInterceptor,
+  refreshDemoModeFetchInterceptor,
+} from "../demo/fetch-interceptor.js";
 import { agentNativePath } from "./api-path.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
@@ -13,14 +17,25 @@ interface Query {
 }
 
 interface QueryClient {
-  invalidateQueries(opts?: {
+  invalidateQueries(
+    opts?: {
+      queryKey?: string[];
+      predicate?: (query: Query) => boolean;
+    },
+    options?: { cancelRefetch?: boolean },
+  ): unknown;
+  isFetching?(filters?: {
     queryKey?: string[];
     predicate?: (query: Query) => boolean;
-  }): void;
+  }): number;
 }
 
 const POLL_ABORT_MIN_MS = 10_000;
-const SSE_FALLBACK_INTERVAL_MS = 15_000;
+// SSE delivers changes immediately in the normal path. The poll is a
+// cross-process/serverless safety net, so an idle tab should not bill the host
+// four times per minute forever. Focus and active agent work still poll now.
+const SSE_FALLBACK_INTERVAL_MS = 60_000;
+const IDLE_POLL_INTERVAL_MS = 60_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
@@ -192,6 +207,8 @@ interface TransportSubscription {
    * subscribers so the most-frequent caller is satisfied.
    */
   interval: number;
+  /** Requested poll interval while the tab has no active agent work. */
+  idleInterval: number;
   /** Requested fallback interval while SSE is connected. */
   fallbackInterval: number;
   /**
@@ -213,6 +230,7 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
+  private activeChatIds = new Set<string>();
 
   constructor(
     private readonly pollUrl: string,
@@ -225,10 +243,17 @@ class SyncTransport {
 
   add(id: symbol, sub: TransportSubscription): void {
     const wasEmpty = this.subscribers.size === 0;
+    const wasActive = this.isActive;
     this.subscribers.set(id, sub);
     if (wasEmpty) {
       this.stopped = false;
       this.start();
+    } else if (!wasActive && this.isActive) {
+      // A collab surface (or other active subscriber) just joined. Catch up
+      // immediately rather than waiting out an idle-cadence timer.
+      this.pollNow();
+    } else {
+      this.reschedule();
     }
     sub.onSseStateChange?.(this.sseConnected);
   }
@@ -264,6 +289,18 @@ class SyncTransport {
     return isFinite(min) ? min : 2000;
   }
 
+  private get effectiveIdleInterval(): number {
+    let min = Infinity;
+    for (const sub of this.subscribers.values()) {
+      if (sub.idleInterval < min) min = sub.idleInterval;
+    }
+    return isFinite(min) ? min : IDLE_POLL_INTERVAL_MS;
+  }
+
+  private get isActive(): boolean {
+    return this.activeChatIds.size > 0;
+  }
+
   private get effectiveFallbackInterval(): number {
     let min = Infinity;
     for (const sub of this.subscribers.values()) {
@@ -277,6 +314,15 @@ class SyncTransport {
   // -------------------------------------------------------------------------
 
   private fan(events: SyncEvent[], version: number | undefined): void {
+    if (
+      events.some(
+        (event) =>
+          event.source === "app-state" &&
+          (event.key === "demo-mode" || event.key === "*"),
+      )
+    ) {
+      void refreshDemoModeFetchInterceptor();
+    }
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version);
     }
@@ -310,16 +356,18 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const base = this.sseConnected
-      ? this.effectiveFallbackInterval
-      : this.effectiveInterval;
+    const base = this.isActive
+      ? this.effectiveInterval
+      : this.sseConnected
+        ? this.effectiveFallbackInterval
+        : this.effectiveIdleInterval;
     // Exponential backoff while polls keep failing (500s during a deploy,
     // DNS blips, a struggling DB). Auth failures have their own cooldown
     // above; this covers everything else so a down server isn't hammered at
     // full cadence. Resets on the first successful poll.
     const delay =
       this.consecutiveFailures > 0
-        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 30_000)
+        ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 300_000)
         : base;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -461,6 +509,40 @@ class SyncTransport {
     this.pollNow();
   };
 
+  private handleChatRunning = (event: Event): void => {
+    const detail = (
+      event as CustomEvent<{
+        isRunning?: unknown;
+        running?: unknown;
+        tabId?: unknown;
+      }>
+    ).detail;
+    const running =
+      typeof detail?.isRunning === "boolean"
+        ? detail.isRunning
+        : typeof detail?.running === "boolean"
+          ? detail.running
+          : null;
+    if (running === null) return;
+
+    const id =
+      typeof detail?.tabId === "string" && detail.tabId
+        ? detail.tabId
+        : "__default__";
+    const wasActive = this.isActive;
+    if (running) this.activeChatIds.add(id);
+    else this.activeChatIds.delete(id);
+    if (wasActive === this.isActive) return;
+
+    if (this.isActive) {
+      // Run start is a high-signal indication that cross-process writes are
+      // imminent. Catch up now, then stay on the active cadence.
+      this.pollNow();
+    } else {
+      this.reschedule();
+    }
+  };
+
   private start(): void {
     // Universal demo-mode redaction for the UI. Idempotent + browser-only +
     // a no-op until demo mode is on. Lives here because every template root
@@ -473,6 +555,7 @@ class SyncTransport {
       void this.poll();
     }
     window.addEventListener("focus", this.handleFocus);
+    window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
   }
 
@@ -484,6 +567,10 @@ class SyncTransport {
       this.timer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
+    window.removeEventListener(
+      "agentNative.chatRunning",
+      this.handleChatRunning,
+    );
     document.removeEventListener(
       "visibilitychange",
       this.handleVisibilityChange,
@@ -568,6 +655,7 @@ export function subscribeSyncEvents(
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? true,
     interval: options.interval ?? 60_000,
+    idleInterval: options.interval ?? 60_000,
     fallbackInterval: options.fallbackInterval ?? 60_000,
   });
   return () => {
@@ -598,7 +686,7 @@ export function subscribeSyncEvents(
  * @param options.onEvent - Optional callback for each change event
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.fallbackInterval - Poll interval while SSE is connected.
- *   Default: 15000
+ *   Default: 60000
  * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
  *   Default: true
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
@@ -640,6 +728,8 @@ export function useDbSync(
     ),
     pauseWhenHidden = true,
   } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
 
   const onEventRef = useRef(options.onEvent);
   onEventRef.current = options.onEvent;
@@ -719,9 +809,15 @@ export function useDbSync(
 
     function invalidateForEvents(events: SyncEvent[]) {
       const ignore = ignoreSourceRef.current;
-      const relevant = ignore
-        ? events.filter((e) => e.requestSource !== ignore)
-        : events;
+      const ownBrowserSource = getBrowserTabId();
+      const relevant = events.filter(
+        (event) =>
+          !(
+            event.source === "action" &&
+            event.requestSource === ownBrowserSource
+          ) &&
+          (!ignore || event.requestSource !== ignore),
+      );
       const suppressedActions = new Set(
         suppressActionInvalidationForRef.current ?? [],
       );
@@ -742,7 +838,12 @@ export function useDbSync(
       for (const evt of relevant) {
         const src = typeof evt.source === "string" ? evt.source : "";
         const ver = typeof evt.version === "number" ? evt.version : 0;
-        if (src && ver > 0) bumpChangeVersion(src, ver);
+        if (src && ver > 0) {
+          bumpChangeVersion(src, ver);
+          if (typeof evt.key === "string" && evt.key) {
+            bumpChangeVersion(`${src}:${evt.key}`, ver);
+          }
+        }
       }
 
       // Awareness (cursor/presence) events never change action/extension/
@@ -754,18 +855,43 @@ export function useDbSync(
       const invalidating = relevant.filter((e) => e.source !== "awareness");
 
       if (invalidating.length > 0 && queryClient) {
+        // Sync events describe completed writes. If a matching read is already
+        // in flight, let it finish instead of aborting and immediately
+        // launching the same request again. Repeated action events otherwise
+        // turn a slow endpoint into a cancel/restart loop that never settles.
+        const invalidateWithoutCancel = (filters?: {
+          queryKey?: string[];
+          predicate?: (query: Query) => boolean;
+        }) => {
+          const needsTrailingRefresh =
+            (queryClient.isFetching?.(filters) ?? 0) > 0;
+          const completion = queryClient.invalidateQueries(filters, {
+            cancelRefetch: false,
+          });
+          // TanStack Query deliberately leaves an in-flight fetch alone when
+          // cancelRefetch is false. Queue one post-settlement invalidation so
+          // a write that landed after that read began cannot be cleared as
+          // fresh by the older response.
+          if (needsTrailingRefresh && completion instanceof Promise) {
+            void completion.then(
+              () => queryClient.invalidateQueries(filters),
+              () => {},
+            );
+          }
+        };
         const hasActionEvent = invalidating.some(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
         if (hasActionEvent) {
-          // Custom apps frequently start with raw `useQuery` calls before
-          // graduating to `useActionQuery` or source-versioned query keys.
-          // A successful mutating action is the core "agent changed app data"
-          // signal, so refresh active queries broadly as a compatibility
-          // safety net. Other event sources stay targeted to avoid request
-          // storms from noisy domain-specific writes.
+          // Action-backed reads share the ["action"] prefix. Keep the default
+          // refresh targeted to those queries; invalidating every active query
+          // makes one agent write fan out across unrelated provider reads,
+          // dashboards, and background status checks. Older apps that still
+          // need broad compatibility can opt in with a predicate.
           const predicate = actionInvalidatePredicateRef.current;
-          queryClient.invalidateQueries(predicate ? { predicate } : undefined);
+          invalidateWithoutCancel(
+            predicate ? { predicate } : { queryKey: ["action"] },
+          );
         }
 
         // Framework-level invalidate: a small, fixed list of query-key
@@ -797,26 +923,39 @@ export function useDbSync(
             (evt) => evt.source !== "app-state",
           );
           if (hasDataChangingEvent) {
-            queryClient.invalidateQueries({ queryKey: ["action"] });
-            queryClient.invalidateQueries({ queryKey: ["extension"] });
-            queryClient.invalidateQueries({ queryKey: ["extensions"] });
-            queryClient.invalidateQueries({ queryKey: ["extension-slots"] });
-            queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-            queryClient.invalidateQueries({ queryKey: ["slot-available"] });
-            queryClient.invalidateQueries({ queryKey: ["tool"] });
-            queryClient.invalidateQueries({ queryKey: ["tools"] });
+            const hasFrameworkPrefixEvent = invalidating.some((evt) =>
+              ["extensions", "extension", "tool", "tools", "slots"].includes(
+                evt.source ?? "",
+              ),
+            );
+            // The action-specific invalidation above already refreshed
+            // ["action"]. A mixed action + extension/tool batch still needs
+            // the independent framework prefixes, while pure action batches
+            // retain their narrow storm-resistant invalidation.
+            if (!hasActionEvent) {
+              invalidateWithoutCancel({ queryKey: ["action"] });
+            }
+            if (!hasActionEvent || hasFrameworkPrefixEvent) {
+              invalidateWithoutCancel({ queryKey: ["extension"] });
+              invalidateWithoutCancel({ queryKey: ["extensions"] });
+              invalidateWithoutCancel({ queryKey: ["extension-slots"] });
+              invalidateWithoutCancel({ queryKey: ["slot-installs"] });
+              invalidateWithoutCancel({ queryKey: ["slot-available"] });
+              invalidateWithoutCancel({ queryKey: ["tool"] });
+              invalidateWithoutCancel({ queryKey: ["tools"] });
+            }
           }
           if (invalidating.some((evt) => evt.source === "app-state")) {
-            queryClient.invalidateQueries({ queryKey: ["app-state"] });
+            invalidateWithoutCancel({ queryKey: ["app-state"] });
           }
           if (hasAppStateEvent(invalidating, "navigate")) {
-            queryClient.invalidateQueries({ queryKey: ["navigate-command"] });
+            invalidateWithoutCancel({ queryKey: ["navigate-command"] });
           }
           if (hasAppStateEvent(invalidating, "show-questions")) {
-            queryClient.invalidateQueries({ queryKey: ["show-questions"] });
+            invalidateWithoutCancel({ queryKey: ["show-questions"] });
           }
           if (hasAppStateEvent(invalidating, "__set_url__")) {
-            queryClient.invalidateQueries({ queryKey: ["__set_url__"] });
+            invalidateWithoutCancel({ queryKey: ["__set_url__"] });
           }
         }
       }
@@ -856,6 +995,7 @@ export function useDbSync(
       onEvents,
       pauseWhenHidden,
       interval,
+      idleInterval,
       fallbackInterval,
     });
 
@@ -880,6 +1020,7 @@ export function useDbSync(
     sseUrl,
     queryClient,
     interval,
+    idleInterval,
     fallbackInterval,
     pauseWhenHidden,
   ]);
@@ -926,6 +1067,8 @@ export function useScreenRefreshKey(
     ),
     pauseWhenHidden = true,
   } = options;
+  const idleInterval =
+    options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
   const [key, setKey] = useState(0);
 
   useEffect(() => {
@@ -958,6 +1101,7 @@ export function useScreenRefreshKey(
       onEvents,
       pauseWhenHidden,
       interval,
+      idleInterval,
       fallbackInterval,
     });
 
@@ -967,7 +1111,14 @@ export function useScreenRefreshKey(
         releaseTransport(pollUrl, sseUrl);
       }
     };
-  }, [pollUrl, sseUrl, interval, fallbackInterval, pauseWhenHidden]);
+  }, [
+    pollUrl,
+    sseUrl,
+    interval,
+    idleInterval,
+    fallbackInterval,
+    pauseWhenHidden,
+  ]);
 
   return key;
 }

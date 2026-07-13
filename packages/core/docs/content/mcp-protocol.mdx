@@ -1,9 +1,9 @@
 ---
-title: "MCP Protocol"
+title: "MCP Server"
 description: "Expose your agent-native app as a remote MCP server so Claude, ChatGPT, Claude Code, Cursor, and other AI tools can call your app's actions directly."
 ---
 
-# MCP Protocol
+# MCP Server
 
 **This page: the lower-level MCP server reference.** How every agent-native app exposes its actions over MCP — the auto-mounted endpoint, auth modes, the `tools/call` / `ask-agent` surface, and custom mounting. Reach for it when you need server internals; for connecting a host, start with [External Agents](/docs/external-agents).
 
@@ -12,13 +12,14 @@ description: "Expose your agent-native app as a remote MCP server so Claude, Cha
 | Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
 | Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)         |
 | Build inline UIs that render in Claude/ChatGPT               | [MCP Apps](/docs/mcp-apps)               |
-| Lower-level MCP server reference (auth, tools, custom mount) | **This page** — MCP Protocol             |
+| Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui)     |
+| Lower-level MCP server reference (auth, tools, custom mount) | **This page** — MCP Server               |
 
 Every agent-native app automatically exposes a remote MCP (Model Context Protocol) server, so external AI tools like Claude, ChatGPT custom MCP apps, Claude Code, Cursor, Codex, and VS Code GitHub Copilot can discover and call your app's actions directly — no extra code needed. If your goal is to _connect_ one of those hosts to a hosted app, [External Agents](/docs/external-agents) covers the recommended single Dispatch connector, per-app URLs, OAuth, MCP Apps inline UIs, and deep links. This page documents what sits underneath that.
 
 ## Overview {#overview}
 
-MCP is the standard protocol for connecting AI tools to external capabilities. When you deploy an agent-native app, it auto-mounts an MCP endpoint alongside the existing A2A endpoint. Any MCP-compatible client can connect and use your app's tools.
+MCP is the standard protocol for connecting AI tools to external capabilities. When you deploy an agent-native app, it auto-mounts an MCP endpoint alongside the existing A2A endpoint. Any MCP-compatible host can connect and use your app's tools.
 
 Key concepts:
 
@@ -100,9 +101,9 @@ Both protocols are auto-mounted. Use whichever fits your use case:
 
 You can also use the `ask-agent` MCP tool to get the best of both worlds — call it from Claude Code and let your app's agent reason through complex tasks.
 
-## Manual MCP client config {#manual-config}
+## Manual MCP host config {#manual-config}
 
-For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable client, add your app as a remote MCP server with no static headers:
+For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable host, add your app as a remote MCP server with no static headers:
 
 ```bash
 claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
@@ -130,9 +131,9 @@ Then run `/mcp` in Claude Code and choose **Authenticate**. For clients that can
 Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", body: "...")
 ```
 
-## Connecting from other MCP clients {#other-clients}
+## Connecting from other MCP hosts {#other-clients}
 
-Any MCP client that supports Streamable HTTP transport can connect. The endpoint is:
+Any MCP host that supports Streamable HTTP transport can connect. The endpoint is:
 
 ```
 POST https://your-app.example.com/_agent-native/mcp
@@ -140,7 +141,7 @@ POST https://your-app.example.com/_agent-native/mcp
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-<Endpoint id="doc-block-86ic5g" title="MCP endpoint" summary="The auto-mounted Streamable HTTP endpoint every agent-native app exposes." method="POST" path="/_agent-native/mcp" summary="MCP Streamable HTTP endpoint" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-86ic5g" title="MCP endpoint" summary="The auto-mounted Streamable HTTP endpoint every agent-native app exposes." method="POST" path="/_agent-native/mcp" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -173,7 +174,13 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 </Endpoint>
 
-If an action declares `mcpApp`, the server also advertises the official MCP Apps extension (`io.modelcontextprotocol/ui`) and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app resource. Hosts that render MCP Apps can show the UI inline; hosts that do not can still call the tool and use the deep-link fallback. Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart, not a separate plain HTML implementation. The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts can find the same `ui://` resource. The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor; host support varies by version and plan, so use the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+If an action declares `mcpApp`, the server advertises the official MCP Apps extension and supports the resource routes needed to render it inline:
+
+- Advertises `io.modelcontextprotocol/ui` and supports `resources/list`, `resources/templates/list`, and `resources/read` for the app resource.
+- Hosts that render MCP Apps show the UI inline; hosts that don't can still call the tool and use the deep-link fallback.
+- Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart — never a separate plain-HTML implementation.
+- The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts find the same `ui://` resource.
+- The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor. Host support varies by version and plan — see the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
 
 ### MCP App embed bridge {#mcp-app-embed-bridge}
 
@@ -240,7 +247,7 @@ The first unauthenticated MCP request receives:
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps offline_access"
 ```
 
 Discovery endpoints:
@@ -385,3 +392,11 @@ For more complex analysis:
 Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
 → The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
 ```
+
+## What's next {#whats-next}
+
+- [**External Agents**](/docs/external-agents) — the recommended connect flow, catalog tiers, and per-host setup
+- [**MCP Apps**](/docs/mcp-apps) — inline UI resources for hosts that render them
+- [**MCP Clients**](/docs/mcp-clients) — the other direction: your app consuming external MCP servers
+- [**A2A Protocol**](/docs/a2a-protocol) — the sibling protocol for agent-to-agent calls
+- [**Actions**](/docs/actions) — how an action becomes an MCP tool

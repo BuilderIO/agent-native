@@ -123,6 +123,28 @@ archivos de referencia con los que se envía la habilidad. Si su repositorio per
 fija su carpeta `visual-recap` comprometida, establece la variable del repositorio
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
 
+## Selección del ejecutor
+
+De forma predeterminada, el flujo de trabajo se ejecuta en ejecutores `ubuntu-latest` alojados por GitHub. Para usar otro ejecutor alojado o uno autohospedado, establezca la variable de repositorio u organización `VISUAL_RECAP_RUNS_ON` en una cadena JSON válida o en una matriz JSON de etiquetas de ejecutor:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+Las comillas JSON son obligatorias. Este valor selecciona el ejecutor del trabajo completo `recap`. Para configurarlo durante la instalación guiada, pase el mismo valor JSON a `--runs-on` y después valide el flujo de trabajo y la disponibilidad del ejecutor con `doctor`:
+
+```bash
+npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/core@latest recap doctor
+```
+
+La barrera ligera usa `ubuntu-latest` por separado. Los repositorios sin ejecutores alojados por GitHub pueden establecer `VISUAL_RECAP_GATE_RUNS_ON` en una sola etiqueta de texto sin JSON, o usar `--gate-runs-on visual-recap-gate`. La etiqueta personalizada solo se usa para autores `OWNER`, `MEMBER` o `COLLABORATOR` del mismo repositorio; los forks y demás autores se fuerzan a `ubuntu-latest` y pueden quedar sin programar si los ejecutores alojados están desactivados. Use un ejecutor dedicado y, preferiblemente, efímero: la barrera estándar no descarga el árbol del PR y evalúa la lógica del flujo de trabajo y los metadatos del PR.
+
+`recap doctor` rechaza JSON con formato incorrecto o no compatible e informa cuando GitHub no expone ningún ejecutor en línea que coincida con todas las etiquetas configuradas. El registro, la instalación, las actualizaciones, la capacidad y el mantenimiento del ejecutor siguen siendo su responsabilidad; Agent Native selecciona las etiquetas, pero no proporciona ni opera el ejecutor.
+
+**Seguridad:** Prefiera ejecutores autohospedados efímeros. Los ejecutores autohospedados persistentes solo deben servir a repositorios privados cuyos colaboradores sean de confianza. El flujo de trabajo se cierra de forma segura antes de asignar trabajo autohospedado a autores no confiables de PR públicos o de bifurcaciones, pero una máquina persistente conserva el estado del espacio de trabajo y de los procesos entre trabajos. No debilite esa barrera ni envíe contribuciones no confiables a un ejecutor persistente.
+
 ## Selección de backend
 
 Elija qué agente de codificación ejecuta la habilidad con la variable de repositorio `VISUAL_RECAP_AGENT`:
@@ -460,10 +482,12 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
       # cli-version: "latest"  # pin to a specific @agent-native/core version
 ```
 
-Se aplican los mismos secretos y variables descritos en [Secrets and variables](#secrets-and-variables); configúrelos en la configuración de su repositorio de la misma manera que para la variante de copia.
+Se aplican los mismos secretos y variables descritos en [Secrets and variables](#secrets-and-variables); configúrelos como en la variante de copia. El llamador reutilizable reenvía `VISUAL_RECAP_RUNS_ON` como `runs-on` para el trabajo completo y `VISUAL_RECAP_GATE_RUNS_ON` como la etiqueta simple `gate-runs-on` para la barrera. Ambos conservan `ubuntu-latest` cuando se omiten.
 
 ### Instalación mediante CLI
 

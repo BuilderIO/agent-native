@@ -130,9 +130,8 @@ The argument isn't "agents replace UI." It's "**agents belong inside application
 
 This is the defining principle.
 
-> **From the UI** — click buttons, fill forms, navigate views. The UI writes to the database; the agent sees the results.
->
-> **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
+- **From the UI** — click buttons, fill forms, navigate views. The UI writes to the database; the agent sees the results.
+- **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
 
 A good mental model is a shared state machine. The user surface and the agent
 surface both submit typed actions; those actions behave like reducer events with
@@ -353,23 +352,23 @@ If you're building or extending an agent-native app, here's the central pattern:
   filename="actions/reply-to-email.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
   annotations={[
     {
-      lines: "5",
+      lines: "7",
       label: "Tool surface",
       note: "The `description` is what the agent reads to decide when to call this as a tool.",
     },
     {
-      lines: "6",
+      lines: "8",
       label: "Typed contract",
       note: "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A.",
     },
     {
-      lines: "7-10",
+      lines: "9-12",
       label: "One implementation",
-      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this.",
+      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts` — see [Database](/docs/database).",
     },
   ]}
 />

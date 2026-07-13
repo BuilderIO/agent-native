@@ -20,7 +20,27 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  type VoiceProviderStatus,
+  useVoiceProviderStatus,
+} from "../voice-provider-status.js";
+import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
+import {
+  useRealtimeVoiceModeCopy,
+  useRealtimeVoiceModeOptional,
+} from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+
+function openOpenAiKeySettings(): void {
+  window.location.hash = "#secrets:OPENAI_API_KEY";
+  window.dispatchEvent(new Event("agent-panel:open"));
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open-settings", {
+      detail: { section: "secrets" },
+    }),
+  );
+}
 
 export interface VoiceButtonProps {
   voice: VoiceDictationApi;
@@ -28,13 +48,58 @@ export interface VoiceButtonProps {
   disabled?: boolean;
 }
 
+export function isRealtimeVoiceSetupRequired(
+  status: VoiceProviderStatus | null,
+  builderConfigured: boolean | null,
+): boolean {
+  return (
+    status !== null &&
+    !status.builder &&
+    !status.openai &&
+    builderConfigured !== true
+  );
+}
+
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   const { state, start, stop, supported } = voice;
+  const realtimeVoice = useRealtimeVoiceModeOptional();
+  const realtimeCopy = useRealtimeVoiceModeCopy();
+  const voiceProviders = useVoiceProviderStatus();
+  const builderConnect = useBuilderConnectFlow({
+    trackingSource: "realtime_voice",
+    trackingFlow: "voice_transcription",
+    onConnected: () => voiceProviders.refresh(),
+  });
 
   if (!supported) return null;
 
   const recording = state === "recording" || state === "starting";
   const transcribing = state === "transcribing";
+
+  if (realtimeVoice?.active && !recording && !transcribing) return null;
+
+  if (realtimeVoice && !recording && !transcribing) {
+    return (
+      <RealtimeVoiceModeEntry
+        copy={realtimeCopy}
+        disabled={disabled}
+        providerStatusPending={voiceProviders.status === null}
+        setupRequired={isRealtimeVoiceSetupRequired(
+          voiceProviders.status,
+          builderConnect.statusResolved ? builderConnect.configured : null,
+        )}
+        openAiConfigured={voiceProviders.status?.openai === true}
+        connectingBuilder={builderConnect.connecting}
+        onConnectBuilder={builderConnect.start}
+        onUseOpenAiKey={() => {
+          if (voiceProviders.status?.openai) void realtimeVoice.start();
+          else openOpenAiKeySettings();
+        }}
+        onStartVoiceMode={() => void realtimeVoice.start()}
+        onKeepDictating={() => void start()}
+      />
+    );
+  }
 
   const label = recording
     ? "Stop recording"
@@ -56,7 +121,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
           disabled={disabled || transcribing}
           aria-label={label}
           aria-pressed={recording}
-          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md disabled:opacity-30 disabled:cursor-not-allowed ${
+          className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 disabled:opacity-30 disabled:cursor-not-allowed ${
             recording
               ? "text-[#00B5FF] bg-[#00B5FF]/10 hover:bg-[#00B5FF]/20"
               : "text-muted-foreground hover:text-foreground hover:bg-accent/50"

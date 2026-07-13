@@ -61,6 +61,16 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
    * it.  Absent on old transcript events — UI must handle both cases.
    */
   structuredMeta?: Record<string, unknown>;
+  /**
+   * Stable approval id extracted from the synthetic "Approval required..."
+   * bash result (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`)
+   * when this exact approval has not yet been resolved elsewhere in the
+   * transcript (approved / denied / allowlisted / forbidden). Consumers attach
+   * this as `approval: { approvalKey }` on the rendered tool-call content part
+   * so the shared `ApprovalAffordance` can render inline. Absent once a later
+   * transcript event records a resolution for this approval id.
+   */
+  pendingApprovalKey?: string;
 }
 
 export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTranscriptBase {
@@ -70,6 +80,7 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
   statusKind: CodeAgentTranscriptEvent["kind"];
   status?: string;
   phase?: string;
+  signal?: CodeAgentTranscriptEvent["signal"];
   metadata?: Record<string, unknown>;
 }
 
@@ -80,6 +91,35 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
 export interface NormalizedCodeAgentThinkingEvent extends NormalizedCodeAgentTranscriptBase {
   type: "thinking";
   text: string;
+}
+
+/** Structured signal value stamped on the "no LLM provider key" status event. */
+export const CREDENTIAL_GAP_SIGNAL: NonNullable<
+  CodeAgentTranscriptEvent["signal"]
+> = "credential-gap";
+
+/**
+ * Shared "credential gap" detection for code-agent transcript events and the
+ * normalized status items built from them. Prefers the structured `signal`
+ * field the executor stamps on the event (see `code-agent-executor.ts`); only
+ * falls back to matching the legacy hint text for transcripts persisted
+ * before the structured signal existed. Accepts either a raw
+ * `CodeAgentTranscriptEvent` (`message`) or a `NormalizedCodeAgentStatusEvent`
+ * (`text`), and any of the other UI-facing transcript event shapes that carry
+ * the same field names, so every consumer can share one implementation
+ * instead of re-implementing the regex.
+ */
+export function isCredentialGapCodeAgentEvent(event: {
+  signal?: string;
+  text?: string;
+  message?: string;
+}): boolean {
+  if (event.signal === CREDENTIAL_GAP_SIGNAL) return true;
+  return isLegacyCredentialGapHintText(event.text ?? event.message ?? "");
+}
+
+function isLegacyCredentialGapHintText(value: string): boolean {
+  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 export function normalizeCodeAgentTranscript(
@@ -148,6 +188,7 @@ export function normalizeCodeAgentTranscript(
   hiddenEvents.sort(
     (a, b) => (eventOrder.get(a.id) ?? 0) - (eventOrder.get(b.id) ?? 0),
   );
+  applyPendingCodeAgentApprovalKeys(dedupedItems, events);
 
   return {
     items: dedupedItems,
@@ -155,6 +196,40 @@ export function normalizeCodeAgentTranscript(
     hiddenEvents,
   };
 }
+
+/**
+ * Stamp `pendingApprovalKey` onto completed bash tool events whose synthetic
+ * result carries an "Approval id: {id}" marker (see `requestCodeAgentApproval`
+ * in `cli/code-agent-executor.ts`), unless a later raw event already recorded
+ * a resolution for that same id (approved / denied / allowlisted-and-run /
+ * forbidden — all stamp `metadata.approvalId`).
+ *
+ * Resolution lookup scans the *raw* event stream rather than the normalized
+ * items: resolution status events are intentionally low-signal (they read as
+ * "status: running") and get folded into `hiddenEvents` by
+ * `isLowSignalLifecycleEvent`, so they would not otherwise be visible here.
+ */
+function applyPendingCodeAgentApprovalKeys(
+  items: NormalizedCodeAgentTranscriptItem[],
+  events: readonly CodeAgentTranscriptEvent[],
+): void {
+  const resolvedApprovalIds = new Set<string>();
+  for (const event of events) {
+    const approvalId = stringMetadata(event.metadata, "approvalId");
+    if (approvalId) resolvedApprovalIds.add(approvalId);
+  }
+  for (const item of items) {
+    if (item.type !== "tool" || item.state !== "completed") continue;
+    if (typeof item.result !== "string") continue;
+    const match = CODE_AGENT_APPROVAL_ID_RESULT_PATTERN.exec(item.result);
+    const id = match?.[1];
+    if (id && !resolvedApprovalIds.has(id)) {
+      item.pendingApprovalKey = id;
+    }
+  }
+}
+
+const CODE_AGENT_APPROVAL_ID_RESULT_PATTERN = /Approval id:\s*(\S+)/;
 
 function createUserTurn(
   event: CodeAgentTranscriptEvent,
@@ -253,6 +328,7 @@ function createStatusEvent(
     statusKind: event.kind,
     status: stringMetadata(metadata, "status"),
     phase: stringMetadata(metadata, "phase"),
+    signal: event.signal,
     metadata,
     createdAt: event.createdAt,
     updatedAt: event.createdAt,

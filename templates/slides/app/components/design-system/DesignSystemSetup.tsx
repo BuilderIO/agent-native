@@ -20,6 +20,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +34,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 
 import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
@@ -305,12 +305,9 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: t("designSystemSetup.updated") });
+      toast.success(t("designSystemSetup.updated"));
     } catch {
-      toast({
-        title: t("designSystemSetup.updateFailed"),
-        variant: "destructive",
-      });
+      toast.error(t("designSystemSetup.updateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -446,8 +443,7 @@ export function DesignSystemSetup({
 
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
-    toast({
-      title: t("designSystemSetup.generationStarted"),
+    toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });
     onComplete();

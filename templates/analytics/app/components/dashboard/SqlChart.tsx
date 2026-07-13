@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useDemoModeStatus, useT } from "@agent-native/core/client";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   IconArrowsSort,
@@ -54,6 +54,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
@@ -994,6 +995,7 @@ export function SqlChart({
   onExportCsvChange,
 }: SqlChartProps) {
   const t = useT();
+  const { enabled: demoModeEnabled } = useDemoModeStatus();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const isExtension = panel.chartType === "extension";
@@ -1004,6 +1006,7 @@ export function SqlChart({
   const {
     data: result,
     isLoading,
+    isFetching,
     error: queryError,
   } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
@@ -1023,7 +1026,7 @@ export function SqlChart({
   const error =
     rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
 
-  const { rows, forcedYKeys } = useMemo(() => {
+  const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot);
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
@@ -1032,8 +1035,20 @@ export function SqlChart({
   }, [rawRows, panel.config?.pivot]);
 
   const { xKey, yKeys } = useMemo(
-    () => detectKeys(rows, panel.config, forcedYKeys),
-    [rows, panel.config, forcedYKeys],
+    () => detectKeys(queryRows, panel.config, forcedYKeys),
+    [queryRows, panel.config, forcedYKeys],
+  );
+  const shouldCreateDemoTrend =
+    demoModeEnabled &&
+    (panel.chartType === "line" ||
+      panel.chartType === "area" ||
+      (panel.chartType as string) === "stacked-area");
+  const rows = useMemo(
+    () =>
+      shouldCreateDemoTrend
+        ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
+        : queryRows,
+    [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -1079,7 +1094,7 @@ export function SqlChart({
       : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (!loadData || isLoading) {
+  if (!loadData || isLoading || isFetching) {
     return <SqlChartLoadingSkeleton panel={panel} />;
   }
 

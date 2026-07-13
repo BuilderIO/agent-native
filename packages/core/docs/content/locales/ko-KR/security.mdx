@@ -386,6 +386,8 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`는 조직이 실제로 작업 공간 키를 공유하지 않는 한 **설정되지 않습니다** — [Cross-User Tooling Secrets](#tooling-secrets) 참조
 - [ ] 다중 테넌트 배포에서 **사용자는 자신의 `ANTHROPIC_API_KEY`를 가져옵니다** — 프레임워크는 배포 수준 env var로 폴백하는 것을 거부합니다.
 
+`agent-native doctor`(스캐폴딩된 앱에서는 `pnpm doctor`)를 실행하면 이 체크리스트의 스키마, 자격 증명, 환경 변수 항목을 자동으로 확인할 수 있습니다 — 각 결과는 guard, 파일, 줄을 알려줍니다. 자세한 내용은 [Doctor](/docs/doctor) 문서를 참조하세요.
+
 ---
 
 아래 섹션에서는 특정 배포에서만 사용할 수 있는 틈새 환경 플래그를 다룹니다. 대부분의 앱은 절대 터치하지 않습니다.
@@ -413,3 +415,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 작업 영역 범위 비밀 쓰기에는 이 플래그에 관계없이 여전히 조직 소유자/관리자 역할이 필요합니다.
+
+## 다음 단계
+
+- [**Authentication**](/docs/authentication) — 이 페이지가 기반으로 하는 인증 모드, cookie realm, 세션 세부 정보
+- [**Multi-Tenancy**](/docs/multi-tenancy) — `org_id` 스코핑 뒤에 있는 조직 멤버십 모델
+- [**Sharing**](/docs/sharing) — 공유 가능한 리소스에 적용되는 `ownableColumns()` 및 access-guard 패턴
+- [**Messaging**](/docs/messaging#env-vars) — 위 체크리스트에서 참조하는 통합별 webhook 서명 비밀
+- [**Deployment**](/docs/deployment) — 이 체크리스트가 설정되어 있다고 가정하는 프로덕션 환경 변수

@@ -1,11 +1,14 @@
 import {
   CodeAgentsApp,
+  type CodeAgentComputerSetupAction,
   type CodeAgentModelListResult,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentsHost,
 } from "@agent-native/code-agents-ui";
+import { createAgentNativeQueryClient } from "@agent-native/core/client";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import AppWebview from "./AppWebview.js";
@@ -14,9 +17,11 @@ const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
   import.meta.url,
 ).href;
+const codeAgentsQueryClient = createAgentNativeQueryClient();
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
+  isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
   refreshKey?: number;
   onOpenSettings?: () => void;
@@ -41,6 +46,7 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
 
 export default function CodeAgentsHub({
   apps,
+  isActive = true,
   openRequest,
   refreshKey = 0,
   onOpenSettings,
@@ -91,6 +97,18 @@ export default function CodeAgentsHub({
           };
         }
         return api.getHostMetadata();
+      },
+      async runComputerSetupAction(action: CodeAgentComputerSetupAction) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runComputerSetupAction) {
+          return {
+            ok: false,
+            action,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runComputerSetupAction(action);
       },
       async listCodePacks(cwd?: string) {
         const api = window.electronAPI?.codeAgents;
@@ -287,24 +305,27 @@ export default function CodeAgentsHub({
   );
 
   return (
-    <CodeAgentsApp
-      apps={apps}
-      host={host}
-      openRequest={openRequest}
-      refreshKey={refreshKey}
-      brandIconUrl={agentNativeIconUrl}
-      onOpenSettings={onOpenSettings}
-      renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
-        <div className="code-agents-embedded-app-surface">
-          <AppWebview
-            app={toAppDefinition(app)}
-            appConfig={app}
-            isActive
-            urlParams={urlParams}
-            refreshKey={appRefreshKey}
-          />
-        </div>
-      )}
-    />
+    <QueryClientProvider client={codeAgentsQueryClient}>
+      <CodeAgentsApp
+        apps={apps}
+        host={host}
+        isActive={isActive}
+        openRequest={openRequest}
+        refreshKey={refreshKey}
+        brandIconUrl={agentNativeIconUrl}
+        onOpenSettings={onOpenSettings}
+        renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
+          <div className="code-agents-embedded-app-surface">
+            <AppWebview
+              app={toAppDefinition(app)}
+              appConfig={app}
+              isActive={isActive}
+              urlParams={urlParams}
+              refreshKey={appRefreshKey}
+            />
+          </div>
+        )}
+      />
+    </QueryClientProvider>
   );
 }

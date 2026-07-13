@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getBookingByUid } from "../server/bookings-repo.js";
 import { getSchedulingContext } from "../server/context.js";
+import { assertBookingHost } from "./_helpers.js";
 
 export default defineAction({
   description: "Add an attendee (or seat reservation) to a booking",
@@ -16,6 +17,7 @@ export default defineAction({
   run: async (args) => {
     const booking = await getBookingByUid(args.uid);
     if (!booking) throw new Error(`Booking ${args.uid} not found`);
+    assertBookingHost(booking, "add an attendee to this booking");
     const { getDb, schema } = getSchedulingContext();
     await getDb()
       .insert(schema.bookingAttendees)

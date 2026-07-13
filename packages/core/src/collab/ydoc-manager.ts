@@ -181,6 +181,7 @@ async function persistMergedState(
   docId: string,
   doc: Y.Doc,
   getTextSnapshot: () => string,
+  validateTextSnapshot?: (snapshot: string) => void,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     // One DB read per persist attempt. On first attempt this is the only read
@@ -193,17 +194,21 @@ async function persistMergedState(
     }
 
     const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
+    const textSnapshot = getTextSnapshot();
+    validateTextSnapshot?.(textSnapshot);
     const saved = await trySaveYDocState(
       docId,
       stateToStore,
-      getTextSnapshot(),
+      textSnapshot,
       latest?.version ?? null,
     );
     if (saved) return;
   }
 
   // All CAS attempts failed — fall back to unconditional save.
-  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), getTextSnapshot());
+  const textSnapshot = getTextSnapshot();
+  validateTextSnapshot?.(textSnapshot);
+  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), textSnapshot);
 }
 
 /**
@@ -282,6 +287,15 @@ export async function applyText(
   newText: string,
   fieldName: string = DEFAULT_FIELD,
   requestSource?: string,
+  options: {
+    /**
+     * Validate the fully converged text after cross-process Yjs updates have
+     * merged, but before the state is persisted or broadcast. A rejected
+     * candidate is discarded from this process's cache so the next read
+     * reloads the last durable state instead of leaking an uncommitted merge.
+     */
+    validateSnapshot?: (snapshot: string) => void;
+  } = {},
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
@@ -289,12 +303,33 @@ export async function applyText(
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
     if (update.length === 0) {
-      return doc.getText(fieldName).toString();
+      const snapshot = doc.getText(fieldName).toString();
+      try {
+        options.validateSnapshot?.(snapshot);
+      } catch (error) {
+        releaseDoc(docId);
+        throw error;
+      }
+      return snapshot;
     }
 
-    await persistMergedState(docId, doc, () =>
-      doc.getText(fieldName).toString(),
-    );
+    try {
+      await persistMergedState(
+        docId,
+        doc,
+        () => doc.getText(fieldName).toString(),
+        options.validateSnapshot,
+      );
+    } catch (error) {
+      if (options.validateSnapshot) {
+        // The target diff and any cross-process state merged during the CAS
+        // read now live only in this cached Y.Doc. Destroy it before throwing:
+        // neither the rejected update nor a compensating rollback should ever
+        // be persisted/emitted to connected clients.
+        releaseDoc(docId);
+      }
+      throw error;
+    }
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
     touchAgentPresence(docId, requestSource, {

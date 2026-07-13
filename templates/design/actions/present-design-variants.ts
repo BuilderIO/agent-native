@@ -19,6 +19,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
@@ -27,8 +28,22 @@ const MOBILE_WIDTH = 390;
 const MOBILE_HEIGHT = 844;
 const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
-const DESKTOP_WIDTH = 1280;
-const DESKTOP_HEIGHT = 900;
+const DESKTOP_WIDTH = 1440;
+const DESKTOP_HEIGHT = 1024;
+const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
+  id: `generated-${widthPx}`,
+  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
+  widthPx,
+  prefix: widthToPrefix(widthPx),
+}));
+
+function hasBreakpointSet(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
+  return Array.isArray(breakpoints) && breakpoints.length > 0;
+}
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -951,6 +966,15 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
+          ...(hasBreakpointSet(current.breakpointSet)
+            ? {}
+            : {
+                breakpointSet: {
+                  id: "generated-responsive",
+                  breakpoints: DEFAULT_RESPONSIVE_BREAKPOINTS,
+                },
+                breakpointSetUpdatedAt: updatedAt,
+              }),
           updatedAt,
         };
       },
@@ -968,13 +992,17 @@ export default defineAction({
           ? variantSets[variantSetId]
           : null;
         const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
-        return screens.every(
-          (screen) =>
-            isRecord(canvasFrames[screen.id]) &&
-            isRecord(metadata[screen.id]) &&
-            persistedScreens.some(
-              (persisted) => isRecord(persisted) && persisted.id === screen.id,
-            ),
+        return (
+          hasBreakpointSet(current.breakpointSet) &&
+          screens.every(
+            (screen) =>
+              isRecord(canvasFrames[screen.id]) &&
+              isRecord(metadata[screen.id]) &&
+              persistedScreens.some(
+                (persisted) =>
+                  isRecord(persisted) && persisted.id === screen.id,
+              ),
+          )
         );
       },
     });

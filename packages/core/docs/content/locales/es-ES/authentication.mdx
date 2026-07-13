@@ -15,7 +15,7 @@ La autenticación se configura automáticamente a través de `autoMountAuth(app)
 - **MCP OAuth remoto:** OAuth 2.1 estándar para hosts MCP como el código Claude y los conectores ChatGPT.
 - **Personalizado:** Traiga su propia autenticación a través de la devolución de llamada `getSession`.
 
-<Diagram id="doc-block-1lj059p" title={"Tres entradas, una sesión"} summary={"Los visitantes del navegador, los clientes programáticos MCP y los proveedores personalizados se resuelven en la misma sesión de autenticación que lee el alcance descendente."}>
+<Diagram id="doc-block-1lj059p" title={"Tres entradas, una sesión"} summary={"Los visitantes del navegador, los hosts MCP y los proveedores personalizados se resuelven en la misma sesión de autenticación que lee el alcance descendente."}>
 
 ```html
 <div class="auth-modes">
@@ -381,7 +381,7 @@ Las plantillas con **páginas públicas** (enlaces compartidos, incrustaciones, 
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-Cuando un espectador anónimo accede a este URL, se muestra la página de inicio de sesión del marco. Después de un inicio de sesión exitoso (cualquier flujo: token, correo electrónico/contraseña o Google OAuth), el espectador pasa a la ruta 302 a `return`.
+Cuando un espectador anónimo accede a este URL, se muestra la página de inicio de sesión del marco. Después de un inicio de sesión exitoso (cualquier flujo: token, correo electrónico/contraseña o Google OAuth), el navegador vuelve a `return`.
 
 El parámetro `return` se valida como **ruta del mismo origen**. Las referencias de ruta de red (`//evil.com/...`), los esquemas URL absolutos, `data:`/`javascript:` y los caracteres de control integrados recurren a `/`. La ruta validada se reconstruye a partir del analizador URL, no se repite desde la entrada.
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### Rutas privadas marcadas
 
-Cuando un usuario anónimo navega directamente a una ruta privada como `/dashboard`, el marco ya muestra la página de inicio de sesión en ese URL; después de iniciar sesión correctamente, la página se vuelve a cargar y el usuario llega a `/dashboard`. No se necesita manipulación especial; esto funciona para token, correo electrónico/contraseña y **y** Google OAuth.
+Las páginas normales de la aplicación usan una única shell SSR impersonal y almacenable en caché pública para todos los visitantes. `AppProviders` comprueba la sesión en el cliente; en una ruta privada como `/dashboard`, redirige al visitante anónimo a `/_agent-native/sign-in?return=%2Fdashboard` antes de montar la interfaz privada. Tras iniciar sesión, vuelve a `/dashboard`. Usa `isPublicPath` para rutas públicas o de SEO, o `sessionBypass` para una superficie autenticada mediante otro mecanismo limitado, como un token de inserción MCP.
 
 ### Detrás de escena: Google OAuth
 

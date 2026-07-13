@@ -10,15 +10,18 @@ import {
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
 import {
+  getConfiguredEngineNameForRequest,
   getStoredModelForEngine,
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   getOwnerApiKey,
   engineToProvider,
@@ -33,6 +36,7 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread, getThread } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
@@ -44,7 +48,12 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import {
+  clearIntegrationAwaitingInput,
+  setIntegrationAwaitingInput,
+} from "./awaiting-input-store.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
 import { signInternalToken } from "./internal-token.js";
 import {
@@ -106,6 +115,17 @@ export interface WebhookHandlerOptions {
   systemPrompt: string;
   /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
+  /**
+   * Tool names to expose on the FIRST engine request. When provided, every
+   * other name in `actions` (framework additions such as
+   * `list-integration-memory` / `call-agent` merged in by
+   * `createIntegrationsPlugin`) is deferred behind the attached `tool-search`
+   * entry instead of being serialized on every inbound message — the run
+   * loop's mid-run tool expansion (`expandActiveTools` in `runAgentLoop`)
+   * still lets the model discover and call them after a search. Omit to keep
+   * the full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Anthropic API key */
@@ -156,6 +176,18 @@ function explicitEngineName(
     return engineOption.name;
   }
   return undefined;
+}
+
+async function resolveIntegrationEngineOption(
+  engineOption: WebhookHandlerOptions["engine"],
+  appId?: string,
+): Promise<WebhookHandlerOptions["engine"]> {
+  // A custom engine instance/config is an intentional per-plugin override and
+  // must remain authoritative. A string option is the normal integration
+  // plugin default; org/user Agent settings should override that default just
+  // as they do in web chat.
+  if (engineOption && typeof engineOption === "object") return engineOption;
+  return (await getConfiguredEngineNameForRequest({ appId })) ?? engineOption;
 }
 
 function collectToolResultSummaries(
@@ -554,6 +586,7 @@ async function processIncomingMessage(
     adapter,
     systemPrompt,
     actions,
+    initialToolNames,
     model,
     apiKey,
     ownerEmail,
@@ -712,6 +745,7 @@ async function processIncomingMessage(
     incoming.senderName ? `Sender name: ${incoming.senderName}` : null,
     incoming.senderEmail ? `Sender email: ${incoming.senderEmail}` : null,
     incoming.senderId ? `Sender ID: ${incoming.senderId}` : null,
+    incoming.identityNote ? `Caller identity: ${incoming.identityNote}` : null,
     incoming.sourceUrl ? `Source thread: ${incoming.sourceUrl}` : null,
     incoming.routingHint?.targetAgent
       ? `Required target agent: ${incoming.routingHint.targetAgent}`
@@ -744,10 +778,20 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   let orgId: string | null | undefined;
+  let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
+  let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
     orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
-    tools = actionsToEngineTools(actions);
+    // Attach tool-search on a shallow copy so framework additions merged in
+    // by `createIntegrationsPlugin` (integration memory, `call-agent`) can be
+    // deferred behind it without mutating the plugin's long-lived registry.
+    // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
+    // after a tool-search call, so anything filtered out of the initial
+    // `tools` list stays reachable.
+    runnableActions = attachToolSearch({ ...actions });
+    availableTools = actionsToEngineTools(runnableActions);
+    tools = filterInitialEngineTools(availableTools, initialToolNames);
   } catch (error) {
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
@@ -779,6 +823,7 @@ async function processIncomingMessage(
                   attempts: opts.attempts,
                   incoming,
                   placeholderRef: opts.placeholderRef,
+                  progressRef: progress?.ref,
                   scopeId: incoming.integrationScopeId,
                   principalType: opts.principalType ?? "user",
                   lineage: {
@@ -801,13 +846,17 @@ async function processIncomingMessage(
               : undefined,
           },
           async () => {
-            const effectiveApiKey = await resolveIntegrationApiKey(
+            const effectiveEngineOption = await resolveIntegrationEngineOption(
               engineOption,
+              options.appId,
+            );
+            const effectiveApiKey = await resolveIntegrationApiKey(
+              effectiveEngineOption,
               ownerEmail,
               apiKey,
             );
             const engine = await resolveEngine({
-              engineOption,
+              engineOption: effectiveEngineOption,
               apiKey: effectiveApiKey,
               model,
               appId: options.appId,
@@ -831,8 +880,9 @@ async function processIncomingMessage(
               model: resolvedModel,
               systemPrompt: effectiveSystemPrompt,
               tools,
+              availableTools,
               messages,
-              actions,
+              actions: runnableActions,
               send: async (event) => {
                 if (progress) {
                   await Promise.resolve(progress.onEvent(event)).catch(
@@ -844,18 +894,42 @@ async function processIncomingMessage(
               signal,
               threadId,
               approvedToolCalls: incoming.approvedToolCalls,
+              // Messaging integrations are interactive chat surfaces. They
+              // need the same initial completion headroom as web chat so
+              // reasoning cannot consume the small per-engine default and
+              // leave a user-facing Slack reply empty.
+              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+              // Explicitly resolve the normal chat default so an empty-final
+              // retry can step its reasoning effort down rather than
+              // repeatedly letting the engine choose Medium.
+              reasoningEffort: normalizeReasoningEffortForRequest(
+                resolvedModel,
+                undefined,
+              ),
             });
             return usage;
           },
         );
       },
       async (completedRun: ActiveRun) => {
+        let keepSlackInputWindow = false;
+        let queuedA2AContinuation = false;
         try {
-          const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          const slackInputRequest =
+            incoming.platform === "slack"
+              ? extractSlackInputRequest(completedRun)
+              : null;
           let responseText = collectFinalResponseTextFromAgentEvents(
             completedRun.events.map((runEvent) => runEvent.event),
             { fallbackToPreToolText: !queuedA2AContinuation },
           );
+          // `ask-question` is a native web-chat interaction. When an
+          // integration run invokes it successfully, project the same
+          // validated question into Slack text and open a tightly-bound reply
+          // window for the originating user instead of leaving a web-only
+          // card with no way to answer in the channel.
+          if (slackInputRequest) responseText = slackInputRequest.text;
           if (!queuedA2AContinuation && !responseText.trim()) {
             const recoverableA2AArtifactText =
               extractRecoverableA2AArtifactToolResult(completedRun);
@@ -930,18 +1004,69 @@ async function processIncomingMessage(
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
-            if (progress) {
+            let delivered = false;
+            if (queuedA2AContinuation && progress?.ref) {
+              // Post substantive parent results as a normal thread reply while
+              // the one continuation that claimed this resumable stream keeps
+              // it open for its eventual terminal result.
+              await adapter.sendResponse(outgoing, incoming, {
+                placeholderRef: opts.placeholderRef,
+              });
+              delivered = true;
+            } else if (progress) {
               try {
                 await progress.complete(outgoing);
+                delivered = true;
               } catch {
                 await adapter.sendResponse(outgoing, incoming, {
                   placeholderRef: opts.placeholderRef,
                 });
+                delivered = true;
               }
             } else {
               await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
+              delivered = true;
+            }
+            if (slackInputRequest && delivered && incoming.senderId) {
+              await setIntegrationAwaitingInput({
+                platform: "slack",
+                externalThreadId: incoming.externalThreadId,
+                requesterId: incoming.senderId,
+              });
+              keepSlackInputWindow = true;
+            }
+          } else if (progress) {
+            // A continuation owns the eventual final response. If the adapter
+            // supplied a durable progress reference, leave the same native
+            // stream open for the continuation processor to update and close;
+            // ending it here discards the plan/task UI before the delegated
+            // work has actually finished.
+            if (progress.ref) {
+              await progress.onEvent({
+                type: "agent_call_progress",
+                agent:
+                  getQueuedA2AContinuationAgent(completedRun) ??
+                  "delegated agent",
+                state: "working",
+                elapsedSeconds: 0,
+                detail: "Continuing in the background",
+              });
+            } else {
+              // Older adapters have no resumable native surface. Close their
+              // stream cleanly; the continuation will deliver one standard
+              // final reply when the downstream task is terminal.
+              const deferred = adapter.formatAgentResponse(
+                "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+              );
+              try {
+                await progress.complete(deferred);
+              } catch {
+                await progress.fail?.(
+                  "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+                );
+              }
             }
           }
 
@@ -972,6 +1097,10 @@ async function processIncomingMessage(
             `[integrations] Error sending response to ${incoming.platform}:`,
             err,
           );
+          // A queued continuation owns the final platform response. Later
+          // bookkeeping failures (for example, persisting this parent run)
+          // must not close its resumable native stream with a false failure.
+          if (queuedA2AContinuation) return;
           // Last-ditch: try to post a brief apology so the thread isn't silent.
           try {
             await progress?.fail?.(
@@ -983,6 +1112,15 @@ async function processIncomingMessage(
             if (!progress?.fail) await adapter.sendResponse(fallback, incoming);
           } catch {}
         } finally {
+          // Any terminal path (including a failed run or an unrelated new
+          // mention) invalidates an older clarification window. The only
+          // exception is the just-delivered, verified `ask-question` flow.
+          if (incoming.platform === "slack" && !keepSlackInputWindow) {
+            await clearIntegrationAwaitingInput(
+              "slack",
+              incoming.externalThreadId,
+            ).catch(() => {});
+          }
           if (!budgetsSettled) {
             await releaseApplicableIntegrationBudgets(
               budgetReservations.reservations,
@@ -991,6 +1129,13 @@ async function processIncomingMessage(
           resolve();
         }
       },
+      // Integration workers are ordinary self-dispatched serverless requests,
+      // not a Netlify background-function route. Without the hosted soft
+      // timeout, a wedged model connection can outlive the worker and leave
+      // Slack's native stream in "working" forever when the host kills the
+      // process. Checkpoint at the foreground-safe boundary so onComplete can
+      // always close the provider progress surface before the function wall.
+      { useHostedSoftTimeoutDefault: true },
     );
   });
 }
@@ -1240,6 +1385,96 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function getQueuedA2AContinuationAgent(completedRun: ActiveRun): string | null {
+  for (let i = completedRun.events.length - 1; i >= 0; i--) {
+    const event = completedRun.events[i]!.event;
+    if (event.type !== "agent_call") continue;
+    if (typeof event.agent === "string" && event.agent.trim()) {
+      return event.agent;
+    }
+  }
+  return null;
+}
+
+function extractSlackInputRequest(
+  completedRun: ActiveRun,
+): { text: string } | null {
+  const events = completedRun.events.map((runEvent) => runEvent.event);
+  const didRequestInput = events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.tool === "ask-question" &&
+      String(event.result ?? "").startsWith(
+        "Asked the user a clarifying question and rendered it in the chat.",
+      ),
+  );
+  if (!didRequestInput) return null;
+
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+      continue;
+    }
+    const input = event.input as Record<string, unknown> | undefined;
+    const question =
+      typeof input?.question === "string" ? input.question.trim() : "";
+    if (!question) return null;
+
+    let rawOptions: unknown;
+    try {
+      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(rawOptions) || rawOptions.length === 0) return null;
+    const options = rawOptions
+      .slice(0, 4)
+      .map((option) => {
+        const value = option as Record<string, unknown> | null;
+        const label =
+          typeof value?.label === "string"
+            ? value.label.trim()
+            : typeof value?.value === "string"
+              ? value.value.trim()
+              : "";
+        if (!label) return null;
+        const description =
+          typeof value?.description === "string"
+            ? value.description.trim()
+            : "";
+        return {
+          label: label.slice(0, 200),
+          description: description.slice(0, 400),
+        };
+      })
+      .filter(
+        (option): option is { label: string; description: string } =>
+          option !== null,
+      );
+    if (!options.length) return null;
+
+    const header =
+      typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
+    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    return {
+      text: [
+        header ? `*${header}*` : null,
+        question.slice(0, 1_500),
+        "",
+        ...options.map(
+          (option, optionIndex) =>
+            `${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`,
+        ),
+        "",
+        `Reply in this thread with your choice${allowFreeText ? " or a short answer" : ""}.`,
+      ]
+        .filter((line): line is string => line !== null)
+        .join("\n"),
+    };
+  }
+  return null;
 }
 
 function extractRecoverableA2AArtifactToolResult(

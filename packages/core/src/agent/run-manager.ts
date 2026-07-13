@@ -291,7 +291,15 @@ export interface ResolveRunSoftTimeoutOptions {
   backgroundFunction?: boolean;
 }
 
-function isHostedRuntime(): boolean {
+/**
+ * True on hosted/serverless runtimes where the soft-timeout regime applies
+ * (see `resolveRunSoftTimeoutMs`, which resolves to 0 — disabled — off these
+ * runtimes). Exported so production-agent.ts can gate its foreground
+ * first-model-event cap (`FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS`) on the
+ * SAME predicate that selects the 40s clamp: the cap only makes sense where
+ * that clamp (and the platform wall behind it) exists.
+ */
+export function isHostedRuntime(): boolean {
   if (
     process.env.NETLIFY &&
     process.env.NETLIFY !== "false" &&
@@ -1119,7 +1127,11 @@ export function startRun(
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {
-    const cfCtx = globalThis.__cf_ctx;
+    const cfCtx = (
+      globalThis as typeof globalThis & {
+        __cf_ctx?: { waitUntil(promise: Promise<unknown>): void };
+      }
+    ).__cf_ctx;
     if (cfCtx?.waitUntil) {
       cfCtx.waitUntil(runPromise);
     }
@@ -1512,6 +1524,44 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   const memRun = getActiveRunForThread(threadId);
   if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
     const sqlSnapshot = await fetchRunThreadSnapshot(memRun.runId, threadId);
+
+    // FIX 1 (durable-background incident): a terminal in-memory run (chunk
+    // completed at a soft-timeout/no-progress/loop-limit boundary, or any
+    // other terminal outcome) never clears `threadToRun` — it stays this
+    // thread's resident in-memory candidate for up to CLEANUP_DELAY_MS
+    // (5 min), and `fetchRunThreadSnapshot` above returns null the instant
+    // SQL's newest row for the thread is no longer THIS run (i.e. a
+    // successor already exists). Left alone, every poll that lands on this
+    // warm isolate would keep falling back to `memRun.status` below and
+    // never discover that a newer, still-running successor already exists
+    // in SQL — exactly the "stale terminal run masks a live successor" bug
+    // that produced the mid-sentence dead turn. Only pay for the extra SQL
+    // read here, in the terminal-candidate branch; the common "still
+    // running" poll (the vast majority) never reaches it.
+    if (!sqlSnapshot && memRun.status !== "running") {
+      const successor = await fetchNewerNonTerminalRunForSameTurn(
+        threadId,
+        memRun,
+      );
+      if (successor) {
+        return {
+          runId: successor.id,
+          threadId: successor.threadId,
+          turnId: successor.turnId ?? successor.id,
+          status: successor.status,
+          heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
+          lastProgressAt: successor.lastProgressAt,
+          dispatchMode: successor.dispatchMode,
+          terminalReason: successor.terminalReason,
+          diagStage: successor.diagStage,
+          // Definitionally non-terminal and freshly read from SQL above —
+          // never the stale in-memory candidate's own state.
+          awaitingRedispatch: false,
+          hasInFlightWork: successor.inFlightSince != null,
+        };
+      }
+    }
+
     const status = sqlSnapshot?.status ?? memRun.status;
     const heartbeatAt =
       status === "running"
@@ -1676,6 +1726,40 @@ async function fetchRunThreadSnapshot(runId: string, threadId: string) {
       includeTerminal: true,
     });
     if (byThread && byThread.id === runId) return byThread;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * FIX 1 (durable-background incident): find a genuinely newer, still-running
+ * SQL row for the SAME turn as a terminal in-memory `ActiveRun` — used only
+ * when `fetchRunThreadSnapshot` found no SQL row matching the in-memory
+ * run's own id (i.e. SQL's newest row for the thread is a different run).
+ * `getRunByThread` always returns the thread's newest row by `started_at`,
+ * so this is the same read `fetchRunThreadSnapshot` already made; we just
+ * don't throw its result away when the id doesn't match.
+ *
+ * Scoped to the SAME `turnId` (not just the same thread) so an unrelated,
+ * later user turn on the same thread is never mistaken for a continuation
+ * successor of this one.
+ */
+async function fetchNewerNonTerminalRunForSameTurn(
+  threadId: string,
+  memRun: ActiveRun,
+): Promise<Awaited<ReturnType<typeof getRunByThread>> | null> {
+  try {
+    const latest = await getRunByThread(threadId, { includeTerminal: true });
+    if (
+      latest &&
+      latest.id !== memRun.runId &&
+      latest.status === "running" &&
+      latest.startedAt > memRun.startedAt &&
+      (latest.turnId ?? latest.id) === memRun.turnId
+    ) {
+      return latest;
+    }
     return null;
   } catch {
     return null;

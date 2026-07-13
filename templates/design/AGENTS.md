@@ -89,6 +89,13 @@ patterns live in `.agents/skills/`.
   consult `FIGMA_INTEROPERABILITY.md` for the feature-level fidelity contract,
   fallback rules, scale limits, and real-file golden corpus. See the
   `design-systems` skill's "Import from Figma" section.
+- Uploading a raw `.fig` file in the Design editor's Import panel decodes the
+  container/Kiwi document locally into editable screens — no Builder
+  connection needed — and is scoped to screens only; it never creates or
+  updates a design system. This is separate from uploading `.fig` on the
+  Design System Setup page, which still indexes tokens/brand-kit data through
+  Builder and does not parse `.fig` locally. See the `design-systems` skill
+  for both paths.
 - A current Figma Cmd+C clipboard includes exact selected node ids in
   `figmeta.selectedNodeData`; `import-figma-clipboard` uses those before any
   heuristic matching and supports multi-selection. Clipboard metadata is not a
@@ -262,6 +269,14 @@ patterns live in `.agents/skills/`.
   layers: text, classes, styles, attributes, source order, and small structural
   changes. Use it for selected-element edits before falling back to full
   `update-design` / `generate-design` rewrites.
+- For localhost JSX/TSX, `apply-visual-edit` also supports a narrow deterministic
+  slice: single-instance leaf text, literal `className`/`class`, and flat literal
+  `style={{ ... }}` properties. Pass `source.kind: "local-file"`, `designId`,
+  `connectionId`, the verified project-relative `path`, and
+  `intent.target.sourceAnchor`. Call once without `persist` and inspect
+  `proposedDiff`; call again with `persist: true` only when it is exact. The
+  action reads the current bridge version and writes through `write-local-file`,
+  so human consent and compare-and-swap remain mandatory.
 - For localhost React/TSX screens, treat compiler/debug metadata (project-relative
   source file, line, column, component, and runtime multiplicity) as evidence
   for locating source, not as permission to run a generic AST transform.
@@ -281,8 +296,10 @@ patterns live in `.agents/skills/`.
   persist by updating that attribute.
 - Inline/Alpine screens continue to use deterministic HTML code-layer edits.
   Localhost React/TSX screens use the semantic coding-agent handoff above;
-  deterministic direct React writes remain intentionally limited to narrowly
-  proven literal edits and never include generic structural transforms.
+  deterministic direct React writes remain intentionally limited to the leaf
+  literal slice above and never include generic structural transforms,
+  breakpoint writes, dynamic expressions, repeated renders, shared component
+  definitions, generated/out-of-root paths, or remote URLs.
 
 ## Code Workspace
 

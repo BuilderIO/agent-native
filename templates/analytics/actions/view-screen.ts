@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import {
-  readAppState,
-  readAppStateForCurrentTab,
-} from "@agent-native/core/application-state";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -37,12 +34,12 @@ export default defineAction({
   readOnly: true,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
-    const url = (await readAppState("__url__")) as {
+    const url = (await readAppStateForCurrentTab("__url__")) as {
       pathname?: string;
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
-    const selectedObject = await readAppState("selected-object");
+    const selectedObject = await readAppStateForCurrentTab("selected-object");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -466,34 +463,15 @@ export default defineAction({
       const email = getRequestUserEmail();
       if (email) {
         const orgId = getRequestOrgId() || null;
-        const [keys, catalog] = await Promise.all([
-          listAnalyticsPublicKeys({
-            userEmail: email,
-            orgId,
-          }),
-          listDashboardCatalog({
-            email,
-            orgId,
-          }),
-        ]);
-        const llmTemplate = catalog.find(
-          (template) => template.id === "agent-observability-llm",
-        );
+        const keys = await listAnalyticsPublicKeys({
+          userEmail: email,
+          orgId,
+        });
         screen.firstPartyAnalytics = {
           activeKeys: keys.filter((key: any) => !key.revokedAt).length,
           serverEnv: "AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
           browserEnv: "VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
         };
-        if (llmTemplate) {
-          screen.llmObservabilityDashboard = {
-            templateId: llmTemplate.id,
-            name: llmTemplate.name,
-            installed: llmTemplate.installed,
-            installedDashboardIds: llmTemplate.installedDashboards.map(
-              (dashboard) => dashboard.id,
-            ),
-          };
-        }
       }
     } else if (nav?.view === "settings") {
       screen.page = "settings";

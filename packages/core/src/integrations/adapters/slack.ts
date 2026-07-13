@@ -5,6 +5,7 @@ import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { getIntegrationRequestContext } from "../../server/request-context.js";
+import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
@@ -21,6 +22,7 @@ import type {
   IntegrationStatus,
   OutboundTarget,
   PlatformRunProgress,
+  PlatformRunProgressRef,
   IntegrationContextMessage,
   IntegrationFileReference,
 } from "../types.js";
@@ -35,12 +37,57 @@ const SLACK_API_TIMEOUT_MS = 10_000;
 const SLACK_PERMALINK_TIMEOUT_MS = 1_000;
 const SLACK_CONTEXT_MESSAGE_LIMIT = 15;
 const SLACK_CONTEXT_TEXT_LIMIT = 2_000;
+const SLACK_CALM_PROGRESS_THRESHOLD_SECONDS = 30;
+const SLACK_IDENTITY_TIMEOUT_MS = 1_000;
+const SLACK_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
+// Failed users.info lookups only get a short negative TTL: a transient Slack
+// API blip must not fail-close a sender's identity (and DMs) for 10 minutes.
+const SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
+const SLACK_IDENTITY_CACHE_MAX_ENTRIES = 1_000;
+
+interface SlackUserIdentity {
+  email: string | null;
+  name: string | null;
+  memberType: "owner" | "admin" | "member" | "guest" | "external" | "unknown";
+}
+
+const slackIdentityCache = new Map<
+  string,
+  { identity: SlackUserIdentity | null; expiresAt: number }
+>();
+
+// Deduped system notices send at most once per key per TTL so senders are
+// informed without being spammed per message. Callers pick the window: the
+// anonymous-tier heads-up uses the default day-long TTL; decline replies pass
+// a short TTL so a persistent condition still reminds the sender occasionally.
+const SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
+const SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES = 1_000;
+const slackSystemNoticeCache = new Map<string, number>();
+
+/** Returns true when a deduped notice should send now, claiming the slot. */
+function claimSlackSystemNoticeSlot(
+  key: string,
+  ttlMs = SLACK_SYSTEM_NOTICE_DEDUPE_TTL_MS,
+): boolean {
+  const now = Date.now();
+  const expiresAt = slackSystemNoticeCache.get(key);
+  if (expiresAt && expiresAt > now) return false;
+  if (expiresAt) slackSystemNoticeCache.delete(key);
+  if (slackSystemNoticeCache.size >= SLACK_SYSTEM_NOTICE_CACHE_MAX_ENTRIES) {
+    const oldestKey = slackSystemNoticeCache.keys().next().value;
+    if (oldestKey) slackSystemNoticeCache.delete(oldestKey);
+  }
+  slackSystemNoticeCache.set(key, now + ttlMs);
+  return true;
+}
 
 export interface SlackAdapterOptions {
   /** Resolve the bot token for the exact Slack installation. */
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
   /** Override active-thread detection for hosted adapters/tests. */
   isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
+  /** Override one-shot clarification-window consumption for tests. */
+  consumeAwaitingInput?: (incoming: IncomingMessage) => Promise<boolean>;
 }
 
 /**
@@ -242,7 +289,10 @@ export function slackAdapter(
           triggerKind: isDm ? "dm" : isMention ? "mention" : "thread_reply",
           conversationType: isDm ? "dm" : "unknown",
           tenantId: teamId,
-          actorTrust: { memberType: "unknown", verified: true },
+          // The signed Slack envelope authenticates the workspace, not the
+          // sender's membership tier. `users.info` hydration below is the
+          // authority that may promote this to a verified member.
+          actorTrust: { memberType: "unknown", verified: false },
           platformContext: {
             channelId: e.channel,
             channelType: e.channel_type,
@@ -268,10 +318,24 @@ export function slackAdapter(
         };
 
         if (isThreadReply) {
+          // An ordinary thread reply is narrowly admitted when either work is
+          // still queued or the same Slack user is answering a fresh
+          // integration-originated clarification. Consuming the latter is a
+          // conditional SQL delete, so concurrent replies cannot both reopen
+          // the agent and unrelated channel messages remain ignored.
+          const answeredClarification = options.consumeAwaitingInput
+            ? await options.consumeAwaitingInput(partialIncoming)
+            : options.isThreadActive
+              ? false
+              : await consumeIntegrationAwaitingInput({
+                  platform: "slack",
+                  externalThreadId,
+                  requesterId: e.user,
+                });
           const active = options.isThreadActive
             ? await options.isThreadActive(partialIncoming)
             : await hasActivePendingTask("slack", externalThreadId);
-          if (!active) return null;
+          if (!active && !answeredClarification) return null;
         }
 
         const token = await resolveBotToken(partialIncoming);
@@ -305,12 +369,10 @@ export function slackAdapter(
     async postProcessingPlaceholder(
       incoming: IncomingMessage,
     ): Promise<{ placeholderRef: string } | null> {
-      // No placeholder reply in the thread — Slack's native assistant
-      // status bar ("agent-native is thinking…", below the composer) is the
-      // loading affordance. A second visible "Working on it…" reply was
-      // redundant and added an extra chunk that we then had to overwrite.
-      // We just set the native status and return null so sendResponse posts
-      // the final reply as a fresh message.
+      // No placeholder reply in the thread — Slack's native assistant status
+      // bar and the task stream are the loading affordance. Keep the status
+      // specific about intent instead of presenting the generic thinking
+      // state while the native plan is opening.
       const token = await resolveBotToken(incoming);
       if (!token) return null;
 
@@ -318,11 +380,16 @@ export function slackAdapter(
       const threadTs = incoming.platformContext.threadTs as string;
       if (!channelId || !threadTs) return null;
 
-      // Best-effort: flip the native Agent "is thinking…" status bar in the
+      // Best-effort: flip the native Agent status bar in the
       // channel input area. Slack accepts chat:write for this method. The
       // canonical manifest separately requests assistant:write for Agent View
       // and app_context_changed events.
-      setSlackAssistantStatus(token, channelId, threadTs, "is thinking…");
+      setSlackAssistantStatus(
+        token,
+        channelId,
+        threadTs,
+        "I’m looking into this now…",
+      );
       return null;
     },
 
@@ -334,12 +401,30 @@ export function slackAdapter(
       return hydrateSlackContext(token, incoming);
     },
 
+    async hydrateIncomingIdentity(
+      incoming: IncomingMessage,
+    ): Promise<IncomingMessage> {
+      const token = await resolveBotToken(incoming);
+      if (!token) return incoming;
+      return hydrateSlackIdentity(token, incoming);
+    },
+
     async startRunProgress(
       incoming: IncomingMessage,
     ): Promise<PlatformRunProgress | null> {
       const token = await resolveBotToken(incoming);
       if (!token) return null;
       return startSlackRunProgress(token, incoming);
+    },
+
+    async resumeRunProgress(
+      incoming: IncomingMessage,
+      ref: PlatformRunProgressRef,
+    ): Promise<PlatformRunProgress | null> {
+      if (!isSlackStreamProgressRef(ref)) return null;
+      const token = await resolveBotToken(incoming);
+      if (!token) return null;
+      return resumeSlackRunProgress(token, incoming, ref.streamTs);
     },
 
     async sendResponse(
@@ -433,6 +518,48 @@ export function slackAdapter(
       } catch (err) {
         console.error("[slack] Failed to send message:", err);
         throw err;
+      }
+    },
+
+    async sendSystemNotice(
+      incoming: IncomingMessage,
+      text: string,
+      opts?: { dedupeKey?: string; dedupeTtlMs?: number },
+    ): Promise<void> {
+      if (!text.trim()) return;
+      const dedupeKey = opts?.dedupeKey;
+      if (
+        dedupeKey &&
+        !claimSlackSystemNoticeSlot(dedupeKey, opts?.dedupeTtlMs)
+      ) {
+        return;
+      }
+      try {
+        const token = await resolveBotToken(incoming);
+        if (!token) {
+          if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+          throw new Error("Slack bot token not configured for system notice");
+        }
+        const channelId = incoming.platformContext.channelId;
+        if (typeof channelId !== "string" || !channelId) {
+          if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+          throw new Error("Slack channel id missing for system notice");
+        }
+        const threadTs =
+          typeof incoming.platformContext.threadTs === "string"
+            ? incoming.platformContext.threadTs
+            : undefined;
+        await postFresh(token, channelId, threadTs, {
+          text,
+          unfurl_links: false,
+          unfurl_media: false,
+          mrkdwn: true,
+        });
+      } catch (error) {
+        // A failed delivery did not inform the sender, so release the slot and
+        // allow the next message to retry instead of suppressing notices for a day.
+        if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
+        throw error;
       }
     },
 
@@ -1038,6 +1165,113 @@ async function slackJson(
   }
 }
 
+function slackIdentityCacheKey(incoming: IncomingMessage): string | null {
+  const teamId = incoming.platformContext.teamId;
+  const senderId = incoming.senderId;
+  if (typeof senderId !== "string" || !senderId.trim()) return null;
+  return `${typeof teamId === "string" && teamId ? teamId : "unknown"}:${senderId}`;
+}
+
+async function resolveSlackUserIdentity(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<SlackUserIdentity | null> {
+  const cacheKey = slackIdentityCacheKey(incoming);
+  if (!cacheKey) return null;
+  const cached = slackIdentityCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.identity;
+  if (cached) slackIdentityCache.delete(cacheKey);
+
+  const user = await slackJson(
+    token,
+    "users.info",
+    { user: incoming.senderId! },
+    SLACK_IDENTITY_TIMEOUT_MS,
+  );
+  const profile = user?.user?.profile;
+  const identity: SlackUserIdentity | null = user?.user
+    ? {
+        email:
+          typeof profile?.email === "string" && profile.email.trim()
+            ? profile.email.trim().toLowerCase()
+            : null,
+        name:
+          typeof profile?.real_name === "string" && profile.real_name.trim()
+            ? profile.real_name.trim()
+            : typeof profile?.display_name === "string" &&
+                profile.display_name.trim()
+              ? profile.display_name.trim()
+              : typeof user.user.real_name === "string" &&
+                  user.user.real_name.trim()
+                ? user.user.real_name.trim()
+                : typeof user.user.name === "string" && user.user.name.trim()
+                  ? user.user.name.trim()
+                  : null,
+        // is_stranger marks Slack Connect DM participants from another
+        // workspace; they must map to "external", never "member".
+        memberType:
+          user.user.is_stranger || user.user.is_ultra_restricted
+            ? "external"
+            : user.user.is_restricted
+              ? "guest"
+              : user.user.is_owner
+                ? "owner"
+                : user.user.is_admin
+                  ? "admin"
+                  : "member",
+      }
+    : null;
+  if (slackIdentityCache.size >= SLACK_IDENTITY_CACHE_MAX_ENTRIES) {
+    const oldestKey = slackIdentityCache.keys().next().value;
+    if (oldestKey) slackIdentityCache.delete(oldestKey);
+  }
+  slackIdentityCache.set(cacheKey, {
+    identity,
+    expiresAt:
+      Date.now() +
+      (identity
+        ? SLACK_IDENTITY_CACHE_TTL_MS
+        : SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS),
+  });
+  return identity;
+}
+
+async function hydrateSlackIdentity(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<IncomingMessage> {
+  const identity = await resolveSlackUserIdentity(token, incoming);
+  if (!identity) {
+    // Context hydration can call users.info again after the webhook identity
+    // pass. A transient failure on that second lookup is not evidence that a
+    // previously verified sender became unverified; preserve the stronger
+    // identity instead of replacing it with a negative-cache result.
+    if (
+      incoming.senderVerified === true &&
+      incoming.senderEmail?.trim() &&
+      incoming.actorTrust?.verified === true
+    ) {
+      return incoming;
+    }
+    return {
+      ...incoming,
+      senderVerified: false,
+      actorTrust: { memberType: "unknown", verified: false },
+    };
+  }
+  return {
+    ...incoming,
+    ...(identity.name ? { senderName: identity.name } : {}),
+    ...(identity.email
+      ? { senderEmail: identity.email, senderVerified: true }
+      : { senderVerified: false }),
+    actorTrust: {
+      memberType: identity.memberType,
+      verified: true,
+    },
+  };
+}
+
 async function hydrateSlackContext(
   token: string,
   incoming: IncomingMessage,
@@ -1049,7 +1283,7 @@ async function hydrateSlackContext(
     return incoming;
   }
 
-  const [thread, history, pins, conversation, user] = await Promise.all([
+  const [thread, history, pins, conversation, identity] = await Promise.all([
     slackJson(token, "conversations.replies", {
       channel: channelId,
       ts: threadTs,
@@ -1063,7 +1297,7 @@ async function hydrateSlackContext(
     }),
     slackJson(token, "pins.list", { channel: channelId }),
     slackJson(token, "conversations.info", { channel: channelId }),
-    senderId ? slackJson(token, "users.info", { user: senderId }) : null,
+    senderId ? resolveSlackUserIdentity(token, incoming) : null,
   ]);
 
   // Agent View can attach the Slack surface the user is currently viewing to
@@ -1154,9 +1388,7 @@ async function hydrateSlackContext(
       })
     : [];
 
-  const profile = user?.user?.profile;
-  const isGuest = user?.user?.is_restricted === true;
-  const isExternal = user?.user?.is_ultra_restricted === true;
+  const profile = identity;
   const isPrivate = conversation?.channel?.is_private === true;
   const isExternalShared = conversation?.channel?.is_ext_shared === true;
   const isMpim = conversation?.channel?.is_mpim === true;
@@ -1199,19 +1431,20 @@ async function hydrateSlackContext(
   );
   return {
     ...incoming,
-    ...(typeof profile?.display_name === "string" && profile.display_name
-      ? { senderName: profile.display_name }
-      : typeof profile?.real_name === "string" && profile.real_name
-        ? { senderName: profile.real_name }
-        : {}),
-    ...(typeof profile?.email === "string"
+    ...(profile?.name ? { senderName: profile.name } : {}),
+    ...(profile?.email
       ? { senderEmail: profile.email, senderVerified: true }
-      : {}),
+      : { senderVerified: false }),
     conversationType,
-    actorTrust: {
-      memberType: isExternal ? "external" : isGuest ? "guest" : "member",
-      verified: true,
-    },
+    // Conversation hydration must not promote a caller when users.info was
+    // unavailable. Preserve the result of the earlier identity-only hydration
+    // unless this request independently resolved the Slack user.
+    actorTrust: identity
+      ? { memberType: identity.memberType, verified: true }
+      : (incoming.actorTrust ?? {
+          memberType: "unknown",
+          verified: false,
+        }),
     contextMessages: hydratedMessages,
     ...(hydratedFiles.length ? { files: hydratedFiles.slice(0, 20) } : {}),
     platformContext: {
@@ -1238,6 +1471,42 @@ function shortTaskTitle(value: unknown): string {
   return text.replace(/[-_]/g, " ").slice(0, 200);
 }
 
+function delegatedTaskTitle(agent: unknown): string {
+  return `Contact ${shortTaskTitle(agent)}`;
+}
+
+function formatElapsedSeconds(elapsedSeconds: number): string {
+  const totalSeconds = Math.max(0, Math.round(elapsedSeconds));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
+function formatProgressState(state: string): string {
+  if (state === "submitted") return "Queued";
+  if (state === "working") return "Working";
+  return shortTaskTitle(state);
+}
+
+function delegatedProgressDetails(
+  agent: unknown,
+  state: string,
+  elapsedSeconds: number,
+  detail?: string,
+): string {
+  const elapsed = formatElapsedSeconds(elapsedSeconds);
+  const progress = `${formatProgressState(state)} · ${elapsed}`;
+  const update = detail ? shortTaskTitle(detail) : "";
+
+  if (elapsedSeconds >= SLACK_CALM_PROGRESS_THRESHOLD_SECONDS) {
+    const agentName = shortTaskTitle(agent);
+    const context = update ? ` — ${update}.` : ".";
+    return `${progress}${context} This is taking longer than usual, but ${agentName} is still working. I’ll post the result here.`;
+  }
+
+  return update ? `${progress} — ${update}` : progress;
+}
+
 async function postSlackJson(
   token: string,
   method: string,
@@ -1256,6 +1525,21 @@ async function postSlackJson(
   return data;
 }
 
+function streamFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  return /^[a-z0-9_:-]{1,80}$/i.test(message) ? message : "unknown";
+}
+
+function streamChunkType(chunk: Record<string, unknown>): string {
+  const type = chunk.type;
+  return type === "task_update" ||
+    type === "plan_update" ||
+    type === "markdown_text" ||
+    type === "blocks"
+    ? type
+    : "unknown";
+}
+
 async function startSlackRunProgress(
   token: string,
   incoming: IncomingMessage,
@@ -1272,31 +1556,65 @@ async function startSlackRunProgress(
       ...(incoming.tenantId ? { recipient_team_id: incoming.tenantId } : {}),
       ...(incoming.senderId ? { recipient_user_id: incoming.senderId } : {}),
       task_display_mode: "plan",
-      markdown_text: "Working on your request…",
+      markdown_text: "I’m looking into this for you.",
       chunks: [
         {
           type: "plan_update",
-          title: "Working on your request",
+          title: "I’m looking into this for you",
         },
         {
           type: "task_update",
           id: "agent-native:context",
-          title: "Understand the request",
+          title: "Review the request",
           status: "in_progress",
-          details: "Loading relevant context",
+          details: "Finding the information needed for an answer",
         },
       ],
     });
-  } catch {
+  } catch (error) {
+    console.warn("[slack] chat.startStream failed; using standard reply", {
+      errorCode: streamFailureCode(error),
+      isDirectMessage: incoming.conversationType === "dm",
+      hasRecipientTeam: Boolean(incoming.tenantId),
+      hasRecipientUser: Boolean(incoming.senderId),
+    });
     return null;
   }
 
   const streamTs = started.ts;
   if (typeof streamTs !== "string") return null;
+  return createSlackRunProgress(token, incoming, channel, threadTs, streamTs);
+}
+
+function isSlackStreamProgressRef(ref: PlatformRunProgressRef): boolean {
+  return (
+    ref.kind === "slack-stream" && /^\d{1,20}\.\d{1,9}$/.test(ref.streamTs)
+  );
+}
+
+async function resumeSlackRunProgress(
+  token: string,
+  incoming: IncomingMessage,
+  streamTs: string,
+): Promise<PlatformRunProgress | null> {
+  const channel = incoming.platformContext.channelId;
+  const threadTs = incoming.platformContext.threadTs;
+  if (typeof channel !== "string" || typeof threadTs !== "string") return null;
+  return createSlackRunProgress(token, incoming, channel, threadTs, streamTs);
+}
+
+function createSlackRunProgress(
+  token: string,
+  incoming: IncomingMessage,
+  channel: string,
+  threadTs: string,
+  streamTs: string,
+): PlatformRunProgress {
   const tasks = new Map<string, { title: string; status: string }>();
   const toolTaskIds = new Map<string, string>();
+  const agentTaskIds = new Map<string, string>();
   tasks.set("agent-native:context", {
-    title: "Understand the request",
+    title: "Review the request",
     status: "in_progress",
   });
   let sequence = 0;
@@ -1310,12 +1628,22 @@ async function startSlackRunProgress(
     const now = Date.now();
     const write = async (value: Record<string, unknown>) => {
       lastWriteAt = Date.now();
-      await postSlackJson(token, "chat.appendStream", {
-        channel,
-        ts: streamTs,
-        markdown_text: "Progress updated.",
-        chunks: [value],
-      }).catch(() => {});
+      try {
+        await postSlackJson(token, "chat.appendStream", {
+          channel,
+          ts: streamTs,
+          markdown_text: "Progress updated.",
+          chunks: [value],
+        });
+      } catch (error) {
+        console.warn(
+          "[slack] chat.appendStream failed; progress may be stale",
+          {
+            chunkType: streamChunkType(value),
+            errorCode: streamFailureCode(error),
+          },
+        );
+      }
     };
     if (now - lastWriteAt >= 900) {
       await write(chunk);
@@ -1339,6 +1667,7 @@ async function startSlackRunProgress(
     `${prefix}:${explicit || ++sequence}`.slice(0, 240);
 
   return {
+    ref: { kind: "slack-stream", streamTs },
     async onEvent(event) {
       if (!cancelControl) {
         const context = getIntegrationRequestContext();
@@ -1443,23 +1772,57 @@ async function startSlackRunProgress(
           status: event.isError ? "error" : "complete",
         });
       } else if (event.type === "agent_call") {
-        const id = taskId("agent", event.agent);
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
         const status =
           event.status === "start"
             ? "in_progress"
             : event.status === "done"
               ? "complete"
               : "error";
-        const title = `Ask ${shortTaskTitle(event.agent)}`;
+        const title = delegatedTaskTitle(event.agent);
         tasks.set(id, { title, status });
-        await append({ type: "task_update", id, title, status });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status,
+          ...(event.status === "start"
+            ? {
+                details: `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
+              }
+            : {}),
+        });
+      } else if (event.type === "agent_call_progress") {
+        // A2A calls can stay healthy for minutes. Keep the same native Slack
+        // task card alive with each real downstream poll rather than creating
+        // a new card per tick or leaving the user with a stale spinner.
+        const id =
+          agentTaskIds.get(event.agent) ?? taskId("agent", event.agent);
+        agentTaskIds.set(event.agent, id);
+        const title = delegatedTaskTitle(event.agent);
+        const details = delegatedProgressDetails(
+          event.agent,
+          event.state,
+          event.elapsedSeconds,
+          event.detail,
+        );
+        tasks.set(id, { title, status: "in_progress" });
+        await append({
+          type: "task_update",
+          id,
+          title,
+          status: "in_progress",
+          details,
+        });
       } else if (event.type === "activity") {
         await append({
           type: "task_update",
           id: "agent-native:context",
-          title: "Understand the request",
+          title: "Review the request",
           status: "in_progress",
-          details: shortTaskTitle(event.label),
+          details: `Working · ${shortTaskTitle(event.label)}`,
         });
       }
     },

@@ -271,9 +271,23 @@ const enUS = {
       agents: "Agents",
       vault: "Vault",
       audit: "Audit",
+      operations: "Operations",
     },
     pages: {
+      dataLoadFailed: "Couldn't load data",
+      dataLoadFailedDescription: "Dispatch couldn't load this data.",
+      tryAgain: "Try again",
       also: "Also",
+      monitoring: "Monitoring",
+      database: "Database",
+      chatAcrossApps: "Chat across your apps",
+      chatAcrossAppsDescription:
+        "Route work, inspect status, or create something new from one place.",
+      overviewPromptPlaceholder: "Ask Dispatch anything...",
+      chatPromptPlaceholder: "Ask Dispatch...",
+      suggestionWorkspaceHealth: "Summarize the current workspace health",
+      suggestionOnboardingApp: "Create an app for onboarding requests",
+      suggestionAnalyticsAgents: "Check which agents can help with analytics",
       workspaceShortcutsAria: "Workspace shortcuts",
       deliveryQueue: "Delivery queue",
       failedLastHour: "{{count}} failed in the last hour",
@@ -300,7 +314,13 @@ type PartialMessages = {
         managed?: Partial<Messages["messaging"]["managed"]> &
           Record<string, unknown>;
       } & Record<string, unknown>
-    : Partial<Messages[K]> & Record<string, unknown>;
+    : K extends "dispatch"
+      ? {
+          nav?: Partial<Messages["dispatch"]["nav"]> & Record<string, unknown>;
+          pages?: Partial<Messages["dispatch"]["pages"]> &
+            Record<string, unknown>;
+        } & Record<string, unknown>
+      : Partial<Messages[K]> & Record<string, unknown>;
 };
 
 function mergeMessages(overrides: PartialMessages): Messages {
@@ -635,9 +655,22 @@ export const messagesByLocale = {
         agents: "代理",
         vault: "保险库",
         audit: "审计",
+        operations: "运营",
       },
       pages: {
+        dataLoadFailed: "无法加载数据",
+        dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
+        tryAgain: "重试",
         also: "还有",
+        monitoring: "监控",
+        database: "数据库",
+        chatAcrossApps: "跨应用聊天",
+        chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
+        overviewPromptPlaceholder: "向 Dispatch 提问...",
+        chatPromptPlaceholder: "询问 Dispatch...",
+        suggestionWorkspaceHealth: "总结当前工作区运行状况",
+        suggestionOnboardingApp: "为入职请求创建一个应用",
+        suggestionAnalyticsAgents: "查看哪些代理可以协助分析",
         workspaceShortcutsAria: "工作区快捷入口",
         deliveryQueue: "投递队列",
         failedLastHour: "过去一小时失败 {{count}} 次",
@@ -941,9 +974,26 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Bóveda",
         audit: "Auditoría",
+        operations: "Operaciones",
       },
       pages: {
+        dataLoadFailed: "No se pudieron cargar los datos",
+        dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
+        tryAgain: "Intentar de nuevo",
         also: "También",
+        monitoring: "Monitorización",
+        database: "Base de datos",
+        chatAcrossApps: "Chatea con todas tus aplicaciones",
+        chatAcrossAppsDescription:
+          "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
+        overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
+        chatPromptPlaceholder: "Pregunta a Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resume el estado actual del espacio de trabajo",
+        suggestionOnboardingApp:
+          "Crea una app para solicitudes de incorporación",
+        suggestionAnalyticsAgents:
+          "Comprueba qué agentes pueden ayudar con analítica",
         workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
         deliveryQueue: "Cola de entrega",
         failedLastHour: "{{count}} fallos en la última hora",
@@ -1248,9 +1298,26 @@ export const messagesByLocale = {
         agents: "Agents",
         vault: "Coffre",
         audit: "Audit",
+        operations: "Opérations",
       },
       pages: {
+        dataLoadFailed: "Impossible de charger les données",
+        dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
+        tryAgain: "Réessayer",
         also: "Aussi",
+        monitoring: "Surveillance",
+        database: "Base de données",
+        chatAcrossApps: "Discutez avec toutes vos applications",
+        chatAcrossAppsDescription:
+          "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
+        overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
+        chatPromptPlaceholder: "Demandez à Dispatch…",
+        suggestionWorkspaceHealth:
+          "Résumer l’état actuel de l’espace de travail",
+        suggestionOnboardingApp:
+          "Créer une app pour les demandes d’intégration",
+        suggestionAnalyticsAgents:
+          "Vérifier quels agents peuvent aider avec l’analytique",
         workspaceShortcutsAria: "Raccourcis de l’espace de travail",
         deliveryQueue: "File de livraison",
         failedLastHour: "{{count}} échecs au cours de la dernière heure",
@@ -1544,9 +1611,25 @@ export const messagesByLocale = {
         agents: "Agenten",
         vault: "Tresor",
         audit: "Audit",
+        operations: "Betrieb",
       },
       pages: {
+        dataLoadFailed: "Daten konnten nicht geladen werden",
+        dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
+        tryAgain: "Erneut versuchen",
         also: "Außerdem",
+        monitoring: "Überwachung",
+        database: "Datenbank",
+        chatAcrossApps: "App-übergreifend chatten",
+        chatAcrossAppsDescription:
+          "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
+        overviewPromptPlaceholder: "Frage Dispatch alles...",
+        chatPromptPlaceholder: "Dispatch fragen...",
+        suggestionWorkspaceHealth:
+          "Aktuellen Zustand des Workspace zusammenfassen",
+        suggestionOnboardingApp: "Eine App für Onboarding-Anfragen erstellen",
+        suggestionAnalyticsAgents:
+          "Prüfen, welche Agenten bei Analysen helfen können",
         workspaceShortcutsAria: "Workspace-Kurzbefehle",
         deliveryQueue: "Zustellungswarteschlange",
         failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
@@ -1837,9 +1920,24 @@ export const messagesByLocale = {
         agents: "エージェント",
         vault: "ボールト",
         audit: "監査",
+        operations: "運用",
       },
       pages: {
+        dataLoadFailed: "データを読み込めませんでした",
+        dataLoadFailedDescription:
+          "Dispatch はこのデータを読み込めませんでした。",
+        tryAgain: "もう一度試す",
         also: "その他",
+        monitoring: "監視",
+        database: "データベース",
+        chatAcrossApps: "アプリを横断してチャット",
+        chatAcrossAppsDescription:
+          "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
+        overviewPromptPlaceholder: "Dispatch に何でも質問...",
+        chatPromptPlaceholder: "Dispatch に質問...",
+        suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
+        suggestionOnboardingApp: "オンボーディング依頼用のアプリを作成",
+        suggestionAnalyticsAgents: "分析を支援できるエージェントを確認",
         workspaceShortcutsAria: "ワークスペースのショートカット",
         deliveryQueue: "配信キュー",
         failedLastHour: "過去 1 時間で {{count}} 件失敗",
@@ -2127,9 +2225,24 @@ export const messagesByLocale = {
         agents: "에이전트",
         vault: "볼트",
         audit: "감사",
+        operations: "운영",
       },
       pages: {
+        dataLoadFailed: "데이터를 불러올 수 없습니다",
+        dataLoadFailedDescription:
+          "Dispatch에서 이 데이터를 불러오지 못했습니다.",
+        tryAgain: "다시 시도",
         also: "또한",
+        monitoring: "모니터링",
+        database: "데이터베이스",
+        chatAcrossApps: "앱 전체에서 채팅",
+        chatAcrossAppsDescription:
+          "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
+        overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
+        chatPromptPlaceholder: "Dispatch에 질문...",
+        suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
+        suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
+        suggestionAnalyticsAgents: "분석을 지원할 수 있는 에이전트 확인",
         workspaceShortcutsAria: "워크스페이스 바로가기",
         deliveryQueue: "전달 대기열",
         failedLastHour: "지난 1시간 동안 {{count}}건 실패",
@@ -2429,9 +2542,26 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Cofre",
         audit: "Auditoria",
+        operations: "Operações",
       },
       pages: {
+        dataLoadFailed: "Não foi possível carregar os dados",
+        dataLoadFailedDescription:
+          "O Dispatch não conseguiu carregar estes dados.",
+        tryAgain: "Tentar novamente",
         also: "Também",
+        monitoring: "Monitoramento",
+        database: "Banco de dados",
+        chatAcrossApps: "Converse entre seus apps",
+        chatAcrossAppsDescription:
+          "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
+        overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
+        chatPromptPlaceholder: "Pergunte ao Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resumir a integridade atual do espaço de trabalho",
+        suggestionOnboardingApp: "Criar um app para solicitações de integração",
+        suggestionAnalyticsAgents:
+          "Verificar quais agentes podem ajudar com análises",
         workspaceShortcutsAria: "Atalhos do espaço de trabalho",
         deliveryQueue: "Fila de entrega",
         failedLastHour: "{{count}} falhas na última hora",
@@ -2714,9 +2844,23 @@ export const messagesByLocale = {
         agents: "एजेंट",
         vault: "वॉल्ट",
         audit: "ऑडिट",
+        operations: "संचालन",
       },
       pages: {
+        dataLoadFailed: "डेटा लोड नहीं हो सका",
+        dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
+        tryAgain: "फिर से कोशिश करें",
         also: "और भी",
+        monitoring: "निगरानी",
+        database: "डेटाबेस",
+        chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
+        chatAcrossAppsDescription:
+          "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
+        overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
+        chatPromptPlaceholder: "Dispatch से पूछें...",
+        suggestionWorkspaceHealth: "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
+        suggestionOnboardingApp: "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
+        suggestionAnalyticsAgents: "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
         workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
         deliveryQueue: "डिलीवरी कतार",
         failedLastHour: "पिछले घंटे में {{count}} विफल",
@@ -3037,9 +3181,24 @@ export const messagesByLocale = {
         agents: "الوكلاء",
         vault: "الخزنة",
         audit: "التدقيق",
+        operations: "التشغيل",
       },
       pages: {
+        dataLoadFailed: "تعذر تحميل البيانات",
+        dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
+        tryAgain: "حاول مرة أخرى",
         also: "أيضًا",
+        monitoring: "المراقبة",
+        database: "قاعدة البيانات",
+        chatAcrossApps: "تحدث عبر تطبيقاتك",
+        chatAcrossAppsDescription:
+          "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
+        overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
+        chatPromptPlaceholder: "اسأل Dispatch...",
+        suggestionWorkspaceHealth: "لخّص حالة مساحة العمل الحالية",
+        suggestionOnboardingApp: "أنشئ تطبيقًا لطلبات الإعداد",
+        suggestionAnalyticsAgents:
+          "تحقق من الوكلاء الذين يمكنهم المساعدة في التحليلات",
         workspaceShortcutsAria: "اختصارات مساحة العمل",
         deliveryQueue: "قائمة انتظار التسليم",
         failedLastHour: "{{count}} فشل خلال الساعة الماضية",

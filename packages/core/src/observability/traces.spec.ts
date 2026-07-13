@@ -226,6 +226,13 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       threadId: "thread-ai-1",
       userId: "user@example.com",
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      experimentAssignments: [
+        {
+          experimentId: "hosted-model-test",
+          variantId: "gpt-5-6-luna",
+        },
+      ],
+      modelSelectionSource: "experiment",
     });
 
     await new Promise((r) => setTimeout(r, 0));
@@ -250,6 +257,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       tool_calls: 1,
       successful_tools: 1,
       failed_tools: 0,
+      model_selection_source: "experiment",
+      experiment_id: "hosted-model-test",
+      experiment_variant: "gpt-5-6-luna",
+      experiment_ids: "hosted-model-test",
+      experiment_variants: "gpt-5-6-luna",
       $ai_trace_id: "run-ai-1",
       $ai_session_id: "thread-ai-1",
       $ai_model: "claude-test",

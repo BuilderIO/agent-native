@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { agentNativePath } from "./api-path.js";
+import { useChangeVersion } from "./use-change-version.js";
 
 export const APPEARANCE_PRESETS = [
   { id: "default", label: "Default", swatch: "hsl(220 10% 30%)" },
@@ -96,8 +97,10 @@ export function useAppearance(): AppearancePresetId {
 }
 
 /**
- * Polls `application_state.appearance` and applies the server-side preset on
- * the client. Use once near the root of the app (e.g. in your `AppLayout`).
+ * Reads `application_state.appearance` and applies the server-side preset on
+ * the client. The shared DB-sync transport advances the key-specific version
+ * after a write, so this performs one initial read and then only refetches when
+ * appearance actually changes.
  *
  * The agent's `change-appearance` action writes to `application_state.appearance`
  * server-side; this hook surfaces that write into the DOM `data-appearance`
@@ -105,8 +108,9 @@ export function useAppearance(): AppearancePresetId {
  * choice persists across reloads.
  */
 export function useAppearanceSync(): void {
+  const appearanceVersion = useChangeVersion("app-state:appearance");
   const { data } = useQuery({
-    queryKey: ["agent-native", "appearance"],
+    queryKey: ["agent-native", "appearance", appearanceVersion],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath("/_agent-native/application-state/appearance"),
@@ -115,8 +119,7 @@ export function useAppearanceSync(): void {
       if (!res.ok) return null;
       return (await res.json()) as { preset?: string } | null;
     },
-    refetchInterval: 4_000,
-    staleTime: 2_000,
+    staleTime: Infinity,
   });
   const serverPreset = data?.preset;
   useEffect(() => {

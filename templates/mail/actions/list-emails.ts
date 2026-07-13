@@ -5,18 +5,15 @@ import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
 import {
-  buildGmailEmailSearchQuery,
-  filterInboxScopedThreadMessages,
-} from "../server/lib/gmail-query.js";
-import {
   getClients,
-  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
-  listGmailMessages,
-  gmailToEmailMessage,
   fetchGmailLabelMap,
   isConnected,
 } from "../server/lib/google-auth.js";
-import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
+import {
+  getSnoozedThreadIds,
+  getSyntheticEmailsForView,
+} from "../server/lib/jobs.js";
+import { listInboxEmails } from "../server/lib/list-inbox-emails.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -188,34 +185,31 @@ export default defineAction({
         }),
       );
 
-      const gmailQuery = buildGmailEmailSearchQuery({ view, q: query });
-      const effectiveQuery =
-        view === "all" && !query ? "" : gmailQuery || "in:inbox -in:sent";
-      const { messages, errors, resultSizeEstimate } = await listGmailMessages(
-        effectiveQuery,
-        limit,
+      const listResult = await listInboxEmails({
         ownerEmail,
-        undefined,
-        {
-          mode: "threads",
-          threadCandidateLimit: query ? 500 : undefined,
-          threadRecentMessageCandidateLimit:
-            !query && (view === "inbox" || view === "unread")
-              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
-              : undefined,
-        },
-      );
+        view,
+        q: query,
+        limit,
+        threadFormat: "full",
+        threadCandidateLimit: query ? 500 : undefined,
+        accountTokens: clients,
+        labelMap,
+      });
 
-      if (errors.length > 0 && messages.length === 0) {
-        throw new Error(errors.map((e) => `${e.email}: ${e.error}`).join("; "));
+      if (!listResult.ok) {
+        return JSON.stringify(
+          {
+            error: listResult.message,
+            ...(listResult.isQuotaError && {
+              retryAfterSeconds: listResult.retryAfterSeconds,
+            }),
+          },
+          null,
+          2,
+        );
       }
 
-      let emails = messages
-        .map((m) => gmailToEmailMessage(m, m._accountEmail, labelMap))
-        .sort(
-          (a: any, b: any) =>
-            new Date(b.date).getTime() - new Date(a.date).getTime(),
-        );
+      let emails: any[] = listResult.emails;
 
       if (accountFilter) {
         emails = emails.filter(
@@ -223,7 +217,6 @@ export default defineAction({
         );
       }
 
-      emails = filterInboxScopedThreadMessages(emails, view);
       emails = latestPerThread(emails).slice(0, limit);
 
       const payload = compact ? toCompact(emails) : emails;
@@ -233,8 +226,8 @@ export default defineAction({
             emails: payload,
             threadCount: emails.length,
             unreadInPage: emails.filter((e: any) => e.hasUnread).length,
-            ...(resultSizeEstimate !== undefined && {
-              totalEstimate: resultSizeEstimate,
+            ...(listResult.resultSizeEstimate !== undefined && {
+              totalEstimate: listResult.resultSizeEstimate,
             }),
           },
           null,
@@ -282,6 +275,17 @@ export default defineAction({
 
     if (query) {
       emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
+    }
+
+    // Filter out snoozed emails, matching the REST handler's demo-mode
+    // behavior. Skip when searching so snoozed hits surface too.
+    if (!query && (view === "inbox" || view === "unread")) {
+      const snoozedIds = await getSnoozedThreadIds(ownerEmail);
+      if (snoozedIds.size > 0) {
+        emails = emails.filter(
+          (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
+        );
+      }
     }
 
     emails = latestPerThread(emails).slice(0, limit);

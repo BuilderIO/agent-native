@@ -331,7 +331,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .feedback-popover-content[data-state="closed"] {
-  animation: feedback-popover-out 90ms ease-in;
+  animation: feedback-popover-out 90ms ease-out;
 }
 
 .feedback-form {
@@ -1084,19 +1084,40 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .rec-dot-live {
+  position: relative;
   background: white;
+}
+
+.rec-dot-live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.6);
   animation: rec-live-pulse 1.2s ease-out infinite;
+  pointer-events: none;
 }
 
 @keyframes rec-live-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+    transform: scale(1);
+    opacity: 1;
   }
   70% {
-    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0);
+    transform: scale(2.4);
+    opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot-live::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
   }
 }
 
@@ -1630,13 +1651,16 @@ body[data-clips-route="recording-pill"] #root {
   max-width: 320px;
 }
 
-.tooltip-content[data-state="delayed-open"],
-.tooltip-content[data-state="instant-open"] {
+.tooltip-content[data-state="delayed-open"] {
   animation: tooltip-in 120ms ease-out;
 }
 
+.tooltip-content[data-state="instant-open"] {
+  animation: none;
+}
+
 .tooltip-content[data-state="closed"] {
-  animation: tooltip-out 90ms ease-in;
+  animation: tooltip-out 90ms ease-out;
 }
 
 .tooltip-arrow {
@@ -2040,21 +2064,19 @@ body[data-clips-route="recording-pill"] #root {
   padding: 0 8px;
 }
 
-.pending-upload-discard {
+.pending-upload-dismiss {
   width: 28px;
   height: 28px;
-  border: 1px solid #bfdbfe;
+  border: 0;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.76);
-  color: #2563eb;
+  background: transparent;
+  color: #3b5f9a;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   transition:
-    background 120ms,
-    border-color 120ms,
     color 120ms,
     opacity 120ms;
 }
@@ -2093,16 +2115,14 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
-.pending-upload-discard:hover {
-  background: #fee2e2;
-  border-color: #fecaca;
-  color: #b91c1c;
+.pending-upload-dismiss:hover {
+  color: #1e3a8a;
 }
 
 .pending-upload-retry:disabled,
 .pending-upload-connect:disabled,
 .pending-upload-folder:disabled,
-.pending-upload-discard:disabled {
+.pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
 }
@@ -2288,10 +2308,8 @@ body[data-clips-route="recording-pill"] #root {
     color: #dbeafe;
   }
 
-  .pending-upload-discard {
-    background: rgba(23, 23, 23, 0.58);
-    border-color: rgba(96, 165, 250, 0.38);
-    color: #bfdbfe;
+  .pending-upload-dismiss {
+    color: #93c5fd;
   }
 
   .pending-upload-folder {
@@ -2315,10 +2333,8 @@ body[data-clips-route="recording-pill"] #root {
     border-color: rgba(147, 197, 253, 0.62);
   }
 
-  .pending-upload-discard:hover {
-    background: rgba(127, 29, 29, 0.34);
-    border-color: rgba(248, 113, 113, 0.62);
-    color: #fecaca;
+  .pending-upload-dismiss:hover {
+    color: #dbeafe;
   }
 
   .error-banner {
@@ -2535,12 +2551,9 @@ body[data-clips-route="recording-pill"] #root {
 /* ------------------------------------------------------------------------- */
 
 /*
- * Full-screen transparent overlay shown after the user clicks Stop and
- * before the browser opens at /r/:id. The Tauri window is transparent +
- * decorations-less (see `show_finalizing` in lib.rs), so we paint a
- * compact card tucked into the bottom-left with a spinner and caption.
- * The window also has ignore_cursor_events(true), so clicks pass through
- * to whatever is beneath and the progress card stays out of the way.
+ * Compact transparent window shown after the user clicks Stop. Keeping the OS
+ * window close to the card's bounds lets its open/dismiss controls stay
+ * interactive without blocking the rest of the screen.
  */
 .finalizing-root {
   position: fixed;
@@ -2548,17 +2561,16 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 24px;
+  padding: 10px;
   background: transparent;
-  pointer-events: none;
 }
 
 .finalizing-card {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px 10px;
-  width: min(320px, calc(100vw - 48px));
+  width: 100%;
   padding: 12px 14px;
   border-radius: 16px;
   background: rgba(20, 22, 28, 0.94);
@@ -2585,6 +2597,20 @@ body[data-clips-route="recording-pill"] #root {
   animation: finalizing-spin 0.9s linear infinite;
 }
 
+.finalizing-status-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+
+.finalizing-status-icon-success {
+  color: #8ce99a;
+}
+
+.finalizing-status-icon-failed {
+  color: #ffb4a8;
+}
+
 @keyframes finalizing-spin {
   to {
     transform: rotate(360deg);
@@ -2598,6 +2624,45 @@ body[data-clips-route="recording-pill"] #root {
   letter-spacing: 0.1px;
   color: white;
   text-align: left;
+}
+
+.finalizing-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.finalizing-action {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.64);
+  cursor: pointer;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.finalizing-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.finalizing-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 1px;
+}
+
+.finalizing-action svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
 }
 
 .finalizing-progress {
@@ -2731,29 +2796,37 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .rec-pulse {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
-  animation: rec-pulse 1.4s ease-out infinite;
+}
+
+.rec-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(239, 68, 68, 0.6);
+  animation: rec-live-pulse 1.4s ease-out infinite;
+  pointer-events: none;
 }
 
 .rec-pulse-paused {
   background: #f59e0b;
-  animation: none;
-  box-shadow: none;
 }
 
-@keyframes rec-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+.rec-pulse-paused::after {
+  animation: none;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-pulse::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
   }
 }
 
@@ -2792,9 +2865,7 @@ body[data-clips-route="recording-pill"] #root {
   user-select: none;
   -webkit-user-select: none;
   cursor: grab;
-  transition:
-    height 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: border-radius 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .toolbar-v:hover,
@@ -2912,8 +2983,6 @@ body[data-clips-route="recording-pill"] #root {
   pointer-events: none;
   visibility: hidden;
   transition:
-    height 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    margin-top 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 130ms ease-out,
     transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -3408,14 +3477,14 @@ body[data-clips-route="recording-pill"] #root {
  * Slots into the top of the popover when an update is in flight or ready.
  * Two visual states:
  *  - pending: subtle inline row, just keeps the user informed.
- *  - ready:   accent color + actions (Later / Restart) since clicking
+ *  - ready:   accent color + actions (dismiss / Restart) since clicking
  *             Restart is the thing we actually want them to do.
  */
 .update-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 8px;
+  margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -3432,7 +3501,7 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-strong);
   color: var(--fg);
   border: 1px solid var(--border-strong, var(--border));
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .update-banner--error {
@@ -3472,6 +3541,27 @@ body[data-clips-route="recording-pill"] #root {
 .update-banner-btn--ghost:hover {
   background: var(--surface-hover, var(--surface));
   color: var(--fg);
+}
+
+.update-banner-btn--dismiss {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.update-banner-btn--dismiss:hover {
+  background: var(--surface-hover, var(--surface));
+  color: var(--fg);
+}
+
+.update-banner-btn--dismiss:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
 .update-banner-btn--primary {
@@ -3895,12 +3985,29 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .meeting-nub-dot {
+  position: relative;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #16a34a;
-  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55);
-  animation: rec-pulse 1.4s ease-out infinite;
+}
+
+.meeting-nub-dot::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(22, 163, 74, 0.55);
+  animation: rec-live-pulse 1.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meeting-nub-dot::after {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
+  }
 }
 
 .meeting-nub-initial {
