@@ -3109,23 +3109,14 @@ fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Resul
 }
 
 fn clear_saved_recording_after_success(app: &AppHandle, saved: &SavedNativeRecording) {
-    let result = if saved.custom_pipeline {
-        let cleanup_result = saved_recording_metadata_path(app, &saved.recording_id)
-            .and_then(|path| remove_saved_file(&path, "pending recording metadata"));
-        if cleanup_result.is_ok() {
-            eprintln!(
-                "[clips-tray] upload succeeded for {}; keeping custom pipeline local file at {}",
-                saved.recording_id,
-                saved.file_path.display()
-            );
-        }
-        cleanup_result
-    } else {
-        clear_saved_recording(app, saved)
-    };
-    if let Err(err) = result {
+    if let Err(err) = clear_saved_recording(app, saved) {
         eprintln!(
             "[clips-tray] upload succeeded for {}, but local pending recording cleanup failed: {err}",
+            saved.recording_id
+        );
+    } else {
+        eprintln!(
+            "[clips-tray] upload succeeded for {}; removed local recording file",
             saved.recording_id
         );
     }
