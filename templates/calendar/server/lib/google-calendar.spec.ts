@@ -414,6 +414,120 @@ describe("calendar event listing", () => {
     );
   });
 
+  it("validates and reads only the selected owned account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "primary@example.com",
+        tokens: {
+          access_token: "primary-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "quiet@example.com",
+        tokens: {
+          access_token: "quiet-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock.mockResolvedValue({ items: [] });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+      { accountEmails: ["QUIET@example.com"] },
+    );
+
+    expect(result).toEqual({ events: [], errors: [] });
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(1);
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "quiet-token",
+      "primary",
+      expect.objectContaining({ maxResults: 2500 }),
+    );
+  });
+
+  it("preserves a successful empty account alongside a failed account", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "quiet@example.com",
+        tokens: {
+          access_token: "quiet-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+      {
+        accountId: "failed@example.com",
+        tokens: {
+          access_token: "failed-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarListEventsMock.mockImplementation(async (token: string) => {
+      if (token === "failed-token") throw new Error("provider unavailable");
+      return { items: [] };
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(2);
+    expect(result.events).toEqual([]);
+    expect(result.errors).toEqual([
+      { email: "failed@example.com", error: "provider unavailable" },
+    ]);
+  });
+
+  it("bounds multi-account provider concurrency at four", async () => {
+    listOAuthAccountsByOwnerMock.mockResolvedValue(
+      Array.from({ length: 5 }, (_, index) => ({
+        accountId: `account-${index}@example.com`,
+        tokens: {
+          access_token: `token-${index}`,
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      })),
+    );
+    let active = 0;
+    let maxActive = 0;
+    calendarListEventsMock.mockImplementation(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      return { items: [] };
+    });
+
+    await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-13T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(calendarListEventsMock).toHaveBeenCalledTimes(5);
+    expect(maxActive).toBe(4);
+  });
+
+  it("rejects an unowned selection before any provider call", async () => {
+    calendarListEventsMock.mockClear();
+
+    await expect(
+      listEvents(
+        "2026-07-06T00:00:00Z",
+        "2026-07-13T00:00:00Z",
+        "owner@example.com",
+        { accountEmails: ["missing@example.com"] },
+      ),
+    ).rejects.toThrow("not connected");
+    expect(calendarListEventsMock).not.toHaveBeenCalled();
+  });
+
   it("maps Google working-location metadata from listed events", async () => {
     calendarListEventsMock.mockResolvedValueOnce({
       items: [
@@ -510,6 +624,47 @@ describe("calendar event listing", () => {
         displayName: "Host Person",
       },
     });
+  });
+
+  it("paginates overlay reads without losing later events", async () => {
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-1",
+            start: { dateTime: "2026-02-05T17:00:00Z" },
+            end: { dateTime: "2026-02-05T17:30:00Z" },
+          },
+        ],
+        nextPageToken: "overlay-page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "overlay-2",
+            start: { dateTime: "2026-02-05T18:00:00Z" },
+            end: { dateTime: "2026-02-05T18:30:00Z" },
+          },
+        ],
+      });
+
+    const result = await listOverlayEvents(
+      "2026-02-05T00:00:00Z",
+      "2026-02-06T00:00:00Z",
+      ["person@example.com"],
+      "owner@example.com",
+    );
+
+    expect(result.events.map((event) => event.googleEventId)).toEqual([
+      "overlay-1",
+      "overlay-2",
+    ]);
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "person@example.com",
+      expect.objectContaining({ pageToken: "overlay-page-2" }),
+    );
   });
 });
 

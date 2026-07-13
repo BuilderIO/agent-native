@@ -7,6 +7,18 @@ updates mail state through actions and application state.
 Detailed draft, queue, and contact-resolution patterns live in
 `.agents/skills/`.
 
+## Coverage-aware inventory reads
+
+`list-emails` remains the compatibility list action for the UI and internal
+callers. External MCP callers receive its structured inventory envelope by
+default (or pass `format: "inventory"`). Inventory reads use `accountEmails`
+for an explicit set; the legacy singular `account` alias cannot be combined
+with it. The response reports each account's success, empty result, exhaustion
+or bounded error, so partial coverage must never be described as complete.
+Inventory items are intentionally compact metadata only — use `get-email` or
+`get-thread` only after selecting a specific result when body content is
+needed.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
