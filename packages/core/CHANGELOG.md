@@ -1,5 +1,20 @@
 # @agent-native/core
 
+## 0.100.0
+
+### Minor Changes
+
+- 8e6f022: Add an Agent Jobs page tab for recurring jobs and personal automations, with scoped status views and management controls.
+- 8e6f022: Add the full-page Agent surface with scoped Context, Files, Connections, Jobs, and Access tabs, plus shared MCP connection guidance.
+- 8e6f022: Expose system-prompt sections in Context X-Ray and add a no-thread context preview with provenance, governance, and token breakdowns.
+
+### Patch Changes
+
+- 8e6f022: Document the full-page Agent surface, its tab responsibilities, and the in-app external-client Access flow.
+- 8e6f022: Align fullscreen chat thread width with the composer width.
+- 8e6f022: Preserve the registered root Google OAuth callback for workspace apps when deploy-time workspace metadata is available but a runtime relay flag is missing.
+- 8e6f022: Recover reasoning-only model completions before app-specific final-answer guards run, and keep guards anchored to the original user request across internal continuations.
+
 ## 0.99.3
 
 ### Patch Changes
