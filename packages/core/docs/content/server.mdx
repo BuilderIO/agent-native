@@ -269,7 +269,7 @@ The framework mounts its own routes under `/_agent-native/`. Treat that namespac
 | `/_agent-native/extensions/*`    | Runtime extensions and extension proxy (legacy alias: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Messaging/webhook integrations                                                  |
 | `/_agent-native/a2a`             | Agent-to-agent JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP endpoint                                                                    |
+| `/mcp`                           | MCP endpoint                                                                    |
 | `/_agent-native/onboarding/*`    | Setup checklist                                                                 |
 | `/_agent-native/observability/*` | Traces, feedback, evals, experiments                                            |
 | `/_agent-native/file-upload`     | File upload provider endpoint                                                   |
@@ -465,4 +465,4 @@ const handler = createProductionAgentHandler({
 - [**Database**](/docs/database) — the `getDb()`/`schema` pattern custom routes and actions both import
 - [**Security**](/docs/security#access-guards) — `accessFilter`/`assertAccess` and the full data-scoping model
 - [**Messaging**](/docs/messaging) — the canonical inbound-webhook integration queue pattern
-- [**MCP Protocol**](/docs/mcp-protocol) — the `/_agent-native/mcp` endpoint this server mounts automatically
+- [**MCP Protocol**](/docs/mcp-protocol) — the `/mcp` endpoint this server mounts automatically

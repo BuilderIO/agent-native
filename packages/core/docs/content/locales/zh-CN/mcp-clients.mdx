@@ -315,7 +315,9 @@ Dispatch 是传统的中心 - 它已经跨应用进行协调。
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">组织范围 MCP 服务器</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -477,7 +479,7 @@ Reports which configured servers connected, the total live tool count, the merge
 
 个别 MCP 服务器故障永远不会导致代理关闭：
 
-- 配置错误的 `command` → 服务器被跳过，其错误出现在 `errors.<server-id>` 下的 `/mcp/status` 中，而其他所有服务器继续工作。
+- 配置错误的 `command` → 服务器被跳过，其错误出现在 `errors.<server-id>` 下的 `/_agent-native/mcp/status` 中，而其他所有服务器继续工作。
 - `node_modules` 中缺少 MCP SDK → 所有 MCP 功能都会被跳过并出现警告；代理聊天可以使用零 MCP 工具继续工作。
 - 在边缘运行时中运行 → MCP 客户端是无操作的。
 

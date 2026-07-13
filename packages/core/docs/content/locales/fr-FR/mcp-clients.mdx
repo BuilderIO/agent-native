@@ -304,7 +304,9 @@ Dispatch est le hub conventionnel : il assure déjà la coordination entre les 
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">serveurs MCP au périmètre organisation</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -468,7 +470,7 @@ Utilisez ceci pour créer des conseils d'intégration « Claude-in-Chrome déte
 
 Les pannes individuelles du serveur MCP ne mettent jamais l'agent hors service :
 
-- Un `command` mal configuré → le serveur est ignoré, son erreur apparaît dans `/mcp/status` sous `errors.<server-id>` et tous les autres serveurs continuent de fonctionner.
+- Un `command` mal configuré → le serveur est ignoré, son erreur apparaît dans `/_agent-native/mcp/status` sous `errors.<server-id>` et tous les autres serveurs continuent de fonctionner.
 - Le MCP SDK est absent du `node_modules` → toutes les fonctionnalités du MCP sont ignorées avec un avertissement ; Le chat d'agent continue de fonctionner sans aucun outil MCP.
 - S'exécuter dans un environnement d'exécution Edge → Le client MCP ne fonctionne pas.
 

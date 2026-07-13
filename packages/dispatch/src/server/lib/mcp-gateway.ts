@@ -1,4 +1,4 @@
-import { callAgent, signA2AToken } from "@agent-native/core/a2a";
+import { A2AClient, signA2AToken, type Task } from "@agent-native/core/a2a";
 import {
   buildMcpToolName,
   McpClientManager,
@@ -30,6 +30,23 @@ const DISPATCH_DESCRIPTION =
 const DISPATCH_COLOR = "#14B8A6";
 const TARGET_EMBED_SESSION_ATTEMPTS = 3;
 const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
+const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
+const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
+const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
+const DISPATCH_ASK_APP_TERMINAL_STATES = new Set([
+  "completed",
+  "failed",
+  "canceled",
+  "input-required",
+]);
+
+class DispatchAskAppInlineDeadlineError extends Error {
+  constructor() {
+    super("ask_app inline wait deadline reached");
+    this.name = "DispatchAskAppInlineDeadlineError";
+  }
+}
 
 export interface DispatchMcpAccessibleApp {
   id: string;
@@ -42,6 +59,204 @@ export interface DispatchMcpAccessibleApp {
 
 function normalizeAppId(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function boundedDispatchAskAppWaitMs(raw: unknown): number {
+  if (raw == null || raw === "") {
+    return DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  return Math.max(
+    0,
+    Math.min(DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
+  );
+}
+
+function isTerminalDispatchTask(task: Task): boolean {
+  return DISPATCH_ASK_APP_TERMINAL_STATES.has(String(task.status.state));
+}
+
+function dispatchTaskText(task: Task): string {
+  return (
+    task.status.message?.parts
+      ?.filter(
+        (part): part is { type: "text"; text: string } => part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function dispatchAskAppTaskResult(
+  app: string,
+  task: Task,
+): {
+  app: string;
+  routedVia: "a2a";
+  taskId: string;
+  status: string;
+  response?: string;
+  error?: string;
+  inputRequired?: string;
+  pollAfterMs?: number;
+  poll?: { tool: "ask_app_status"; arguments: { app: string; taskId: string } };
+  message?: string;
+} {
+  const status = String(task.status.state);
+  const response = dispatchTaskText(task);
+  const base = {
+    app,
+    routedVia: "a2a" as const,
+    taskId: task.id,
+    status,
+  };
+
+  if (status === "completed") {
+    return { ...base, response: response || "(no response)" };
+  }
+  if (status === "failed" || status === "canceled") {
+    return {
+      ...base,
+      ...(response ? { response } : {}),
+      error: response || `ask_app task ${status}.`,
+    };
+  }
+  if (status === "input-required") {
+    const inputRequired =
+      response || "The agent needs additional input before it can continue.";
+    return {
+      ...base,
+      response: inputRequired,
+      inputRequired,
+      message: inputRequired,
+    };
+  }
+  return {
+    ...base,
+    pollAfterMs: DISPATCH_ASK_APP_POLL_INTERVAL_MS,
+    poll: {
+      tool: "ask_app_status",
+      arguments: { app, taskId: task.id },
+    },
+    message:
+      `ask_app is still ${status}. Call ask_app_status with ` +
+      `taskId "${task.id}" to retrieve the final response.`,
+  };
+}
+
+async function createDispatchA2AClient(input: {
+  targetUrl: string;
+  userEmail: string;
+  orgDomain?: string;
+  orgSecret?: string;
+  deadline?: number;
+}): Promise<{
+  client: A2AClient;
+  metadata: Record<string, unknown>;
+}> {
+  const apiKeys: string[] = [];
+  const addSignedToken = async (preferGlobalSecret: boolean) => {
+    try {
+      const token = await signA2AToken(
+        input.userEmail,
+        input.orgDomain,
+        input.orgSecret,
+        { preferGlobalSecret },
+      );
+      if (token && !apiKeys.includes(token)) apiKeys.push(token);
+    } catch {
+      // A2A can still be configured for local/dev unauthenticated calls. If
+      // signing is unavailable, let the target return its own auth error.
+    }
+  };
+
+  if (process.env.A2A_SECRET?.trim()) await addSignedToken(true);
+  if (input.orgSecret) await addSignedToken(false);
+
+  const metadata: Record<string, unknown> = {
+    userEmail: input.userEmail,
+    ...(input.orgDomain ? { orgDomain: input.orgDomain } : {}),
+    ...(getRequestContext()?.requestOrigin
+      ? { requestOrigin: getRequestContext()?.requestOrigin }
+      : {}),
+  };
+  const remainingMs =
+    input.deadline == null ? null : input.deadline - Date.now();
+  return {
+    client: new A2AClient(input.targetUrl, apiKeys[0], {
+      requestTimeoutMs:
+        remainingMs == null
+          ? DISPATCH_A2A_REQUEST_TIMEOUT_MS
+          : Math.max(1, Math.min(DISPATCH_A2A_REQUEST_TIMEOUT_MS, remainingMs)),
+      ...(apiKeys.length > 1 ? { fallbackApiKeys: apiKeys.slice(1) } : {}),
+    }),
+    metadata,
+  };
+}
+
+function isTransientDispatchAskAppStatusError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return (
+    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset|etimedout|timeout|aborted/i.test(
+      message,
+    ) || /A2A request failed \((?:429|500|502|503|504)\)/i.test(message)
+  );
+}
+
+async function runBeforeDispatchAskAppDeadline<T>(
+  operation: () => Promise<T>,
+  deadline: number,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new DispatchAskAppInlineDeadlineError();
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new DispatchAskAppInlineDeadlineError()),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function waitForDispatchA2ATask(
+  client: A2AClient,
+  task: Task,
+  deadline: number | undefined,
+): Promise<Task> {
+  if (deadline == null || isTerminalDispatchTask(task)) return task;
+  let current = task;
+  while (!isTerminalDispatchTask(current)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return current;
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(DISPATCH_ASK_APP_POLL_INTERVAL_MS, remaining),
+      ),
+    );
+    if (Date.now() >= deadline) return current;
+    try {
+      current = await runBeforeDispatchAskAppDeadline(
+        () => client.getTask(task.id),
+        deadline,
+      );
+    } catch (err) {
+      if (err instanceof DispatchAskAppInlineDeadlineError) return current;
+      if (!isTransientDispatchAskAppStatusError(err)) throw err;
+      if (Date.now() >= deadline) return current;
+    }
+  }
+  return current;
 }
 
 function normalizeBaseUrl(raw: string | undefined | null): string | null {
@@ -281,7 +496,8 @@ export async function resolveGrantedDispatchMcpApp(
 export async function askGrantedDispatchMcpApp(
   app: string,
   message: string,
-): Promise<{ app: string; routedVia: "a2a"; response: string }> {
+  options?: { async?: boolean; maxWaitMs?: number },
+): Promise<ReturnType<typeof dispatchAskAppTaskResult>> {
   const trimmedMessage = message.trim();
   if (!trimmedMessage) throw new Error("message is required");
   const target = await resolveGrantedDispatchMcpApp(app);
@@ -296,13 +512,55 @@ export async function askGrantedDispatchMcpApp(
       ])
     : [null, null];
 
-  const response = await callAgent(target.url, trimmedMessage, {
+  const inlineWaitMs =
+    options?.async === true
+      ? 0
+      : boundedDispatchAskAppWaitMs(options?.maxWaitMs);
+  const deadline = inlineWaitMs > 0 ? Date.now() + inlineWaitMs : undefined;
+
+  const { client, metadata } = await createDispatchA2AClient({
+    targetUrl: target.url,
     userEmail,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
-    timeoutMs: 5 * 60_000,
+    deadline,
   });
-  return { app: target.id, routedVia: "a2a", response };
+  const task = await client.send(
+    {
+      role: "user",
+      parts: [{ type: "text", text: trimmedMessage }],
+    },
+    { async: true, metadata },
+  );
+  const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
+  return dispatchAskAppTaskResult(target.id, finalOrRunning);
+}
+
+export async function getGrantedDispatchMcpAppTask(
+  app: string,
+  taskId: string,
+): Promise<ReturnType<typeof dispatchAskAppTaskResult>> {
+  const trimmedTaskId = taskId.trim();
+  if (!trimmedTaskId) throw new Error("taskId is required");
+  const target = await resolveGrantedDispatchMcpApp(app);
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) throw new Error("no authenticated user");
+
+  const orgId = getRequestOrgId();
+  const [orgDomain, orgSecret] = orgId
+    ? await Promise.all([
+        getOrgDomain(orgId).catch(() => null),
+        getOrgA2ASecret(orgId).catch(() => null),
+      ])
+    : [null, null];
+  const { client } = await createDispatchA2AClient({
+    targetUrl: target.url,
+    userEmail,
+    orgDomain: orgDomain ?? undefined,
+    orgSecret: orgSecret ?? undefined,
+  });
+  const task = await client.getTask(trimmedTaskId);
+  return dispatchAskAppTaskResult(target.id, task);
 }
 
 export async function openGrantedDispatchMcpApp(input: {
@@ -434,7 +692,7 @@ async function callTargetCreateEmbedSession(input: {
       servers: {
         [serverId]: {
           type: "http",
-          url: `${appBaseUrl(input.app)}/_agent-native/mcp`,
+          url: `${appBaseUrl(input.app)}/mcp`,
           headers: {
             Authorization: `Bearer ${input.token}`,
           },

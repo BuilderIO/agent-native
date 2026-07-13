@@ -116,7 +116,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 MCP コネクタ URL を直接受け入れるチャットベースのホストを使用している場合
 (CLI で構成されたクライアントではなく)、ホストされたプラン コネクタに
-`https://plan.agent-native.com/_agent-native/mcp` — クライアント固有のセットアップについては、[MCP Clients](/docs/mcp-clients) を参照してください。
+`https://plan.agent-native.com/mcp` — クライアント固有のセットアップについては、[MCP Clients](/docs/mcp-clients) を参照してください。
 
 認証はセットアップ時に 1 回限りのブラウザ サインインです。これは意図されたものであり、
 により、エージェントは永続化し、生成した計画を共有できるようになります。なんという認証
@@ -255,7 +255,7 @@ Codex、Claude コード、Markdown、または貼り付けられたプランが
   クロスデバイスまたはチームでのレビュー）にはサインインが必要です。Google サインインは次の場合に表示されます。
   標準の Google OAuth 環境変数が設定されています。
 
-ホストされたプラン コネクタは `https://plan.agent-native.com/_agent-native/mcp` にあります。
+ホストされたプラン コネクタは `https://plan.agent-native.com/mcp` にあります。
 スキル ファイルには共有シークレットを決して入れないでください。
 
 ## ローカル ファイル プライバシー モード {#local-files}
@@ -453,7 +453,7 @@ pnpm dev
 ホストされたアプリベースのスキルは以下を使用します:
 
 - アプリ: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 ローカル テンプレートは、プラン自体を開発する場合、ローカルの永続性をテストする場合、または完全に自己ホスト型のレビュー サーフェスを実行する場合に役立ちます。
 

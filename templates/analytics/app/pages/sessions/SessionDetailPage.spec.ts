@@ -37,7 +37,7 @@ describe("session replay event normalization", () => {
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
   });
 
-  it("keeps both the viewer pointer and rrweb's arrow cursor visible", () => {
+  it("keeps the high-contrast replay cursor visible while playing", () => {
     const pageSource = readFileSync(
       new URL("./SessionDetailPage.tsx", import.meta.url),
       "utf8",
@@ -47,16 +47,13 @@ describe("session replay event normalization", () => {
       "utf8",
     );
 
-    expect(pageSource).not.toContain('playing ? "cursor-none"');
-    expect(pageSource).toContain("z-20 cursor-pointer");
+    expect(pageSource).toContain('playing ? "cursor-none" : "cursor-pointer"');
     expect(globalStyles).toContain(
-      ".an-replay-stage-root .replayer-mouse::after",
+      ".an-replay-stage-root .replayer-mouse::before",
     );
-    expect(globalStyles).toMatch(
-      /\.an-replay-stage-root \.replayer-mouse::after\s*\{[^}]*opacity:\s*0;/,
-    );
-    expect(globalStyles).not.toContain(
-      ".an-replay-stage-root .replayer-mouse {",
+    expect(globalStyles).toContain("clip-path: polygon(");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.active::after",
     );
   });
 

@@ -320,7 +320,9 @@ Dispatch는 기존의 허브로 이미 앱 전체를 조정하고 있습니다.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">조직 범위 MCP 서버</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -482,7 +484,7 @@ Reports which configured servers connected, the total live tool count, the merge
 
 개별 MCP 서버 오류로 인해 에이전트가 중단되지는 않습니다.
 
-- 잘못 구성된 `command` → 서버를 건너뛰고 해당 오류가 `errors.<server-id>` 아래의 `/mcp/status`에 나타나고 다른 모든 서버는 계속 작동합니다.
+- 잘못 구성된 `command` → 서버를 건너뛰고 해당 오류가 `errors.<server-id>` 아래의 `/_agent-native/mcp/status`에 나타나고 다른 모든 서버는 계속 작동합니다.
 - MCP SDK는 `node_modules`에서 누락되었습니다. → 모든 MCP 기능은 경고와 함께 건너뛰었습니다. 에이전트 채팅은 MCP 도구 없이도 계속 작동합니다.
 - 에지 런타임에서 실행 → MCP 클라이언트는 작동하지 않습니다.
 

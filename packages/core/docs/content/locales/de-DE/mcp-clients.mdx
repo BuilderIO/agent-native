@@ -324,7 +324,9 @@ Dispatch ist der herkömmliche Hub – er koordiniert bereits alle Apps.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">MCP-Server mit Organisationsscope</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -486,7 +488,7 @@ Verwenden Sie dies, um Onboarding-Hinweise „claude-in-chrome erkannt – Ihr A
 
 Einzelne MCP-Serverausfälle führen nie zum Ausfall des Agenten:
 
-- Ein falsch konfigurierter `command` → der Server wird übersprungen, sein Fehler erscheint in `/mcp/status` unter `errors.<server-id>` und alle anderen Server funktionieren weiterhin.
+- Ein falsch konfigurierter `command` → der Server wird übersprungen, sein Fehler erscheint in `/_agent-native/mcp/status` unter `errors.<server-id>` und alle anderen Server funktionieren weiterhin.
 - MCP SDK fehlt in `node_modules` → alle MCP-Funktionen werden mit einer Warnung übersprungen; Der Agenten-Chat funktioniert weiterhin ohne MCP-Tools.
 - Laufen in einer Edge-Laufzeit → MCP-Client ist ein No-Op.
 

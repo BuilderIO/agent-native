@@ -269,7 +269,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | ランタイム拡張機能と拡張プロキシ (従来のエイリアス: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | メッセージング/Webhook の統合                                                 |
 | `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                       |
-| `/_agent-native/mcp`             | MCP エンドポイント                                                            |
+| `/mcp`                           | MCP エンドポイント                                                            |
 | `/_agent-native/onboarding/*`    | セットアップチェックリスト                                                    |
 | `/_agent-native/observability/*` | トレース、フィードバック、評価、実験                                          |
 | `/_agent-native/file-upload`     | ファイル アップロード プロバイダー エンドポイント                             |
@@ -463,4 +463,4 @@ const handler = createProductionAgentHandler({
 - [**Database**](/docs/database) — カスタムルートと Actions の両方がインポートする `getDb()`/`schema` パターン
 - [**Security**](/docs/security#access-guards) — `accessFilter`/`assertAccess` と完全なデータスコープモデル
 - [**Messaging**](/docs/messaging) — 受信 Webhook の標準的な統合キューパターン
-- [**MCP Protocol**](/docs/mcp-protocol) — このサーバーが自動的にマウントする `/_agent-native/mcp` エンドポイント
+- [**MCP Protocol**](/docs/mcp-protocol) — このサーバーが自動的にマウントする `/mcp` エンドポイント

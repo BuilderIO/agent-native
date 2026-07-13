@@ -265,7 +265,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | 运行时扩展和扩展代理（旧别名：`/_agent-native/tools/*`） |
 | `/_agent-native/integrations/*`  | 消息传递/webhook 集成                                    |
 | `/_agent-native/a2a`             | 代理到代理 JSON-RPC                                      |
-| `/_agent-native/mcp`             | MCP端点                                                  |
+| `/mcp`                           | MCP端点                                                  |
 | `/_agent-native/onboarding/*`    | 设置清单                                                 |
 | `/_agent-native/observability/*` | 跟踪、反馈、评估、实验                                   |
 | `/_agent-native/file-upload`     | 文件上传提供程序端点                                     |
@@ -460,4 +460,4 @@ const handler = createProductionAgentHandler({
 - [**数据库**](/docs/database) — 自定义路由和 actions 都会导入的 `getDb()`/`schema` 模式
 - [**安全**](/docs/security#access-guards) — `accessFilter`/`assertAccess` 和完整的数据作用域模型
 - [**消息传递**](/docs/messaging) — 入站 webhook 的标准集成队列模式
-- [**MCP 协议**](/docs/mcp-protocol) — 此服务器自动挂载的 `/_agent-native/mcp` 端点
+- [**MCP 协议**](/docs/mcp-protocol) — 此服务器自动挂载的 `/mcp` 端点

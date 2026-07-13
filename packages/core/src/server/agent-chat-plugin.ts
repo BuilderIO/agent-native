@@ -5393,6 +5393,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/_agent-native/actions",
         "/_agent-native/agent-model-defaults",
         "/_agent-native/mcp",
+        "/mcp",
       ],
     });
   };

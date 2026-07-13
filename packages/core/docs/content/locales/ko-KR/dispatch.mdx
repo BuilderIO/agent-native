@@ -113,16 +113,16 @@ Dispatch는 작업 공간의 다른 앱을 A2A 피어로 자동 검색합니다.
 
 ### 통합 MCP 게이트웨이
 
-디스패치는 외부 에이전트를 위한 단일 MCP 커넥터일 수 있습니다. Claude, ChatGPT, Codex 또는 커서에 `https://dispatch.agent-native.com/_agent-native/mcp`를 한 번 추가하면 앱당 하나의 커넥터 대신 하나의 인증이 부여된 모든 작업 영역 앱에 도달합니다. 전체 연결 흐름, 앱 부여, OAuth 및 인라인 MCP 앱 미리보기는 [External Agents](/docs/external-agents)를 참조하세요.
+디스패치는 외부 에이전트를 위한 단일 MCP 커넥터일 수 있습니다. Claude, ChatGPT, Codex 또는 커서에 `https://dispatch.agent-native.com/mcp`를 한 번 추가하면 앱당 하나의 커넥터 대신 하나의 인증이 부여된 모든 작업 영역 앱에 도달합니다. 전체 연결 흐름, 앱 부여, OAuth 및 인라인 MCP 앱 미리보기는 [External Agents](/docs/external-agents)를 참조하세요.
 
-<Endpoint id="doc-block-j0rg0r" method="POST" path="/_agent-native/mcp" summary={"통합 MCP 게이트웨이 엔드포인트"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-j0rg0r" method="POST" path="/mcp" summary={"통합 MCP 게이트웨이 엔드포인트"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 

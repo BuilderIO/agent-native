@@ -465,6 +465,6 @@ If a Plans tool returns \`needs auth\`, \`Unauthorized\`, or \`Session terminate
 not keep retrying it — stop and give the user the per-client reconnect step from
 \`references/connection.md\`, then continue once the connector is available.
 
-Hosted default: connect \`https://plan.agent-native.com/_agent-native/mcp\`. Do
+Hosted default: connect \`https://plan.agent-native.com/mcp\`. Do
 not put shared secrets in skill files.
 `;

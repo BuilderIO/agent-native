@@ -331,19 +331,6 @@ export default function RecordingPage() {
     | "editor"
     | "viewer"
     | undefined;
-  // Owner deep-link gating happens client-side because SSR serves the
-  // anonymous public shell; non-owners land on the canonical share page.
-  const shouldRedirectToShare =
-    !playerDataQ.isLoading &&
-    (playerDataQ.isError || (playerDataQ.isSuccess && role !== "owner"));
-  useEffect(() => {
-    if (!shouldRedirectToShare || !recordingId) return;
-    navigate(
-      appPath(`/share/${encodeURIComponent(recordingId)}`) +
-        window.location.search,
-      { replace: true },
-    );
-  }, [shouldRedirectToShare, recordingId, navigate]);
   const comments = playerDataQ.data?.comments ?? [];
   const reactions = playerDataQ.data?.reactions ?? [];
   const chapters = playerDataQ.data?.chapters ?? [];
@@ -707,7 +694,7 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isLoading || shouldRedirectToShare) {
+  if (playerDataQ.isLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-background">
         <Spinner className="h-8 w-8" />
@@ -722,7 +709,7 @@ export default function RecordingPage() {
           {t("recordingPage.recordingNotFound")}
         </h1>
         <p className="text-sm text-muted-foreground mb-4">
-          {(playerDataQ.error as unknown as Error | undefined)?.message ??
+          {(playerDataQ.error as Error | undefined)?.message ??
             t("recordingPage.noAccess")}
         </p>
         <Button onClick={() => navigate("/")} variant="outline">

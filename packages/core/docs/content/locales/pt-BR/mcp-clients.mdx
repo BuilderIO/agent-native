@@ -321,7 +321,9 @@ O Dispatch é o hub convencional: ele já coordena todos os aplicativos.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">servidores MCP no escopo da organização</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -483,7 +485,7 @@ Use isso para criar dicas de integração "claude-in-chrome detectadas — seu a
 
 Falhas individuais do servidor MCP nunca desativam o agente:
 
-- Um `command` configurado incorretamente → o servidor é ignorado, seu erro aparece em `/mcp/status` em `errors.<server-id>` e todos os outros servidores continuam funcionando.
+- Um `command` configurado incorretamente → o servidor é ignorado, seu erro aparece em `/_agent-native/mcp/status` em `errors.<server-id>` e todos os outros servidores continuam funcionando.
 - O MCP SDK está faltando no `node_modules` → todas as funcionalidades do MCP são ignoradas com um aviso; o bate-papo do agente continua funcionando sem nenhuma ferramenta MCP.
 - Executando em um tempo de execução de borda → O cliente MCP é autônomo.
 

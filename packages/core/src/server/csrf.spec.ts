@@ -36,6 +36,37 @@ async function status(
 const COOKIE = "an_session=abc";
 
 describe("CSRF middleware", () => {
+  it("protects cookie-authenticated public MCP management routes", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "text/plain" },
+        "POST",
+        "/mcp/connect/token",
+      ),
+    ).toBe(403);
+  });
+
+  it("protects public MCP management routes under APP_BASE_PATH", async () => {
+    const originalBasePath = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/foo";
+
+    try {
+      expect(
+        await status(
+          { cookie: COOKIE, "content-type": "text/plain" },
+          "POST",
+          "/foo/mcp/connect/token",
+        ),
+      ).toBe(403);
+    } finally {
+      if (originalBasePath === undefined) {
+        delete process.env.APP_BASE_PATH;
+      } else {
+        process.env.APP_BASE_PATH = originalBasePath;
+      }
+    }
+  });
+
   it("rejects a cookie-carrying simple request under APP_BASE_PATH", async () => {
     const originalBasePath = process.env.APP_BASE_PATH;
     process.env.APP_BASE_PATH = "/foo";

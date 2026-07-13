@@ -835,7 +835,7 @@ describe("@agent-native/skills", () => {
       scope: "project",
       baseDir: project,
       planMode: "self-hosted",
-      mcpUrl: "https://plans.example.com/team",
+      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
       updateInstructions: false,
       connect: false,
       yes: true,
@@ -845,7 +845,7 @@ describe("@agent-native/skills", () => {
     expect(result.mcpServers).toHaveLength(1);
     expect(result.mcpServers[0]).toMatchObject({
       serverName: "plan",
-      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
+      mcpUrl: "https://plans.example.com/team/mcp",
     });
   });
 

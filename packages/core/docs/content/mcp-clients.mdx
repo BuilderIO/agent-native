@@ -380,7 +380,9 @@ pull its org-scope MCP servers automatically. Dispatch is the conventional hub
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">org-scope MCP servers</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -494,7 +496,7 @@ Reports which configured servers connected, the total live tool count, the merge
 
 Individual MCP server failures never take down the agent:
 
-- A misconfigured `command` → the server is skipped, its error appears in `/mcp/status` under `errors.<server-id>`, and every other server continues to work.
+- A misconfigured `command` → the server is skipped, its error appears in `/_agent-native/mcp/status` under `errors.<server-id>`, and every other server continues to work.
 - The MCP SDK is missing from `node_modules` → all MCP functionality is skipped with a warning; agent chat keeps working with zero MCP tools.
 - Running in an edge runtime → MCP client is a no-op.
 

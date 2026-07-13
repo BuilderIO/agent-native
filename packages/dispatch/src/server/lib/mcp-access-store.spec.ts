@@ -33,10 +33,10 @@ beforeEach(() => {
 });
 
 describe("normalizeMcpAppAccessSettings", () => {
-  it("defaults to Dispatch only", () => {
+  it("defaults to all apps when no access setting exists", () => {
     expect(normalizeMcpAppAccessSettings(null)).toEqual({
-      mode: "selected-apps",
-      selectedAppIds: ["dispatch"],
+      mode: "all-apps",
+      selectedAppIds: [],
       updatedAt: undefined,
       updatedBy: undefined,
     });

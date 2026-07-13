@@ -306,7 +306,9 @@ El envío es el centro convencional: ya coordina todas las aplicaciones.
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted"
       >servidores MCP con alcance de organización</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -468,7 +470,7 @@ Utilice esto para crear sugerencias de incorporación de "Claude-in-chrome detec
 
 Las fallas individuales del servidor MCP nunca desactivan el agente:
 
-- Un `command` mal configurado → se omite el servidor, su error aparece en `/mcp/status` debajo de `errors.<server-id>` y todos los demás servidores continúan funcionando.
+- Un `command` mal configurado → se omite el servidor, su error aparece en `/_agent-native/mcp/status` debajo de `errors.<server-id>` y todos los demás servidores continúan funcionando.
 - Falta el MCP SDK en `node_modules` → todas las funciones de MCP se omiten con una advertencia; El chat del agente sigue funcionando sin herramientas MCP.
 - Ejecutar en un tiempo de ejecución perimetral → El cliente MCP no funciona.
 

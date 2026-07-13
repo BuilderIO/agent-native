@@ -15,6 +15,7 @@ import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
@@ -48,7 +49,8 @@ function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
 function supportsAppBasePathMount(path: string): boolean {
   return (
     pathMatchesPrefix(path, FRAMEWORK_PREFIX) ||
-    pathMatchesPrefix(path, WELL_KNOWN_PREFIX)
+    pathMatchesPrefix(path, WELL_KNOWN_PREFIX) ||
+    pathMatchesPrefix(path, MCP_PUBLIC_ROUTE_PREFIX)
   );
 }
 
@@ -164,6 +166,9 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
       prepend: true,
     });
+    registerMiddleware(nitroApp, MCP_PUBLIC_ROUTE_PREFIX, readinessGate, {
+      prepend: true,
+    });
 
     // CSRF (see csrf.ts): registered here — synchronously, on the very
     // first `getH3App()` call for this nitroApp — rather than inside
@@ -196,7 +201,8 @@ export function getH3App(nitroApp: any): H3AppShim {
       const reqPath = event.url?.pathname ?? "";
       if (
         resolveMountMatch(reqPath, FRAMEWORK_PREFIX) ||
-        resolveMountMatch(reqPath, WELL_KNOWN_PREFIX)
+        resolveMountMatch(reqPath, WELL_KNOWN_PREFIX) ||
+        resolveMountMatch(reqPath, MCP_PUBLIC_ROUTE_PREFIX)
       ) {
         await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
       }

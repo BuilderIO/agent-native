@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { runScreenMemoryMCPStdio } from "../mcp/screen-memory-stdio.js";
 import { runMCPStdio } from "../mcp/stdio.js";
 import {
@@ -178,7 +179,7 @@ function ensureLocalToken(
 /**
  * Detect a hosted deployment URL. When the workspace .env points at a hosted
  * origin (APP_URL / BETTER_AUTH_URL with a non-localhost host) we write an
- * `http` client entry pointing at `<origin>/_agent-native/mcp` with a JWT
+ * `http` client entry pointing at `<origin>/mcp` with a JWT
  * bearer instead of a stdio entry.
  */
 function detectHostedUrl(cwd: string): string | undefined {
@@ -193,7 +194,8 @@ function detectHostedUrl(cwd: string): string | undefined {
     try {
       const u = new URL(v);
       if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) {
-        return `${u.origin}/_agent-native/mcp`;
+        const appPath = u.pathname.replace(/\/+$/, "");
+        return `${u.origin}${appPath === "/" ? "" : appPath}${MCP_PUBLIC_ROUTE_PREFIX}`;
       }
     } catch {
       // not a URL — skip
@@ -501,9 +503,7 @@ async function cmdStatus(): Promise<void> {
   logOut(
     hostedUrl
       ? `  MCP URL:    ${hostedUrl} (hosted)`
-      : `  MCP URL:    ${origin}/_agent-native/mcp${
-          port ? ` (port ${port})` : ""
-        }`,
+      : `  MCP URL:    ${origin}/mcp${port ? ` (port ${port})` : ""}`,
   );
   logOut(`  ACCESS_TOKEN: ${hasToken ? "set" : "not set"} (.env)`);
   logOut(`  A2A_SECRET:   ${hasA2A ? "set" : "not set"}`);
