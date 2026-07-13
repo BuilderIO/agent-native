@@ -124,6 +124,11 @@ async function fireProcessTaskDispatch(
       event,
       path: A2A_PROCESS_TASK_PATH,
       taskId,
+      // The caller is about to return after a failed background handoff.
+      // Await the portable route's response (or its timeout) so the request
+      // definitely leaves this invocation; the target processor continues
+      // independently if the agent work takes longer than the timeout.
+      awaitResponse: true,
     });
   }
 }

@@ -1062,6 +1062,9 @@ describe("handleJsonRpc", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "https://app.test/_agent-native/a2a/_process-task",
     );
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("does not trust unauthenticated caller metadata for A2A request context", async () => {

@@ -5977,7 +5977,7 @@ export function createProductionAgentHandler(
     const dispatchToBackground =
       !isBackgroundWorker &&
       isAgentChatDurableBackgroundEnabled({
-        appOptIn: options.durableBackgroundRuns === true,
+        appOptIn: options.durableBackgroundRuns,
       });
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
@@ -7181,7 +7181,7 @@ export function createProductionAgentHandler(
                   // function (40s clamp) here is the correct, safe target.
                   chainViaDurableBackground:
                     isAgentChatDurableBackgroundEnabled({
-                      appOptIn: options.durableBackgroundRuns === true,
+                      appOptIn: options.durableBackgroundRuns,
                     }) && !runsInBackgroundFunction,
                   // Only changes the retry BUDGET, never the dispatch target
                   // above: a worker proven in a real background function has
@@ -7269,7 +7269,7 @@ export function createProductionAgentHandler(
       isBackgroundWorker &&
       !runsInBackgroundFunction &&
       !isAgentChatDurableBackgroundEnabled({
-        appOptIn: options.durableBackgroundRuns === true,
+        appOptIn: options.durableBackgroundRuns,
       });
     const selfChainBudget = isSynchronousSelfChainContinuation
       ? resolveSelfChainContinuationBudget(
