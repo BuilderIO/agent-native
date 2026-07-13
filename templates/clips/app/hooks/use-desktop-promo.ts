@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
+import { hasDownloadedDesktopApp } from "@/lib/capture-install-options";
 
 const DISMISSED_KEY = "clips.desktop-promo.dismissed";
 
@@ -21,10 +22,12 @@ function detectDesktopApp(): boolean {
 export function useDesktopPromo() {
   const isMobile = useIsMobile();
   const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setIsDesktopApp(detectDesktopApp());
+    setDownloaded(hasDownloadedDesktopApp());
     setDismissed(
       typeof window !== "undefined" &&
         window.localStorage?.getItem(DISMISSED_KEY) === "1",
@@ -44,8 +47,8 @@ export function useDesktopPromo() {
   return {
     isDesktopApp,
     isMobile,
-    shouldShowPromo: !isMobile && !isDesktopApp && !dismissed,
-    shouldShowSidebarLink: !isMobile && !isDesktopApp,
+    shouldShowPromo: !isMobile && !isDesktopApp && !downloaded && !dismissed,
+    shouldShowSidebarLink: !isMobile && !isDesktopApp && !downloaded,
     dismiss,
   };
 }
