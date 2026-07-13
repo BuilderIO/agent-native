@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.15
+
+### Patch Changes
+
+- 2161d10: Preserve streamed tool calls when an engine omits its normalized assistant-content event so delegated and MCP agent runs can still execute requested actions.
+
 ## 0.98.14
 
 ### Patch Changes
