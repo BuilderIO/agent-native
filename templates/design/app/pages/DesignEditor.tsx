@@ -1927,12 +1927,10 @@ function DesignBottomToolbar({
 }
 
 /**
- * Selection-echo identity check for the iframe→host boundary. Returns true
- * only when we can AUTHORITATIVELY tell the incoming (intent-less) selection
- * refers to a DIFFERENT element than the currently-committed one — a stable
- * `data-agent-native-node-id` (sourceId) match wins, falling back to the CSS
- * selector when neither side carries an id. When identity can't be compared
- * we return false so a selection is never dropped.
+ * True only when the incoming (intent-less) selection authoritatively refers to
+ * a different element than the committed one (sourceId match wins, else CSS
+ * selector). Returns false when identity can't be compared, so a real selection
+ * is never dropped.
  */
 function isSupersededSelectionEcho(
   incoming: ElementInfo,
@@ -2063,10 +2061,8 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
-  // Current committed selection for synchronous reads in the echo-loop guard
-  // (handleIframeElementSelect). Assigned during render (not an effect) so it
-  // covers every setSelectedElement path with no lag; a lagging ref would let
-  // the guard reject the first valid echo after a host-driven selection.
+  // Committed selection for synchronous reads in the echo-loop guard. Synced
+  // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
   selectedElementRef.current = selectedElement;
   // Vector-edit mode (P5 integration): active while the user is editing a
@@ -2304,6 +2300,11 @@ function DesignEditor() {
     string | null
   >(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  // Screen that owns the committed selection. node ids/selectors are only
+  // unique within a screen, so the echo guard uses this to reject stale
+  // intent-less echoes arriving from a different screen. Render-synced.
+  const activeFileIdRef = useRef(activeFileId);
+  activeFileIdRef.current = activeFileId;
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
@@ -12023,12 +12024,11 @@ function DesignEditor() {
     ],
   );
 
-  // Iframe→host selection boundary with an echo-loop guard. The host mirrors
-  // the selection down; the bridge echoes it back up with NO `intent` (user
-  // gestures always carry one). On rapid clicks these echoes race and the
-  // selection "dances". Drop an intent-less echo that differs from the current
-  // selection (a stale mirror replay); matching echoes still pass so the
-  // inspector payload populates.
+  // Iframe→host selection boundary with an echo-loop guard. The bridge echoes
+  // mirrored selections back with no `intent` (user gestures always carry one);
+  // on rapid clicks these race and the selection "dances". Drop an intent-less
+  // echo that differs from the committed selection or comes from another screen;
+  // matching echoes still pass so the inspector payload populates.
   const handleIframeElementSelect = useCallback(
     (
       screenId: string,
@@ -12041,7 +12041,9 @@ function DesignEditor() {
     ) => {
       if (
         !intent &&
-        isSupersededSelectionEcho(info, selectedElementRef.current)
+        (isSupersededSelectionEcho(info, selectedElementRef.current) ||
+          (activeFileIdRef.current !== null &&
+            screenId !== activeFileIdRef.current))
       ) {
         return;
       }

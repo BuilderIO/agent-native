@@ -2345,9 +2345,8 @@ export function DesignCanvas({
           );
         }
         if (e.data.intent) {
-          // User click (only gestures carry `intent`): the iframe already
-          // shows it, so suppress mirroring the host commit back down (the
-          // fast-click bounce). Intent-less echoes must never suppress.
+          // User click (carries intent): iframe already shows it — suppress the
+          // echo-back to avoid the fast-click bounce.
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
         } else if (
@@ -2358,9 +2357,8 @@ export function DesignCanvas({
             reportedCandidates.includes(c),
           )
         ) {
-          // Intent-less echo disagreeing with the committed selection = the
-          // iframe drifted (a stale mirror overwrote it). Force a resync since
-          // the dedup signature would otherwise block the corrective mirror.
+          // Intent-less echo ≠ committed selection: iframe drifted; force a
+          // resync (dedup would otherwise block the corrective mirror).
           forceSelectionMirrorResyncRef.current = true;
           replayIframeEditorStateRef.current?.();
         }
@@ -2827,20 +2825,18 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
-  // Mirror the selection down only when it changes (replayIframeEditorState
-  // re-runs on many unrelated inputs). Re-posting an unchanged selector let
-  // stale mirrors race a fast click and re-highlight the old element.
+  // Mirror the selection down only when it changes, so stale re-posts can't
+  // race a fast click and re-highlight the old element.
   const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
   const forceSelectionMirrorResyncRef = useRef(true);
-  // Selectors the iframe just reported from a user click. It already shows that
-  // selection, so we skip mirroring it back once — otherwise the echo lands
-  // after the next click and bounces the outline back for a frame.
+  // Selectors from the iframe's own click; skip mirroring them back once to
+  // avoid the fast-click bounce.
   const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
-  // Latest replayIframeEditorState, callable from the (earlier-defined) message
-  // handler to force a corrective resync when the iframe drifts (see below).
+  // Latest replayIframeEditorState, synced during render (below) so the message
+  // handler can force a corrective resync without a stale closure.
   const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
-  // Render-synced committed selection, so the message handler can read the
-  // current value without re-binding the window listener on every selection.
+  // Render-synced committed selection so the message handler reads current
+  // values without re-binding the window listener on every selection.
   const selectedSelectorRef = useRef(selectedSelector);
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
@@ -2868,10 +2864,6 @@ export function DesignCanvas({
       { type: "scale-tool-mode", enabled: scaleMode },
       "*",
     );
-    // Mirror the selection DOWN only when it actually changed (or a reload
-    // forced a resync). This is what prevents the fast-click flicker: without
-    // it, every unrelated re-render re-posted the current selector, so stale
-    // mirrors of the previous selection raced the user's next click.
     const selectionMirrorSignature = JSON.stringify({
       selector: selectedSelector ?? null,
       candidates: selectedSelectorCandidates ?? [],
@@ -2982,13 +2974,15 @@ export function DesignCanvas({
     statePreviewTarget,
     tweakValues,
   ]);
+  // Sync during render (not in an effect) so a drift echo can't invoke a stale
+  // closure that reposts the previous selection.
+  replayIframeEditorStateRef.current = replayIframeEditorState;
 
   // Replay the editor state whenever it changes OR the iframe (re)loads. The
   // load case matters for screen switches and mode changes; without replaying
   // selection/layer state here, the freshly mounted document looks deselected.
   useEffect(() => {
     const iframe = iframeRef.current;
-    replayIframeEditorStateRef.current = replayIframeEditorState;
     if (!iframe) return;
     // A (re)loaded document starts with no selection, so force the next
     // mirror to post even if the selector is unchanged from before the load.
