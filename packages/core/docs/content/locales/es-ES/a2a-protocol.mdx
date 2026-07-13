@@ -386,6 +386,48 @@ entorno de la aplicación y pasar la identidad de la persona que llama (`userEma
 firmado como tokens al portador JWT. Utilice `apiKeyEnv` solo para pares externos heredados que
 espera un token de portador estático. Utilice actions local en lugar de invocarse a sí mismo.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` es un envoltorio de CLI ligero sobre la misma primitiva de resolución e invocación que `agentNative.invoke()`. Úselo para activar el agente de una aplicación desde un script de shell, un job de CI, una entrada de cron, o cualquier sistema externo que pueda ejecutar comandos — el equivalente en CLI de hacer un POST manual a `/_agent-native/a2a`.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# Resuelve "analytics" en el registro del espacio de trabajo y espera la respuesta
+agent-native invoke analytics "Summarize signups by source this month"
+
+# Llama directamente a una aplicación desplegada por URL, leyendo el token de portador desde una variable de entorno
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# Fuerza un único message/send bloqueante en lugar del valor predeterminado async+poll
+agent-native invoke analytics "Quick lookup" --sync
+
+# Salida legible por máquina para scripting
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                  | Description                                                              |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | Agente de destino (alias del argumento posicional `<app-or-url>`)          |
+| `--message <text>`       | Prompt (alias del argumento posicional `"prompt"`)                       |
+| `--api-key-env <name>`   | Lee el token de portador desde una variable de entorno                   |
+| `--api-key <token>`      | Valor del token de portador, pasado en línea                             |
+| `--context-id <id>`      | `contextId` de A2A, para continuar la conversación de una tarea existente |
+| `--self-app-id <id>`     | ID de la aplicación actual, usado para prevenir autoinvocación            |
+| `--self-url <url>`       | URL de la aplicación actual, usada para prevenir autoinvocación           |
+| `--timeout-ms <n>`       | Tiempo de espera del sondeo asíncrono                                    |
+| `--poll-interval-ms <n>` | Intervalo de sondeo asíncrono                                            |
+| `--sync`                 | Usa una única solicitud `message/send` bloqueante en lugar del valor predeterminado async+poll |
+| `--no-hint`               | Envía el prompt tal cual, sin la sugerencia de invocación entre aplicaciones |
+| `--json`                  | Imprime los metadatos del destino y el texto de respuesta como JSON     |
+
+Al igual que `callAgent()`, la CLI usa de forma predeterminada async + poll (`invokeAgent` → `callAgent` internamente), que es la opción segura frente a destinos alojados/serverless — vea [Tiempos de espera de webhooks y gateways serverless](#json-rpc-methods) más arriba. Pase `--sync` solo cuando sepa que el destino no está detrás de un gateway con un límite de ejecución corto.
+
+El destino se resuelve de la misma manera que `agentNative.invoke()`: por ID de aplicación del espacio de trabajo, por nombre de aplicación, o por una URL completa — así que el mismo comando funciona contra una aplicación hermana en un espacio de trabajo multiaplicación o contra un par A2A arbitrario en otro lugar.
+
 ## Ciclo de vida de la tarea {#task-lifecycle}
 
 Cada mensaje crea una tarea que pasa por estos estados:

@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 簽名為 JWT 不記名代幣。僅將 `apiKeyEnv` 用於舊版外部對等點
 需要靜態不記名權杖。使用本機actions而不是自己呼叫。
 
+## CLI：agent-native invoke {#cli-invoke}
+
+`agent-native invoke` 是一個薄的 CLI 包裝器，架構在與 `agentNative.invoke()` 相同的解析並呼叫的基本操作之上。使用它可以從 shell 腳本、CI 工作、cron 項目，或任何可以執行外部指令的系統觸發應用程式的代理——相當於手動向 `/_agent-native/a2a` 發送 POST 請求的 CLI 版本。
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# 在工作區註冊表中解析 "analytics" 並等待回覆
+agent-native invoke analytics "Summarize signups by source this month"
+
+# 直接透過 URL 呼叫已部署的應用程式，從環境變數讀取不記名權杖
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# 強制使用一次阻塞式 message/send，而非預設的非同步+輪詢
+agent-native invoke analytics "Quick lookup" --sync
+
+# 為腳本編寫提供機器可讀輸出
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| 選項                     | 描述                                                                  |
+| ------------------------ | --------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 目標代理（位置參數 `<app-or-url>` 的別名）                             |
+| `--message <text>`       | 提示（位置參數 `"prompt"` 的別名）                                     |
+| `--api-key-env <name>`   | 從環境變數讀取不記名權杖                                               |
+| `--api-key <token>`      | 直接內嵌傳入的不記名權杖值                                             |
+| `--context-id <id>`      | A2A `contextId`，用於延續現有工作的對話                                |
+| `--self-app-id <id>`     | 目前應用程式 ID，用於防止自我呼叫                                      |
+| `--self-url <url>`       | 目前應用程式 URL，用於防止自我呼叫                                     |
+| `--timeout-ms <n>`       | 非同步輪詢逾時時間                                                     |
+| `--poll-interval-ms <n>` | 非同步輪詢間隔                                                         |
+| `--sync`                 | 使用一次阻塞式 `message/send` 請求，取代預設的非同步+輪詢               |
+| `--no-hint`               | 按原樣傳送提示，不加入跨應用程式呼叫提示                               |
+| `--json`                  | 以 JSON 格式輸出目標中繼資料與回應文字                                 |
+
+與 `callAgent()` 一樣，此 CLI 預設使用非同步+輪詢（底層是 `invokeAgent` → `callAgent`），這是針對託管/無伺服器目標的安全選擇——請參閱上方的[無伺服器 webhook 與閘道逾時](#json-rpc-methods)。只有在確定目標不在具有短執行限制的閘道之後時，才傳入 `--sync`。
+
+目標的解析方式與 `agentNative.invoke()` 相同：透過工作區應用程式 ID、應用程式名稱，或完整 URL——因此同一指令在多應用程式工作區中的同級應用程式，或其他地方的任意 A2A 對等點上都能運作。
+
 ## 工作生命週期 {#task-lifecycle}
 
 每條訊息都會建立一個在以下狀態之間移動的工作：

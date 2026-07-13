@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 签名为 JWT 不记名代币。仅将 `apiKeyEnv` 用于旧版外部对等点
 需要静态不记名令牌。使用本地actions而不是自己调用。
 
+## CLI：agent-native invoke {#cli-invoke}
+
+`agent-native invoke` 是对与 `agentNative.invoke()` 相同的解析并调用原语的一层轻量 CLI 包装。用它可以从 shell 脚本、CI 任务、cron 条目或任何能够执行 shell 命令的外部系统触发某个应用的代理——相当于手动向 `/_agent-native/a2a` 发送 POST 请求的命令行等价形式。
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# 在工作区注册表中解析 "analytics" 并等待回复
+agent-native invoke analytics "Summarize signups by source this month"
+
+# 通过 URL 直接调用一个已部署的应用，从环境变量中读取 bearer token
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# 强制使用一次阻塞式 message/send，而不是默认的异步+轮询方式
+agent-native invoke analytics "Quick lookup" --sync
+
+# 输出机器可读的结果，便于脚本处理
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                  | Description                                                              |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | 目标代理（是位置参数 `<app-or-url>` 的别名）                    |
+| `--message <text>`       | 提示词（是位置参数 `"prompt"` 的别名）                             |
+| `--api-key-env <name>`   | 从环境变量中读取 bearer token                       |
+| `--api-key <token>`      | 直接内联传入的 bearer token 值                                        |
+| `--context-id <id>`      | A2A 的 `contextId`，用于延续已有任务的对话             |
+| `--self-app-id <id>`     | 当前应用 id，用于防止自我调用                          |
+| `--self-url <url>`       | 当前应用 URL，用于防止自我调用                          |
+| `--timeout-ms <n>`       | 异步轮询超时时间                                                    |
+| `--poll-interval-ms <n>` | 异步轮询间隔                                                   |
+| `--sync`                 | 使用一次阻塞式 `message/send` 请求，而非默认的异步+轮询方式 |
+| `--no-hint`               | 原样发送提示词，不附加跨应用调用提示             |
+| `--json`                  | 以 JSON 形式打印目标元数据和响应文本                         |
+
+与 `callAgent()` 一样，该 CLI 默认使用异步+轮询方式（底层是 `invokeAgent` → `callAgent`），这是针对托管/无服务器目标的安全选择——参见上文的[无服务器 webhook 与网关超时](#json-rpc-methods)。只有在确定目标不在执行时间受限的网关之后时，才传入 `--sync`。
+
+目标的解析方式与 `agentNative.invoke()` 相同：通过工作区应用 id、应用名称，或完整 URL——因此同一条命令既适用于多应用工作区中的同级应用，也适用于其他地方任意的 A2A 对等端。
+
 ## 任务生命周期 {#task-lifecycle}
 
 每条消息都会创建一个在以下状态之间移动的任务：
