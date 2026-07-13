@@ -1401,6 +1401,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.body.appendChild(snapGuideH);
     var measurementOverlay = document.createElement("div");
     measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
+    measurementOverlay.setAttribute(
+      "data-agent-native-edit-overlay",
+      "measurement"
+    );
     measurementOverlay.style.cssText = "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
     document.body.appendChild(measurementOverlay);
     var componentTagOverlay = document.createElement("div");
@@ -2842,6 +2846,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var selectedRect = a.getBoundingClientRect();
       var hoverRect = b.getBoundingClientRect();
+      if (!measurementOverlay.isConnected) {
+        document.body.appendChild(measurementOverlay);
+      }
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
       if (hoverRect.right <= selectedRect.left) {
@@ -6953,7 +6960,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           hideMeasurements();
         }
-        if (hoveredEl !== lastHoverInfoPostedEl) {
+        if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
           lastHoverInfoPostedEl = hoveredEl;
           var info = getLightElementInfo(hoveredEl);
           window.parent.postMessage(
@@ -7007,7 +7014,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener(
       "keyup",
       function(e) {
-        if (e.key === "Alt") hideMeasurements();
+        if (e.key === "Alt") {
+          hideMeasurements();
+          lastHoverInfoPostedEl = hoveredEl;
+          window.parent.postMessage(
+            {
+              type: "element-hover",
+              payload: hoveredEl ? getLightElementInfo(hoveredEl) : null
+            },
+            "*"
+          );
+        }
       },
       true
     );
