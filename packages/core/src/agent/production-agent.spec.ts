@@ -6011,6 +6011,119 @@ describe("runAgentLoop", () => {
     expect(textEvents[0].text).toBe("Real answer.");
   });
 
+  it("executes a streamed tool call when assistant-content is missing", async () => {
+    let streamCalls = 0;
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "recording result");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call",
+            id: "recording-call",
+            name: "list-session-recordings",
+            input: { userId: "tim@builder.io", limit: 1 },
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "Found it." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "list-session-recordings": {
+          ...actionEntry({ readOnly: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      { userId: "tim@builder.io", limit: 1 },
+      expect.objectContaining({ caller: "tool" }),
+    );
+    expect(events).toContainEqual({ type: "text", text: "Found it." });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("does not carry streamed tool calls across a retry", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call",
+            id: "stale-call",
+            name: "list-session-recordings",
+            input: { userId: "tim@builder.io", limit: 1 },
+          };
+          throw new EngineError("temporary provider failure", {
+            providerRetryable: true,
+          });
+        }
+        yield { type: "text-delta", text: "Recovered." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "list-session-recordings": {
+          ...actionEntry({ readOnly: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ type: "text", text: "Recovered." });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
   it("does not retry Builder gateway timeouts inside one serverless run", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
