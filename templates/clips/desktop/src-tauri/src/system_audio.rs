@@ -115,6 +115,7 @@ pub async fn audio_transcription_start(
     mic_device_label: Option<String>,
     capture_system: Option<bool>,
     voice_processing: Option<bool>,
+    emit_partials: Option<bool>,
     owner: Option<String>,
 ) -> Result<(), String> {
     let _ = meeting_id;
@@ -128,6 +129,9 @@ pub async fn audio_transcription_start(
         // create a second VoiceProcessingIO stack beside a live call app.
         // Short dictation sessions opt in explicitly from the renderer.
         voice_processing.unwrap_or(false),
+        // Existing meeting callers depend on live partials. Recording capture
+        // explicitly opts out because it only persists final segments.
+        emit_partials.unwrap_or(true),
         owner,
     )
     .await

@@ -35,6 +35,7 @@ describe("meeting microphone capture", () => {
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
       voiceProcessing: false,
+      emitPartials: true,
       owner: "meeting",
     });
   });
@@ -52,6 +53,25 @@ describe("meeting microphone capture", () => {
       micDeviceLabel: "Built-in Microphone",
       captureSystem: true,
       voiceProcessing: false,
+      emitPartials: true,
+      owner: "meeting",
+    });
+  });
+
+  it("can disable partial inference for recording-only consumers", async () => {
+    await startTranscriptionEngine({
+      mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      emitPartials: false,
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("audio_transcription_start", {
+      meetingId: null,
+      locale: null,
+      micDeviceId: "mic-1",
+      micDeviceLabel: "Built-in Microphone",
+      captureSystem: true,
+      voiceProcessing: false,
+      emitPartials: false,
       owner: "meeting",
     });
   });

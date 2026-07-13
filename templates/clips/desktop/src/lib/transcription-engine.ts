@@ -120,6 +120,7 @@ export async function restartTranscriptionEngine(
   mic?: MicSelection,
   captureSystem: boolean = true,
   voiceProcessing: boolean = false,
+  emitPartials: boolean = true,
 ): Promise<void> {
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
@@ -129,6 +130,7 @@ export async function restartTranscriptionEngine(
       micDeviceLabel: mic?.label || null,
       captureSystem,
       voiceProcessing,
+      emitPartials,
       owner: "meeting",
     });
   } else {
@@ -157,15 +159,23 @@ export async function startTranscriptionEngine(opts: {
    * only when combined ScreenCaptureKit capture is unavailable or fails.
    */
   voiceProcessing?: boolean;
+  /**
+   * Emit recurring live partial transcripts while speech is in progress.
+   * Meetings render these updates; recordings only persist final segments and
+   * disable them to avoid repeatedly transcribing the same growing buffer.
+   */
+  emitPartials?: boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
   const voiceProcessing = opts.voiceProcessing ?? false;
+  const emitPartials = opts.emitPartials ?? true;
   try {
     await restartTranscriptionEngine(
       "whisper",
       opts.mic,
       captureSystem,
       voiceProcessing,
+      emitPartials,
     );
     return "whisper";
   } catch (err) {
