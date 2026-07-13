@@ -46,6 +46,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -435,10 +440,18 @@ export function sortTooltipPayloadItems<
   });
 }
 
+export function getHiddenSeriesKeysAfterFilter(
+  keys: string[],
+  filteredKey: string,
+): Set<string> {
+  return new Set(keys.filter((key) => key !== filteredKey));
+}
+
 function useSeriesVisibility(keys: string[]): {
   hiddenKeys: Set<string>;
   visibleKeys: string[];
   toggleSeries: (key: string) => void;
+  filterSeries: (key: string) => void;
 } {
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
 
@@ -473,22 +486,61 @@ function useSeriesVisibility(keys: string[]): {
     [keys],
   );
 
-  return { hiddenKeys, visibleKeys, toggleSeries };
+  const filterSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys(getHiddenSeriesKeysAfterFilter(keys, key));
+    },
+    [keys],
+  );
+
+  return { hiddenKeys, visibleKeys, toggleSeries, filterSeries };
 }
 
-function SeriesLegend({
+export function SeriesLegend({
   keys,
   colors,
   panel,
   hiddenKeys,
   onToggleKey,
+  onFilterKey,
 }: {
   keys: string[];
   colors: string[];
   panel: SqlPanel;
   hiddenKeys?: Set<string>;
   onToggleKey?: (key: string) => void;
+  onFilterKey?: (key: string) => void;
 }) {
+  const t = useT();
+  const hasLegendActions = Boolean(onToggleKey || onFilterKey);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimeout = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openLegendActions = useCallback(
+    (key: string) => {
+      clearCloseTimeout();
+      setOpenKey(key);
+    },
+    [clearCloseTimeout],
+  );
+
+  const scheduleCloseLegendActions = useCallback(() => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setOpenKey(null);
+      closeTimeoutRef.current = null;
+    }, 120);
+  }, [clearCloseTimeout]);
+
+  useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
+
   if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
@@ -499,28 +551,94 @@ function SeriesLegend({
           const label = formatSeriesLabelForPanel(panel, key);
           const color = colors[i % colors.length];
           return (
-            <button
+            <Popover
               key={key}
-              type="button"
-              aria-pressed={!hidden}
-              className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                hidden ? "opacity-35" : "opacity-100"
-              } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
-              title={label}
-              onClick={() => onToggleKey?.(key)}
+              open={openKey === key}
+              onOpenChange={(open) => setOpenKey(open ? key : null)}
             >
-              <span className="relative h-2.5 w-3 shrink-0">
-                <span
-                  className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
-                  style={{ backgroundColor: color }}
-                />
-                <span
-                  className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-              </span>
-              <span className="truncate">{label}</span>
-            </button>
+              <PopoverAnchor asChild>
+                <div
+                  className="inline-flex max-w-[14rem]"
+                  onPointerEnter={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onPointerLeave={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                  onFocusCapture={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onBlurCapture={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-pressed={!hidden}
+                    className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      hidden ? "opacity-35" : "opacity-100"
+                    } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
+                    title={label}
+                    onClick={() => onToggleKey?.(key)}
+                  >
+                    <span className="relative h-2.5 w-3 shrink-0">
+                      <span
+                        className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span
+                        className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    </span>
+                    <span className="truncate">{label}</span>
+                  </button>
+                </div>
+              </PopoverAnchor>
+              {hasLegendActions && (
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  sideOffset={6}
+                  className="w-auto min-w-28 p-1"
+                  onPointerEnter={clearCloseTimeout}
+                  onPointerLeave={scheduleCloseLegendActions}
+                  onFocusCapture={clearCloseTimeout}
+                >
+                  <div className="flex items-center gap-0.5">
+                    {onFilterKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="filter"
+                        aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
+                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        onClick={() => {
+                          onFilterKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.filterSeries")}
+                      </button>
+                    )}
+                    {onToggleKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="hide"
+                        aria-label={`${t("sqlDashboard.hide")} ${label}`}
+                        disabled={hidden}
+                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        onClick={() => {
+                          onToggleKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.hide")}
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              )}
+            </Popover>
           );
         })}
       </div>
@@ -548,6 +666,7 @@ function ChartFrame({
   colors,
   hiddenKeys,
   onToggleLegendKey,
+  onFilterLegendKey,
   showCustomLegend = false,
   children,
 }: {
@@ -556,6 +675,7 @@ function ChartFrame({
   colors: string[];
   hiddenKeys?: Set<string>;
   onToggleLegendKey?: (key: string) => void;
+  onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
   children: ReactNode;
 }) {
@@ -585,6 +705,7 @@ function ChartFrame({
         panel={panel}
         hiddenKeys={hiddenKeys}
         onToggleKey={onToggleLegendKey}
+        onFilterKey={onFilterLegendKey}
       />
     </div>
   );
@@ -1731,7 +1852,7 @@ function BarRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const { hiddenKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
 
   return (
     <ChartFrame
@@ -1740,6 +1861,7 @@ function BarRenderer({
       colors={colors}
       hiddenKeys={hiddenKeys}
       onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -1819,7 +1941,8 @@ function TimeSeriesRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
+    useSeriesVisibility(yKeys);
   const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(
     () =>
@@ -1844,6 +1967,7 @@ function TimeSeriesRenderer({
         colors={colors}
         hiddenKeys={hiddenKeys}
         onToggleLegendKey={toggleSeries}
+        onFilterLegendKey={filterSeries}
         showCustomLegend
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -1925,6 +2049,7 @@ function TimeSeriesRenderer({
       colors={colors}
       hiddenKeys={hiddenKeys}
       onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">

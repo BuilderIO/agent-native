@@ -361,7 +361,9 @@ describe("workspace deploy", () => {
     );
     expect(dispatchServer).toContain('const basePath = "/dispatch";');
     expect(dispatchServer).toContain("Object.assign(processRef.env");
+    expect(dispatchServer).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchServer).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
@@ -701,7 +703,9 @@ describe("workspace deploy", () => {
     );
     expect(dispatchWrapper).toContain('const basePath = "/dispatch";');
     expect(dispatchWrapper).toContain("Object.assign(processRef.env");
+    expect(dispatchWrapper).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchWrapper).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
     expect(dispatchWrapper).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchWrapper).toContain('await import("./main.mjs")');

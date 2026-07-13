@@ -35,6 +35,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
+  resolveFinalResponseGuardRequestText,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   runAgentLoop,
@@ -1454,6 +1455,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: AgentChatEvent[] = [];
+    const guard = vi.fn(() => null);
     const messages = [
       {
         role: "user" as const,
@@ -1473,6 +1475,7 @@ describe("runAgentLoop", () => {
         },
         send: (event) => events.push(event),
         signal: new AbortController().signal,
+        finalResponseGuard: guard,
       });
     } finally {
       dateNow.mockRestore();
@@ -1491,6 +1494,8 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "clear" });
     expect(events).toContainEqual({ type: "text", text: "continued" });
     expect(events).toContainEqual({ type: "done" });
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].requestText).toBe("go");
     expect(events).not.toContainEqual({
       type: "auto_continue",
       reason: "no_progress",
@@ -5929,6 +5934,15 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.text.trim()
+        ? null
+        : {
+            retryMessage: "Misclassified empty response.",
+            fallbackMessage: "Wrong app fallback.",
+            maxRetries: 0,
+          },
+    );
 
     await runAgentLoop({
       engine,
@@ -5939,10 +5953,16 @@ describe("runAgentLoop", () => {
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      finalResponseGuard: guard,
     });
 
     expect(streamCalls).toBe(2);
     expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0]).toMatchObject({
+      requestText: "go",
+      text: "Recovered answer.",
+    });
     expect(events.map((event) => event.type)).toEqual([
       "thinking",
       "clear",
@@ -5952,6 +5972,77 @@ describe("runAgentLoop", () => {
     const textEvents = events.filter((e) => e.type === "text");
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toBe("Recovered answer.");
+  });
+
+  it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
+    const seenReasoningEfforts: Array<EngineStreamOptions["reasoningEffort"]> =
+      [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io Gateway",
+      defaultModel: "gpt-5-6-luna",
+      supportedModels: ["gpt-5-6-luna"],
+      capabilities: {
+        thinking: true,
+        promptCaching: true,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenReasoningEfforts.push(opts.reasoningEffort);
+        if (seenReasoningEfforts.length < 3) {
+          yield { type: "thinking-delta", text: "final-only reasoning" };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "thinking" as const, text: "final-only reasoning" },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "text-delta", text: "Hello! How can I help?" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Hello! How can I help?" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.requestText === "hello"
+        ? null
+        : {
+            retryMessage: "Query a real source.",
+            fallbackMessage: "Wrong data-source fallback.",
+          },
+    );
+
+    await runAgentLoop({
+      engine,
+      model: "gpt-5-6-luna",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      reasoningEffort: "medium",
+      finalResponseGuard: guard,
+    });
+
+    expect(seenReasoningEfforts).toEqual(["medium", "low", "minimal"]);
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].requestText).toBe("hello");
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Hello! How can I help?",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ text: "Wrong data-source fallback." }),
+    );
   });
 
   it("surfaces a fallback message after an empty-response retry also ends empty", async () => {
@@ -7302,6 +7393,18 @@ describe("appendAgentLoopContinuation", () => {
     expect(text).toContain("reuse the existing `fileId`");
     expect(text).toContain("do not call `list-files`");
     expect(text).toContain("`replacementContent`");
+  });
+
+  it("resolves the real request behind internal continuations", () => {
+    const messages: any[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+    ];
+    appendAgentLoopContinuation(messages, "max_tokens");
+
+    expect(resolveFinalResponseGuardRequestText(messages)).toBe("hello");
+    expect(
+      resolveFinalResponseGuardRequestText([messages.at(-1)]),
+    ).toBeUndefined();
   });
 });
 

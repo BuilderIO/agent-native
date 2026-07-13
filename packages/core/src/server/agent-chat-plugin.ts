@@ -189,6 +189,10 @@ async function lazyFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
+import {
+  buildSystemManifestSections,
+  setContextXraySystemSections,
+} from "../agent/context-xray/manifest.js";
 // ---------------------------------------------------------------------------
 // The bulk of this file's former implementation now lives in focused sibling
 // modules under `./agent-chat/`. This file re-imports them (and re-exports
@@ -233,6 +237,7 @@ import {
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
+  promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
 import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
@@ -264,6 +269,13 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function buildLeanRunPolicyPrompt(
+  codeEditingSurfaceRestriction: string,
+  prodCodeExecPromptNote: string,
+): string {
+  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+}
 
 /**
  * Returns whether `owner` has already finished (or explicitly skipped) the
@@ -2329,6 +2341,104 @@ export function createAgentChatPlugin(
         return prompt;
       };
 
+      const emitContextXraySystemSections = async (
+        event: any,
+        input: {
+          frameworkPrompt?: string;
+          actionsPrompt?: string;
+          resources?: string;
+          schemaBlock?: string;
+          modelOverlay?: string;
+          runtimeContext?: string;
+          additionalFramework?: string;
+          extra?: string;
+        },
+      ): Promise<void> => {
+        const sections = await buildSystemManifestSections([
+          ...(input.frameworkPrompt
+            ? [
+                {
+                  label: "Framework core",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.frameworkPrompt,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.actionsPrompt
+            ? [
+                {
+                  label: "Available actions prompt",
+                  provenance: "actions-prompt" as const,
+                  governance: "required" as const,
+                  content: input.actionsPrompt,
+                  sourceRef: { scope: "actions" },
+                },
+              ]
+            : []),
+          ...(input.resources
+            ? promptResourceManifestSections(input.resources)
+            : []),
+          ...(input.schemaBlock
+            ? [
+                {
+                  label: "SQL schema",
+                  provenance: "db-schema" as const,
+                  governance: "required" as const,
+                  content: input.schemaBlock,
+                  sourceRef: { scope: "sql" },
+                },
+              ]
+            : []),
+          ...(input.additionalFramework
+            ? [
+                {
+                  label: "Framework run policy",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.additionalFramework,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.extra
+            ? [
+                {
+                  label: "App runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "inherited" as const,
+                  content: input.extra,
+                  sourceRef: { scope: "app" },
+                },
+              ]
+            : []),
+          ...(input.modelOverlay
+            ? [
+                {
+                  label: "Model overlay",
+                  provenance: "model-overlay" as const,
+                  governance: "required" as const,
+                  content: input.modelOverlay,
+                  sourceRef: { scope: "model" },
+                },
+              ]
+            : []),
+          ...(input.runtimeContext
+            ? [
+                {
+                  label: "Runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "required" as const,
+                  content: input.runtimeContext,
+                  sourceRef: { scope: "runtime" },
+                },
+              ]
+            : []),
+        ]);
+        setContextXraySystemSections(event, sections);
+      };
+
       /**
        * Read the model family overlay for the currently-resolved model.
        * onEngineResolved sets runCtx.model before systemPrompt is called, so
@@ -2420,10 +2530,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
+            const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
+              codeEditingSurfaceRestriction,
+              prodCodeExecPromptNote,
+            );
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: leanBasePrompt.slice(
+                0,
+                Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+              ),
+              actionsPrompt: prodActionsPrompt,
+              additionalFramework: leanRunPolicyPrompt,
+              extra,
+              modelOverlay,
+              runtimeContext,
+            });
             return setSystemPromptOnContext(
               leanBasePrompt +
-                codeEditingSurfaceRestriction +
-                prodCodeExecPromptNote +
+                leanRunPolicyPrompt +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2439,6 +2563,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
+          await emitContextXraySystemSections(event, {
+            frameworkPrompt: basePrompt.slice(
+              0,
+              Math.max(0, basePrompt.length - prodActionsPrompt.length),
+            ),
+            actionsPrompt: prodActionsPrompt,
+            resources,
+            schemaBlock,
+            extra,
+            modelOverlay,
+            runtimeContext,
+            additionalFramework:
+              personalizationBlock +
+              codeEditingSurfaceRestriction +
+              prodCodeExecPromptNote,
+          });
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -2548,6 +2688,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
+                await emitContextXraySystemSections(event, {
+                  frameworkPrompt: anonymousReadOnlyPrompt,
+                  extra,
+                  runtimeContext: runtimeContextForEvent(event),
+                });
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
                     extra +
@@ -2668,6 +2813,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              await emitContextXraySystemSections(event, {
+                frameworkPrompt: leanBasePrompt.slice(
+                  0,
+                  Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                ),
+                actionsPrompt: prodActionsPrompt,
+                extra,
+                modelOverlay,
+                runtimeContext,
+              });
               return setSystemPromptOnContext(
                 leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
@@ -2681,6 +2836,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext || !databaseToolsEnabled
                 ? ""
                 : await buildSchemaBlock(owner, databaseToolsMode);
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: devNative
+                ? basePrompt.slice(
+                    0,
+                    Math.max(0, basePrompt.length - prodActionsPrompt.length),
+                  )
+                : devPrompt.slice(
+                    0,
+                    Math.max(0, devPrompt.length - devActionsPrompt.length),
+                  ),
+              actionsPrompt: devNative ? prodActionsPrompt : devActionsPrompt,
+              resources,
+              schemaBlock,
+              extra,
+              modelOverlay,
+              runtimeContext,
+              additionalFramework: personalizationBlock,
+            });
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +

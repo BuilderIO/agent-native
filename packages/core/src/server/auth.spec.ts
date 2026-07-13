@@ -4229,6 +4229,23 @@ describe("server/auth", () => {
       );
     });
 
+    it("uses the root callback when the workspace app id survives without the relay flag", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/coach");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "coach");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/coach/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
     it("uses the configured public app URL instead of the local workspace gateway for workspace OAuth redirects", async () => {
       vi.stubEnv("APP_BASE_PATH", "/dispatch");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");

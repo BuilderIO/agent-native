@@ -117,6 +117,16 @@ Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
 guias específicas do host para Claude, ChatGPT, Cursor, Código Claude, Codex e Outros.
 
+### A aba Access no aplicativo {#access-tab}
+
+Os aplicativos que montam `AgentTabsPage` oferecem o mesmo fluxo de conexão na
+aba **Access**. Ela mostra a URL MCP, um cartão de agente A2A quando disponível e
+os guias compartilhados de configuração para Claude, ChatGPT, Cursor, Claude
+Code, Codex e outros clientes. Use-a como ponto de partida dentro do app e abra
+`/mcp/connect` para o fluxo completo e o fallback de token. É uma UI de
+configuração de conexão, não um console geral de acesso: a aba ainda não gerencia
+grants, edição de escopo ou revogação.
+
 ### Claude e ChatGPT OAuth {#oauth}
 
 Claude / Claude Desktop: adicione um conector personalizado, cole o MCP URL, clique em

@@ -595,6 +595,11 @@ export {
   type AgentSidebarProps,
 } from "./AgentPanel.js";
 export {
+  AgentTabsPage,
+  type AgentTabsPageProps,
+} from "./agent-page/AgentTabsPage.js";
+export type { AgentPageScope, AgentPageTabProps } from "./agent-page/types.js";
+export {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   AGENT_CHAT_VIEW_TRANSITION_NAME,
@@ -838,6 +843,7 @@ export {
   type ResourceTreeProps,
   type ResourceEditorProps,
 } from "./resources/index.js";
+export type { ResourcesPanelProps } from "./resources/ResourcesPanel.js";
 export {
   HistoryTimeline,
   VersionHistoryPanel,

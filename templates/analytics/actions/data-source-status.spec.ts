@@ -99,6 +99,32 @@ describe("data-source-status", () => {
     };
   });
 
+  it("reports the built-in first-party analytics store without external credentials", async () => {
+    const result = (await dataSourceStatus.run({})) as any;
+
+    expect(result).toMatchObject({
+      hasConfiguredDataSources: true,
+      configuredDataSourceCount: 1,
+      configuredDataSources: [
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
+      ],
+    });
+    expect(result.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "first-party",
+          configured: true,
+          configuredKeys: [],
+        }),
+      ]),
+    );
+  });
+
   it("treats a HubSpot private app token as configured", async () => {
     mocks.hasCredential.mockImplementation(async (key: string) =>
       key === "HUBSPOT_PRIVATE_APP_TOKEN" ? true : false,
@@ -116,14 +142,20 @@ describe("data-source-status", () => {
     });
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
-      configuredDataSourceCount: 1,
-      configuredDataSources: [
+      configuredDataSourceCount: 2,
+      configuredDataSources: expect.arrayContaining([
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
         {
           provider: "hubspot",
           label: "HubSpot",
           via: "credentials",
         },
-      ],
+      ]),
     });
   });
 
@@ -189,12 +221,20 @@ describe("data-source-status", () => {
         connectionCount: 1,
       },
     });
-    expect(result.configuredDataSources).toEqual([
-      {
-        provider: "hubspot",
-        label: "HubSpot",
-        via: "workspace",
-      },
-    ]);
+    expect(result.configuredDataSources).toEqual(
+      expect.arrayContaining([
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
+        {
+          provider: "hubspot",
+          label: "HubSpot",
+          via: "workspace",
+        },
+      ]),
+    );
   });
 });

@@ -6,6 +6,35 @@ search: "无头代理丰富聊天完整应用程序 BYO 代理运行时 AgentCha
 
 # 特工表面
 
+## 完整的 Agent 工作区 {#agent-page}
+
+当完整应用需要一个持久位置来检查和配置代理时，请在 `/agent` 挂载
+`AgentTabsPage`。将此路由加入应用导航，并向 `AgentSidebar` 传入
+`agentPageHref="/agent"`，这样 Resources 和 Settings 模式就可以链接到完整
+页面，而不必重复这些流程。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+共享页面目前提供五个选项卡：
+
+- **Context** — 显示范围预览、令牌预算、按来源/治理/来源引用分组的有序系统部分、列表/treemap 视图和最新实时线程快照。
+- **Files** — 为个人或组织资源重新托管现有的 `ResourcesPanel`。
+- **Connections** — MCP 服务器管理和 A2A 远程代理列表，即此应用的代理可以调用什么。
+- **Jobs** — 使用现有暂停/恢复、详情和删除流程的范围化定期作业与自动化。自动化目前仅属于个人。
+- **Access** — MCP URL、可用时的 A2A 代理卡片以及共享客户端设置指南；完整连接流程和令牌回退位于 `/mcp/connect`。
+
+页面级 **Personal / Organization** 切换器为选项卡提供范围。成员可以检查组织
+数据；在托管组件实施该边界的地方，组织管理仍仅限所有者/管理员。目标是让上下文
+可检查、可归因、可治理，并将能力与访问分开。该页面只是对现有组件、操作和
+访问检查的薄封装，不是新的管理控制台。目前还没有 grants、范围编辑、撤销
+界面或逐迭代 provenance 历史。
+
 Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
 在没有内置代理运行时的情况下使用 UI，或者将两者一起用作完整的
 应用程序。

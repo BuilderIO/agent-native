@@ -295,9 +295,32 @@ export function getAppUrl(event: H3Event, path = "/"): string {
 }
 
 function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
+  const metaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | undefined>;
+    }
+  ).env;
+
+  // Workspace deploy wrappers normally inject the process env values before
+  // importing the server bundle. Keep the build-time Vite values and the
+  // workspace app id as fallbacks too: Netlify/Vite can preserve those values
+  // in the bundle even when a stale function wrapper drops one of the runtime
+  // flags. Without this fallback, a mounted workspace app constructs a
+  // per-app callback (for example `/coach/_agent-native/...`) instead of the
+  // single registered root relay (`/_agent-native/...`).
   return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    [
+      process.env.AGENT_NATIVE_WORKSPACE,
+      process.env.VITE_AGENT_NATIVE_WORKSPACE,
+      metaEnv?.AGENT_NATIVE_WORKSPACE,
+      metaEnv?.VITE_AGENT_NATIVE_WORKSPACE,
+    ].some((value) => value === "1" || value === "true") ||
+    [
+      process.env.AGENT_NATIVE_WORKSPACE_APP_ID,
+      process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+      metaEnv?.AGENT_NATIVE_WORKSPACE_APP_ID,
+      metaEnv?.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+    ].some((value) => typeof value === "string" && value.trim().length > 0)
   );
 }
 

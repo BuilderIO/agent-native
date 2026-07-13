@@ -6,6 +6,39 @@ search: "aplicativo completo de bate-papo rico com agente sem cabeça BYO tempo 
 
 # Superfícies do agente
 
+## Espaço de trabalho completo do Agent {#agent-page}
+
+Quando um aplicativo completo precisa de um lugar permanente para inspecionar e
+configurar seu agente, monte `AgentTabsPage` em `/agent`. Adicione a rota à
+navegação do aplicativo e passe `agentPageHref="/agent"` para `AgentSidebar`,
+para que os modos Resources e Settings apontem para a página completa sem
+duplicar esses fluxos.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+A página compartilhada oferece atualmente cinco abas:
+
+- **Context** — prévia do escopo, orçamento de tokens, seções de sistema ordenadas por procedência, governança e fonte, visualização em lista/treemap e o snapshot da thread ativa mais recente.
+- **Files** — reutiliza `ResourcesPanel` para recursos pessoais ou da organização.
+- **Connections** — gerenciamento de servidores MCP e lista de agentes remotos A2A: o que o agente deste app pode chamar.
+- **Jobs** — jobs recorrentes e automações com os fluxos existentes de pausar/retomar, detalhes e excluir. As automações são pessoais por enquanto.
+- **Access** — URL MCP, cartão de agente A2A quando disponível e guias compartilhados de configuração; o fluxo completo e o fallback de token ficam em `/mcp/connect`.
+
+O seletor **Personal / Organization** fornece o escopo às abas. Os membros
+podem inspecionar os dados da organização, enquanto sua administração continua
+restrita a proprietários/administradores onde o componente hospedado impõe esse
+limite. O objetivo é
+tornar o contexto inspecionável, atribuível e governável, separando capacidade
+de acesso. A página é uma camada fina sobre componentes, ações e verificações de
+acesso existentes, não um novo console administrativo. Ela ainda não oferece UI
+para grants, edição de escopo, revogação ou histórico de procedência por iteração.
+
 Agent-Native é deliberadamente combinável. Você pode usar o agente sem muito UI,
 use o UI sem o tempo de execução do agente integrado ou use os dois juntos como um pacote completo
 aplicativo.
