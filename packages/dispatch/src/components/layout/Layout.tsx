@@ -648,7 +648,7 @@ export function NavContent({
                 className={({ isActive }) => {
                   const active = isActive || itemMatchesLocalPath;
                   return cn(
-                    "flex h-10 w-10 items-center justify-center rounded-md text-sm",
+                    "flex h-8 w-8 items-center justify-center rounded-md text-sm",
                     active
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -775,19 +775,21 @@ export function NavContent({
         <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
           <ul
             className={cn(
-              "space-y-0.5",
-              collapsed && "flex flex-col items-center",
+              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
             )}
           >
             {primaryNavItems.map(renderNavItem)}
           </ul>
 
           {collapsed ? (
-            <ul className="mt-2 flex flex-col items-center space-y-0.5">
-              {[...operationsNavItems, ...ADVANCED_NAV_ITEMS].map(
-                renderNavItem,
-              )}
-            </ul>
+            <>
+              <ul className="mt-5 flex flex-col items-center gap-1">
+                {operationsNavItems.map(renderNavItem)}
+              </ul>
+              <ul className="mt-3 flex flex-col items-center gap-1">
+                {ADVANCED_NAV_ITEMS.map(renderNavItem)}
+              </ul>
+            </>
           ) : (
             <div className="mt-5">
               <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
@@ -838,9 +840,11 @@ export function NavContent({
 export function Layout({
   children,
   extensions,
+  agentPageHref,
 }: {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
 }) {
   const t = useT();
   const location = useLocation();
@@ -926,6 +930,7 @@ export function Layout({
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      agentPageHref={agentPageHref}
       chatViewTransition
       storageKey="dispatch"
       openOnChatRunning={chatHomeHandoffActive}
@@ -944,7 +949,7 @@ export function Layout({
           data-collapsed={sidebarCollapsed ? "true" : "false"}
           className={cn(
             "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-            sidebarCollapsed ? "w-12" : "w-64",
+            sidebarCollapsed ? "w-14" : "w-56",
           )}
         >
           <NavContent

@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
+    openAgent: "Open Agent",
     commandAppearance: "Appearance",
     toggleTheme: "Toggle theme",
     extensionSignedInTitle: "Signed in",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "Dictate",
     archive: "Archive",
     trash: "Trash",
+    agent: "Agent",
     settings: "Settings",
     notifications: "Notifications",
     insights: "Insights",

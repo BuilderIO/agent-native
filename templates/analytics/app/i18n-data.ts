@@ -588,6 +588,7 @@ const enUS = {
     clearAll: "Clear all",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    filterSeries: "Filter",
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",

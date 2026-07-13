@@ -29,6 +29,15 @@ Recurring jobs are scheduled tasks the agent executes automatically on a cron sc
 | `manage-jobs` | `list`     | List all jobs and their status                             |
 | `manage-jobs` | `update`   | Update schedule, instructions, or toggle enabled           |
 
+## UI Surface
+
+Users can see and manage jobs without the agent on the Agent page's Jobs tab
+(`/agent#jobs`, `AgentJobsTab` in `packages/core/src/client/agent-page/`):
+recurring jobs (personal and organization scope) with pause/resume/delete and
+run status, plus automations (personal-only today). Backed by the scoped
+list/manage actions in `packages/core/src/jobs/actions/` — direct users there
+instead of describing job files when they just want to view or toggle jobs.
+
 ## Key Files
 
 | File                                  | Purpose                                                  |

@@ -4,6 +4,7 @@ const messages = {
     commandSearch: "搜尋",
     commandAppearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   routeTitles: {
     chat: "聊天 — Dispatch",
@@ -254,6 +255,7 @@ const messages = {
       vault: "保管庫",
       audit: "稽核",
       operations: "營運",
+      agent: "代理",
     },
     pages: {
       dataLoadFailed: "無法載入資料",

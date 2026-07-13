@@ -1004,15 +1004,34 @@ Workspace resources are for files users intentionally add, edit, or manage. Agen
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
 const SHARED_RESOURCE_OWNER = "__shared__";
 
-export function ResourcesPanel() {
+export interface ResourcesPanelProps {
+  /** Hide the virtual MCP folder when Files is hosted by the Agent page. */
+  showMcpServers?: boolean;
+  /** Optional page-level scope to mirror in the resource toolbar. */
+  scope?: ResourceScope;
+}
+
+export function resolveInitialResourceScope(
+  requestedScope: ResourceScope | undefined,
+  canEditOrg: boolean,
+): ResourceScope {
+  if (requestedScope === "shared") return "shared";
+  if (requestedScope === "personal") return "personal";
+  return canEditOrg ? "shared" : "personal";
+}
+
+export function ResourcesPanel({
+  showMcpServers = true,
+  scope: requestedScope,
+}: ResourcesPanelProps = {}) {
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
   // Solo deployments (no orgId) behave as owner — users can edit their own.
   const canEditOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
 
-  const [activeScope, setActiveScope] = useState<ResourceScope>(
-    canEditOrg ? "shared" : "personal",
+  const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
+    resolveInitialResourceScope(requestedScope, canEditOrg),
   );
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
@@ -1074,27 +1093,31 @@ export function ResourcesPanel() {
   // `handleSelect` and `handleDelete` below recognize to route back to
   // the MCP endpoints.
   const personalTree = withAgentScratchFolder(
-    withMcpServersFolder(
-      personalTreeQuery.data ?? [],
-      mcpServersQuery.data?.user ?? [],
-      {
-        builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
-          (capability) => ({ capability, scope: "user" as const }),
-        ),
-      },
-    ),
+    showMcpServers
+      ? withMcpServersFolder(
+          personalTreeQuery.data ?? [],
+          mcpServersQuery.data?.user ?? [],
+          {
+            builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
+              (capability) => ({ capability, scope: "user" as const }),
+            ),
+          },
+        )
+      : (personalTreeQuery.data ?? []),
     { show: showAgentScratch },
   );
   const sharedTree = withAgentScratchFolder(
-    withMcpServersFolder(
-      sharedTreeQuery.data ?? [],
-      mcpServersQuery.data?.org ?? [],
-      {
-        builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
-          (capability) => ({ capability, scope: "org" as const }),
-        ),
-      },
-    ),
+    showMcpServers
+      ? withMcpServersFolder(
+          sharedTreeQuery.data ?? [],
+          mcpServersQuery.data?.org ?? [],
+          {
+            builtins: (builtinCapabilitiesQuery.data?.capabilities ?? []).map(
+              (capability) => ({ capability, scope: "org" as const }),
+            ),
+          },
+        )
+      : (sharedTreeQuery.data ?? []),
     { show: showAgentScratch },
   );
   const workspaceTree = workspaceTreeQuery.data ?? [];
@@ -1132,10 +1155,15 @@ export function ResourcesPanel() {
 
   // Sync activeScope once the org role arrives (canEditOrg is resolved async).
   useEffect(() => {
-    if (!canEditOrg && activeScope === "shared") {
+    if (!requestedScope && !canEditOrg && activeScope === "shared") {
       setActiveScope("personal");
     }
-  }, [canEditOrg, activeScope]);
+  }, [canEditOrg, activeScope, requestedScope]);
+
+  useEffect(() => {
+    if (!requestedScope) return;
+    setActiveScope(requestedScope);
+  }, [requestedScope]);
   // Virtual MCP ids aren't in the resources store — skip the fetch so
   // useResource doesn't 404-flash.
   const resourceQuery = useResource(

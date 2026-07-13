@@ -796,9 +796,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         publicAgent: { expose: true, readOnly: true, requiresAuth: true },
         run: async () => ({ ok: true }),
       },
+      "context-preview-get": {
+        tool: { description: "Preview the composed system context" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
     };
 
-    it("never auto-advertises or auto-calls db-query / seed-demo-data even when fully annotated as authenticated reads", async () => {
+    it("never auto-advertises or auto-calls excluded actions even when fully annotated as authenticated reads", async () => {
       const autoConfig = {
         ...connectorConfig,
         connectorCatalog: undefined,
@@ -817,8 +824,13 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       const names: string[] = listOut.result.tools.map((t: any) => t.name);
       expect(names).not.toContain("db-query");
       expect(names).not.toContain("seed-demo-data");
+      expect(names).not.toContain("context-preview-get");
 
-      for (const name of ["db-query", "seed-demo-data"]) {
+      for (const name of [
+        "db-query",
+        "seed-demo-data",
+        "context-preview-get",
+      ]) {
         const callOut = await call(
           {
             jsonrpc: "2.0",

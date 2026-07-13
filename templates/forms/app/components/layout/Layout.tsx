@@ -88,6 +88,7 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
+            agentPageHref="/agent"
             defaultOpen
             chatViewTransition
             storageKey="forms"

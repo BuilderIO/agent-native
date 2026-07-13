@@ -13,7 +13,7 @@ import {
   setClientAppState,
   useT,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -235,6 +235,7 @@ function FormsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -245,6 +246,10 @@ function FormsCommandMenu({
       <CommandMenu.Group heading={t("root.commandForms")}>
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.searchForms")}
+        </CommandMenu.Item>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconBrain size={16} />
+          {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.appearance")}>

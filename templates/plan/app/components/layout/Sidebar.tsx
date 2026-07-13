@@ -18,6 +18,7 @@ import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArchive,
+  IconBrain,
   IconClipboardCheck,
   IconDots,
   IconEdit,
@@ -87,6 +88,7 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

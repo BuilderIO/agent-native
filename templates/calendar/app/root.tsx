@@ -15,7 +15,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -25,6 +25,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useNavigate,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
@@ -197,6 +198,7 @@ function isPublicBookingPath(pathname: string): boolean {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const navigate = useNavigate();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -211,6 +213,20 @@ function AppContent() {
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.commandSearch")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>

@@ -22,6 +22,7 @@ const pageTitleKeys: Record<string, string> = {
   "/sessions": "navigation.sessions",
   "/monitoring": "navigation.monitoring",
   "/agents": "navigation.admin",
+  "/agent": "settings.agentTitle",
   "/dashboards/explorer": "navigation.explorer",
   "/settings": "navigation.settings",
 };

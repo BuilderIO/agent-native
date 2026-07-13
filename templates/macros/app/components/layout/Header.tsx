@@ -10,6 +10,7 @@ const pageTitles: Record<string, string> = {
   "/": "header.entry",
   "/entry": "header.entry",
   "/analytics": "header.analytics",
+  "/agent": "settings.agentTitle",
   "/settings": "header.settings",
   "/extensions": "header.extensions",
 };

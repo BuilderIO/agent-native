@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Search forms",
     appearance: "Appearance",
     toggleTheme: "Toggle theme",
+    openAgent: "Open Agent",
   },
   header: {
     settings: "Settings",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Ask Forms",
     allForms: "All forms",
     team: "Team",
+    agent: "Agent",
   },
   settings: {
     title: "Settings",

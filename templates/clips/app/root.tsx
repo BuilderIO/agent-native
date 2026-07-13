@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +27,7 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
+  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
@@ -336,6 +337,7 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -358,6 +360,10 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
+            <CommandMenu.Item onSelect={() => navigate("/agent")}>
+              <IconBrain size={16} />
+              {t("root.openAgent")}
+            </CommandMenu.Item>
             <CommandMenu.Item onSelect={() => {}}>
               {t("root.commandSearch")}
             </CommandMenu.Item>

@@ -15,7 +15,7 @@ import {
   getLocaleInitScript,
   getThemeInitScript,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -26,6 +26,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -184,6 +185,7 @@ function AppContent() {
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
 
@@ -211,6 +213,13 @@ function AppContent() {
         <CommandMenu.Group heading={t("root.commandPresentations")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.searchDecks")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>

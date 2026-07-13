@@ -13,6 +13,7 @@ import {
   IconFlame,
   IconLoader2,
   IconChartBar,
+  IconBrain,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -41,6 +42,7 @@ import { Header } from "./Header";
 const navItems = [
   { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -58,6 +60,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const isAnalytics = location.pathname === "/analytics";
   const isSettings = location.pathname.startsWith("/settings");
+  const isAgent = location.pathname.startsWith("/agent");
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -73,12 +76,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   // Navigation state sync - write current view to application state
   useEffect(() => {
-    const view = isSettings ? "settings" : isAnalytics ? "analytics" : "entry";
+    const view = isAgent
+      ? "agent"
+      : isSettings
+        ? "settings"
+        : isAnalytics
+          ? "analytics"
+          : "entry";
     apiFetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       body: JSON.stringify({ view, path: location.pathname }),
     }).catch(() => {});
-  }, [location.pathname, isAnalytics, isSettings]);
+  }, [location.pathname, isAgent, isAnalytics, isSettings]);
 
   // useDbSync invalidates this key when the agent writes a navigate command.
   const { data: navCommand } = useQuery({
@@ -108,6 +117,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         navigate("/analytics");
       } else if (cmd.view === "settings") {
         navigate("/settings");
+      } else if (cmd.view === "agent") {
+        navigate("/agent");
       } else if (cmd.view === "entry") {
         navigate("/");
       }
@@ -131,6 +142,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           t("agent.suggestionMacros"),
           t("agent.suggestionRun"),
         ]}
+        agentPageHref="/agent"
       >
         <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}

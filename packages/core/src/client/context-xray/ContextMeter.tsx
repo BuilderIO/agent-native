@@ -5,6 +5,10 @@ import type {
   ContextSegmentStatus,
 } from "../../shared/context-xray.js";
 import {
+  manifestConversationTokens,
+  manifestSystemTokens,
+} from "../../shared/context-xray.js";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -61,9 +65,11 @@ function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
 
 export function ContextMeter({
   threadId,
+  manifest: providedManifest,
   enabled = true,
 }: {
   threadId?: string | null;
+  manifest?: ContextManifest | null;
   enabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -71,7 +77,7 @@ export function ContextMeter({
     Map<string, ContextSegmentStatus>
   >(new Map());
   const currentThreadId = useRef(threadId);
-  const shouldQuery = Boolean(threadId && enabled);
+  const shouldQuery = Boolean(threadId && enabled && !providedManifest);
   const query = useActionQuery(
     "context-manifest-get",
     shouldQuery && threadId ? { threadId } : undefined,
@@ -99,13 +105,21 @@ export function ContextMeter({
     }
   }, [enabled, threadId]);
 
-  const manifest = query.data;
+  const manifest = providedManifest ?? query.data;
   const contextWindow = resolveContextWindow(manifest?.model);
   const pct = manifest
     ? Math.min(100, Math.round((manifest.totalTokens / contextWindow) * 100))
     : 0;
+  const systemTokens = manifest ? manifestSystemTokens(manifest) : 0;
+  const conversationTokens = manifest
+    ? manifestConversationTokens(manifest)
+    : 0;
 
-  if (!shouldQuery || !threadId || !manifest || manifest.rawTokens <= 0) {
+  if (
+    (!shouldQuery && !providedManifest) ||
+    !manifest ||
+    (manifest.rawTokens <= 0 && manifest.totalTokens <= 0)
+  ) {
     return null;
   }
 
@@ -139,9 +153,9 @@ export function ContextMeter({
                 type="button"
                 aria-label={`Context ${pct}%, ${formatTokens(
                   manifest.totalTokens,
-                )}. Open Context X-Ray.`}
+                )}${systemTokens > 0 ? ` total: ${formatTokens(systemTokens)} system + ${formatTokens(conversationTokens)} conversation` : ""}. Open Context X-Ray.`}
                 className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   open && "bg-accent/60 text-foreground",
                 )}
               >
@@ -151,6 +165,9 @@ export function ContextMeter({
           </TooltipTrigger>
           <TooltipContent>
             Context {pct}% · {formatTokens(manifest.totalTokens)}
+            {systemTokens > 0
+              ? ` (${formatTokens(systemTokens)} system + ${formatTokens(conversationTokens)} conversation)`
+              : ""}
           </TooltipContent>
         </Tooltip>
         <PopoverContent

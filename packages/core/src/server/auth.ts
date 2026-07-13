@@ -144,6 +144,7 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -1453,13 +1454,6 @@ function mountAuthCorsMiddleware(app: H3App): void {
   const handler = createAuthCorsHandler();
   app.use("/_agent-native/auth", handler);
   app.use("/_agent-native/google", handler);
-}
-
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {

@@ -117,6 +117,14 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` 與可複製的 URL 和
 Claude、ChatGPT、游標、Claude 程式碼、Codex 和其他的主機特定分頁。
 
+### 應用程式內的 Access 分頁 {#access-tab}
+
+掛載 `AgentTabsPage` 的應用程式也會在 **Access** 分頁提供相同的連線流程。
+它會顯示 MCP URL、可用時的 A2A 代理卡片，以及 Claude、ChatGPT、Cursor、Claude
+Code、Codex 和其他用戶端的共用設定指南。可將它作為應用程式內的起點，並開啟
+`/mcp/connect` 查看完整流程和權杖備援。這是連線設定介面，不是通用存取控制台；
+此分頁目前還不管理 grants、範圍編輯或撤銷。
+
 ### Claude 和 ChatGPT OAuth {#oauth}
 
 Claude / Claude 桌面：新增自訂連線器，貼上 MCP URL，點選

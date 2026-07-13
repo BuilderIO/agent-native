@@ -19,6 +19,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
   NON_ANALYTICS_REQUEST_GUIDANCE,
@@ -46,10 +47,25 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
+    expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
     expect(guidance).toContain("run one bounded aggregate");
     expect(guidance).toContain("Once it returns a valid result");
     expect(guidance).toContain("does not waive the real-data requirement");
+    expect(guidance).toContain(
+      "This does not replace or restrict external sources",
+    );
+    expect(guidance).toContain("When the user names an external provider");
+  });
+
+  it("routes built-in product metrics to the first-party query action", () => {
+    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
+      "query-agent-native-analytics",
+    );
+    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
+      "Do not report the first-party source as disconnected",
+    );
+    expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
   });
 
   it("discovers incident sessions without requiring a JavaScript error count", () => {
@@ -141,6 +157,7 @@ describe("Analytics agent Plan mode policy", () => {
   it("keeps corpus and provider reduction tools in the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
+        "bigquery",
         "provider-api-catalog",
         "provider-api-docs",
         "provider-api-request",
@@ -148,6 +165,8 @@ describe("Analytics agent Plan mode policy", () => {
         "query-staged-dataset",
         "run-code",
         "get-code-execution",
+        "hubspot-deals",
+        "hubspot-records",
         "hubspot-pipelines",
         "github-repo-files",
       ]),
@@ -181,12 +200,16 @@ function userMessage(
 
 function guardContext(params: {
   userText: string;
+  requestText?: string;
   draftText: string;
   toolResults?: AgentLoopFinalResponseGuardContext["toolResults"];
   executionMode?: AgentLoopFinalResponseGuardContext["executionMode"];
 }): AgentLoopFinalResponseGuardContext {
-  return {
+  const context: AgentLoopFinalResponseGuardContext & {
+    requestText?: string;
+  } = {
     messages: [userMessage(params.userText)],
+    requestText: params.requestText ?? params.userText,
     assistantContent: [],
     text: params.draftText,
     toolCalls: [],
@@ -194,6 +217,7 @@ function guardContext(params: {
     retryCount: 0,
     executionMode: params.executionMode ?? "act",
   };
+  return context;
 }
 
 describe("realDataFinalGuard", () => {
@@ -226,6 +250,39 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("classifies a recovered greeting from the stable request instead of the synthetic continuation", () => {
+    const internalContinuation =
+      "Continue from where you left off. Internal note: The previous LLM call reached the model output-token cap before the response finished.";
+
+    expect(looksLikeAnalyticsDataRequest(internalContinuation)).toBe(true);
+
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: internalContinuation,
+        requestText: "hello",
+        draftText: "Hi! What can I help you with?",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still retries a real analytics request after a synthetic continuation", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Continue from where you left off. Internal note: The previous LLM call reached the model output-token cap before the response finished.",
+        requestText: "what was our signup conversion last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+    });
+  });
+
   it("retries a data question that drafted the canned fallback with no tool results", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -237,6 +294,36 @@ describe("realDataFinalGuard", () => {
     expect(result).toMatchObject({
       maxRetries: 2,
       expandToolSurface: true,
+    });
+  });
+
+  it("routes a data question to first-party Analytics after built-in status succeeds", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "how many Builder signups did we get last week",
+        draftText: GENERIC_NO_DATA_FALLBACK_MESSAGE,
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                  queryAction: "query-agent-native-analytics",
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("First-party Analytics"),
+      fallbackMessage: expect.stringContaining("First-party Analytics"),
     });
   });
 

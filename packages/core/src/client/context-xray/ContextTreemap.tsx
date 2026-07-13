@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Treemap } from "recharts";
 
-import type { ContextManifestSegment } from "../../shared/context-xray.js";
+import type {
+  ContextManifestSegment,
+  ContextManifestSystemSection,
+} from "../../shared/context-xray.js";
 import { formatTokens, groupFill } from "./format.js";
 
 interface TreemapDatum {
@@ -47,9 +50,11 @@ function TreemapContent(props: any) {
 
 export function ContextTreemap({
   segments,
+  systemSections = [],
   onSelect,
 }: {
   segments: ContextManifestSegment[];
+  systemSections?: ContextManifestSystemSection[];
   onSelect?: (segmentId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,6 +67,16 @@ export function ContextTreemap({
       group: segment.group,
       segmentId: segment.segmentId,
     }));
+  data.push(
+    ...systemSections
+      .filter((section) => section.tokenCount > 0)
+      .map((section) => ({
+        name: section.label,
+        size: section.tokenCount,
+        group: `System · ${section.governance}`,
+        segmentId: section.segmentId,
+      })),
+  );
 
   useEffect(() => {
     const element = containerRef.current;

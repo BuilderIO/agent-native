@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Formulare suchen",
     appearance: "Darstellung",
     toggleTheme: "Design wechseln",
+    openAgent: "Agent öffnen",
   },
   header: {
     settings: "Einstellungen",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Fragen Sie nach Formularen",
     allForms: "Alle Formulare",
     team: "Team",
+    agent: "Agent",
   },
   settings: {
     title: "Einstellungen",

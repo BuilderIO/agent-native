@@ -117,6 +117,16 @@ Cada aplicación alojada también tiene una página de ayuda en
 `https://&lt;app&gt;/mcp/connect` con el URL copiable y
 pestañas específicas del host para Claude, ChatGPT, Cursor, Código Claude, Codex y Otros.
 
+### Pestaña Access dentro de la aplicación {#access-tab}
+
+Las aplicaciones que montan `AgentTabsPage` ofrecen el mismo flujo de conexión
+en la pestaña **Access**. Muestra la URL de MCP, una tarjeta del agente A2A si
+está disponible y las guías compartidas para Claude, ChatGPT, Cursor, Claude
+Code, Codex y otros clientes. Úsala como punto de partida dentro de la app y
+abre `/mcp/connect` para el flujo completo y el token alternativo. Es una
+interfaz de configuración de conexión, no una consola general de acceso: la
+pestaña todavía no gestiona grants, edición de ámbitos ni revocación.
+
 ### Claude y ChatGPT OAuth {#oauth}
 
 Escritorio Claude / Claude: agregue un conector personalizado, pegue el MCP URL, haga clic

@@ -4,6 +4,7 @@ const messages = {
     searchForms: "搜尋表單",
     appearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "詢問表單",
     allForms: "所有表單",
     team: "團隊",
+    agent: "代理",
   },
   settings: {
     title: "設定",

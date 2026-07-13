@@ -11,6 +11,7 @@ import { APP_TITLE } from "@/lib/app-config";
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.chat",
   "/observability": "navigation.observability",
+  "/agent": "settings.agentTitle",
   "/settings": "navigation.settings",
 };
 

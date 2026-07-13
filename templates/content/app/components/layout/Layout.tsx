@@ -165,6 +165,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           defaultOpen={!isMobile}
+          agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionPrd"),

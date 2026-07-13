@@ -6,6 +6,40 @@ search: "Application complète de chat enrichi d'agent sans tête BYO runtime d'
 
 # Surfaces des agents
 
+## Espace de travail Agent complet {#agent-page}
+
+Lorsqu'une application complète a besoin d'un endroit durable pour inspecter et
+configurer son agent, montez `AgentTabsPage` sur `/agent`. Ajoutez la route à la
+navigation de l'application et passez `agentPageHref="/agent"` à
+`AgentSidebar` afin que les modes Resources et Settings puissent ouvrir la page
+complète sans dupliquer ces flux.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+La page partagée propose actuellement cinq onglets :
+
+- **Context** — aperçu du périmètre, budget de tokens, sections système ordonnées avec provenance et gouvernance, vue liste/treemap et dernière capture du fil actif.
+- **Files** — réutilise `ResourcesPanel` pour les ressources personnelles ou de l'organisation.
+- **Connections** — gestion des serveurs MCP et liste des agents distants A2A : ce que l'agent de l'application peut appeler.
+- **Jobs** — tâches récurrentes et automatisations avec les flux existants de pause/reprise, détails et suppression. Les automatisations sont personnelles pour le moment.
+- **Access** — URL MCP, fiche d'agent A2A si disponible et guides de configuration partagés ; le flux complet et le repli par jeton sont disponibles sur `/mcp/connect`.
+
+Le sélecteur **Personal / Organization** fournit le périmètre aux onglets. Les
+membres peuvent inspecter les données de l'organisation, tandis que sa gestion
+reste réservée aux propriétaires/administrateurs là où le composant hébergé
+applique cette limite. Le
+but est de rendre le contexte inspectable, attribuable et gouvernable, tout en
+séparant capacité et accès. La page est une fine enveloppe autour des
+composants, actions et contrôles existants, pas une nouvelle console
+d'administration. Elle ne fournit pas encore d'interface pour les grants, la
+modification du périmètre, la révocation ou l'historique de provenance par itération.
+
 Agent-Native est délibérément composable. Vous pouvez utiliser l'agent sans trop dépenser UI,
 utilisez le UI sans le runtime d'agent intégré, ou utilisez les deux ensemble comme un ensemble complet
 application.

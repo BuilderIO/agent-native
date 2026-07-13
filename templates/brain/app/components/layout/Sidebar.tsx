@@ -435,7 +435,10 @@ export function Sidebar({
         >
           {navItems.map((item) => {
             const Icon = item.icon;
-            const label = t(`navigation.${item.view}`);
+            const label =
+              item.view === "agent"
+                ? t("settings.agentTitle")
+                : t(`navigation.${item.view}`);
             const link = (
               <NavLink
                 to={item.href}

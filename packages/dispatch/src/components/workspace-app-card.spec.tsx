@@ -51,9 +51,13 @@ describe("WorkspaceAppCard", () => {
       );
     });
 
-    expect(
-      container.querySelector('a[aria-label="Open Analytics"]')?.className,
-    ).toContain("focus-visible:ring-2");
+    const appLink = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Open Analytics"]',
+    );
+    expect(appLink?.getAttribute("href")).toBe("/analytics");
+    expect(appLink?.getAttribute("target")).toBeNull();
+    expect(appLink?.getAttribute("rel")).toBeNull();
+    expect(appLink?.className).toContain("focus-visible:ring-2");
 
     const actions = [
       container.querySelector<HTMLButtonElement>(
@@ -76,5 +80,32 @@ describe("WorkspaceAppCard", () => {
       );
       expect(action?.className).not.toContain("opacity-0");
     }
+  });
+
+  it("opens pending Builder apps in a new tab", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceAppCard
+            app={{
+              id: "new-app",
+              name: "New app",
+              path: "/new-app",
+              builderUrl: "https://builder.example.com/projects/new-app",
+              status: "pending",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const appLink = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Open New app"]',
+    );
+    expect(appLink?.getAttribute("href")).toBe(
+      "https://builder.example.com/projects/new-app",
+    );
+    expect(appLink?.getAttribute("target")).toBe("_blank");
+    expect(appLink?.getAttribute("rel")).toBe("noreferrer");
   });
 });

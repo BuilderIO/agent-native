@@ -2643,6 +2643,7 @@ const enUS = {
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open database page",
     commandAppearance: "Appearance",
+    openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
@@ -2656,6 +2657,7 @@ const enUS = {
   },
   navigation: {
     openSidebar: "Open sidebar",
+    agent: "Agent",
     settings: "Settings",
   },
   team: {
@@ -8433,10 +8435,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "本地文件",
       commandDatabaseResultDescription: "打开数据库页面",
       commandAppearance: "外观",
+      openAgent: "打开代理",
       toggleTheme: "切换主题",
     },
     theme: { system: "系统主题", light: "浅色主题", dark: "深色主题" },
-    navigation: { openSidebar: "打开侧边栏", settings: "设置" },
+    navigation: {
+      openSidebar: "打开侧边栏",
+      agent: "代理",
+      settings: "设置",
+    },
     team: {
       metaTitle: "工作区访问 - Content",
       pageTitle: "工作区访问",
@@ -8598,6 +8605,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Archivos locales",
       commandDatabaseResultDescription: "Abrir página de base de datos",
       commandAppearance: "Apariencia",
+      openAgent: "Abrir agente",
       toggleTheme: "Cambiar tema",
     },
     theme: {
@@ -8605,7 +8613,11 @@ export const messagesByLocale = {
       light: "Tema claro",
       dark: "Tema oscuro",
     },
-    navigation: { openSidebar: "Abrir barra lateral", settings: "Ajustes" },
+    navigation: {
+      openSidebar: "Abrir barra lateral",
+      agent: "Agente",
+      settings: "Ajustes",
+    },
     team: {
       metaTitle: "Acceso al espacio de trabajo - Content",
       pageTitle: "Acceso al espacio de trabajo",
@@ -8773,6 +8785,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Fichiers locaux",
       commandDatabaseResultDescription: "Ouvrir la page de base de données",
       commandAppearance: "Apparence",
+      openAgent: "Ouvrir l’agent",
       toggleTheme: "Changer de thème",
     },
     theme: {
@@ -8782,6 +8795,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Ouvrir la barre latérale",
+      agent: "Agent",
       settings: "Paramètres",
     },
     team: {
@@ -8949,6 +8963,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Lokale Dateien",
       commandDatabaseResultDescription: "Datenbankseite öffnen",
       commandAppearance: "Darstellung",
+      openAgent: "Agent öffnen",
       toggleTheme: "Theme wechseln",
     },
     theme: {
@@ -8958,6 +8973,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Seitenleiste öffnen",
+      agent: "Agent",
       settings: "Einstellungen",
     },
     team: {
@@ -9125,6 +9141,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "ローカルファイル",
       commandDatabaseResultDescription: "データベースページを開く",
       commandAppearance: "外観",
+      openAgent: "エージェントを開く",
       toggleTheme: "テーマを切り替え",
     },
     theme: {
@@ -9132,7 +9149,11 @@ export const messagesByLocale = {
       light: "ライトテーマ",
       dark: "ダークテーマ",
     },
-    navigation: { openSidebar: "サイドバーを開く", settings: "設定" },
+    navigation: {
+      openSidebar: "サイドバーを開く",
+      agent: "エージェント",
+      settings: "設定",
+    },
     team: {
       metaTitle: "ワークスペースアクセス - Content",
       pageTitle: "ワークスペースアクセス",
@@ -9295,10 +9316,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "로컬 파일",
       commandDatabaseResultDescription: "데이터베이스 페이지 열기",
       commandAppearance: "모양",
+      openAgent: "에이전트 열기",
       toggleTheme: "테마 전환",
     },
     theme: { system: "시스템 테마", light: "라이트 테마", dark: "다크 테마" },
-    navigation: { openSidebar: "사이드바 열기", settings: "설정" },
+    navigation: {
+      openSidebar: "사이드바 열기",
+      agent: "에이전트",
+      settings: "설정",
+    },
     team: {
       metaTitle: "워크스페이스 접근 - Content",
       pageTitle: "워크스페이스 접근",
@@ -9462,6 +9488,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "Arquivos locais",
       commandDatabaseResultDescription: "Abrir página do banco de dados",
       commandAppearance: "Aparência",
+      openAgent: "Abrir agente",
       toggleTheme: "Alternar tema",
     },
     theme: {
@@ -9471,6 +9498,7 @@ export const messagesByLocale = {
     },
     navigation: {
       openSidebar: "Abrir barra lateral",
+      agent: "Agente",
       settings: "Configurações",
     },
     team: {
@@ -9634,10 +9662,15 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "स्थानीय फ़ाइलें",
       commandDatabaseResultDescription: "डेटाबेस पेज खोलें",
       commandAppearance: "रूप",
+      openAgent: "एजेंट खोलें",
       toggleTheme: "थीम बदलें",
     },
     theme: { system: "सिस्टम थीम", light: "लाइट थीम", dark: "डार्क थीम" },
-    navigation: { openSidebar: "साइडबार खोलें", settings: "सेटिंग्स" },
+    navigation: {
+      openSidebar: "साइडबार खोलें",
+      agent: "एजेंट",
+      settings: "सेटिंग्स",
+    },
     team: {
       metaTitle: "कार्यस्थान पहुंच - Content",
       pageTitle: "कार्यस्थान पहुंच",
@@ -9794,6 +9827,7 @@ export const messagesByLocale = {
       commandLocalFilesHeading: "الملفات المحلية",
       commandDatabaseResultDescription: "فتح صفحة قاعدة البيانات",
       commandAppearance: "المظهر",
+      openAgent: "فتح الوكيل",
       toggleTheme: "تبديل السمة",
     },
     theme: {
@@ -9801,7 +9835,11 @@ export const messagesByLocale = {
       light: "السمة الفاتحة",
       dark: "السمة الداكنة",
     },
-    navigation: { openSidebar: "فتح الشريط الجانبي", settings: "الإعدادات" },
+    navigation: {
+      openSidebar: "فتح الشريط الجانبي",
+      agent: "الوكيل",
+      settings: "الإعدادات",
+    },
     team: {
       metaTitle: "الوصول إلى مساحة العمل - Content",
       pageTitle: "الوصول إلى مساحة العمل",

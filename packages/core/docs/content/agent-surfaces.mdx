@@ -29,6 +29,49 @@ start in chat, appear as a native table or chart, become a durable page in the
 app, and still run from jobs, scripts, MCP, or A2A without changing the operation
 the agent calls.
 
+## Full-page Agent workspace {#agent-page}
+
+When a full application needs a durable place to inspect and configure its
+agent, mount `AgentTabsPage` at `/agent`. Current templates pair that route
+with an app-navigation entry and pass `agentPageHref="/agent"` to
+`AgentSidebar`; the sidebar's Resources and Settings modes can then link to the
+full page without duplicating those flows.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+The shared page currently provides five tabs:
+
+- **Context** shows a scope preview, token budget, ordered system sections
+  grouped by provenance, governance, and source, a list/treemap view, and the
+  latest live-thread snapshot. It is a current snapshot, not per-iteration
+  provenance history.
+- **Files** re-hosts the existing `ResourcesPanel` for personal or
+  organization resources.
+- **Connections** re-hosts MCP server management and the A2A remote-agent list:
+  what this app's agent can call.
+- **Jobs** shows scoped recurring jobs and automations with the existing
+  pause/resume, details, and delete flows. Automations are personal-only today.
+- **Access** shows the app MCP URL, an A2A agent card when available, and shared
+  setup guides for Claude, ChatGPT, Cursor, Claude Code, Codex, and other
+  clients. It links to `/mcp/connect` for the full connect flow and token
+  fallback.
+
+The page-level **Personal / Organization** toggle supplies scope to the tabs.
+Members can inspect organization data while organization management remains
+restricted to owners/admins where the hosted component enforces that boundary.
+The design goal is inspectable, attributable, governable context, with
+capability separated from access: Connections describes what the app can call;
+Access describes how external clients connect to it. The page is a thin shell
+over existing components, actions, and access checks—not a new admin console.
+Grants, scope editing, revocation UI, and per-iteration provenance history are
+not provided by this page yet.
+
 <Diagram id="doc-block-hvdxgh" title="The surface spectrum" summary={"One action surface, four product shapes — each adds UI without changing the operation underneath."}>
 
 ```html

@@ -231,6 +231,22 @@
       "port": 3204
     },
     {
+      "name": "mail-agentpage",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/fcf5c006-2fb3-4d71-b331-0bd985e81884/scratchpad/mail-agentpage.sqlite",
+        "PORT=3208",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/mail",
+        "dev",
+        "--port",
+        "3208"
+      ],
+      "port": 3208
+    },
+    {
       "name": "design-feelcheck",
       "runtimeExecutable": "env",
       "runtimeArgs": [

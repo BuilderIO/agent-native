@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "कार्रवाइयाँ",
     commandSearch: "खोजें",
+    openAgent: "एजेंट खोलें",
     commandAppearance: "दिखावट",
     toggleTheme: "थीम बदलें",
     extensionSignedInTitle: "साइन इन हो गया",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "डिक्टेट",
     archive: "आर्काइव",
     trash: "ट्रैश",
+    agent: "एजेंट",
     settings: "सेटिंग्स",
     notifications: "सूचनाएँ",
     insights: "इनसाइट्स",

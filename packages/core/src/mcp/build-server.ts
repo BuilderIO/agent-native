@@ -383,6 +383,7 @@ const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
   "db-exec",
   "db-patch",
   "context-manifest-get",
+  "context-preview-get",
   "context-pin",
   "context-evict",
   "context-restore",

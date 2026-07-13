@@ -34,6 +34,7 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -292,13 +293,6 @@ export function getAppBasePath(): string {
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
-}
-
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {

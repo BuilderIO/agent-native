@@ -130,6 +130,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openAskAgentFullscreen}
         emptyStateText={t("chat.emptyState")}
+        agentPageHref="/agent"
         suggestions={[
           t("chat.suggestionSecurity"),
           t("chat.suggestionStaleFacts"),

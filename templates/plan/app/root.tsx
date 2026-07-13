@@ -13,6 +13,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import {
+  IconBrain,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -175,6 +176,13 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/recaps")}>
             {t("root.openRecaps")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => go("/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>

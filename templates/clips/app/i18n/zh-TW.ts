@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
+    openAgent: "開啟代理",
     commandAppearance: "外觀",
     toggleTheme: "切換主題",
     extensionSignedInTitle: "已登入",
@@ -52,6 +53,7 @@ const messages = {
     dictate: "聽寫",
     archive: "封存",
     trash: "廢紙簍",
+    agent: "代理",
     settings: "設定",
     notifications: "通知",
     insights: "洞察",

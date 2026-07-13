@@ -11,6 +11,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconActivity,
   IconArchive,
+  IconBrain,
   IconDatabase,
   IconDots,
   IconEdit,
@@ -58,6 +59,12 @@ const navItems = [
     labelKey: "navigation.database",
     href: "/database",
     view: "database",
+  },
+  {
+    icon: IconBrain,
+    labelKey: "settings.agentTitle",
+    href: "/agent",
+    view: "agent",
   },
   {
     icon: IconSettings,

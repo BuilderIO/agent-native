@@ -54,6 +54,7 @@ vi.mock("./agents-bundle.js", () => ({
 }));
 
 import { loadResourcesForPrompt } from "./agent-chat-plugin.js";
+import { promptResourceManifestSections } from "./agent-chat/prompt-resources.js";
 
 const resourcesById = new Map([
   [
@@ -246,6 +247,37 @@ beforeEach(() => {
     meta("personal_skills_company_voice"),
   ]);
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
+});
+
+describe("promptResourceManifestSections", () => {
+  it("accounts for runtime resource notes, budget notes, and available apps", () => {
+    const sections = promptResourceManifestSections(`
+<context-note>Personal memory remains available on demand.</context-note>
+<context-budget-note>Some startup context was omitted.</context-budget-note>
+<available-apps>Analytics (analytics) — Query product data.</available-apps>
+`);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        label: "Resource availability note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Personal memory remains available on demand.",
+      }),
+      expect.objectContaining({
+        label: "Context budget note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Some startup context was omitted.",
+      }),
+      expect.objectContaining({
+        label: "Available workspace apps",
+        provenance: "tools",
+        governance: "required",
+        content: "Analytics (analytics) — Query product data.",
+      }),
+    ]);
+  });
 });
 
 describe("loadResourcesForPrompt", () => {

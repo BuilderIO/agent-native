@@ -825,6 +825,7 @@ const messages = {
     clearAll: "全部清除",
     collapseFilters: "折疊過濾器",
     expandFilters: "展開過濾器",
+    filterSeries: "篩選",
     hide: "Hide",
     show: "Show",
     saveAsView: "另存為檢視",
