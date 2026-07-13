@@ -1011,6 +1011,15 @@ export interface ResourcesPanelProps {
   scope?: ResourceScope;
 }
 
+export function resolveInitialResourceScope(
+  requestedScope: ResourceScope | undefined,
+  canEditOrg: boolean,
+): ResourceScope {
+  if (requestedScope === "shared") return "shared";
+  if (requestedScope === "personal") return "personal";
+  return canEditOrg ? "shared" : "personal";
+}
+
 export function ResourcesPanel({
   showMcpServers = true,
   scope: requestedScope,
@@ -1021,11 +1030,9 @@ export function ResourcesPanel({
   const canEditOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
 
-  const [activeScope, setActiveScope] = useState<ResourceScope>(() => {
-    if (requestedScope === "shared" && canEditOrg) return "shared";
-    if (requestedScope === "personal") return "personal";
-    return canEditOrg ? "shared" : "personal";
-  });
+  const [activeScope, setActiveScope] = useState<ResourceScope>(() =>
+    resolveInitialResourceScope(requestedScope, canEditOrg),
+  );
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
   );
@@ -1148,17 +1155,15 @@ export function ResourcesPanel({
 
   // Sync activeScope once the org role arrives (canEditOrg is resolved async).
   useEffect(() => {
-    if (!canEditOrg && activeScope === "shared") {
+    if (!requestedScope && !canEditOrg && activeScope === "shared") {
       setActiveScope("personal");
     }
-  }, [canEditOrg, activeScope]);
+  }, [canEditOrg, activeScope, requestedScope]);
 
   useEffect(() => {
     if (!requestedScope) return;
-    setActiveScope(
-      requestedScope === "shared" && !canEditOrg ? "personal" : requestedScope,
-    );
-  }, [canEditOrg, requestedScope]);
+    setActiveScope(requestedScope);
+  }, [requestedScope]);
   // Virtual MCP ids aren't in the resources store — skip the fetch so
   // useResource doesn't 404-flash.
   const resourceQuery = useResource(
