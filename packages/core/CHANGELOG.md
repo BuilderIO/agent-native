@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.12
+
+### Patch Changes
+
+- 29a77ab: Keep MCP-local `ask_app` turns on the same app-level final-response guard as A2A turns.
+
 ## 0.98.11
 
 ### Patch Changes
