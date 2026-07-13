@@ -973,7 +973,7 @@ describe("handleJsonRpc", () => {
     );
   });
 
-  it("routes opted-in async A2A tasks through the Netlify durable background worker", async () => {
+  it("routes env-opted-in async A2A tasks through the Netlify durable background worker", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
     vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
@@ -1003,7 +1003,7 @@ describe("handleJsonRpc", () => {
         },
       },
       event,
-      { ...customHandler, durableBackgroundRuns: true },
+      customHandler,
     );
 
     expect(result.error).toBeUndefined();

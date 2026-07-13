@@ -86,7 +86,7 @@ async function fireProcessTaskDispatch(
   const backgroundPath = resolveAgentChatProcessRunDispatchPath();
   const useBackgroundWorker =
     isAgentChatDurableBackgroundEnabled({
-      appOptIn: config.durableBackgroundRuns === true,
+      appOptIn: config.durableBackgroundRuns,
     }) && dispatchPathTargetsNetlifyBackgroundFunction(backgroundPath);
 
   if (!useBackgroundWorker) {
