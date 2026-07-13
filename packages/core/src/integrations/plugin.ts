@@ -2485,7 +2485,8 @@ export function createIntegrationsPlugin(
             null;
           if (
             incoming.platform === "slack" &&
-            incoming.conversationType === "dm"
+            incoming.conversationType === "dm" &&
+            !options?.resolveExecutionContext
           ) {
             try {
               defaultExecutionContext = await withCredentialContext(
@@ -2493,49 +2494,48 @@ export function createIntegrationsPlugin(
                 () => resolveDefaultIntegrationExecutionContext(incoming!),
               );
             } catch (err) {
-              // Only an explicit execution-context resolver may override the
-              // default Slack identity ladder. The legacy owner-only resolver
-              // predates org-bound identities and must not turn a rejected DM
-              // into an authenticated owner run.
-              if (!options?.resolveExecutionContext) {
-                const declined =
-                  err instanceof IntegrationIdentityDeclinedError ? err : null;
-                if (declined) {
-                  console.warn(
-                    `[integrations] default Slack DM identity declined message:`,
-                    declined.message,
-                  );
-                  if (adapter.sendSystemNotice) {
-                    try {
-                      await enqueueSystemNotice(
-                        event,
-                        incoming!,
-                        declined.userFacingMessage,
-                        {
-                          dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
-                          dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
-                        },
-                      );
-                    } catch (noticeErr) {
-                      console.warn(
-                        `[integrations] could not persist decline notice:`,
-                        noticeErr instanceof Error
-                          ? noticeErr.message
-                          : noticeErr,
-                      );
-                      setResponseStatus(event, 500);
-                      return { error: "notice enqueue failed" };
-                    }
+              // The legacy owner-only resolver predates org-bound identities
+              // and must not turn a rejected Slack DM into an authenticated
+              // owner run. Custom resolveExecutionContext is checked above and
+              // skips this default ladder entirely so apps can fully own auth
+              // without framework membership checks or identity side effects.
+              const declined =
+                err instanceof IntegrationIdentityDeclinedError ? err : null;
+              if (declined) {
+                console.warn(
+                  `[integrations] default Slack DM identity declined message:`,
+                  declined.message,
+                );
+                if (adapter.sendSystemNotice) {
+                  try {
+                    await enqueueSystemNotice(
+                      event,
+                      incoming!,
+                      declined.userFacingMessage,
+                      {
+                        dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
+                        dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
+                      },
+                    );
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] could not persist decline notice:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                    setResponseStatus(event, 500);
+                    return { error: "notice enqueue failed" };
                   }
-                } else {
-                  console.error(
-                    `[integrations] default Slack DM identity denied message:`,
-                    err,
-                  );
                 }
-                setResponseStatus(event, 200);
-                return "ok";
+              } else {
+                console.error(
+                  `[integrations] default Slack DM identity denied message:`,
+                  err,
+                );
               }
+              setResponseStatus(event, 200);
+              return "ok";
             }
           }
           let executionContext: IntegrationExecutionContext = {

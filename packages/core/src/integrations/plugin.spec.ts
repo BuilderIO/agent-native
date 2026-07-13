@@ -981,6 +981,57 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).not.toHaveBeenCalled();
   });
 
+  it("lets a custom execution-context resolver fully own Slack DM identity resolution", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:custom-auth",
+        text: "hello",
+        senderId: "U-custom",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    const resolveExecutionContext = vi.fn(async () => ({
+      ownerEmail: "custom-auth@example.test",
+      orgId: "org-custom",
+      principalType: "member" as const,
+    }));
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveExecutionContext,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveDefaultExecutionContextMock).not.toHaveBeenCalled();
+    expect(resolveExecutionContext).toHaveBeenCalledTimes(1);
+    expect(handleWebhookMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        ownerEmail: "custom-auth@example.test",
+        orgId: "org-custom",
+      }),
+    );
+  });
+
   it("fails closed for unlinked Slack DM members unless the anonymous org tier is explicitly enabled", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
