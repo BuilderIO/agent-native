@@ -522,9 +522,9 @@ export function resolveScreenDropPoint(args: {
   if (!args.screenId || !args.iframeRect) return null;
   if (
     args.clientX < args.iframeRect.left ||
-    args.clientX > args.iframeRect.right ||
+    args.iframeRect.right < args.clientX ||
     args.clientY < args.iframeRect.top ||
-    args.clientY > args.iframeRect.bottom
+    args.iframeRect.bottom < args.clientY
   ) {
     return null;
   }
