@@ -1205,36 +1205,6 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // Demo-mode status — read by the client fetch interceptor and the
-      // Demo mode settings toggle. `forced` reflects the DEMO_MODE env (a
-      // hosted demo deployment); `enabled` ORs that with the per-user
-      // application_state toggle. No request-context dependency: the env case
-      // needs nothing, and the per-user case resolves the session straight
-      // off the request cookie via getSession(event).
-      getH3App(nitroApp).use(
-        `${P}/demo/status`,
-        defineEventHandler(async (event) => {
-          const { isDemoModeForced } = await import("../demo/config.js");
-          const forced = isDemoModeForced();
-          if (forced) return { enabled: true, forced: true };
-          try {
-            const session = await getSession(event);
-            const email = session?.email;
-            if (!email) return { enabled: false, forced: false };
-            const { appStateGet } =
-              await import("../application-state/store.js");
-            const state = await appStateGet(email, "demo-mode");
-            return {
-              enabled:
-                (state as { enabled?: boolean } | null)?.enabled === true,
-              forced: false,
-            };
-          } catch {
-            return { enabled: false, forced: false };
-          }
-        }),
-      );
-
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 

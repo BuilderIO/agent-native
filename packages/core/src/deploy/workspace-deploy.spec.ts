@@ -389,7 +389,9 @@ describe("workspace deploy", () => {
       ),
       "utf-8",
     );
-    expect(starterServer).toContain('path: ["/starter","/starter/*"]');
+    expect(starterServer).toContain(
+      'path: ["/starter","/starter.data","/starter/*"]',
+    );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
     expect(starterServer).toContain('"/starter/feed.xml"');
@@ -1085,10 +1087,10 @@ describe("workspace deploy", () => {
       'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
+      'if (pathname === "/dispatch" || pathname === "/dispatch.data" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
     );
     expect(worker).toContain(
-      'if (pathname === "/starter" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
+      'if (pathname === "/starter" || pathname === "/starter.data" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
     );
     expect(worker).toContain(
       "function requestForMountedApp(request, basePath)",

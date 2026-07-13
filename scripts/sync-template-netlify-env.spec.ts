@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeProductionUrlEntry } from "./sync-template-netlify-env";
+import {
+  isForbiddenHostedTemplateEnvKey,
+  normalizeProductionUrlEntry,
+} from "./sync-template-netlify-env";
+
+describe("isForbiddenHostedTemplateEnvKey", () => {
+  it("rejects the backend Demo mode switch", () => {
+    expect(isForbiddenHostedTemplateEnvKey("DEMO_MODE")).toBe(true);
+  });
+});
 
 describe("normalizeProductionUrlEntry", () => {
   it.each(["APP_URL", "BETTER_AUTH_URL"])(

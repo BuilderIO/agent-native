@@ -27,7 +27,6 @@ const DEFAULT_SKIP_ACTIONS = new Set<string>([
   "context-report",
   "context-manifest-get",
   "change-appearance",
-  "toggle-demo-mode",
 ]);
 
 /** Name patterns for high-frequency state-sync actions, skipped by default. */

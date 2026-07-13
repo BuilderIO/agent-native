@@ -47,6 +47,13 @@ import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -1087,22 +1094,34 @@ function ReplayPlayer({
                 {formatClock(totalTime)}
               </span>
 
-              <div className="flex items-center rounded-md bg-muted p-1">
-                {SPEED_OPTIONS.map((option) => (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
-                    key={option}
                     type="button"
-                    className={cn(
-                      "rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                      speed === option &&
-                        "bg-background text-foreground shadow-sm",
-                    )}
-                    onClick={() => updateSpeed(option)}
+                    disabled={disabled}
+                    aria-label={`${speed}x`}
+                    className="inline-flex h-8 min-w-11 items-center justify-center rounded-md border px-2 text-xs font-medium tabular-nums transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                   >
-                    {option}x
+                    {speed}x
                   </button>
-                ))}
-              </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top">
+                  <DropdownMenuRadioGroup
+                    value={String(speed)}
+                    onValueChange={(value) => updateSpeed(Number(value))}
+                  >
+                    {SPEED_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem
+                        key={option}
+                        value={String(option)}
+                        className="tabular-nums"
+                      >
+                        {option}x
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Tooltip>
                 <TooltipTrigger asChild>
