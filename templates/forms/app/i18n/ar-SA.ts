@@ -4,6 +4,7 @@ const messages = {
     searchForms: "بحث في النماذج",
     appearance: "المظهر",
     toggleTheme: "تبديل السمة",
+    openAgent: "فتح الوكيل",
   },
   header: {
     settings: "الإعدادات",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "اسأل Forms",
     allForms: "كل النماذج",
     team: "الفريق",
+    agent: "الوكيل",
   },
   settings: {
     title: "الإعدادات",

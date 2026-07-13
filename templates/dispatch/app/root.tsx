@@ -11,7 +11,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { Layout as AppLayout } from "@agent-native/dispatch/components";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -177,6 +177,7 @@ function ThemeToggleItem() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
@@ -188,6 +189,10 @@ function AppContent() {
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
+          <CommandMenu.Item onSelect={() => navigate("/agent")}>
+            <IconBrain size={16} />
+            {t("root.openAgent")}
+          </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.commandSearch")}
           </CommandMenu.Item>
@@ -196,7 +201,7 @@ function AppContent() {
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <AppLayout extensions={dispatchExtensions}>
+      <AppLayout extensions={dispatchExtensions} agentPageHref="/agent">
         <Outlet />
       </AppLayout>
     </>

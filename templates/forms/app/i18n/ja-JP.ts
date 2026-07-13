@@ -4,6 +4,7 @@ const messages = {
     searchForms: "フォームを検索",
     appearance: "表示",
     toggleTheme: "テーマを切り替え",
+    openAgent: "エージェントを開く",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "フォームに質問する",
     allForms: "すべてのフォーム",
     team: "チーム",
+    agent: "エージェント",
   },
   settings: {
     title: "設定",

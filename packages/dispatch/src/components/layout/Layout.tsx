@@ -840,9 +840,11 @@ export function NavContent({
 export function Layout({
   children,
   extensions,
+  agentPageHref,
 }: {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
 }) {
   const t = useT();
   const location = useLocation();
@@ -928,6 +930,7 @@ export function Layout({
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      agentPageHref={agentPageHref}
       chatViewTransition
       storageKey="dispatch"
       openOnChatRunning={chatHomeHandoffActive}
