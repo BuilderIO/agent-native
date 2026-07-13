@@ -722,7 +722,7 @@ export default function RecordingPage() {
           {t("recordingPage.recordingNotFound")}
         </h1>
         <p className="text-sm text-muted-foreground mb-4">
-          {(playerDataQ.error as Error | undefined)?.message ??
+          {(playerDataQ.error as unknown as Error | undefined)?.message ??
             t("recordingPage.noAccess")}
         </p>
         <Button onClick={() => navigate("/")} variant="outline">

@@ -34,11 +34,10 @@ import {
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
-const DEFAULT_SSR_CACHE_CONTROL = "public, max-age=0, must-revalidate";
-const DEFAULT_SSR_CDN_CACHE_CONTROL =
-  "public, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {

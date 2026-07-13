@@ -36,12 +36,12 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 
 ## Remote MCP OAuth
 
-Every app's `/_agent-native/mcp` endpoint is also a standard protected MCP
+Every app's `/mcp` endpoint is also a standard protected MCP
 resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
 `WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
 and `/.well-known/oauth-authorization-server`, dynamically register a public
 client, and complete authorization-code + PKCE at
-`/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
+`/mcp/oauth/authorize` / `/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
@@ -137,10 +137,19 @@ Bookmarked private paths work through the client session gate: the shared shell 
 ## Gating the App Shell (avoid the logged-out infinite spinner)
 
 Normal app HTML and React Router page-data responses deliberately bypass the
-server session guard. They are rendered impersonally and cached as one shared
-shell; APIs, actions, and framework data routes remain server-protected. The
-client session gate is therefore the authoritative decision point for whether
-private app UI renders.
+server session guard. They are rendered impersonally and cached as one shared,
+public, hard-cached-at-the-CDN shell; APIs, actions, and framework data routes
+remain server-protected. The client session gate is therefore the
+authoritative decision point for whether private app UI renders.
+
+**Never**, on the SSR HTML/`.data` path: set `private`, `no-store`, or
+`Vary: Cookie`; call `getSession` or read cookies in the SSR route or the
+login HTML path; or embed tokens/secrets into the rendered HTML — a
+token-bearing page still returns the same anonymous shell and resolves access
+client-side. This has regressed repeatedly (agents "fixing" it back to
+per-user SSR); it is enforced by `guard:ssr-cache-shell` and
+`ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`), and reverts
+will be rejected.
 
 `AppProviders` applies `RequireSession` automatically on its private branch. It
 resolves the session on the client and redirects signed-out visitors to
