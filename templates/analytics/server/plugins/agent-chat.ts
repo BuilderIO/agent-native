@@ -239,6 +239,11 @@ export function realDataFinalGuard(
     // actual query. One corrective turn was enough for Sonnet but caused Luna
     // to hit the fallback before it reached the query.
     maxRetries: 2,
+    // The first request may use the compact starter catalog. A corrective
+    // retry must be able to reach the real source action directly; otherwise
+    // some model families spend the retry on tool-search narration and hit
+    // the canned fallback without ever running a query.
+    expandToolSurface: true,
   };
 }
 

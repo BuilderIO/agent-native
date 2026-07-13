@@ -249,8 +249,8 @@
    The recorded visitor cursor is a core session-replay affordance: users need
    to see the Mac-style arrow where the visitor clicked, including on dark
    recordings. rrweb's bundled cursor is a small black sprite that disappears
-   against those pages. This high-contrast arrow stays inside the replayer
-   wrapper and scales with the fit-to-stage transform. */
+   against those pages. Use the normal black Mac cursor with its white outline;
+   the small shadow below keeps it legible on either background. */
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
@@ -260,7 +260,10 @@
   background: transparent;
   background-image: none;
   box-shadow: none;
-  transform: none;
+  /* The stage is fit-to-container, but the recorded cursor should stay at a
+     normal on-screen size. The stage supplies the inverse scale variable. */
+  transform: scale(var(--an-replay-cursor-scale, 1));
+  transform-origin: top left;
   transition:
     left 80ms linear,
     top 80ms linear;
@@ -271,10 +274,8 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: hsl(0 0% 100%);
-  clip-path: polygon(0 0, 0 77%, 30% 57%, 48% 100%, 68% 92%, 50% 51%, 92% 51%);
-  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.95))
-    drop-shadow(0 1px 3px hsl(0 0% 0% / 0.35));
+  background: url("./assets/replay-cursor.svg") center / contain no-repeat;
+  filter: drop-shadow(0 1px 1px hsl(0 0% 0% / 0.4));
 }
 
 .an-replay-stage-root .replayer-mouse::after {

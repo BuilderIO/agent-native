@@ -34,6 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -977,12 +978,15 @@ function ReplayPlayer({
                 <div
                   ref={stageRootRef}
                   className="an-replay-stage-root absolute left-1/2 top-1/2"
-                  style={{
-                    width: playerWidth,
-                    height: playerHeight,
-                    transform: `translate(-50%, -50%) scale(${fitScale})`,
-                    transformOrigin: "center center",
-                  }}
+                  style={
+                    {
+                      width: playerWidth,
+                      height: playerHeight,
+                      "--an-replay-cursor-scale": String(1 / fitScale),
+                      transform: `translate(-50%, -50%) scale(${fitScale})`,
+                      transformOrigin: "center center",
+                    } as CSSProperties
+                  }
                 />
                 <button
                   type="button"

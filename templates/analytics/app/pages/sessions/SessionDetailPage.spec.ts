@@ -46,12 +46,25 @@ describe("session replay event normalization", () => {
       new URL("../../global.css", import.meta.url),
       "utf8",
     );
+    const cursorAsset = readFileSync(
+      new URL("../../assets/replay-cursor.svg", import.meta.url),
+      "utf8",
+    );
 
     expect(pageSource).toContain('playing ? "cursor-none" : "cursor-pointer"');
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse::before",
     );
-    expect(globalStyles).toContain("clip-path: polygon(");
+    expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
+    expect(globalStyles).toContain("drop-shadow(0 1px 1px");
+    expect(globalStyles).toContain(
+      "transform: scale(var(--an-replay-cursor-scale, 1))",
+    );
+    expect(pageSource).toContain(
+      '"--an-replay-cursor-scale": String(1 / fitScale)',
+    );
+    expect(cursorAsset).toContain('fill="#FFFFFF"');
+    expect(cursorAsset).toContain("<polygon");
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse.active::after",
     );

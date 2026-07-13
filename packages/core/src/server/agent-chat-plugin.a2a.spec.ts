@@ -91,7 +91,7 @@ describe("delegated A2A final response guards", () => {
     await runMCPAgentLoop(
       {
         engine: {} as any,
-        model: "test-model",
+        model: "gpt-5.6",
         systemPrompt: "system",
         tools: [],
         messages: [],
@@ -105,7 +105,11 @@ describe("delegated A2A final response guards", () => {
     );
 
     expect(runner).toHaveBeenCalledWith(
-      expect.objectContaining({ finalResponseGuard: guard }),
+      expect.objectContaining({
+        finalResponseGuard: guard,
+        maxOutputTokens: 32_000,
+        reasoningEffort: "medium",
+      }),
       1_000,
       { backgroundFunction: false },
     );

@@ -167,6 +167,10 @@ describe("Analytics agent Plan mode policy", () => {
       ]),
     );
   });
+
+  it("keeps the first-party query action on the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
+  });
 });
 
 function userMessage(
@@ -230,7 +234,10 @@ describe("realDataFinalGuard", () => {
       }),
     );
 
-    expect(result).not.toBeNull();
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+    });
   });
 
   it("passes through a data question backed by a successful data query attempt", () => {
