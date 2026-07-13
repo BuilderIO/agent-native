@@ -5572,7 +5572,7 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
-  it("runs the final-response guard when an engine only emits text deltas", async () => {
+  it("runs the final-response guard when an engine emits text with empty content", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -5592,6 +5592,7 @@ describe("runAgentLoop", () => {
           type: "text-delta",
           text: streamCalls === 1 ? "unclear" : "grounded",
         };
+        yield { type: "assistant-content", parts: [] };
         yield { type: "stop", reason: "end_turn" };
       },
     };

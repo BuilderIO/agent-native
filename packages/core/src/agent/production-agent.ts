@@ -3553,7 +3553,10 @@ export async function runAgentLoop(opts: {
       assistantContent = [];
     }
 
-    if (!assistantContent && streamedAssistantText.trim()) {
+    if (
+      (!assistantContent || assistantContent.length === 0) &&
+      streamedAssistantText.trim()
+    ) {
       // Some delegated/custom engine streams emit text deltas and a terminal
       // stop without the normalized assistant-content event. Preserve the
       // streamed text so final-response guards still run; otherwise an app
