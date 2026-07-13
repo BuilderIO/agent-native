@@ -306,6 +306,8 @@ describe("Builder CMS read client", () => {
         "https://cdn.test.builder.io/api/v3/content/blog_article",
       );
       expect(input.searchParams.get("apiKey")).toBe("public-key");
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("cachebust")).toBe("true");
       expect(input.searchParams.get("limit")).toBe("100");
       expect(input.searchParams.get("offset")).toBe("0");
       expect(input.searchParams.get("fields")).toContain("data.title");
@@ -324,6 +326,7 @@ describe("Builder CMS read client", () => {
           results: [
             {
               id: "builder-entry-1",
+              published: "draft",
               lastUpdated: "2026-06-08T12:00:00.000Z",
               data: {
                 title: "Builder title",
@@ -363,6 +366,7 @@ describe("Builder CMS read client", () => {
           title: "Builder title",
           urlPath: "/blog/builder-title",
           updatedAt: "2026-06-08T12:00:00.000Z",
+          rawEntry: { published: "draft" },
           sourceValues: {
             "data.topics": ["AI", "CMS"],
             "data.tags": ["Agents"],
@@ -373,6 +377,118 @@ describe("Builder CMS read client", () => {
         },
       ],
     });
+  });
+
+  it("performs authenticated, cachebusted raw fidelity reads without projection or enrichment", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) => {
+      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
+      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
+      return null;
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(Number(input.searchParams.get("cachebust"))).toBeGreaterThan(0);
+      expect(input.searchParams.get("enrich")).toBe("false");
+      expect(input.searchParams.has("fields")).toBe(false);
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+        authorization: "Bearer private-key",
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-raw",
+              published: "draft",
+              data: {
+                title: "Raw title",
+                blocks: [{ id: "block-1" }],
+                author: {
+                  "@type": "@builder.io/core:Reference",
+                  id: "author-1",
+                },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog-article",
+      rawData: true,
+      requirePrivateKey: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries[0]?.rawEntry?.data).toEqual({
+      title: "Raw title",
+      blocks: [{ id: "block-1" }],
+      author: {
+        "@type": "@builder.io/core:Reference",
+        id: "author-1",
+      },
+    });
+  });
+
+  it("fails closed before a required authenticated fidelity read", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog-article",
+        rawData: true,
+        requirePrivateKey: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "unconfigured",
+      entries: [],
+      progress: { readMode: "none" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty unpublished-inclusive Content API result authoritative", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) => {
+      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
+      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
+      return null;
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.pathname).toBe(
+        "/api/v3/content/agent-native-blog-article-test",
+      );
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+        authorization: "Bearer private-key",
+      });
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      entries: [],
+      progress: {
+        readMode: "builder-api",
+        partial: false,
+        hasMore: false,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("requests mapped model fields through Builder MCP list reads", async () => {

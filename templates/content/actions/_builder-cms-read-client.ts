@@ -250,13 +250,14 @@ function sleep(ms: number) {
 async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
+  privateKey?: string;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
     try {
-      const response = await args.fetchImpl(args.url, {
-        headers: { accept: "application/json" },
-      });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
+      const response = await args.fetchImpl(args.url, { headers });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -511,6 +512,7 @@ async function initializeBuilderMcp(args: {
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -531,7 +533,9 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       ? Math.max(0, Math.floor(args.offset))
       : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
-  const fields = builderCmsListEntryFields(args.fieldPaths);
+  const fields = args.rawData
+    ? undefined
+    : builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
@@ -556,8 +560,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -663,8 +667,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -697,11 +701,13 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
   fetchImpl: FetchLike;
   publicKey: string;
+  privateKey?: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const url = new URL(
@@ -709,12 +715,19 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  // Enrich expands reference fields (e.g. blog-article -> blog-author) inline so
-  // mapped source columns can show the referenced entry's name instead of a
-  // bare reference id.
-  url.searchParams.set("enrich", "true");
+  // Normal list reads enrich references and project away heavyweight bodies.
+  // Fidelity reads intentionally do neither: Builder's raw data object is the
+  // clone contract, including unresolved references and every nested field.
+  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
   url.searchParams.set("noCache", "true");
-  url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  url.searchParams.set(
+    "cachebust",
+    args.rawData === true ? String(Date.now()) : "true",
+  );
+  url.searchParams.set("includeUnpublished", "true");
+  if (args.rawData !== true) {
+    url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  }
 
   const limit = readLimit(args.limit);
   const startOffset =
@@ -740,6 +753,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       response = await fetchBuilderContentPage({
         fetchImpl: args.fetchImpl,
         url: pageUrl,
+        privateKey: args.privateKey,
       });
     } catch (error) {
       return {
@@ -984,6 +998,8 @@ export async function readBuilderCmsModelFields(args: {
 export async function readBuilderCmsContentEntries(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
+  requirePrivateKey?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -993,19 +1009,38 @@ export async function readBuilderCmsContentEntries(args: {
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (args.requirePrivateKey === true && !privateKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
       fieldPaths: args.fieldPaths,
+      rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,
       offset: args.offset,
       fetchImpl,
       publicKey,
+      privateKey: privateKey ?? undefined,
     });
-    if (contentApiRead.state === "live" && contentApiRead.entries.length > 0) {
-      return contentApiRead;
-    }
+    if (contentApiRead.state === "live") return contentApiRead;
     if (!privateKey) return contentApiRead;
   }
 
@@ -1014,6 +1049,7 @@ export async function readBuilderCmsContentEntries(args: {
       return await readBuilderCmsContentEntriesViaMcp({
         model: args.model,
         fieldPaths: args.fieldPaths,
+        rawData: args.rawData,
         limit: args.limit,
         maxPages: args.maxPages,
         offset: args.offset,
