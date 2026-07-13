@@ -52,6 +52,24 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("does not waive the real-data requirement");
   });
 
+  it("discovers incident sessions without requiring a JavaScript error count", () => {
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "Do not require hasErrors=true for this initial lookup",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "agent_chat_stuck_detected",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "create-session-replay-agent-link first",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "detailed error text, stacks, request metadata",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "In Plan mode, query-agent-native-analytics is intentionally unavailable",
+    );
+  });
+
   it("routes data-dictionary lookup on demand with compact guidance", () => {
     const context = analyticsDataDictionaryRoutingContext();
 
@@ -139,6 +157,8 @@ describe("Analytics agent Plan mode policy", () => {
   it("keeps named-session incident evidence on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
+        "create-session-replay-agent-link",
+        "get-session-replay-events",
         "get-error-issue",
         "get-session-replay-summary",
         "get-session-replay-timeline",

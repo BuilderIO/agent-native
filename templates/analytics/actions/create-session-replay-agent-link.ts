@@ -27,4 +27,8 @@ export default defineAction({
       origin: getRequestContext()?.requestOrigin,
     });
   },
+  // Minting this scoped, expiring read link does not mutate the recording or
+  // expose data outside the caller's existing access scope, so it is safe for
+  // Plan mode's read-only investigation workflow.
+  readOnly: true,
 });
