@@ -57,7 +57,6 @@ import {
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
