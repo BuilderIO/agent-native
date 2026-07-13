@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.14.9
+
+### Patch Changes
+
+- 8e6f022: Allow Dispatch hosts to link the AgentSidebar to a full-page Agent surface.
+- 8e6f022: Improve collapsed Dispatch navigation spacing and sizing.
+
 ## 0.14.8
 
 ### Patch Changes
