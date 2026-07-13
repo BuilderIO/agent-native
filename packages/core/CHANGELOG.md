@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.17
+
+### Patch Changes
+
+- 7bc381d: Preserve the authenticated owner context when delegated A2A agent runs are reconstructed by the processor.
+
 ## 0.98.16
 
 ### Patch Changes
