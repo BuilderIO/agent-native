@@ -3081,6 +3081,8 @@ export async function runAgentLoop(opts: {
 
     let assistantContent: EngineContentPart[] | undefined;
     let streamedAssistantText = "";
+    const streamedAssistantToolCalls: import("./engine/types.js").EngineToolCallPart[] =
+      [];
     let terminalStopReason:
       | Extract<EngineEvent, { type: "stop" }>["reason"]
       | undefined;
@@ -3465,7 +3467,16 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "gateway-heartbeat") {
               send({ type: "stream_keepalive" });
             } else if (event.type === "tool-call") {
-              // The authoritative tool-call blocks arrive in assistant-content.
+              // Most engines repeat the authoritative call in assistant-content,
+              // but delegated/custom engines can expose only the stream event.
+              // Keep it so the loop can still execute the requested action when
+              // the normalized terminal event is missing.
+              streamedAssistantToolCalls.push({
+                type: "tool-call",
+                id: event.id,
+                name: event.name,
+                input: event.input,
+              });
             } else if (event.type === "tool-call-error") {
               toolCallErrors.set(event.id, {
                 name: event.name,
@@ -3555,13 +3566,32 @@ export async function runAgentLoop(opts: {
 
     if (
       (!assistantContent || assistantContent.length === 0) &&
-      streamedAssistantText.trim()
+      (streamedAssistantText.trim() || streamedAssistantToolCalls.length > 0)
     ) {
-      // Some delegated/custom engine streams emit text deltas and a terminal
-      // stop without the normalized assistant-content event. Preserve the
-      // streamed text so final-response guards still run; otherwise an app
-      // guard (for example Analytics' real-data guard) is silently bypassed.
-      assistantContent = [{ type: "text", text: streamedAssistantText }];
+      // Some delegated/custom engine streams emit text deltas and/or tool-call
+      // events followed by a terminal stop without the normalized
+      // assistant-content event. Preserve both so final-response guards still
+      // run and requested actions are not silently dropped.
+      assistantContent = [
+        ...(streamedAssistantText.trim()
+          ? [{ type: "text" as const, text: streamedAssistantText }]
+          : []),
+        ...streamedAssistantToolCalls,
+      ];
+    } else if (assistantContent && streamedAssistantToolCalls.length > 0) {
+      const existingToolCallIds = new Set(
+        assistantContent
+          .filter(
+            (part): part is import("./engine/types.js").EngineToolCallPart =>
+              part.type === "tool-call",
+          )
+          .map((part) => part.id),
+      );
+      for (const toolCall of streamedAssistantToolCalls) {
+        if (!existingToolCallIds.has(toolCall.id)) {
+          assistantContent.push(toolCall);
+        }
+      }
     }
     if (!assistantContent) {
       // No content — done
