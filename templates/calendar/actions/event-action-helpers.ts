@@ -303,3 +303,52 @@ export function buildStatusEventFields(args: {
           : { type, customLocation: { label } },
   };
 }
+
+function allDayDatePart(value: string): string {
+  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (dateOnlyPattern.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(
+      "All-day status events must use valid date or datetime start and end values.",
+    );
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function allDaySpanDays(start: string, end: string): number {
+  const startDate = allDayDatePart(start);
+  const endDate = allDayDatePart(end);
+  const startMs = Date.UTC(
+    Number(startDate.slice(0, 4)),
+    Number(startDate.slice(5, 7)) - 1,
+    Number(startDate.slice(8, 10)),
+  );
+  const endMs = Date.UTC(
+    Number(endDate.slice(0, 4)),
+    Number(endDate.slice(5, 7)) - 1,
+    Number(endDate.slice(8, 10)),
+  );
+  return Math.round((endMs - startMs) / 86_400_000);
+}
+
+export function validateStatusEventTiming(args: {
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (
+    (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
+    args.allDay === true
+  ) {
+    throw new Error("Out of office and focus time events must be timed.");
+  }
+
+  if (args.eventType === "workingLocation" && args.allDay === true) {
+    const days = allDaySpanDays(args.start, args.end);
+    if (days !== 1) {
+      throw new Error("All-day working location events must be a single day.");
+    }
+  }
+}

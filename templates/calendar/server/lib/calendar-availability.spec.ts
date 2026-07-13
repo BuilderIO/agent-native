@@ -27,6 +27,14 @@ describe("eventBlocksAvailability", () => {
     ).toBe(false);
   });
 
+  it("does not block time for working-location events", () => {
+    expect(
+      eventBlocksAvailability(
+        event({ eventType: "workingLocation", transparency: "opaque" }),
+      ),
+    ).toBe(false);
+  });
+
   it("does not block time when the host declined the event", () => {
     expect(eventBlocksAvailability(event({ responseStatus: "declined" }))).toBe(
       false,

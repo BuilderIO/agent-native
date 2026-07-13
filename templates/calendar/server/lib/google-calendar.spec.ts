@@ -13,6 +13,7 @@ const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarDeleteEventMock = vi.hoisted(() => vi.fn());
 const calendarPatchEventMock = vi.hoisted(() => vi.fn());
+const calendarUpdateEventMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() => vi.fn());
@@ -52,6 +53,7 @@ vi.mock("./google-api.js", () => ({
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: calendarDeleteEventMock,
   calendarPatchEvent: calendarPatchEventMock,
+  calendarUpdateEvent: calendarUpdateEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
 }));
 
@@ -396,6 +398,7 @@ describe("calendar event listing", () => {
       "access-token",
       "primary",
       expect.objectContaining({
+        eventTypes: expect.arrayContaining(["workingLocation"]),
         maxResults: 2500,
         pageToken: undefined,
       }),
@@ -409,6 +412,45 @@ describe("calendar event listing", () => {
         pageToken: "page-2",
       }),
     );
+  });
+
+  it("maps Google working-location metadata from listed events", async () => {
+    calendarListEventsMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "working-location-1",
+          summary: "Home",
+          start: { date: "2026-07-06" },
+          end: { date: "2026-07-07" },
+          eventType: "workingLocation",
+          transparency: "transparent",
+          visibility: "public",
+          workingLocationProperties: {
+            type: "homeOffice",
+            homeOffice: {},
+          },
+        },
+      ],
+    });
+
+    const result = await listEvents(
+      "2026-07-06T00:00:00Z",
+      "2026-07-07T00:00:00Z",
+      "owner@example.com",
+    );
+
+    expect(result.events[0]).toMatchObject({
+      id: "google-working-location-1",
+      title: "Home",
+      allDay: true,
+      eventType: "workingLocation",
+      transparency: "transparent",
+      visibility: "public",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
   });
 
   it("preserves attendee details for overlay calendars", async () => {
@@ -542,6 +584,55 @@ describe("calendar event creation", () => {
       undefined,
     );
   });
+
+  it("lets Google derive the summary for working-location events", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Neighborhood cafe",
+        description: "",
+        location: "",
+        start: "2026-07-08",
+        end: "2026-07-09",
+        allDay: true,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
+        workingLocationProperties: {
+          type: "customLocation",
+          customLocation: { label: "Neighborhood cafe" },
+        },
+      }),
+      undefined,
+    );
+    const body = calendarInsertEventMock.mock.calls[0]?.[2];
+    expect(body).not.toHaveProperty("summary");
+    expect(body).not.toHaveProperty("description");
+    expect(body).not.toHaveProperty("location");
+  });
 });
 
 describe("calendar recurring event updates", () => {
@@ -602,6 +693,79 @@ describe("calendar recurring event updates", () => {
       }),
       expect.any(Object),
     );
+  });
+});
+
+describe("calendar working-location updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([
+      {
+        accountId: "steve@example.com",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 10 * 60_000,
+        },
+      },
+    ]);
+    calendarUpdateEventMock.mockResolvedValue({
+      id: "working-location-1",
+      htmlLink: "https://calendar.google.com/event",
+    });
+  });
+
+  it("updates working locations as complete status-event resources", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "working-location-1",
+      summary: "Home",
+      eventType: "workingLocation",
+      start: { date: "2026-07-08" },
+      end: { date: "2026-07-09" },
+      visibility: "public",
+      transparency: "transparent",
+      workingLocationProperties: { type: "homeOffice", homeOffice: {} },
+    });
+
+    await updateEvent(
+      "working-location-1",
+      {
+        accountEmail: "steve@example.com",
+        location: "Pier 57",
+        attachments: [{ fileUrl: "https://example.com/brief", title: "Brief" }],
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        sendUpdates: "none",
+      },
+    );
+
+    expect(calendarUpdateEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "working-location-1",
+      expect.objectContaining({
+        eventType: "workingLocation",
+        start: { date: "2026-07-08" },
+        end: { date: "2026-07-09" },
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: { label: "Pier 57" },
+        },
+      }),
+      {
+        sendUpdates: "none",
+        conferenceDataVersion: undefined,
+        supportsAttachments: true,
+      },
+    );
+    expect(calendarPatchEventMock).not.toHaveBeenCalled();
   });
 });
 

@@ -5,6 +5,8 @@ import {
   formatRecurrenceText,
   getEventEndValidationMessage,
   getRecurrencePreset,
+  normalizeAllDayEditEndDate,
+  resolveTimeEditScope,
 } from "./event-form-utils";
 
 describe("getEventEndValidationMessage", () => {
@@ -28,6 +30,34 @@ describe("getEventEndValidationMessage", () => {
         endDate: "2026-05-11",
       }),
     ).toBe("End date must be on or after the start date.");
+  });
+});
+
+describe("normalizeAllDayEditEndDate", () => {
+  it("keeps working-location edits to exactly one day", () => {
+    expect(normalizeAllDayEditEndDate(true, "2026-07-08", "2026-07-10")).toBe(
+      "2026-07-08",
+    );
+  });
+
+  it("preserves ranges for ordinary all-day events", () => {
+    expect(normalizeAllDayEditEndDate(false, "2026-07-08", "2026-07-10")).toBe(
+      "2026-07-10",
+    );
+  });
+});
+
+describe("resolveTimeEditScope", () => {
+  it("pins single-day working-location edits to one occurrence", () => {
+    expect(resolveTimeEditScope(true, true, "all")).toBe("single");
+  });
+
+  it("preserves the requested scope for ordinary recurring events", () => {
+    expect(resolveTimeEditScope(true, false, "all")).toBe("all");
+  });
+
+  it("uses single scope for non-recurring events", () => {
+    expect(resolveTimeEditScope(false, false, "all")).toBe("single");
   });
 });
 

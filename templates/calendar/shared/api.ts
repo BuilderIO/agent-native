@@ -122,6 +122,8 @@ export interface CalendarEvent {
   updatedAt: string;
   /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
   _tempId?: string;
+  /** Client-only: prior provider id retained while open UI state rebinds after replacement */
+  _replacedId?: string;
 }
 
 export interface CalendarEventDraft {

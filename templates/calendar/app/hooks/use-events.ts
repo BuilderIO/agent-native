@@ -12,6 +12,12 @@ import {
 import { nanoid } from "nanoid";
 
 import {
+  buildWorkingLocationProperties,
+  getWorkingLocationEditableLabel,
+  getWorkingLocationType,
+} from "@/lib/working-location";
+
+import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
@@ -37,6 +43,8 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   sendUpdates?: "all" | "none";
   notificationMessage?: string;
   scope?: UpdateEventScope;
+  workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel?: string;
 };
 
 type EventListSnapshot = Array<[QueryKey, CalendarEvent[] | undefined]>;
@@ -46,6 +54,14 @@ type CreateEventMutationContext = EventListMutationContext & {
 };
 type RsvpEventMutationContext = EventListMutationContext & {
   previousEvent?: CalendarEvent;
+};
+
+type UpdateEventResult = Partial<CalendarEvent> & {
+  id?: string;
+  replacedId?: string;
+  success?: boolean;
+  updated?: string[];
+  message?: string;
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
@@ -146,6 +162,16 @@ export function mergeAttendeeLists(
   }
 
   return Array.from(merged.values());
+}
+
+export function shouldDeferOptimisticEventUpdate(
+  target: CalendarEvent | undefined,
+  hasWorkingLocationUpdate: boolean,
+): boolean {
+  return (
+    hasWorkingLocationUpdate ||
+    (target?.eventType === "workingLocation" && target.allDay === true)
+  );
 }
 
 function updateListEventQueries(
@@ -293,88 +319,134 @@ export function useCreateEvent() {
 
 export function useUpdateEvent() {
   const queryClient = useQueryClient();
-  return useActionMutation<
-    Partial<CalendarEvent> & {
-      id?: string;
-      success?: boolean;
-      updated?: string[];
-      message?: string;
-    },
-    UpdateEventInput
-  >("update-event", {
-    onMutate: async (newData) => {
-      await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
-      const previous = queryClient.getQueriesData<CalendarEvent[]>({
-        queryKey: ["action", "list-events"],
-      });
-      const {
-        addGoogleMeet,
-        addZoom,
-        addAttendees,
-        sendUpdates,
-        notificationMessage,
-        scope,
-        ...optimisticData
-      } = newData;
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) =>
-          old?.map((e) =>
-            e.id === optimisticData.id
-              ? {
-                  ...e,
-                  ...optimisticData,
-                  ...(addAttendees
-                    ? {
-                        attendees: mergeAttendeeLists(
-                          e.attendees,
-                          addAttendees,
-                        ),
-                      }
-                    : {}),
-                }
-              : e,
-          ),
-      );
-      return { previous };
-    },
-    onSuccess: (updated) => {
-      const eventPatch = updated as
-        | (Partial<CalendarEvent> & {
-            id?: string;
-            success?: boolean;
-            updated?: string[];
-            message?: string;
-          })
-        | undefined;
-      if (!eventPatch?.id) return;
-      const {
-        success: _success,
-        updated: _updated,
-        message: _message,
-        ...data
-      } = eventPatch;
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) =>
-          old?.map((event) =>
-            event.id === eventPatch.id ? { ...event, ...data } : event,
-          ),
-      );
-    },
-    onError: (_err, _newData, context) => {
-      const previous = (context as EventListMutationContext | undefined)
-        ?.previous;
-      if (previous) {
-        for (const [key, data] of previous) {
-          queryClient.setQueryData(key, data);
+  return useActionMutation<UpdateEventResult, UpdateEventInput>(
+    "update-event",
+    {
+      onMutate: async (newData) => {
+        await queryClient.cancelQueries({
+          queryKey: ["action", "list-events"],
+        });
+        const previous = queryClient.getQueriesData<CalendarEvent[]>({
+          queryKey: ["action", "list-events"],
+        });
+        const {
+          addGoogleMeet,
+          addZoom,
+          addAttendees,
+          sendUpdates,
+          notificationMessage,
+          scope,
+          workingLocationType,
+          workingLocationLabel,
+          ...optimisticData
+        } = newData;
+        const hasWorkingLocationUpdate =
+          workingLocationType !== undefined ||
+          workingLocationLabel !== undefined;
+        queryClient.setQueriesData<CalendarEvent[]>(
+          { queryKey: ["action", "list-events"] },
+          (old) => {
+            const target = old?.find((event) => event.id === optimisticData.id);
+            // A working-location change can alter the visual grouping of several
+            // days. Keep the editor mounted until Google confirms the write so a
+            // rejected request does not appear to save and then snap back.
+            if (
+              shouldDeferOptimisticEventUpdate(target, hasWorkingLocationUpdate)
+            )
+              return old;
+            return old?.map((e) => {
+              const matchesScope =
+                e.id === optimisticData.id ||
+                (scope === "all" &&
+                  !!target?.recurringEventId &&
+                  e.recurringEventId === target.recurringEventId);
+              if (!matchesScope) return e;
+              const nextWorkingLocationType =
+                workingLocationType ?? getWorkingLocationType(e);
+              const nextWorkingLocationLabel =
+                workingLocationLabel ?? getWorkingLocationEditableLabel(e);
+              return {
+                ...e,
+                ...optimisticData,
+                ...(hasWorkingLocationUpdate
+                  ? {
+                      workingLocationProperties: buildWorkingLocationProperties(
+                        e,
+                        {
+                          type: nextWorkingLocationType,
+                          label: nextWorkingLocationLabel,
+                        },
+                      ),
+                    }
+                  : {}),
+                ...(addAttendees
+                  ? {
+                      attendees: mergeAttendeeLists(e.attendees, addAttendees),
+                    }
+                  : {}),
+              };
+            });
+          },
+        );
+        return { previous };
+      },
+      onSuccess: (updated, input) => {
+        const eventPatch = updated as UpdateEventResult | undefined;
+        if (!eventPatch?.id) return;
+        queryClient.setQueriesData<CalendarEvent[]>(
+          { queryKey: ["action", "list-events"] },
+          (old) => reconcileUpdatedEventList(old, input.id, eventPatch),
+        );
+      },
+      onError: (_err, _newData, context) => {
+        const previous = (context as EventListMutationContext | undefined)
+          ?.previous;
+        if (previous) {
+          for (const [key, data] of previous) {
+            queryClient.setQueryData(key, data);
+          }
         }
-      }
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      },
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
-    },
+  );
+}
+
+export function reconcileUpdatedEventList(
+  events: CalendarEvent[] | undefined,
+  originalId: string,
+  result: UpdateEventResult,
+): CalendarEvent[] | undefined {
+  if (!result.id) return events;
+  const {
+    success: _success,
+    updated: _updated,
+    message: _message,
+    replacedId,
+    ...eventPatch
+  } = result;
+  const targetId = replacedId ?? originalId;
+
+  return events?.map((event) => {
+    if (event.id !== targetId) return event;
+    const idChanged = event.id !== eventPatch.id;
+    return {
+      ...event,
+      ...eventPatch,
+      ...(idChanged ? { _replacedId: event.id } : {}),
+    };
   });
+}
+
+export function findEventByCurrentOrReplacedId(
+  events: CalendarEvent[],
+  eventId: string,
+): CalendarEvent | undefined {
+  return events.find(
+    (event) => event.id === eventId || event._replacedId === eventId,
+  );
 }
 
 export function useDeleteEvent() {
