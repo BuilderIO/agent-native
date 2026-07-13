@@ -135,6 +135,18 @@ describe("Analytics agent Plan mode policy", () => {
       ]),
     );
   });
+
+  it("keeps named-session incident evidence on the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining([
+        "get-error-issue",
+        "get-session-replay-summary",
+        "get-session-replay-timeline",
+        "list-error-issues",
+        "list-session-recordings",
+      ]),
+    );
+  });
 });
 
 function userMessage(
