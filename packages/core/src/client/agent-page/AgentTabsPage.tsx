@@ -420,7 +420,10 @@ function CopyField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function AccessTab(_props: AgentPageTabProps) {
+function AccessTab({
+  appName: appNameProp,
+  ..._props
+}: AgentPageTabProps & { appName?: string }) {
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
   const [activeGuide, setActiveGuide] = useState(MCP_CONNECT_GUIDES[0]?.id);
@@ -429,7 +432,16 @@ function AccessTab(_props: AgentPageTabProps) {
     const origin = window.location.origin;
     const baseUrl = new URL(appPath("/"), origin).toString().replace(/\/$/, "");
     const hostname = window.location.hostname || "app";
-    const appName = document.title.trim() || hostname.split(".")[0] || hostname;
+    const metaSiteName = document
+      .querySelector('meta[property="og:site_name"]')
+      ?.getAttribute("content")
+      ?.trim();
+    const hostnameGuess =
+      hostname !== "localhost" && hostname !== "127.0.0.1"
+        ? hostname.split(".")[0]
+        : "";
+    const appName =
+      appNameProp?.trim() || metaSiteName || hostnameGuess || "this app";
     const templateValues = {
       appName,
       appUrl: baseUrl,
@@ -449,7 +461,7 @@ function AccessTab(_props: AgentPageTabProps) {
         origin,
       ).toString(),
     });
-  }, []);
+  }, [appNameProp]);
 
   useEffect(() => {
     if (!urls) return;
@@ -604,6 +616,12 @@ function AccessTab(_props: AgentPageTabProps) {
 }
 
 export interface AgentTabsPageProps {
+  /**
+   * Human-readable app name used in the Access tab's connect instructions
+   * (e.g. "name it Mail"). Falls back to the `og:site_name` meta tag, then a
+   * hostname-derived guess — never `document.title`, which this page owns.
+   */
+  appName?: string;
   extraTabs?: SettingsTabItem[];
   defaultTab?: string;
   className?: string;
@@ -616,6 +634,7 @@ export interface AgentTabsPageProps {
 }
 
 export function AgentTabsPage({
+  appName,
   extraTabs = [],
   defaultTab = "context",
   className,
@@ -730,7 +749,13 @@ export function AgentTabsPage({
             keywords: "agent card",
           },
         ],
-        content: <AccessTab scope={scope} canManageOrg={canManageOrg} />,
+        content: (
+          <AccessTab
+            scope={scope}
+            canManageOrg={canManageOrg}
+            appName={appName}
+          />
+        ),
       },
       ...extraTabs,
     ],

@@ -11,5 +11,5 @@ export default function AgentRoute() {
   const t = useT();
   useSetPageTitle(t("settings.agentTitle"));
 
-  return <AgentTabsPage />;
+  return <AgentTabsPage appName="Slides" />;
 }
