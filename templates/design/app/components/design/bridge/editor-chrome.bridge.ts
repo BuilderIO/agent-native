@@ -63,6 +63,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   var scaleToolEnabled = false;
+
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment). Keep the actual element rather
   // than only its node id: localhost React layers can resolve through runtime
@@ -10896,7 +10897,9 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       // changes only — the `selectionChangedByHost` guard above already
       // keeps this a no-op on the ~1-2s poll-tick replay so it can't turn
       // into a message-spam loop.
-      if (selectionChangedByHost) postElementSelect(target);
+      if (selectionChangedByHost) {
+        postElementSelect(target);
+      }
       return;
     }
     if (e.data.type === "hover-element") {
