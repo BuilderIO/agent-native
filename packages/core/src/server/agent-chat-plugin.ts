@@ -1267,6 +1267,12 @@ export function createAgentChatPlugin(
           if (a2aRunContext) {
             a2aRunContext.owner = userEmail;
             a2aRunContext.userApiKey = ownerApiKey;
+            try {
+              a2aRunContext.requestOrigin = getOrigin(context.event as any);
+            } catch {
+              // The processor event may not carry the original request host.
+              // Keep the owner context even when no browser origin is available.
+            }
           }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
@@ -1287,15 +1293,6 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
-          // Stable content first, most-volatile-per-day last: the
-          // runtime-context block is appended after resources/schema/extra so
-          // a day rollover (or the resources/extra content changing) only
-          // invalidates the cached prompt prefix as late as possible.
-          const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock + extra + runtimeContext
-            : basePrompt + resources + schemaBlock + extra + runtimeContext;
-          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           const a2aModelCandidate =
             options?.model ??
@@ -1308,6 +1305,38 @@ export function createAgentChatPlugin(
             a2aRunContext.engine = a2aEngine;
             a2aRunContext.model = model;
           }
+
+          // Keep delegated runs aligned with the interactive production
+          // prompt. The A2A path previously omitted first-session guidance and
+          // the model-family overlay, which could make a fresh greeting look
+          // like a data request and cause the analytics guard to return its
+          // no-data fallback even though the interactive chat worked.
+          const personalizationBlock =
+            (await hasCompletedFirstSessionPersonalization(owner))
+              ? ""
+              : FIRST_SESSION_PERSONALIZATION;
+          const modelOverlay = getModelFamilyOverlay(model);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
+          const runtimeContext = runtimeContextForEvent(context.event);
+          const systemPrompt = devActive
+            ? devPrompt +
+              personalizationBlock +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext
+            : basePrompt +
+              personalizationBlock +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
