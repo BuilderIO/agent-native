@@ -349,6 +349,45 @@ describe("dashboard report email", () => {
     ]);
   });
 
+  it("closes a serverless browser that finishes launching after the attempt timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("NETLIFY", "true");
+      vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+      mocks.existsSync.mockReturnValue(false);
+      const late = createBrowser();
+      let resolveLateLaunch!: (browser: typeof late.browser) => void;
+      mocks.launchPersistentContext
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveLateLaunch = resolve;
+            }),
+        )
+        .mockRejectedValueOnce(new Error("lightweight launch failed"));
+
+      const sendPromise = sendDashboardReportSubscription(subscription());
+      await vi.advanceTimersByTimeAsync(125_000);
+      const result = await sendPromise;
+
+      expect(result).toMatchObject({
+        screenshotAttached: false,
+        screenshotMode: "none",
+        screenshotError: expect.stringContaining(
+          "full capture exceeded 125000ms while launching the screenshot browser",
+        ),
+      });
+      resolveLateLaunch(late.browser);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(late.browser.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sweeps stale Chromium profiles before launching in serverless runtimes", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");

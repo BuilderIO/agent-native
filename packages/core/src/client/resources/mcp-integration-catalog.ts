@@ -21,6 +21,7 @@ export interface DefaultMcpIntegration {
   url: string;
   authMode: McpIntegrationAuthMode;
   docsUrl?: string;
+  setupNoteKey?: string;
   headerPlaceholder?: string;
   keywords: string[];
 }
@@ -98,6 +99,22 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     authMode: "oauth",
     docsUrl: "https://www.builder.io/c/docs/fusion-connect-to-linear",
     keywords: ["issues", "tickets", "planning", "project management"],
+  },
+  {
+    id: "atlassian",
+    name: "Atlassian",
+    provider: "atlassian",
+    description: "Read and write Jira issues and Confluence content.",
+    descriptionKey: "mcpIntegrations.catalog.atlassian.description",
+    useCase:
+      "project management, issue tracking, documentation, team collaboration",
+    useCaseKey: "mcpIntegrations.catalog.atlassian.useCase",
+    url: "https://mcp.atlassian.com/v1/mcp/authv2",
+    authMode: "oauth",
+    docsUrl:
+      "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
+    setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
+    keywords: ["atlassian", "jira", "confluence", "issues", "tickets"],
   },
   {
     id: "supabase",

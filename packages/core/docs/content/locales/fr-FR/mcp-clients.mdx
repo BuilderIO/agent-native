@@ -245,6 +245,18 @@ Cela signifie que les utilisateurs qui ont installé l'extension claude-in-chrom
 
 Les serveurs MCP (Model Context Protocol) offrent à votre agent de nouvelles capacités, comme la connexion à Zapier, Cloudflare, Composio ou aux outils internes de votre entreprise. Une fois connecté, l'agent peut utiliser ces outils tout comme ses outils intégrés.
 
+Les identifiants des préréglages sont `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon` et `stripe`.
+
+### Atlassian / Jira
+
+Le préréglage Atlassian utilise le point de terminaison OAuth 2.1 d'Atlassian Rovo MCP,
+`https://mcp.atlassian.com/v1/mcp/authv2`, et donne accès aux outils Jira et Confluence. La création de tickets Jira nécessite les autorisations Atlassian permettant l'écriture dans Jira ; l'utilisateur ne voit toujours que les projets et les contenus autorisés par son compte Atlassian.
+
+Les administrateurs d'une organisation Atlassian peuvent décider si un client OAuth est autorisé à se connecter. Avant la connexion, un administrateur peut devoir ajouter l'origine HTTPS réelle de l'application à la liste des domaines de confiance sous **Administration Atlassian → Rovo → Serveur Rovo MCP → Domaines**, puis activer les autorisations **Lecture**, **Écriture** et **Recherche** requises sous **Autorisations**. Le domaine doit correspondre à l'hôte sur lequel l'application agent-native s'exécute ; ne copiez pas `https://builder.io/**` vers un autre déploiement, sauf s'il s'agit réellement de son origine. Consultez le [guide de configuration de Rovo MCP](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/) et les [contrôles d'administration](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/) d'Atlassian.
+
+Le catalogue fournit le point de terminaison et les instructions de configuration. Le formulaire de paramètres générique enregistre le point de terminaison et les en-têtes chiffrés facultatifs, mais il ne remplace pas le processus interactif de consentement OAuth d'Atlassian. Utilisez un client ou un environnement d'exécution MCP compatible avec OAuth lorsqu'Atlassian exige une authentification OAuth interactive. Si le fournisseur ou l'environnement d'exécution prend en charge un jeton Bearer statique, suivez sa procédure approuvée de gestion des secrets et ne collez jamais de jetons dans des prompts ou dans une configuration versionnée.
+
 ### Comment connecter un serveur MCP distant
 
 1. **Nom du serveur** — une courte étiquette pour votre propre référence (par exemple "zapier", "slack-tools").
@@ -263,7 +275,7 @@ Deux étendues sont prises en charge :
 
 Ajoute et supprime le rechargement à chaud dans le gestionnaire MCP en cours d'exécution – pas de redémarrage du processus ni de redémarrage du serveur. Les nouveaux outils `mcp__<scope>-<name>__*` apparaissent à l'agent lors du message suivant et peuvent être recherchés via `tool-search`.
 
-Les HTTPS URL sont acceptés partout ; Le `http://` simple n'est autorisé que pour le `localhost` pendant le développement. L'authentification facultative est introduite sous la forme d'un jeton Bearer envoyé via `Authorization: Bearer …` à chaque demande.
+Les HTTPS URL sont acceptés partout ; Le `http://` simple n'est autorisé que pour le `localhost` pendant le développement. L'authentification facultative est introduite sous la forme d'un jeton Bearer envoyé via `Authorization: Bearer …` à chaque demande. Les fournisseurs qui prennent uniquement en charge OAuth, dont Atlassian Rovo MCP, nécessitent le processus OAuth du fournisseur au lieu d'un en-tête statique.
 
 Sous le capot, ces serveurs sont conservés dans la table `settings` du framework sous la clé `u:<email>:mcp-servers-remote` (Personnel) ou `o:<orgId>:mcp-servers-remote` (Équipe) et fusionnés avec `mcp.config.json` au démarrage.
 

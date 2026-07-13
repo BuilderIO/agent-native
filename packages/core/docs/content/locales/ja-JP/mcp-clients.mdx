@@ -246,6 +246,35 @@ MCP ツールはノード ランタイムでのみ有効になります — Clou
 
 MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cloudflare、Composio、または会社の内部ツールへの接続など、エージェントに新しい機能を提供します。接続すると、エージェントはこれらのツールを組み込みツールと同じように使用できるようになります。
 
+プリセット ID は `context7`、`sentry`、`notion`、`semgrep`、`linear`、
+`atlassian`、`supabase`、`neon`、`stripe` です。
+
+### Atlassian / Jira
+
+Atlassian プリセットは、Atlassian Rovo MCP の OAuth 2.1 エンドポイント
+`https://mcp.atlassian.com/v1/mcp/authv2` を使用し、Jira と Confluence の
+ツールを提供します。Jira チケットの作成には、Jira への書き込みを許可する
+Atlassian 権限が必要です。ユーザーがアクセスできるのは、引き続き自身の
+Atlassian アカウントで許可されたプロジェクトとコンテンツだけです。
+
+Atlassian の組織管理者は、OAuth クライアントの接続を許可するかどうかを
+管理できます。接続する前に、管理者がアプリの実際の HTTPS オリジンを
+**Atlassian Administration → Rovo → Rovo MCP server → Domains** の
+信頼済みドメイン一覧に追加し、**Permissions** で必要な **Read**、
+**Write**、**Search** 権限を有効にする必要がある場合があります。
+ドメインには Agent-Native アプリが実行されるホストを指定してください。
+実際のオリジンでない限り、別のデプロイに `https://builder.io/**` を
+コピーしないでください。Atlassian の [Rovo MCP セットアップガイド](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)
+と [管理者向け制御](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/)も参照してください。
+
+カタログには、エンドポイントとセットアップ手順が用意されています。
+汎用設定フォームにはエンドポイントとオプションの暗号化ヘッダーが保存されますが、
+Atlassian の対話型 OAuth 同意フローの代わりにはなりません。Atlassian が
+対話型 OAuth を要求する場合は、OAuth 対応の MCP クライアントまたはランタイムを
+使用してください。プロバイダーまたはランタイムが静的ベアラー トークンに
+対応している場合は、承認済みのシークレット管理手順に従い、プロンプトや
+コミット対象の設定にトークンを貼り付けないでください。
+
 ### リモート MCP サーバーに接続する方法
 
 1. **サーバー名** — 独自の参照用の短いラベル (例: "zapier"、"slack-tools")。
@@ -264,7 +293,7 @@ MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cl
 
 実行中の MCP マネージャーにホットリロードを追加および削除します。プロセスの再起動やサーバーの再起動はありません。新しい `mcp__<scope>-<name>__*` ツールは次のメッセージでエージェントに表示され、`tool-search` 経由で検索できます。
 
-HTTPS URL はどこでも受け入れられます。プレーン `http://` は、開発中に `localhost` に対してのみ許可されます。オプションの認証は、リクエストごとに `Authorization: Bearer …` 経由で送信されるベアラー トークンとして入力されます。
+HTTPS URL はどこでも受け入れられます。プレーン `http://` は、開発中に `localhost` に対してのみ許可されます。オプションの認証は、リクエストごとに `Authorization: Bearer …` 経由で送信されるベアラー トークンとして入力されます。Atlassian Rovo MCP を含む OAuth 専用プロバイダーでは、静的ヘッダーではなく、プロバイダーの OAuth フローを使用する必要があります。
 
 内部では、これらのサーバーはキー `u:<email>:mcp-servers-remote` (個人) または `o:<orgId>:mcp-servers-remote` (チーム) の下でフレームワークの `settings` テーブルに保存され、起動時に `mcp.config.json` とマージされます。
 

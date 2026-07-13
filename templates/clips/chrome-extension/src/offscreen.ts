@@ -1194,8 +1194,11 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    // Crisp 1080p capture — matches the web/desktop recorders. Files upload
-    // directly (no client-side shrink), so we favor sharpness over a budget.
+    // Crisp 1080p capture — matches the web/desktop recorders. displayConstraints()
+    // (see screenCaptureVideoConstraints in @shared/recording-capture) caps retina/5K
+    // surfaces down to 1920x1080 before this point, so the software VP8 encoder is
+    // never fed native-resolution frames. Files upload directly (no client-side
+    // shrink), so within that cap we favor sharpness over a bitrate budget.
     videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });

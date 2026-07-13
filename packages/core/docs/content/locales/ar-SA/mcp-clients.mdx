@@ -245,6 +245,32 @@ MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/
 
 تمنح خوادم MCP (نموذج سياق البروتوكول) وكيلك قدرات جديدة - مثل الاتصال بـ Zapier، أو Cloudflare، أو Composio، أو الأدوات الداخلية لشركتك. بمجرد الاتصال، يمكن للوكيل استخدام هذه الأدوات تمامًا مثل الأدوات المدمجة فيه.
 
+معرّفات الإعدادات المسبقة هي `context7` و`sentry` و`notion` و`semgrep` و`linear`
+و`atlassian` و`supabase` و`neon` و`stripe`.
+
+### Atlassian / Jira
+
+يستخدم إعداد Atlassian المسبق نقطة نهاية OAuth 2.1 الخاصة بـ Atlassian Rovo MCP،
+`https://mcp.atlassian.com/v1/mcp/authv2`، ويوفّر أدوات Jira وConfluence.
+يتطلب إنشاء تذاكر Jira أذونات Atlassian التي تشمل عمليات الكتابة في Jira؛
+ولا يرى المستخدم سوى المشاريع والمحتوى المسموح بهما لحسابه على Atlassian.
+
+يمكن لمسؤولي مؤسسات Atlassian التحكم في السماح لعميل OAuth بالاتصال.
+قبل الاتصال، قد يحتاج المسؤول إلى إضافة أصل HTTPS الفعلي للتطبيق إلى قائمة
+النطاقات الموثوقة ضمن **Atlassian Administration → Rovo →
+Rovo MCP server → Domains**، وتمكين أذونات **Read** و**Write** و**Search**
+المطلوبة ضمن **Permissions**. يجب أن يكون النطاق هو المضيف الذي يعمل عليه
+تطبيق agent-native؛ لا تنسخ `https://builder.io/**` إلى عملية نشر أخرى إلا إذا
+كان ذلك هو أصلها الفعلي. راجع [دليل إعداد Rovo MCP من Atlassian](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)
+و[عناصر تحكم المسؤول](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/).
+
+يوفّر الكتالوج نقطة النهاية وإرشادات الإعداد. يخزّن نموذج الإعدادات العام نقطة
+النهاية والرؤوس المشفّرة الاختيارية؛ ولا يحل محل تدفق موافقة OAuth التفاعلي
+الخاص بـ Atlassian. استخدم عميل MCP أو بيئة تشغيل تدعم OAuth عندما يتطلب
+Atlassian مصادقة OAuth التفاعلية. إذا كان الموفّر أو بيئة التشغيل يدعم رمز
+Bearer ثابتًا، فاتبع مسار إدارة الأسرار المعتمد لديه، ولا تلصق الرموز أبدًا
+في المطالبات أو الإعدادات الملتزم بها.
+
 ### كيفية الاتصال بخادم MCP البعيد
 
 1. **اسم الخادم** — تسمية قصيرة للرجوع إليها (على سبيل المثال، "zapier"، "slack-tools").
@@ -263,7 +289,7 @@ MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/
 
 يضيف ويزيل التحميل السريع إلى مدير MCP قيد التشغيل - لا إعادة تشغيل للعملية، ولا إعادة تشغيل للخادم. تظهر أدوات `mcp__<scope>-<name>__*` الجديدة للوكيل في الرسالة التالية ويمكن البحث فيها عبر `tool-search`.
 
-يتم قبول HTTPS URL في كل مكان؛ يُسمح فقط بـ `http://` العادي لـ `localhost` أثناء التطوير. يتم إدخال المصادقة الاختيارية كرمز مميز لحامل يتم إرساله عبر `Authorization: Bearer …` عند كل طلب.
+يتم قبول HTTPS URL في كل مكان؛ يُسمح فقط بـ `http://` العادي لـ `localhost` أثناء التطوير. يتم إدخال المصادقة الاختيارية كرمز مميز لحامل يتم إرساله عبر `Authorization: Bearer …` عند كل طلب. يتطلب الموفّرون الذين يدعمون OAuth فقط، بما في ذلك Atlassian Rovo MCP، تدفق OAuth الخاص بالموفّر بدلاً من رأس ثابت.
 
 تحت الغطاء، تظل هذه الخوادم موجودة في جدول `settings` الخاص بإطار العمل تحت المفتاح `u:<email>:mcp-servers-remote` (شخصي) أو `o:<orgId>:mcp-servers-remote` (فريق) ويتم دمجها مع `mcp.config.json` عند بدء التشغيل.
 

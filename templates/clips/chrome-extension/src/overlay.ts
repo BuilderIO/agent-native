@@ -33,8 +33,8 @@ function isDeviceUnavailableError(error: unknown): boolean {
 
 function cameraConstraint(deviceId: string): MediaTrackConstraints {
   const video: MediaTrackConstraints = {
-    width: { ideal: 640 },
-    height: { ideal: 640 },
+    width: { ideal: 480 },
+    height: { ideal: 480 },
     frameRate: {
       ideal: SCREEN_CAPTURE_FRAME_RATE,
       max: SCREEN_CAPTURE_FRAME_RATE,

@@ -83,8 +83,17 @@ export function FlowBar() {
     const BAR_COUNT = 14;
     const BAR_WIDTH = 2;
     const BAR_GAP = 3;
+    // A bar waveform reads the same well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the bar is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
+    let lastDrawMs = 0;
 
-    function draw() {
+    function draw(timestamp: number) {
+      rafRef.current = requestAnimationFrame(draw);
+      if (timestamp - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = timestamp;
+
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -119,8 +128,6 @@ export function FlowBar() {
         ctx.roundRect(x, y, BAR_WIDTH, h, 1);
         ctx.fill();
       }
-
-      rafRef.current = requestAnimationFrame(draw);
     }
 
     rafRef.current = requestAnimationFrame(draw);
