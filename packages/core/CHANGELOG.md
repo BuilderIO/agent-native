@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.98.13
+
+### Patch Changes
+
+- c61d923: Keep delegated A2A and MCP agent turns explicitly bound to the authenticated owner/org scope and Act execution mode.
+
 ## 0.98.12
 
 ### Patch Changes
