@@ -2334,6 +2334,40 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const reported = e.data.payload as
+          | { selector?: string; sourceId?: string }
+          | undefined;
+        const reportedCandidates: string[] = [];
+        if (reported?.selector) reportedCandidates.push(reported.selector);
+        if (reported?.sourceId) {
+          reportedCandidates.push(
+            `[data-agent-native-node-id="${reported.sourceId}"]`,
+          );
+        }
+        if (e.data.intent) {
+          // A genuine user click inside the iframe: it already shows this
+          // selection locally, so record it and skip mirroring the upcoming
+          // host commit straight back down (that echo is the fast-click
+          // bounce). Only user gestures carry `intent`; intent-less echoes are
+          // host-mirror replays and must never suppress a mirror.
+          suppressMirrorSelectorsRef.current =
+            reportedCandidates.length > 0 ? reportedCandidates : null;
+        } else if (
+          selectedSelectorRef.current &&
+          reportedCandidates.length > 0 &&
+          !reportedCandidates.includes(selectedSelectorRef.current) &&
+          !(selectedSelectorCandidatesRef.current ?? []).some((c) =>
+            reportedCandidates.includes(c),
+          )
+        ) {
+          // Intent-less echo that disagrees with the committed selection: a
+          // stale mirror overwrote the iframe's real selection (it drifted).
+          // The host guard drops this echo, and the advanced dedup signature
+          // would otherwise block a corrective mirror — so force a resync to
+          // snap the iframe back to the committed selection.
+          forceSelectionMirrorResyncRef.current = true;
+          replayIframeEditorStateRef.current?.();
+        }
         onElementSelect(e.data.payload, e.data.intent);
         return;
       }
@@ -2797,6 +2831,35 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
+  // Selection-mirror dedup. replayIframeEditorState re-runs on many unrelated
+  // input changes (hover, tweaks, scale/pan mode, layer states…) and used to
+  // re-post `select-element` every time. That storm of stale mirrors of the
+  // PREVIOUS selection stayed in flight and, on a fast click, briefly
+  // re-highlighted the old element before the host caught up ("small dance").
+  // Only post the selection message when it actually changed, forcing a
+  // resync on (re)load since a freshly mounted document has no selection.
+  const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
+  const forceSelectionMirrorResyncRef = useRef(true);
+  // When a selection ORIGINATES from this iframe (the user clicked inside it),
+  // the iframe already shows that selection locally. Mirroring it back down is
+  // redundant and, on a fast click, the echoed-back mirror of the PREVIOUS
+  // click lands after the NEXT click and yanks the outline back for a frame
+  // (the "quick bounce"). We record the selector(s) the iframe just reported
+  // and skip mirroring exactly that selection back once.
+  const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // Latest replayIframeEditorState, callable from the message handler (which is
+  // defined earlier in this component). Used to force a corrective resync when
+  // the iframe drifts off the committed selection (see the element-select
+  // drift branch below).
+  const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  // Render-synced mirrors of the committed selection so the message handler can
+  // compare against the CURRENT selection without adding it to the listener's
+  // dependency array (which would re-bind the window listener every selection).
+  const selectedSelectorRef = useRef(selectedSelector);
+  selectedSelectorRef.current = selectedSelector;
+  const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
+  selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
+
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -2819,16 +2882,44 @@ export function DesignCanvas({
       { type: "scale-tool-mode", enabled: scaleMode },
       "*",
     );
-    iframe.contentWindow?.postMessage(
-      selectedSelector
-        ? {
-            type: "select-element",
-            selector: selectedSelector,
-            selectorCandidates: selectedSelectorCandidates,
-          }
-        : { type: "clear-selection" },
-      "*",
-    );
+    // Mirror the selection DOWN only when it actually changed (or a reload
+    // forced a resync). This is what prevents the fast-click flicker: without
+    // it, every unrelated re-render re-posted the current selector, so stale
+    // mirrors of the previous selection raced the user's next click.
+    const selectionMirrorSignature = JSON.stringify({
+      selector: selectedSelector ?? null,
+      candidates: selectedSelectorCandidates ?? [],
+    });
+    // If this selection is the one the iframe just reported, it already shows
+    // it — don't echo it back (prevents the fast-click bounce). One-shot: a
+    // reload forces a resync, and any later external selection clears it.
+    const isIframeOriginatedEcho =
+      !forceSelectionMirrorResyncRef.current &&
+      !!selectedSelector &&
+      (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
+    if (isIframeOriginatedEcho) {
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      suppressMirrorSelectorsRef.current = null;
+    } else if (
+      forceSelectionMirrorResyncRef.current ||
+      selectionMirrorSignature !== lastSelectionMirrorSignatureRef.current
+    ) {
+      iframe.contentWindow?.postMessage(
+        selectedSelector
+          ? {
+              type: "select-element",
+              selector: selectedSelector,
+              selectorCandidates: selectedSelectorCandidates,
+            }
+          : { type: "clear-selection" },
+        "*",
+      );
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      forceSelectionMirrorResyncRef.current = false;
+      // An authoritative (external) selection just went down; any pending
+      // iframe-origin suppression is now stale.
+      suppressMirrorSelectorsRef.current = null;
+    }
     iframe.contentWindow?.postMessage(
       {
         type: "select-elements",
@@ -2913,10 +3004,17 @@ export function DesignCanvas({
   // selection/layer state here, the freshly mounted document looks deselected.
   useEffect(() => {
     const iframe = iframeRef.current;
+    replayIframeEditorStateRef.current = replayIframeEditorState;
     if (!iframe) return;
+    // A (re)loaded document starts with no selection, so force the next
+    // mirror to post even if the selector is unchanged from before the load.
+    const replayAfterLoad = () => {
+      forceSelectionMirrorResyncRef.current = true;
+      replayIframeEditorState();
+    };
     replayIframeEditorState();
-    iframe.addEventListener("load", replayIframeEditorState);
-    return () => iframe.removeEventListener("load", replayIframeEditorState);
+    iframe.addEventListener("load", replayAfterLoad);
+    return () => iframe.removeEventListener("load", replayAfterLoad);
   }, [replayIframeEditorState]);
 
   // A real top-level focus loss (Cmd+Tab, switching windows, browser chrome)

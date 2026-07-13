@@ -7357,7 +7357,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectedEl = target;
         positionOverlay(selectionOverlay, target);
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
-        if (selectionChangedByHost) postElementSelect(target);
+        if (selectionChangedByHost) {
+          postElementSelect(target);
+        }
         return;
       }
       if (e.data.type === "hover-element") {

@@ -1927,6 +1927,29 @@ function DesignBottomToolbar({
 }
 
 /**
+ * Selection-echo identity check for the iframe→host boundary. Returns true
+ * only when we can AUTHORITATIVELY tell the incoming (intent-less) selection
+ * refers to a DIFFERENT element than the currently-committed one — a stable
+ * `data-agent-native-node-id` (sourceId) match wins, falling back to the CSS
+ * selector when neither side carries an id. When identity can't be compared
+ * we return false so a selection is never dropped.
+ */
+function isSupersededSelectionEcho(
+  incoming: ElementInfo,
+  current: ElementInfo | null,
+): boolean {
+  if (!current) return false;
+  const incomingId = incoming.sourceId?.trim();
+  const currentId = current.sourceId?.trim();
+  if (incomingId && currentId) return incomingId !== currentId;
+  const incomingSelector = incoming.selector?.trim();
+  const currentSelector = current.selector?.trim();
+  if (incomingSelector && currentSelector)
+    return incomingSelector !== currentSelector;
+  return false;
+}
+
+/**
  * React Router reuses the same route component when only `:id` changes. Key
  * the stateful editor by design id so pending refs, collaboration docs, tools,
  * selections, and per-screen caches from one design can never leak into the
@@ -2040,6 +2063,16 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  // Fresh mirror of the committed selection for synchronous reads inside the
+  // iframe `element-select` message handler (see handleIframeElementSelect's
+  // echo-loop guard). Assigned during render (not in an effect) so it reflects
+  // the latest committed value for EVERY setSelectedElement path — including
+  // the ~dozens of direct callers (layers panel, drag, structure moves) — with
+  // no post-commit lag. A lagging ref could otherwise make the guard reject the
+  // first valid intent-less echo after a host-driven selection, dropping the
+  // runtime inspector payload the iframe sends back.
+  const selectedElementRef = useRef(selectedElement);
+  selectedElementRef.current = selectedElement;
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -11966,6 +11999,16 @@ function DesignEditor() {
     (info: ElementInfo, intent?: ElementSelectionIntent) => {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
+        // Same echo-loop guard as handleIframeElementSelect: the focused
+        // single-screen canvas rounds selections through here, so without
+        // this it would still commit stale intent-less echoes and reintroduce
+        // the quick-click race in the primary editing mode.
+        if (
+          !intent &&
+          isSupersededSelectionEcho(info, selectedElementRef.current)
+        ) {
+          return;
+        }
         handleScreenElementSelect(screenId, info, intent);
         return;
       }
@@ -11984,6 +12027,40 @@ function DesignEditor() {
       focusDesignInspectorForSelection,
       handleScreenElementSelect,
     ],
+  );
+
+  // Iframe→host selection boundary with an echo-loop guard.
+  //
+  // The host mirrors the committed selection DOWN to the iframe on every
+  // render (replayIframeEditorState). The bridge's select-element handler
+  // echoes that selection back UP as an `element-select` message with NO
+  // `intent` — a genuine user gesture always carries one. When two elements
+  // are selected in quick succession, their two mirror streams race over the
+  // iframe's single selection, so each intent-less echo disagrees with the
+  // previous commit; re-committing it re-mirrors and the selection "dances"
+  // between the two until reload. Drop an intent-less echo whose element
+  // differs from the current committed selection — it is a stale replay of a
+  // superseded mirror, never a user action. Matching echoes (layers-panel
+  // payload sync, post-drag reselect) still pass so the inspector populates.
+  const handleIframeElementSelect = useCallback(
+    (
+      screenId: string,
+      info: ElementInfo,
+      intent?: ElementSelectionIntent,
+      options: {
+        persistPendingNodeId?: boolean;
+        breakpointWidthPx?: number;
+      } = {},
+    ) => {
+      if (
+        !intent &&
+        isSupersededSelectionEcho(info, selectedElementRef.current)
+      ) {
+        return;
+      }
+      handleScreenElementSelect(screenId, info, intent, options);
+    },
+    [handleScreenElementSelect],
   );
 
   const handleScreenElementDblClickText = useCallback(
@@ -26562,7 +26639,7 @@ function DesignEditor() {
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
           onElementSelect={(info, intent) => {
             activateResponsiveScope();
-            handleScreenElementSelect(screen.id, info, intent, {
+            handleIframeElementSelect(screen.id, info, intent, {
               breakpointWidthPx,
             });
           }}
@@ -26657,7 +26734,7 @@ function DesignEditor() {
       runtimeStructureVerificationRequest,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
-      handleScreenRuntimeLayerSnapshot,
+      getRuntimeLayerSnapshotCallback,
       getRuntimeVerificationSnapshotCallback,
       designFusionUrl,
       handleComponentSourceJump,
@@ -26683,7 +26760,7 @@ function DesignEditor() {
       getLayerSelectorsForFile,
       lockedLayerIds,
       hiddenLayerIds,
-      handleScreenElementSelect,
+      handleIframeElementSelect,
       handleScreenElementMarqueeSelect,
       handleScreenElementHover,
       handleEditorDragStateChange,
@@ -26738,9 +26815,9 @@ function DesignEditor() {
   >(
     (info, intent) => {
       if (!boardFileId) return;
-      handleScreenElementSelect(boardFileId, info, intent);
+      handleIframeElementSelect(boardFileId, info, intent);
     },
-    [boardFileId, handleScreenElementSelect],
+    [boardFileId, handleIframeElementSelect],
   );
   const handleBoardElementMarqueeSelect = useCallback<
     NonNullable<
