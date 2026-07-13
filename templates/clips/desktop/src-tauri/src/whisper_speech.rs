@@ -381,6 +381,7 @@ mod macos {
         params.set_language(language);
         params.set_translate(false);
         params.set_no_context(true);
+        params.set_suppress_nst(true);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -391,7 +392,9 @@ mod macos {
         let mut out = Vec::new();
         for segment in state.as_iter() {
             let text = segment.to_string();
-            if is_speech(&text) {
+            if is_speech(&text)
+                && segment.no_speech_probability() < MAX_NO_SPEECH_PROBABILITY
+            {
                 // whisper timestamps are in centiseconds → ms.
                 out.push((
                     segment.start_timestamp() * 10,
@@ -424,6 +427,8 @@ mod macos {
     const SAMPLE_RATE_16K: f32 = 16000.0;
     /// RMS above this counts as speech for the silence/end-of-utterance timer.
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
+    /// A second, model-level gate for ambient/no-speech Whisper segments.
+    const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
 
     fn partial_inference_due(
         emit_partials: bool,
