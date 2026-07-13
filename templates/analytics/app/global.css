@@ -254,10 +254,10 @@
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  /* Render at 2x locally, then downscale to the standard 0.9rem x 1.2rem
+  /* Render at 2x locally, then downscale to the compact 0.72rem x 0.96rem
      screen size. This keeps the small cursor's rounded outline smooth. */
-  width: 1.8rem;
-  height: 2.4rem;
+  width: 1.44rem;
+  height: 1.92rem;
   border-radius: 0;
   background: transparent;
   background-image: none;

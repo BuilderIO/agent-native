@@ -60,8 +60,8 @@ describe("session replay event normalization", () => {
     expect(globalStyles).toContain(
       "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
     );
-    expect(globalStyles).toContain("width: 1.8rem;");
-    expect(globalStyles).toContain("height: 2.4rem;");
+    expect(globalStyles).toContain("width: 1.44rem;");
+    expect(globalStyles).toContain("height: 1.92rem;");
     expect(globalStyles).toContain(
       "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
     );
@@ -70,7 +70,7 @@ describe("session replay event normalization", () => {
     );
     expect(cursorAsset).toContain('fill="#000000"');
     expect(cursorAsset).toContain('stroke="#FFFFFF"');
-    expect(cursorAsset).toContain('stroke-width="2.2"');
+    expect(cursorAsset).toContain('stroke-width="2.9"');
     expect(cursorAsset).toContain('stroke-linejoin="round"');
     expect(cursorAsset).toContain('stroke-linecap="round"');
     expect(cursorAsset).toContain('shape-rendering="geometricPrecision"');
