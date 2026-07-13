@@ -512,24 +512,53 @@ function routePathFromOpenUrl(value: string): string | null {
  * `mcpApp.resource` (the resource path already strips them via
  * `mcpAppStructuredContent`).
  *
- * Depth-capped to avoid pathological / circular structures. Strings that
- * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
- * the URL) are replaced with `[hidden embed URL]`.
+ * Circular structures are replaced with a marker. Strings that embed an
+ * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
+ * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
+ * removed only inside an embed-signaled object/branch, so ordinary business
+ * fields from unrelated read actions remain faithful.
  */
 const EMBED_RESULT_SENSITIVE_KEYS = new Set([
   "embedTargetPath",
   "embedExpiresAt",
-  "ticket",
   "embedTicket",
 ]);
 
-function isSensitiveEmbedResultKey(key: string): boolean {
-  return EMBED_RESULT_SENSITIVE_KEYS.has(key) || /Ticket$/.test(key);
+function isEmbedCredentialKey(key: string): boolean {
+  return key === "ticket" || /Ticket$/.test(key);
+}
+
+function containsEmbedRoutingSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
+    seen.delete(value);
+    return result;
+  }
+  for (const [key, val] of Object.entries(value)) {
+    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
+      seen.delete(value);
+      return true;
+    }
+    if (containsEmbedRoutingSignal(val, seen)) {
+      seen.delete(value);
+      return true;
+    }
+  }
+  seen.delete(value);
+  return false;
 }
 
 function purgeEmbedStartUrls(
   value: unknown,
   seen = new WeakSet<object>(),
+  embedContext = false,
 ): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
@@ -537,22 +566,41 @@ function purgeEmbedStartUrls(
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
-    const out = value.map((item) => purgeEmbedStartUrls(item, seen));
+    const out = value.map((item) =>
+      purgeEmbedStartUrls(
+        item,
+        seen,
+        embedContext || containsEmbedRoutingSignal(item),
+      ),
+    );
     seen.delete(value);
     return out;
   }
   if (value && typeof value === "object") {
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
+    const entries = Object.entries(value as Record<string, unknown>);
+    const localEmbedContext =
+      embedContext ||
+      entries.some(
+        ([key, val]) =>
+          EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+          (typeof val === "string" && isEmbedStartUrl(val)),
+      );
     const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      if (isSensitiveEmbedResultKey(key)) continue;
+    for (const [key, val] of entries) {
+      if (
+        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+        (localEmbedContext && isEmbedCredentialKey(key))
+      ) {
+        continue;
+      }
       if (typeof val === "string" && isEmbedStartUrl(val)) {
         // Drop the key entirely for object-typed inputs so a tool result like
         // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, seen);
+      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
     }
     seen.delete(value);
     return out;
