@@ -2105,13 +2105,13 @@ export function DesignCanvas({
     let frameDocument: string;
     if (frameContent.includes("</body>")) {
       frameDocument = frameContent.replace(
-        "</body>",
-        bridgeToInject + "</body>",
+        "</body>", // i18n-ignore generated iframe HTML injection
+        bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
       ); // i18n-ignore generated iframe HTML injection
     } else if (frameContent.includes("</html>")) {
       frameDocument = frameContent.replace(
-        "</html>",
-        bridgeToInject + "</html>",
+        "</html>", // i18n-ignore generated iframe HTML injection
+        bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
       ); // i18n-ignore generated iframe HTML injection
     } else {
       // No body/html tags — wrap it
