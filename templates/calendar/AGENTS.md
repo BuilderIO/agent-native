@@ -67,7 +67,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - Use `get-attendee-timezones` / `set-attendee-timezone` to read or save
   per-guest IANA timezone overrides (`attendee-timezones` user setting). The UI
   shows each guest's local event-start time when a timezone is known (self from
-  the event/browser zone; others from `attendee.timeZone` or the override map).
+  the browser zone; others from `attendee.timeZone` or the override map, with
+  the event zone as a fallback for the organizer).
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
   visible RSVP comment on a declined or tentative response; pass an empty note to
   clear an existing RSVP comment.

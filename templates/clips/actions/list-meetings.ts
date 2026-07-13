@@ -14,6 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -31,7 +32,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isPersonalSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
+import { isSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -86,12 +87,13 @@ export default defineAction({
     excludePersonalSoloEvents: booleanParam
       .default(false)
       .describe(
-        "Exclude obvious solo personal calendar blocks such as Gym or Dinner. Used by desktop meeting reminders.",
+        "Exclude calendar events with no active attendee besides the current user. Used by desktop meeting reminders.",
       ),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -188,6 +190,11 @@ export default defineAction({
     // event was emitted here — not merely because some other account returned
     // data or errored.
     const emittedLiveEventKeys = new Set<string>();
+    // Calendar events excluded from desktop reminders because they have no
+    // active attendee besides the current user. Keep the correlated
+    // persisted meeting ids here too, so materialized solo events cannot
+    // re-enter the reminder list through the fallback persisted-row merge.
+    const excludedLiveEventKeys = new Set<string>();
     // Map a persisted meeting's `calendarEventId` (calendar_events.id) to the
     // Google event externalId so we can match it against the emitted set.
     const calendarEventIdToExternalId = new Map<string, string>();
@@ -269,10 +276,15 @@ export default defineAction({
           for (const event of items) {
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
+            const cached = cachedByExternalId.get(event.id);
             if (
               args.excludePersonalSoloEvents &&
-              isPersonalSoloCalendarEvent({ account, event })
+              isSoloCalendarEvent({ account, event, currentUserEmail })
             ) {
+              excludedLiveEventKeys.add(event.id);
+              if (cached?.meetingId) {
+                excludedLiveEventKeys.add(cached.meetingId);
+              }
               continue;
             }
             const startIso = eventStartIso(event);
@@ -301,7 +313,6 @@ export default defineAction({
               continue;
             }
 
-            const cached = cachedByExternalId.get(event.id);
             const persisted = cached?.meetingId
               ? persistedById.get(cached.meetingId)
               : null;
@@ -344,6 +355,10 @@ export default defineAction({
       const liveExternalId = meeting.calendarEventId
         ? calendarEventIdToExternalId.get(meeting.calendarEventId)
         : undefined;
+      const liveEventExcluded =
+        excludedLiveEventKeys.has(meeting.id) ||
+        (liveExternalId ? excludedLiveEventKeys.has(liveExternalId) : false);
+      if (liveEventExcluded) continue;
       const liveEventEmitted =
         emittedLiveEventKeys.has(meeting.id) ||
         (liveExternalId ? emittedLiveEventKeys.has(liveExternalId) : false);

@@ -218,6 +218,24 @@ describe("framework request handler", () => {
     });
   });
 
+  it("dispatches the public MCP alias under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/mcp", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(dispatch(nitroApp, "/starter/mcp")).resolves.toEqual({
+      mountPrefix: "/starter/mcp",
+      mountedPathname: "/starter/mcp",
+      pathname: "/",
+      path: "/",
+    });
+  });
+
   it("waits for default plugin bootstrap before app-scoped well-known routes fall through", async () => {
     process.env.APP_BASE_PATH = "/starter";
     let release!: () => void;

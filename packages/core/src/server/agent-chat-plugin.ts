@@ -168,6 +168,7 @@ import {
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
   getRequestRunContext,
@@ -1252,9 +1253,41 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
+          const { getOwnerActiveApiKey } =
+            await import("../agent/production-agent.js");
+          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          // A2A runs are reconstructed in a fresh processor request, so they
+          // do not pass through the interactive handler's prepareRun hook.
+          // Seed the same mutable run context before resolving the engine and
+          // building tools. Provider credentials, team/fetch helpers, and
+          // other action closures read this context rather than the engine
+          // argument alone; without it delegated runs can silently fall back
+          // to an unscoped/unconfigured provider path even though interactive
+          // chat works for the same owner.
+          const a2aRunContext = ensureRequestRunContext();
+          if (a2aRunContext) {
+            a2aRunContext.owner = userEmail;
+            a2aRunContext.userApiKey = ownerApiKey;
+            // The async processor restores the original request origin from
+            // task metadata. Only derive a fallback for synchronous A2A calls
+            // where the inbound event is still the caller request.
+            if (!a2aRunContext.requestOrigin) {
+              const restoredOrigin = getRequestContext()?.requestOrigin;
+              if (restoredOrigin) {
+                a2aRunContext.requestOrigin = restoredOrigin;
+              }
+            }
+            if (!a2aRunContext.requestOrigin) {
+              try {
+                a2aRunContext.requestOrigin = getOrigin(context.event as any);
+              } catch {
+                // Keep the owner context even when no browser origin exists.
+              }
+            }
+          }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: options?.apiKey,
+            apiKey: ownerApiKey ?? options?.apiKey,
             appId: options?.appId,
           });
 
@@ -1271,14 +1304,6 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
-          // Stable content first, most-volatile-per-day last: the
-          // runtime-context block is appended after resources/schema/extra so
-          // a day rollover (or the resources/extra content changing) only
-          // invalidates the cached prompt prefix as late as possible.
-          const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock + extra + runtimeContext
-            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -1287,6 +1312,34 @@ export function createAgentChatPlugin(
             })) ??
             a2aEngine.defaultModel;
           const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+          if (a2aRunContext) {
+            a2aRunContext.engine = a2aEngine;
+            a2aRunContext.model = model;
+          }
+
+          // Keep delegated runs aligned with the interactive production
+          // prompt's model-specific behavior without importing interactive
+          // onboarding into a background/cross-app task.
+          const modelOverlay = getModelFamilyOverlay(model);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
+          const runtimeContext = runtimeContextForEvent(context.event);
+          const systemPrompt = devActive
+            ? devPrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext
+            : basePrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -1524,9 +1577,15 @@ export function createAgentChatPlugin(
             ? { externalAgents: options.externalAgents }
             : {}),
           askAgent: async (message: string) => {
+            const ownerEmail = getRequestUserEmail();
+            const { getOwnerActiveApiKey } =
+              await import("../agent/production-agent.js");
+            const ownerApiKey = ownerEmail
+              ? await getOwnerActiveApiKey(ownerEmail)
+              : undefined;
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: options?.apiKey,
+              apiKey: ownerApiKey ?? options?.apiKey,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -5334,6 +5393,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/_agent-native/actions",
         "/_agent-native/agent-model-defaults",
         "/_agent-native/mcp",
+        "/mcp",
       ],
     });
   };

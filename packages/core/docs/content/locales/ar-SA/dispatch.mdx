@@ -113,16 +113,16 @@ Dispatch هو التطبيق المركزي الذي يقع أمام كل تطب
 
 ### بوابة MCP الموحدة
 
-يمكن أن يكون Dispatch هو موصل MCP الفردي للوكلاء الخارجيين: قم بإضافة `https://dispatch.agent-native.com/_agent-native/mcp` مرة واحدة في Claude أو ChatGPT أو Codex أو Cursor، وسيصل تخويل واحد إلى كل تطبيق مساحة عمل ممنوح بدلاً من موصل واحد لكل تطبيق. راجع [External Agents](/docs/external-agents) للاطلاع على تدفق الاتصال الكامل ومنح التطبيقات وOAuth ومعاينات تطبيقات MCP المضمنة.
+يمكن أن يكون Dispatch هو موصل MCP الفردي للوكلاء الخارجيين: قم بإضافة `https://dispatch.agent-native.com/mcp` مرة واحدة في Claude أو ChatGPT أو Codex أو Cursor، وسيصل تخويل واحد إلى كل تطبيق مساحة عمل ممنوح بدلاً من موصل واحد لكل تطبيق. راجع [External Agents](/docs/external-agents) للاطلاع على تدفق الاتصال الكامل ومنح التطبيقات وOAuth ومعاينات تطبيقات MCP المضمنة.
 
-<Endpoint id="doc-block-11r2r6y" method="POST" path="/_agent-native/mcp" summary={"نقطة نهاية البوابة الموحدة MCP"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-11r2r6y" method="POST" path="/mcp" summary={"نقطة نهاية البوابة الموحدة MCP"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 

@@ -1,5 +1,38 @@
 # @agent-native/skills
 
+## 0.2.311
+
+### Patch Changes
+
+- 3c3a59d: Add `/mcp` as the canonical public MCP URL while preserving `/_agent-native/mcp` for existing clients.
+- Updated dependencies [3c3a59d]
+- Updated dependencies [3c3a59d]
+- Updated dependencies [3c3a59d]
+- Updated dependencies [3c3a59d]
+- Updated dependencies [3c3a59d]
+  - @agent-native/core@0.99.0
+
+## 0.2.310
+
+### Patch Changes
+
+- Updated dependencies [7bc381d]
+  - @agent-native/core@0.98.17
+
+## 0.2.309
+
+### Patch Changes
+
+- Updated dependencies [cc35446]
+  - @agent-native/core@0.98.16
+
+## 0.2.308
+
+### Patch Changes
+
+- Updated dependencies [2161d10]
+  - @agent-native/core@0.98.15
+
 ## 0.2.307
 
 ### Patch Changes

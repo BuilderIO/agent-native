@@ -620,6 +620,13 @@ const messages = {
         description: "Manage payments, subscriptions, and customers.",
         useCase: "Payments, subscriptions, invoicing, customer management",
       },
+      atlassian: {
+        description: "Read and write Jira issues and Confluence content.",
+        useCase:
+          "Project management, issue tracking, documentation, team collaboration",
+        setupNote:
+          "Your Atlassian organization admin may need to allow this app's domain and enable the required Rovo MCP permissions before OAuth can complete.",
+      },
     },
     auth: {
       none: "No auth",

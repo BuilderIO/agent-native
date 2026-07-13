@@ -518,7 +518,7 @@ If your app is an [A2A](/docs/a2a-protocol) peer, other agent-native apps discov
 
 ## Exposing it over MCP {#mcp}
 
-With MCP enabled, your actions show up in the framework's MCP server at `/_agent-native/mcp`. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`), and `publicAgent.expose` opts a safe read/ingest tool onto the public surface. See [MCP Protocol](/docs/mcp-protocol) for catalog tiers, auth, and the `mcpApp` resource details.
+With MCP enabled, your actions show up in the framework's MCP server at `/mcp`. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. The full action surface is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`), and `publicAgent.expose` opts a safe read/ingest tool onto the public surface. See [MCP Protocol](/docs/mcp-protocol) for catalog tiers, auth, and the `mcpApp` resource details.
 
 For UI-capable MCP hosts, an action can declare an optional MCP Apps resource via the `mcpApp` field (plus a matching `link`) so capable hosts render the result inline. When `link` and `mcpApp` should point at the same route, `embedRoute()` builds both from one pure path builder:
 

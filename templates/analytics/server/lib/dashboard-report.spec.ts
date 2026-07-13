@@ -1,9 +1,29 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  chromiumArgs: ["--no-sandbox"],
+  chromiumExecutablePath: vi.fn(),
+  existsSync: vi.fn(),
+  rm: vi.fn(),
+  readdir: vi.fn(),
+  stat: vi.fn(),
   sendEmail: vi.fn(),
   getReportDashboard: vi.fn(),
   launch: vi.fn(),
+  launchPersistentContext: vi.fn(),
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: mocks.existsSync,
+}));
+
+vi.mock("node:fs/promises", () => ({
+  rm: mocks.rm,
+  readdir: mocks.readdir,
+  stat: mocks.stat,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -24,6 +44,15 @@ vi.mock("./dashboard-report-subscriptions", () => ({
 vi.mock("playwright-core", () => ({
   chromium: {
     launch: mocks.launch,
+    launchPersistentContext: mocks.launchPersistentContext,
+  },
+}));
+
+vi.mock("@sparticuz/chromium-min", () => ({
+  default: {
+    args: mocks.chromiumArgs,
+    executablePath: mocks.chromiumExecutablePath,
+    setGraphicsMode: true,
   },
 }));
 
@@ -107,9 +136,21 @@ describe("dashboard report email", () => {
   beforeEach(() => {
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", process.execPath);
     vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.existsSync.mockReset();
+    mocks.existsSync.mockImplementation(
+      (candidate: string) => candidate === process.execPath,
+    );
+    mocks.rm.mockReset();
+    mocks.rm.mockResolvedValue(undefined);
+    mocks.readdir.mockReset();
+    mocks.readdir.mockResolvedValue([]);
+    mocks.stat.mockReset();
+    mocks.chromiumExecutablePath.mockReset();
+    mocks.chromiumExecutablePath.mockResolvedValue("/tmp/chromium");
     mocks.sendEmail.mockResolvedValue(undefined);
     mocks.getReportDashboard.mockResolvedValue(dashboard());
     mocks.launch.mockReset();
+    mocks.launchPersistentContext.mockReset();
   });
 
   afterEach(() => {
@@ -147,6 +188,9 @@ describe("dashboard report email", () => {
       colorScheme: "light",
     });
     expect(lightweight.page.addInitScript).toHaveBeenCalledOnce();
+    expect(lightweight.page.evaluate).toHaveBeenCalledWith(
+      expect.stringContaining('root.style.zoom = "0.7"'),
+    );
     expect(mocks.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "steve@builder.io",
@@ -214,7 +258,8 @@ describe("dashboard report email", () => {
       recipientCount: 1,
       screenshotAttached: false,
       screenshotMode: "none",
-      screenshotError: "chromium died",
+      screenshotError: expect.stringContaining("chromium died"),
+      emailsSent: true,
     });
     expect(mocks.launch).toHaveBeenCalledTimes(2);
     expect(mocks.sendEmail).toHaveBeenCalledWith(
@@ -227,10 +272,29 @@ describe("dashboard report email", () => {
     );
   });
 
+  it("skips sending the fallback email when skipEmailWithoutScreenshot is set", async () => {
+    mocks.launch.mockRejectedValue(new Error("chromium died"));
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result).toMatchObject({
+      recipientCount: 1,
+      screenshotAttached: false,
+      screenshotMode: "none",
+      screenshotError: expect.stringContaining("chromium died"),
+      emailsSent: false,
+    });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
   it("allows enough time for full serverless dashboards to become ready", async () => {
     vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
     const serverless = createBrowser();
-    mocks.launch.mockResolvedValueOnce(serverless.browser);
+    mocks.launchPersistentContext.mockResolvedValueOnce(serverless.browser);
 
     await sendDashboardReportSubscription(subscription());
 
@@ -240,6 +304,119 @@ describe("dashboard report email", () => {
       undefined,
       { timeout: 90_000 },
     );
+    expect(mocks.chromiumExecutablePath).toHaveBeenCalledWith(
+      "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar",
+    );
+    expect(mocks.launch).not.toHaveBeenCalled();
+    const [profilePath, launchOptions] =
+      mocks.launchPersistentContext.mock.calls[0];
+    expect(profilePath).toMatch(/dashboard-report-playwright-/);
+    expect(launchOptions.args).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^--user-data-dir=/)]),
+    );
+    expect(launchOptions).toMatchObject({
+      deviceScaleFactor: 1,
+      viewport: { width: 1440, height: 1800 },
+    });
+    expect(serverless.browser.newPage).toHaveBeenCalledWith();
+    expect(mocks.rm).toHaveBeenCalledWith(profilePath, {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it("cleans each serverless Chromium profile when browser launch fails", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.launchPersistentContext.mockRejectedValue(
+      new Error("socket unavailable"),
+    );
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+      screenshotError: expect.stringContaining("socket unavailable"),
+    });
+    expect(mocks.rm).toHaveBeenCalledTimes(2);
+    const profilePaths = mocks.rm.mock.calls.map(([path]) => path);
+    expect(new Set(profilePaths).size).toBe(2);
+    expect(profilePaths).toEqual([
+      expect.stringContaining("dashboard-report-playwright-"),
+      expect.stringContaining("dashboard-report-playwright-"),
+    ]);
+  });
+
+  it("closes a serverless browser that finishes launching after the attempt timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("NETLIFY", "true");
+      vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+      mocks.existsSync.mockReturnValue(false);
+      const late = createBrowser();
+      let resolveLateLaunch!: (browser: typeof late.browser) => void;
+      mocks.launchPersistentContext
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveLateLaunch = resolve;
+            }),
+        )
+        .mockRejectedValueOnce(new Error("lightweight launch failed"));
+
+      const sendPromise = sendDashboardReportSubscription(subscription());
+      await vi.advanceTimersByTimeAsync(125_000);
+      const result = await sendPromise;
+
+      expect(result).toMatchObject({
+        screenshotAttached: false,
+        screenshotMode: "none",
+        screenshotError: expect.stringContaining(
+          "full capture exceeded 125000ms while launching the screenshot browser",
+        ),
+      });
+      resolveLateLaunch(late.browser);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(late.browser.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sweeps stale Chromium profiles before launching in serverless runtimes", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.readdir.mockResolvedValue([
+      "dashboard-report-playwright-old",
+      "dashboard-report-playwright-new",
+      "unrelated-dir",
+    ]);
+    mocks.stat.mockImplementation(async (path: string) => {
+      if (path.endsWith("dashboard-report-playwright-old")) {
+        return { mtimeMs: Date.now() - 31 * 60_000 };
+      }
+      return { mtimeMs: Date.now() };
+    });
+    const serverless = createBrowser();
+    mocks.launchPersistentContext.mockResolvedValueOnce(serverless.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    const oldPath = join(tmpdir(), "dashboard-report-playwright-old");
+    const newPath = join(tmpdir(), "dashboard-report-playwright-new");
+    const unrelatedPath = join(tmpdir(), "unrelated-dir");
+    expect(mocks.rm).toHaveBeenCalledWith(oldPath, {
+      recursive: true,
+      force: true,
+    });
+    expect(mocks.rm).not.toHaveBeenCalledWith(newPath, expect.anything());
+    expect(mocks.rm).not.toHaveBeenCalledWith(unrelatedPath, expect.anything());
   });
 
   it("redacts embed tokens from screenshot errors", async () => {
@@ -272,7 +449,9 @@ describe("dashboard report email", () => {
       sendDashboardReportSubscription(subscription(), {
         requireScreenshot: true,
       }),
-    ).rejects.toThrow("Dashboard screenshot unavailable: chromium died");
+    ).rejects.toThrow(
+      "Dashboard screenshot unavailable: full: launching the screenshot browser: chromium died",
+    );
 
     expect(mocks.launch).toHaveBeenCalledTimes(2);
     expect(mocks.sendEmail).not.toHaveBeenCalled();

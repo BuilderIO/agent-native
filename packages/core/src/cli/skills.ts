@@ -12,6 +12,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "../mcp/route-paths.js";
+import {
   buildAppSkillPack,
   ensureAppSkill,
   loadAppSkillManifest,
@@ -72,7 +76,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Create, search, select, and export brand image and video assets from the Assets app.",
       hosted: {
         url: "https://assets.agent-native.com",
-        mcpUrl: "https://assets.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://assets.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-assets" },
       auth: {
@@ -118,7 +122,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Edit docs, blogs, resources, and MDX content through the Content app, including repo-backed Local File Mode.",
       hosted: {
         url: "https://content.agent-native.com",
-        mcpUrl: "https://content.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://content.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-content" },
       auth: {
@@ -170,7 +174,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
       hosted: {
         url: "https://design.agent-native.com",
-        mcpUrl: "https://design.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://design.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-design" },
       auth: {
@@ -247,7 +251,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Create rich interactive visual plans, recaps, and repo-native visual docs with diagrams, file maps, annotated code and diffs, API/schema summaries, feedback, and HTML export.",
       hosted: {
         url: "https://plan.agent-native.com",
-        mcpUrl: "https://plan.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://plan.agent-native.com/mcp",
       },
       mcp: { serverName: "plan", aliases: ["agent-native-plans"] },
       auth: {
@@ -317,7 +321,7 @@ export const BUILT_IN_APP_SKILLS = {
         "Visualize local Codex and Claude Code context usage with warnings and optimization tips.",
       hosted: {
         url: "https://context-xray.agent-native.com",
-        mcpUrl: "https://context-xray.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://context-xray.agent-native.com/mcp",
       },
       mcp: { serverName: "agent-native-context-xray" },
       auth: { mode: "none" },
@@ -2771,8 +2775,11 @@ function preserveMcpUrlAppPathOverride(
     return target;
   }
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith("/_agent-native/mcp")
-    ? trimmedPath.slice(0, -"/_agent-native/mcp".length).replace(/\/+$/, "")
+  const mcpSuffix = [MCP_LEGACY_ROUTE_PREFIX, MCP_PUBLIC_ROUTE_PREFIX].find(
+    (suffix) => trimmedPath === suffix || trimmedPath.endsWith(suffix),
+  );
+  const appPath = mcpSuffix
+    ? trimmedPath.slice(0, -mcpSuffix.length).replace(/\/+$/, "")
     : trimmedPath;
   if (!appPath) return target;
   const url = `${parsed.origin}${appPath}`;
@@ -2782,7 +2789,7 @@ function preserveMcpUrlAppPathOverride(
       ...target.loaded,
       manifest: {
         ...target.loaded.manifest,
-        hosted: { url, mcpUrl: `${url}/_agent-native/mcp` },
+        hosted: { url, mcpUrl: `${url}${MCP_PUBLIC_ROUTE_PREFIX}` },
       },
     },
   };
@@ -2870,7 +2877,8 @@ async function runCommand(
 /**
  * Resolve a `--mcp-url` override into the `{ url, mcpUrl }` pair the manifest
  * expects. Accepts a bare origin (`https://x.ngrok-free.dev`) — appending the
- * standard `/_agent-native/mcp` path — or a full MCP URL already ending in it.
+ * standard `/mcp` path — or a full MCP URL already ending in `/mcp` or the
+ * legacy `/_agent-native/mcp` path.
  */
 function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   let parsed: URL;
@@ -2884,9 +2892,12 @@ function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   }
   const origin = parsed.origin;
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const mcpUrl = trimmedPath.endsWith("/_agent-native/mcp")
-    ? `${origin}${trimmedPath}`
-    : `${origin}/_agent-native/mcp`;
+  const mcpSuffix = [MCP_LEGACY_ROUTE_PREFIX, MCP_PUBLIC_ROUTE_PREFIX].find(
+    (suffix) => trimmedPath === suffix || trimmedPath.endsWith(suffix),
+  );
+  const mcpUrl = mcpSuffix
+    ? `${origin}${trimmedPath.slice(0, -mcpSuffix.length)}${MCP_PUBLIC_ROUTE_PREFIX}`
+    : `${origin}${MCP_PUBLIC_ROUTE_PREFIX}`;
   return { url: origin, mcpUrl };
 }
 

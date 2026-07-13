@@ -18,11 +18,11 @@
  *     surfacing the exact `agent-native connect <url>` fallback command.
  *
  * Server contract (identical paths + JSON field names to core):
- *   POST <hostedUrl>/_agent-native/mcp/connect/device/start  (no auth)
+ *   POST <hostedUrl>/mcp/connect/device/start  (no auth)
  *     body { client?, app? }
  *     → { device_code, user_code, verification_uri,
  *         verification_uri_complete, interval, expires_in }
- *   POST <hostedUrl>/_agent-native/mcp/connect/device/poll   (no auth)
+ *   POST <hostedUrl>/mcp/connect/device/poll   (no auth)
  *     body { device_code }
  *     → { status: "pending" }
  *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
@@ -34,9 +34,10 @@
 
 import { ClientId, writeHttpEntryForClient } from "./mcp-config-writers.js";
 
-const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
-const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
-const MCP_PATH = "/_agent-native/mcp";
+const DEVICE_START_PATH = "/mcp/connect/device/start";
+const DEVICE_POLL_PATH = "/mcp/connect/device/poll";
+const MCP_PATH = "/mcp";
+const LEGACY_MCP_PATH = "/_agent-native/mcp";
 
 /** OAuth-capable clients (in-host remote MCP OAuth, never a local bearer). */
 const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
@@ -66,7 +67,7 @@ const CLIENT_LABELS: Record<ClientId, string> = {
  * key; `aliases` are additional config keys that point at the same MCP URL
  * (e.g. `plan` + `agent-native-plans`). `hostedUrl` is the deployed app origin
  * the device-code flow authenticates against; `mcpUrl` is the resolved MCP
- * endpoint written into the config (defaults to `<hostedUrl>/_agent-native/mcp`
+ * endpoint written into the config (defaults to `<hostedUrl>/mcp`
  * when only `hostedUrl` is supplied).
  */
 export interface McpDescriptor {
@@ -153,14 +154,22 @@ function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+function canonicalAgentNativeMcpUrl(url: string): string {
+  const trimmed = stripTrailingSlash(url);
+  if (trimmed.endsWith(LEGACY_MCP_PATH)) {
+    return `${trimmed.slice(0, -LEGACY_MCP_PATH.length)}${MCP_PATH}`;
+  }
+  return trimmed;
+}
+
 /**
  * Resolve the MCP endpoint URL for a descriptor. Prefers an explicit `mcpUrl`,
- * otherwise derives `<hostedUrl>/_agent-native/mcp` (mirrors core's
+ * otherwise derives `<hostedUrl>/mcp` (mirrors core's
  * `mcpUrlForBaseUrl`). Returns `undefined` when neither is usable.
  */
 function resolveMcpUrl(descriptor: McpDescriptor): string | undefined {
   if (descriptor.mcpUrl && descriptor.mcpUrl.trim()) {
-    return descriptor.mcpUrl.trim();
+    return canonicalAgentNativeMcpUrl(descriptor.mcpUrl.trim());
   }
   if (descriptor.hostedUrl && descriptor.hostedUrl.trim()) {
     const base = stripTrailingSlash(descriptor.hostedUrl.trim());
@@ -177,6 +186,9 @@ function resolveBaseUrl(descriptor: McpDescriptor): string | undefined {
   // Fall back to stripping the MCP path off an explicit mcpUrl.
   if (descriptor.mcpUrl && descriptor.mcpUrl.trim()) {
     const trimmed = stripTrailingSlash(descriptor.mcpUrl.trim());
+    if (trimmed.endsWith(LEGACY_MCP_PATH)) {
+      return trimmed.slice(0, -LEGACY_MCP_PATH.length);
+    }
     if (trimmed.endsWith(MCP_PATH)) {
       return trimmed.slice(0, -MCP_PATH.length);
     }
@@ -447,7 +459,9 @@ async function runDeviceFlow(
 
     if (poll.status === "approved") {
       const token = poll.token ?? "";
-      const mcpUrl = poll.mcpUrl ?? `${baseUrl}${MCP_PATH}`;
+      const mcpUrl = canonicalAgentNativeMcpUrl(
+        poll.mcpUrl ?? `${baseUrl}${MCP_PATH}`,
+      );
       const serverName = poll.serverName ?? appSlug;
       const headers =
         poll.mcpServerEntry &&

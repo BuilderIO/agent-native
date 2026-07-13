@@ -2334,6 +2334,34 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const reported = e.data.payload as
+          | { selector?: string; sourceId?: string }
+          | undefined;
+        const reportedCandidates: string[] = [];
+        if (reported?.selector) reportedCandidates.push(reported.selector);
+        if (reported?.sourceId) {
+          reportedCandidates.push(
+            `[data-agent-native-node-id="${reported.sourceId}"]`,
+          );
+        }
+        if (e.data.intent) {
+          // User click (carries intent): iframe already shows it — suppress the
+          // echo-back to avoid the fast-click bounce.
+          suppressMirrorSelectorsRef.current =
+            reportedCandidates.length > 0 ? reportedCandidates : null;
+        } else if (
+          selectedSelectorRef.current &&
+          reportedCandidates.length > 0 &&
+          !reportedCandidates.includes(selectedSelectorRef.current) &&
+          !(selectedSelectorCandidatesRef.current ?? []).some((c) =>
+            reportedCandidates.includes(c),
+          )
+        ) {
+          // Intent-less echo ≠ committed selection: iframe drifted; force a
+          // resync (dedup would otherwise block the corrective mirror).
+          forceSelectionMirrorResyncRef.current = true;
+          replayIframeEditorStateRef.current?.();
+        }
         onElementSelect(e.data.payload, e.data.intent);
         return;
       }
@@ -2797,6 +2825,23 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
+  // Mirror the selection down only when it changes, so stale re-posts can't
+  // race a fast click and re-highlight the old element.
+  const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
+  const forceSelectionMirrorResyncRef = useRef(true);
+  // Selectors from the iframe's own click; skip mirroring them back once to
+  // avoid the fast-click bounce.
+  const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // Latest replayIframeEditorState, synced during render (below) so the message
+  // handler can force a corrective resync without a stale closure.
+  const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  // Render-synced committed selection so the message handler reads current
+  // values without re-binding the window listener on every selection.
+  const selectedSelectorRef = useRef(selectedSelector);
+  selectedSelectorRef.current = selectedSelector;
+  const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
+  selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
+
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -2819,16 +2864,38 @@ export function DesignCanvas({
       { type: "scale-tool-mode", enabled: scaleMode },
       "*",
     );
-    iframe.contentWindow?.postMessage(
-      selectedSelector
-        ? {
-            type: "select-element",
-            selector: selectedSelector,
-            selectorCandidates: selectedSelectorCandidates,
-          }
-        : { type: "clear-selection" },
-      "*",
-    );
+    const selectionMirrorSignature = JSON.stringify({
+      selector: selectedSelector ?? null,
+      candidates: selectedSelectorCandidates ?? [],
+    });
+    // Skip echoing back a selection the iframe just reported (fast-click
+    // bounce). One-shot: reload forces a resync; external selection clears it.
+    const isIframeOriginatedEcho =
+      !forceSelectionMirrorResyncRef.current &&
+      !!selectedSelector &&
+      (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
+    if (isIframeOriginatedEcho) {
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      suppressMirrorSelectorsRef.current = null;
+    } else if (
+      forceSelectionMirrorResyncRef.current ||
+      selectionMirrorSignature !== lastSelectionMirrorSignatureRef.current
+    ) {
+      iframe.contentWindow?.postMessage(
+        selectedSelector
+          ? {
+              type: "select-element",
+              selector: selectedSelector,
+              selectorCandidates: selectedSelectorCandidates,
+            }
+          : { type: "clear-selection" },
+        "*",
+      );
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      forceSelectionMirrorResyncRef.current = false;
+      // An external selection just went down; pending suppression is now stale.
+      suppressMirrorSelectorsRef.current = null;
+    }
     iframe.contentWindow?.postMessage(
       {
         type: "select-elements",
@@ -2907,6 +2974,9 @@ export function DesignCanvas({
     statePreviewTarget,
     tweakValues,
   ]);
+  // Sync during render (not in an effect) so a drift echo can't invoke a stale
+  // closure that reposts the previous selection.
+  replayIframeEditorStateRef.current = replayIframeEditorState;
 
   // Replay the editor state whenever it changes OR the iframe (re)loads. The
   // load case matters for screen switches and mode changes; without replaying
@@ -2914,9 +2984,15 @@ export function DesignCanvas({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    // A (re)loaded document starts with no selection, so force the next
+    // mirror to post even if the selector is unchanged from before the load.
+    const replayAfterLoad = () => {
+      forceSelectionMirrorResyncRef.current = true;
+      replayIframeEditorState();
+    };
     replayIframeEditorState();
-    iframe.addEventListener("load", replayIframeEditorState);
-    return () => iframe.removeEventListener("load", replayIframeEditorState);
+    iframe.addEventListener("load", replayAfterLoad);
+    return () => iframe.removeEventListener("load", replayAfterLoad);
   }, [replayIframeEditorState]);
 
   // A real top-level focus loss (Cmd+Tab, switching windows, browser chrome)
@@ -5046,17 +5122,29 @@ function SingleScreenCreationOverlay({
         />
       ) : null}
       {previewRect ? (
-        <div
-          data-creation-preview-rect
-          className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
-          style={{
-            left: previewRect.x,
-            top: previewRect.y,
-            width: Math.max(1, previewRect.width),
-            height: Math.max(1, previewRect.height),
-            borderRadius: tool === "ellipse" ? "9999px" : undefined,
-          }}
-        />
+        <>
+          <div
+            data-creation-preview-rect
+            className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
+            style={{
+              left: previewRect.x,
+              top: previewRect.y,
+              width: Math.max(1, previewRect.width),
+              height: Math.max(1, previewRect.height),
+              borderRadius: tool === "ellipse" ? "9999px" : undefined,
+            }}
+          />
+          <span
+            data-creation-preview-size
+            className="pointer-events-none absolute z-10 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            style={{
+              left: previewRect.x + previewRect.width / 2,
+              top: previewRect.y + previewRect.height,
+            }}
+          >
+            {Math.round(previewRect.width)} × {Math.round(previewRect.height)}
+          </span>
+        </>
       ) : null}
       {previewLine ? (
         <svg

@@ -123,7 +123,7 @@ Au quotidien, Dispatch est l'endroit où les administrateurs et les opérationne
   Distribuez l'accès sans copier les secrets bruts. Source spécifique à l'application
   la configuration reste dans l'application qui utilise le fournisseur.
 - **Exposer un connecteur MCP.** Ajouter
-  `https://dispatch.agent-native.com/_agent-native/mcp` dans Claude, ChatGPT,
+  `https://dispatch.agent-native.com/mcp` dans Claude, ChatGPT,
   Codex, Cursor ou un autre hôte MCP, puis choisissez les applications d'espace de travail qui
   peut être atteint depuis la page **Agents** de Dispatch. Utiliser une application directe URL
   uniquement lorsque cet hôte doit être isolé sur une seule application.
@@ -304,7 +304,7 @@ _Comment ça marche sous le capot (pour les développeurs)._
   ]}
 />
 
-- **Mode hub MCP.** Dispatch peut toujours agir comme [MCP hub](/docs/mcp-clients#hub) de l'espace de travail, de sorte que toutes les autres applications de l'espace de travail extraient la même liste de serveurs MCP de portée organisationnelle. Par ailleurs, le point de terminaison `/_agent-native/mcp` de Dispatch est le connecteur externe MCP recommandé pour Claude, ChatGPT et d'autres hôtes qui doivent atteindre plusieurs applications d'espace de travail.
+- **Mode hub MCP.** Dispatch peut toujours agir comme [MCP hub](/docs/mcp-clients#hub) de l'espace de travail, de sorte que toutes les autres applications de l'espace de travail extraient la même liste de serveurs MCP de portée organisationnelle. Par ailleurs, le point de terminaison `/mcp` de Dispatch est le connecteur externe MCP recommandé pour Claude, ChatGPT et d'autres hôtes qui doivent atteindre plusieurs applications d'espace de travail.
 
 ## Rêves {#dreams}
 
