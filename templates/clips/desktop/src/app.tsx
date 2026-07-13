@@ -208,6 +208,26 @@ const DEFAULT_URL = import.meta.env.DEV
   ? "http://localhost:8094"
   : "https://clips.agent-native.com";
 
+/**
+ * Coerce a user-typed server URL into an absolute http(s) URL. Users type
+ * bare hosts like "localhost:8094" — without a scheme the URL parser reads
+ * "localhost:" as the protocol, every request silently fails, and sign-in
+ * looks like wrong credentials. Local hosts default to http, everything
+ * else to https.
+ */
+function normalizeServerUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return trimmed;
+  const bare = trimmed.replace(/^\/+/, "");
+  const host = (bare.split(/[/:]/)[0] ?? "").toLowerCase();
+  const isLocal =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host.endsWith(".local");
+  return `${isLocal ? "http" : "https"}://${bare}`;
+}
+
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
   return value === "window" ? "window" : "full-screen";
@@ -651,7 +671,7 @@ function usePopoverAutoSize(
 export function App() {
   const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
-    loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
+    normalizeServerUrl(loadString(STORAGE_KEY, DEFAULT_URL)),
   );
 
   // Dev builds: the local Clips server may be on 8094 (the workspace dev
@@ -2588,8 +2608,9 @@ export function App() {
           onVoiceInstructionsChange={setVoiceInstructions}
           onSignOut={signOut}
           onConnect={(url) => {
-            saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
-            setServerUrl(url.replace(/\/+$/, ""));
+            const normalized = normalizeServerUrl(url);
+            saveString(STORAGE_KEY, normalized);
+            setServerUrl(normalized);
             setPopoverView("recorder");
           }}
           onCancel={() => setPopoverView("recorder")}
