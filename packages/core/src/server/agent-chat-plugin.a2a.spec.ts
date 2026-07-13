@@ -5,6 +5,7 @@ import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
+  runMCPAgentLoop,
   runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
 
@@ -71,6 +72,42 @@ describe("delegated A2A final response guards", () => {
       expect.objectContaining({ finalResponseGuard: analyticsGuard }),
       12_345,
       { backgroundFunction: true },
+    );
+  });
+
+  it("keeps the MCP-local ask_app loop on the same guard contract", async () => {
+    const guard = vi.fn(() => null);
+    const runner = vi.fn(async (options: any) => {
+      expect(options.finalResponseGuard).toBe(guard);
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runMCPAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      { finalResponseGuard: guard as any, runSoftTimeoutMs: 1_000 },
+      { backgroundFunction: false },
+      runner as any,
+    );
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({ finalResponseGuard: guard }),
+      1_000,
+      { backgroundFunction: false },
     );
   });
 });
