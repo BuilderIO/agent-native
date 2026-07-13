@@ -18,6 +18,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
   ActionEntry,
@@ -26,6 +27,7 @@ import type {
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
+  resolveAgentRequestReasoningEffort,
 } from "../agent/production-agent.js";
 import {
   runAgentLoop,
@@ -589,6 +591,11 @@ function createTaskMessageFinalGuard(
       retryMessage: formatQueuedTaskMessages(queuedMessages),
       fallbackMessage:
         "I received an orchestrator update while finishing, but could not continue from it. Please check the task status and send the update again if needed.",
+      // A queued update can introduce a request for an action that was
+      // deferred behind tool-search. The retry is already a corrective turn,
+      // so expose the full authorized registry rather than making the
+      // sub-agent spend that turn rediscovering the same tool.
+      expandToolSurface: true,
     };
   };
 }
@@ -1835,6 +1842,16 @@ export async function processAgentTeamRun(
                   chunkUsage = await runAgentLoop({
                     engine: config.engine,
                     model: config.model,
+                    // Agent-team runs are delegated turns too. Keep their
+                    // first attempt on the same model-aware budget as A2A /
+                    // MCP so reasoning models do not spend the old 4K
+                    // default before emitting a tool call or answer.
+                    maxOutputTokens: resolveMainChatMaxOutputTokens(
+                      config.model,
+                    ),
+                    reasoningEffort: resolveAgentRequestReasoningEffort({
+                      model: config.model,
+                    }),
                     systemPrompt,
                     tools,
                     availableTools,
