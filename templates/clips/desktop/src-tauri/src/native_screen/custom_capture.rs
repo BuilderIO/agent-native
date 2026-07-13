@@ -2261,7 +2261,29 @@ fn spawn_capture_watchdog(
 
         loop {
             std::thread::sleep(CAPTURE_WATCHDOG_POLL);
-            if shutdown.load(Ordering::SeqCst) || writer.appends_closed.load(Ordering::SeqCst) {
+            if shutdown.load(Ordering::SeqCst) {
+                return;
+            }
+            if writer.appends_closed.load(Ordering::SeqCst) {
+                // Appends closed while we're still supervising. A clean stop
+                // sets `watchdog_shutdown` BEFORE closing appends (SeqCst), so
+                // re-check it: if it's still unset, appends were closed by an
+                // unrecoverable capture failure (an Objective-C exception or
+                // panic in the sample callback, an `appendSampleBuffer` error,
+                // or a writer-session failure) with the SCStream still running
+                // and the UI still showing "recording". Stop capture and fire
+                // the normal stop so the partial — still a valid fragmented
+                // file — is finalized/uploaded instead of silently truncating.
+                if shutdown.load(Ordering::SeqCst) {
+                    return;
+                }
+                eprintln!(
+                    "[mixer] appends closed without a stop request; treating as fatal capture failure and finalizing partial recording"
+                );
+                if let Ok(guard) = stream.lock() {
+                    let _ = guard.stop_capture();
+                }
+                let _ = app.emit("clips:recorder-stop", ());
                 return;
             }
             // Nothing to supervise until output is enabled and the writer
@@ -2328,6 +2350,10 @@ fn spawn_capture_watchdog(
                 if let Ok(guard) = stream.lock() {
                     let _ = guard.stop_capture();
                 }
+                // Fire the normal stop so the partial clip is finalized/uploaded
+                // and the UI leaves the recording state, rather than sitting on
+                // a frozen recording after the watchdog gives up.
+                let _ = app.emit("clips:recorder-stop", ());
                 return;
             }
 

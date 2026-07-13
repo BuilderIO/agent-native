@@ -80,6 +80,12 @@ export class MseVideoLoader {
   private nextOffset = 0;
   private initAppended = false;
   private needsRealign = false;
+  /**
+   * Byte offset the current realign probe started from (the seek estimate,
+   * then walked backward by `backUpRealignProbe`). Used to recover when a seek
+   * estimate overshoots past the target fragment's `moof` into its `mdat`.
+   */
+  private realignProbeStart = 0;
   /** Media bytes appended so far (excludes the init segment). */
   private mediaBytesAppended = 0;
 
@@ -221,9 +227,30 @@ export class MseVideoLoader {
       this.initLength,
       this.estimateByteOffset(target),
     );
+    this.realignProbeStart = this.nextOffset;
     this.needsRealign = true;
     this.schedulePump();
   };
+
+  /**
+   * Recover a seek whose estimate overshot past the target fragment's `moof`
+   * into its `mdat`. That can only happen inside the FINAL fragment (every
+   * earlier one is followed by another `moof`), so a forward scan reaches EOF
+   * with no boundary. Back the probe window up by one `SEEK_PROBE_SIZE`
+   * (floored at the init segment) and re-scan, instead of treating EOF as a
+   * completed seek and stalling. Returns false when there is nothing earlier
+   * left to probe.
+   */
+  private backUpRealignProbe(): boolean {
+    if (this.realignProbeStart <= this.initLength) return false;
+    this.realignProbeStart = Math.max(
+      this.initLength,
+      this.realignProbeStart - SEEK_PROBE_SIZE,
+    );
+    this.nextOffset = this.realignProbeStart;
+    this.eofReached = false;
+    return true;
+  }
 
   private schedulePump(): void {
     if (this.pumping) {
@@ -246,6 +273,12 @@ export class MseVideoLoader {
           this.eofReached ||
           (this.totalKnown && this.nextOffset >= this.totalBytes)
         ) {
+          // A realign that reached EOF without finding its boundary overshot
+          // into the final fragment — back up and keep looking before ending.
+          if (this.needsRealign && this.backUpRealignProbe()) {
+            continue;
+          }
+          this.needsRealign = false;
           this.tryEndOfStream();
           break;
         }
@@ -273,6 +306,9 @@ export class MseVideoLoader {
         }
         if (this.destroyed) break;
         if (res.bytes.byteLength === 0) {
+          if (this.needsRealign && this.backUpRealignProbe()) {
+            continue;
+          }
           this.eofReached = true;
           this.tryEndOfStream();
           break;
@@ -282,12 +318,20 @@ export class MseVideoLoader {
         if (this.needsRealign) {
           const moof = findMoofOffset(bytes);
           if (moof < 0) {
-            // No fragment boundary in this window — advance and keep scanning.
-            this.nextOffset = chunkStart + bytes.byteLength;
             if (res.eof) {
+              // Reached EOF with no boundary — the estimate overshot into the
+              // final fragment's mdat. Back up and re-probe rather than
+              // stalling the seek; give up only once nothing earlier remains.
+              if (this.backUpRealignProbe()) {
+                continue;
+              }
+              this.needsRealign = false;
               this.eofReached = true;
+              this.tryEndOfStream();
               break;
             }
+            // No fragment boundary in this window — advance and keep scanning.
+            this.nextOffset = chunkStart + bytes.byteLength;
             continue;
           }
           bytes = bytes.subarray(moof);
