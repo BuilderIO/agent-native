@@ -354,20 +354,23 @@ export default defineAction({
     const connectedByLower = new Map(
       connectedAccounts.map((email) => [email.toLowerCase(), email]),
     );
-    const selectedAccounts = inventory
-      ? Array.from(
-          new Set(
-            (requestedAccounts ?? connectedAccounts).map((email) =>
-              email.toLowerCase(),
+    const selectedAccounts =
+      inventory && connectedAccounts.length > 0
+        ? Array.from(
+            new Set(
+              (requestedAccounts ?? connectedAccounts).map((email) =>
+                email.toLowerCase(),
+              ),
             ),
-          ),
-        ).map((email) => {
-          const owned = connectedByLower.get(email);
-          if (!owned)
-            throw new Error(`Account ${email} is not connected for this user.`);
-          return owned;
-        })
-      : undefined;
+          ).map((email) => {
+            const owned = connectedByLower.get(email);
+            if (!owned)
+              throw new Error(
+                `Account ${email} is not connected for this user.`,
+              );
+            return owned;
+          })
+        : undefined;
 
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
@@ -641,6 +644,37 @@ export default defineAction({
 
     // Fallback: local store
     let emails = await readLocalEmails(ownerEmail);
+    const localAccountsByLower = new Map<string, string>();
+    for (const email of emails) {
+      const accountEmail = String(email.accountEmail ?? "local");
+      localAccountsByLower.set(accountEmail.toLowerCase(), accountEmail);
+    }
+    const localSelectedAccounts = inventory
+      ? Array.from(
+          new Set(
+            (
+              requestedAccounts ?? Array.from(localAccountsByLower.values())
+            ).map((email) => email.toLowerCase()),
+          ),
+        ).map((email) => {
+          const available = localAccountsByLower.get(email);
+          if (!available) {
+            throw new Error(
+              `Account ${email} is not available in local mail for this user.`,
+            );
+          }
+          return available;
+        })
+      : undefined;
+
+    if (localSelectedAccounts && requestedAccounts) {
+      const selected = new Set(
+        localSelectedAccounts.map((email) => email.toLowerCase()),
+      );
+      emails = emails.filter((email) =>
+        selected.has(String(email.accountEmail ?? "local").toLowerCase()),
+      );
+    }
 
     switch (view) {
       case "inbox":
@@ -692,8 +726,8 @@ export default defineAction({
 
     if (inventory) {
       const localResolvedAccounts =
-        selectedAccounts && selectedAccounts.length > 0
-          ? selectedAccounts
+        localSelectedAccounts && localSelectedAccounts.length > 0
+          ? localSelectedAccounts
           : Array.from(
               new Set(
                 emails.map((email) =>

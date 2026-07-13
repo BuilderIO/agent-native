@@ -367,6 +367,89 @@ describe("list-emails action — coverage-aware inventory", () => {
     ]);
   });
 
+  it("validates and filters plural account selection against local mail accounts", async () => {
+    const LOCAL_ONE = "local-one@example.com";
+    const LOCAL_TWO = "local-two@example.com";
+    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(isConnected).mockResolvedValue(false);
+    mocks.getUserSetting.mockResolvedValue({
+      emails: [
+        emailFor(
+          {
+            ...rawMessage("local-one", "thread-one"),
+            _accountEmail: LOCAL_ONE,
+          },
+          { date: "2026-07-13T13:00:00Z" },
+        ),
+        emailFor(
+          {
+            ...rawMessage("local-two", "thread-two"),
+            _accountEmail: LOCAL_TWO,
+          },
+          { date: "2026-07-13T12:00:00Z" },
+        ),
+      ],
+    });
+
+    const result = (await action.run(
+      { format: "inventory", accountEmails: [LOCAL_TWO] },
+      { caller: "mcp" } as any,
+    )) as any;
+
+    expect(result.requestedAccounts).toEqual([LOCAL_TWO]);
+    expect(result.resolvedAccounts).toEqual([LOCAL_TWO]);
+    expect(result.items.map((item: any) => item.id)).toEqual(["local-two"]);
+    expect(listGmailMessages).not.toHaveBeenCalled();
+  });
+
+  it("accepts singular account selection for a local mail account", async () => {
+    const LOCAL_ONE = "local-one@example.com";
+    const LOCAL_TWO = "local-two@example.com";
+    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(isConnected).mockResolvedValue(false);
+    mocks.getUserSetting.mockResolvedValue({
+      emails: [
+        emailFor({
+          ...rawMessage("local-one", "thread-one"),
+          _accountEmail: LOCAL_ONE,
+        }),
+        emailFor({
+          ...rawMessage("local-two", "thread-two"),
+          _accountEmail: LOCAL_TWO,
+        }),
+      ],
+    });
+
+    const result = (await action.run(
+      { format: "inventory", account: LOCAL_ONE },
+      { caller: "mcp" } as any,
+    )) as any;
+
+    expect(result.requestedAccounts).toEqual([LOCAL_ONE]);
+    expect(result.resolvedAccounts).toEqual([LOCAL_ONE]);
+    expect(result.items.map((item: any) => item.id)).toEqual(["local-one"]);
+  });
+
+  it("rejects an account selection absent from local mail", async () => {
+    vi.mocked(getConnectedAccounts).mockResolvedValue([]);
+    vi.mocked(isConnected).mockResolvedValue(false);
+    mocks.getUserSetting.mockResolvedValue({
+      emails: [rawMessage("local-one", "thread-one")].map((raw) =>
+        emailFor({ ...raw, _accountEmail: "local-one@example.com" }),
+      ),
+    });
+
+    await expect(
+      action.run(
+        { format: "inventory", accountEmails: ["missing@example.com"] },
+        { caller: "mcp" } as any,
+      ),
+    ).rejects.toThrow(
+      "Account missing@example.com is not available in local mail for this user.",
+    );
+    expect(listGmailMessages).not.toHaveBeenCalled();
+  });
+
   it("pages local inventory without prefix loss when OAuth is absent", async () => {
     vi.mocked(getConnectedAccounts).mockResolvedValue([]);
     vi.mocked(isConnected).mockResolvedValue(false);
