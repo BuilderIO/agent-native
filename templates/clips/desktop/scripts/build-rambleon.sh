@@ -23,6 +23,11 @@ DMG="src-tauri/target/release/bundle/dmg/RambleOn_${VERSION}_aarch64.dmg"
 STAGE=$(mktemp -d)
 ditto "$APP" "$STAGE/RambleOn.app"
 ln -s /Applications "$STAGE/Applications"
+# Detach any mounted copy of a previous DMG — hdiutil refuses to rebuild
+# while the volume is open in Finder ("resource busy").
+for vol in /Volumes/RambleOn*; do
+  [ -d "$vol" ] && hdiutil detach "$vol" -force >/dev/null 2>&1 || true
+done
 rm -f "$DMG"
 hdiutil create -volname "RambleOn" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"

@@ -2853,7 +2853,7 @@ body[data-clips-route="recording-pill"] #root {
   left: var(--overlay-shadow-gutter);
   top: var(--overlay-shadow-gutter);
   width: 72px;
-  height: 150px;
+  height: 190px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2879,9 +2879,10 @@ body[data-clips-route="recording-pill"] #root {
 
 .toolbar-v:hover,
 .toolbar-v:focus-within {
-  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 130px primary
-     zone + 88px hover actions (+2 margin) + 20px vertical padding. */
-  height: 240px;
+  /* Matches TOOLBAR_EXPANDED_HEIGHT in toolbar.tsx — the fixed 170px primary
+     zone (Stop / time / Pause / marker) + 88px hover actions (+2 margin) +
+     20px vertical padding. */
+  height: 280px;
   border-radius: 26px;
 }
 
