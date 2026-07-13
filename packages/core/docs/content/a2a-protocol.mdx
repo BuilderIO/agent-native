@@ -392,6 +392,48 @@ app environment and pass the caller identity (`userEmail`) so outbound calls are
 signed as JWT bearer tokens. Use `apiKeyEnv` only for legacy external peers that
 expect a static bearer token. Use local actions instead of invoking yourself.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` is a thin CLI wrapper over the same resolve-and-call primitive as `agentNative.invoke()`. Use it to trigger an app's agent from a shell script, a CI job, a cron entry, or any external system that can shell out — the CLI equivalent of posting to `/_agent-native/a2a` by hand.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# Resolve "analytics" in the workspace registry and wait for the reply
+agent-native invoke analytics "Summarize signups by source this month"
+
+# Call a deployed app directly by URL, reading the bearer token from env
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# Force one blocking message/send instead of the default async+poll
+agent-native invoke analytics "Quick lookup" --sync
+
+# Machine-readable output for scripting
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | Description                                                               |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | Target agent (alias for the positional `<app-or-url>`)                    |
+| `--message <text>`        | Prompt (alias for the positional `"prompt"`)                              |
+| `--api-key-env <name>`    | Read the bearer token from an environment variable                        |
+| `--api-key <token>`       | Bearer token value, passed inline                                         |
+| `--context-id <id>`       | A2A `contextId`, to continue an existing task's conversation              |
+| `--self-app-id <id>`      | Current app id, used for self-call prevention                             |
+| `--self-url <url>`        | Current app URL, used for self-call prevention                            |
+| `--timeout-ms <n>`        | Async polling timeout                                                     |
+| `--poll-interval-ms <n>`  | Async polling interval                                                    |
+| `--sync`                  | Use one blocking `message/send` request instead of the async+poll default |
+| `--no-hint`               | Send the prompt as-is, without the cross-app invocation hint              |
+| `--json`                  | Print target metadata and response text as JSON                           |
+
+Like `callAgent()`, the CLI defaults to async + poll (`invokeAgent` → `callAgent` under the hood), which is the safe choice against hosted/serverless targets — see [Serverless webhook and gateway timeouts](#json-rpc-methods) above. Pass `--sync` only when you know the target isn't behind a gateway with a short execution limit.
+
+The target resolves the same way as `agentNative.invoke()`: by workspace app id, by app name, or by a full URL — so the same command works against a sibling app in a multi-app workspace or an arbitrary A2A peer elsewhere.
+
 ## Task lifecycle {#task-lifecycle}
 
 Each message creates a task that moves through these states:

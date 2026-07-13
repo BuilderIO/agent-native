@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 تم التوقيع عليها كرموز حاملة JWT. استخدم `apiKeyEnv` فقط للأقران الخارجيين القدامى الذين
 توقع رمزًا مميزًا لحامل ثابت. استخدم actions المحلي بدلاً من استدعاء نفسك.
 
+## واجهة سطر الأوامر: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` عبارة عن غلاف رفيع لواجهة سطر الأوامر فوق نفس بدائية الحل والاستدعاء التي تستخدمها `agentNative.invoke()`. استخدمه لتشغيل وكيل أحد التطبيقات من نص برمجي في shell، أو مهمة CI، أو إدخال cron، أو أي نظام خارجي يمكنه تنفيذ أوامر shell — وهو المكافئ عبر سطر الأوامر لإرسال طلب POST يدويًا إلى `/_agent-native/a2a`.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# حلّ "analytics" في سجل مساحة العمل وانتظر الرد
+agent-native invoke analytics "Summarize signups by source this month"
+
+# استدعِ تطبيقًا منشورًا مباشرةً عبر عنوان URL، مع قراءة رمز الحامل من متغير بيئة
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# فرض طلب message/send حاجز واحد بدلاً من الوضع الافتراضي async+poll
+agent-native invoke analytics "Quick lookup" --sync
+
+# إخراج قابل للقراءة الآلية للبرمجة النصية
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | الوصف                                                                    |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | الوكيل المستهدف (اسم بديل للوسيطة الموضعية `<app-or-url>`)               |
+| `--message <text>`        | الطلب النصي (اسم بديل للوسيطة الموضعية `"prompt"`)                       |
+| `--api-key-env <name>`    | قراءة رمز الحامل (bearer token) من متغير بيئة                            |
+| `--api-key <token>`       | قيمة رمز الحامل، مُمرَّرة مباشرة                                         |
+| `--context-id <id>`       | `contextId` الخاص بـ A2A، لمتابعة محادثة مهمة موجودة بالفعل              |
+| `--self-app-id <id>`      | معرف التطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                       |
+| `--self-url <url>`        | عنوان URL للتطبيق الحالي، يُستخدم لمنع الاستدعاء الذاتي                  |
+| `--timeout-ms <n>`        | مهلة الاستطلاع (polling) غير المتزامن                                    |
+| `--poll-interval-ms <n>`  | فاصل الاستطلاع غير المتزامن                                              |
+| `--sync`                  | استخدام طلب `message/send` حاجب واحد بدلاً من الوضع الافتراضي async+poll |
+| `--no-hint`               | إرسال الطلب النصي كما هو، دون تلميح الاستدعاء بين التطبيقات              |
+| `--json`                  | طباعة بيانات الهدف الوصفية ونص الاستجابة بصيغة JSON                      |
+
+مثل `callAgent()`، تعتمد واجهة سطر الأوامر افتراضيًا على async + poll (`invokeAgent` ← `callAgent` تحت الغطاء)، وهو الخيار الآمن عند استهداف بيئات مستضافة/serverless — انظر [مهلات بوابة الويب هوك وبوابة العبور بلا خادم](#json-rpc-methods) أعلاه. استخدم `--sync` فقط عندما تكون متأكدًا أن الهدف ليس خلف بوابة ذات مهلة تنفيذ قصيرة.
+
+يتم حل الهدف بنفس طريقة `agentNative.invoke()`: عبر معرف تطبيق مساحة العمل، أو اسم التطبيق، أو عنوان URL كامل — لذا يعمل نفس الأمر مع تطبيق شقيق في مساحة عمل متعددة التطبيقات أو مع أي نظير A2A تعسفي في مكان آخر.
+
 ## دورة حياة المهمة {#task-lifecycle}
 
 تنشئ كل رسالة مهمة تنتقل عبر هذه الحالات:
