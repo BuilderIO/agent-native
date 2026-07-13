@@ -42,7 +42,9 @@ export interface AgentChatPluginOptions {
   /**
    * Opt this app into Netlify durable background-function agent-chat runs. This
    * gives hosted agent turns the 15-minute async-function budget when the app's
-   * Netlify build also emits the background function.
+   * Netlify build also emits the background function. Set this to `false` to
+   * explicitly disable a stale deploy-wide `AGENT_CHAT_DURABLE_BACKGROUND`
+   * flag for this app.
    */
   durableBackgroundRuns?: boolean;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */

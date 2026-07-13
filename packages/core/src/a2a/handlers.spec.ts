@@ -1019,6 +1019,51 @@ describe("handleJsonRpc", () => {
     );
   });
 
+  it("falls back to the portable processor when the durable worker rejects dispatch", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response("accepted"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, durableBackgroundRuns: true },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://app.test/.netlify/functions/server-agent-background",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://app.test/_agent-native/a2a/_process-task",
+    );
+  });
+
   it("does not trust unauthenticated caller metadata for A2A request context", async () => {
     resolveOrgByDomainMock.mockResolvedValue({ orgId: "acme" });
     const contextConfig: A2AConfig = {

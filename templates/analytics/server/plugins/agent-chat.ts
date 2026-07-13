@@ -257,6 +257,10 @@ export default createAgentChatPlugin({
   // Operators deploying to trusted internal environments can set
   // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
   codeExecution: { production: "sandboxed" },
+  // Analytics uses the portable A2A processor until its dedicated background
+  // worker is verified live. This explicit opt-out also protects production
+  // from a stale deploy-wide AGENT_CHAT_DURABLE_BACKGROUND flag.
+  durableBackgroundRuns: false,
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
     // Keep the direct MCP surface deliberately curated. External agents
