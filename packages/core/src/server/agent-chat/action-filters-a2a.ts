@@ -148,6 +148,25 @@ function formatA2ATerminalError(
 
 type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
 
+function runDelegatedAgentLoop(
+  runOptions: Parameters<A2AAgentLoopRunner>[0],
+  pluginOptions: Pick<
+    AgentChatPluginOptions,
+    "finalResponseGuard" | "runSoftTimeoutMs"
+  >,
+  timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
+  runner: A2AAgentLoopRunner,
+) {
+  return runner(
+    {
+      ...runOptions,
+      finalResponseGuard: pluginOptions.finalResponseGuard,
+    },
+    pluginOptions.runSoftTimeoutMs,
+    timeoutOptions,
+  );
+}
+
 /**
  * Run an A2A-delegated agent turn with the same final-response guard used by
  * the app's interactive chat surface.
@@ -165,13 +184,33 @@ export function runA2AAgentLoop(
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
 ) {
-  return runner(
-    {
-      ...runOptions,
-      finalResponseGuard: pluginOptions.finalResponseGuard,
-    },
-    pluginOptions.runSoftTimeoutMs,
+  return runDelegatedAgentLoop(
+    runOptions,
+    pluginOptions,
     timeoutOptions,
+    runner,
+  );
+}
+
+/**
+ * Run the MCP-local ask_app turn with the same app-level response guard as
+ * A2A. Keeping this seam shared prevents hosted MCP callers from bypassing
+ * template guarantees when the request cannot use the self-A2A route.
+ */
+export function runMCPAgentLoop(
+  runOptions: Parameters<A2AAgentLoopRunner>[0],
+  pluginOptions: Pick<
+    AgentChatPluginOptions,
+    "finalResponseGuard" | "runSoftTimeoutMs"
+  >,
+  timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
+  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
+) {
+  return runDelegatedAgentLoop(
+    runOptions,
+    pluginOptions,
+    timeoutOptions,
+    runner,
   );
 }
 

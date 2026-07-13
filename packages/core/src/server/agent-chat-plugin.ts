@@ -57,7 +57,6 @@ import {
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -202,6 +201,7 @@ import {
   filterReadOnlyActions,
   resolveInitialToolNames,
   runA2AAgentLoop,
+  runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
   resolveArtifactBaseUrl,
@@ -257,6 +257,7 @@ export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
 export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
+export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
@@ -1618,7 +1619,7 @@ export function createAgentChatPlugin(
             let accumulatedText = "";
             const controller = new AbortController();
 
-            await runAgentLoopDirectWithSoftTimeout(
+            await runMCPAgentLoop(
               {
                 engine: mcpEngine,
                 model,
@@ -1647,7 +1648,10 @@ export function createAgentChatPlugin(
                 },
                 signal: controller.signal,
               },
-              options?.runSoftTimeoutMs,
+              {
+                finalResponseGuard: options?.finalResponseGuard,
+                runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              },
               {
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
