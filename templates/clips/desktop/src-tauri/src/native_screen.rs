@@ -1330,8 +1330,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     let auth_token = auth_token.unwrap_or_default();
     let cookie = cookie.unwrap_or_default();
     if session.had_live_upload {
-        if let Err(err) =
-            reset_upload_chunks(&server_url, &recording_id, &auth_token, &cookie).await
+        if let Err(err) = reset_upload_chunks(
+            &server_url,
+            &recording_id,
+            session.mime_type,
+            &auth_token,
+            &cookie,
+        )
+        .await
         {
             eprintln!("[live-upload] stop: reset of stale chunks failed for {recording_id}: {err}");
             saved.last_attempt_at = Some(now_iso());
