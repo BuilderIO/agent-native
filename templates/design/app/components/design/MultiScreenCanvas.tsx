@@ -7522,6 +7522,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   deviceFrame="none"
                   boardSurface
                   embeddedFrameBackground={BOARD_SURFACE_BACKGROUND}
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
